@@ -35,8 +35,17 @@ jobs:
       - name: Test
         run: pnpm test
 
-      - name: Fallow
-        run: pnpm fallow
+  fallow:
+    name: Fallow
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Analyze
+        uses: fallow-rs/fallow@v2
+        with:
+          format: sarif
 
   apple:
     name: Apple

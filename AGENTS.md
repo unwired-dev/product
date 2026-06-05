@@ -141,7 +141,7 @@ Pull request and default-branch CI must run the same checks agents are expected 
 - `swiftlint lint apps/unwired-mail`
 - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'` once the Xcode project exists.
 
-Keep TypeScript and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
+Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v2`](https://docs.fallow.tools/integrations/ci) GitHub Action (equivalent to `pnpm fallow --ci`). Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
 
 ## Completion Checklist
 
