@@ -164,7 +164,7 @@ Implement a backend health endpoint and a native UI check:
 5. The smoke view displays connected, loading, and failed states.
 6. The smoke view does not request mailbox permissions, start provider OAuth, create a product account, send device identifiers, persist message data, or create categories.
 
-This proves client-to-backend connectivity without touching mailbox access, provider tokens, encrypted user organization data, push routing data, or classification input. Keep `serverTime` out of Convex queries because cached/reactive query results can become stale or churn the query cache when they depend on `Date.now()`; if this endpoint is ever changed to a query, remove `serverTime` from the response.
+This proves client-to-backend connectivity without touching mailbox access, provider tokens, encrypted user organization data, push routing data, or classification input. Keep `serverTime` out of Convex queries because cached/reactive query results can become stale or churn the query cache when they depend on `Date.now()`; if this endpoint is ever changed to a query, remove `serverTime` from the response. This follows the Convex best-practices guidance to avoid `Date.now()` in queries: https://docs.convex.dev/understanding/best-practices#dont-use-datenow-in-queries
 
 ## Review decision
 
