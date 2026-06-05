@@ -1,5 +1,6 @@
-import { action } from './_generated/server.js';
 import { healthResponseValidator } from '@private-email/contracts/health';
+
+import { action } from './_generated/server.js';
 
 export const health = action({
   args: {},

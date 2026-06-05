@@ -1,3 +1,5 @@
 import { extendOxfmtConfig } from '@rajzik/oxfmt-config';
 
-export default extendOxfmtConfig({});
+export default extendOxfmtConfig({
+  ignorePatterns: ['convex/_generated'],
+});

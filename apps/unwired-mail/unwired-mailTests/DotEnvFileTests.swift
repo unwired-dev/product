@@ -45,8 +45,8 @@ final class DotEnvFileTests: XCTestCase {
 
     let envFile = directory.appendingPathComponent(".env.local")
     try """
-      DOTENV_TEST_KEY=https://example.convex.cloud
-      """.write(to: envFile, atomically: true, encoding: .utf8)
+    DOTENV_TEST_KEY=https://example.convex.cloud
+    """.write(to: envFile, atomically: true, encoding: .utf8)
 
     try DotEnvFile.load(at: envFile)
 
