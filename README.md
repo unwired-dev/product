@@ -7,12 +7,13 @@ Apple-first private email client and Convex backend.
 - mise
 - pnpm 11
 - Node.js 24
-- Xcode 16 with the iPhone 16 simulator runtime
+- Xcode 16 with the iPhone 17 simulator runtime
 - `swift-format` and SwiftLint for Apple formatting and linting
 
 ## Workspace
 
 - `apps/unwired-mail`: SwiftUI iOS, iPadOS, and Mac Catalyst client.
+- `packages/contracts`: Shared cross-boundary API contracts and JSON fixtures.
 - `packages/convex`: Convex backend functions.
 
 ## Local Development
@@ -36,7 +37,7 @@ cp .env.example packages/convex/.env.local
 pnpm dev
 ```
 
-`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use a local Xcode scheme environment variable or an untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
+`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use an untracked `apps/unwired-mail/.env.local` file, a local Xcode scheme environment variable, or another untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
 
 Open and run the Apple app:
 
@@ -47,7 +48,7 @@ open apps/unwired-mail/unwired-mail.xcodeproj
 Build for iOS simulator:
 
 ```sh
-xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
 Build the documented macOS equivalent target through Mac Catalyst:
@@ -83,7 +84,7 @@ Apple:
 ```sh
 swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests
 swiftlint lint apps/unwired-mail
-xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
 ## Release Notes

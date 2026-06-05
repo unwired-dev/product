@@ -77,7 +77,7 @@ struct SmokeView<Service: BackendHealthChecking>: View {
 #Preview("Failed") {
   SmokeView(
     service: PreviewBackendHealthService(
-      result: .failure(BackendHealthError.missingConvexURL)
+      result: .failure(ConvexClientError.missingConvexURL)
     )
   )
 }

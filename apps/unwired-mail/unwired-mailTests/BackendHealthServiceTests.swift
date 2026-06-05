@@ -3,14 +3,37 @@ import XCTest
 @testable import unwired_mail
 
 final class BackendHealthServiceTests: XCTestCase {
-  func testMissingConvexURLReportsSetupError() async {
-    let service = ConvexBackendHealthService(convexURL: nil)
+  func testUnsuccessfulStatusMapsToDomainError() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { _ in
+        let body = """
+          {
+            "status": "success",
+            "value": {
+              "bootstrapVersion": 1,
+              "serverTime": 1,
+              "service": "private-email-api",
+              "status": "degraded"
+            }
+          }
+          """.data(using: .utf8)!
+        let response = HTTPURLResponse(
+          url: URL(string: "https://example.convex.cloud/api/action")!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, body)
+      }
+    )
+    let service = ConvexBackendHealthService(client: client)
 
     do {
       _ = try await service.health()
-      XCTFail("Expected missing Convex URL error")
+      XCTFail("Expected domain health error")
     } catch let error as BackendHealthError {
-      XCTAssertEqual(error, .missingConvexURL)
+      XCTAssertEqual(error, .unsuccessfulStatus("degraded"))
     } catch {
       XCTFail("Unexpected error: \(error)")
     }

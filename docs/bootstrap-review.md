@@ -75,7 +75,7 @@ Approved agent and quality-gate shape:
   - `pnpm lint` for TypeScript linting through Oxlint.
   - `pnpm format` for TypeScript formatting through Oxfmt.
   - `pnpm test` for workspace tests.
-  - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'` for the Apple app once the project exists.
+  - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'` for the Apple app once the project exists.
 - `AGENTS.md` must state that agents should run the smallest meaningful checks for the change scope, but lint, format, and test coverage are required before handing off code changes unless a tool or platform dependency is unavailable.
 - `AGENTS.md` must require documentation updates whenever behavior, setup, commands, architecture, environment variables, public interfaces, or agent workflow expectations change.
 - The TypeScript workspace must expose package scripts for `lint`, `format`, `check-types`, and `test`, with root scripts delegating through `turbo run`.
@@ -94,7 +94,7 @@ Approved CI pipeline shape:
 - CI must run Apple app validation once the Xcode project exists:
   - Swift-format-compatible formatting check.
   - SwiftLint-compatible lint check.
-  - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'`
+  - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 - CI should keep TypeScript and Apple validation as separate jobs so package/toolchain failures are easy to diagnose.
 - If a CI job is temporarily allowed to be non-blocking during bootstrap, the workflow file must make that explicit with a comment and the issue that will make it blocking.
 
@@ -106,7 +106,7 @@ Expected bootstrap commands:
 pnpm install
 pnpm --filter @private-email/convex convex dev
 open apps/unwired-mail/unwired-mail.xcodeproj
-xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16' build
+xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17' build
 ```
 
 Optional test commands once targets exist:
@@ -117,7 +117,7 @@ pnpm lint
 pnpm format
 pnpm turbo run check-types
 pnpm --filter @private-email/convex convex dev --once
-xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'
+xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
 The first implementation should keep these commands in `README.md` as soon as the files exist.

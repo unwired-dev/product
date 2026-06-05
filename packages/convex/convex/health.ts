@@ -1,13 +1,13 @@
 import { action } from './_generated/server.js';
-
-export const healthPayload = (serverTime: number) => ({
-  service: 'private-email-api',
-  status: 'ok',
-  bootstrapVersion: 1,
-  serverTime,
-});
+import { healthResponseValidator } from '@private-email/contracts/health';
 
 export const health = action({
   args: {},
-  handler: async () => healthPayload(Date.now()),
+  returns: healthResponseValidator,
+  handler: async () => ({
+    bootstrapVersion: 1,
+    serverTime: Date.now(),
+    service: 'private-email-api',
+    status: 'ok' as const,
+  }),
 });
