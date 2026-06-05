@@ -8,5 +8,6 @@
     "target": "ES2022",
     "types": ["node", "vitest/globals"]
   },
+  "exclude": ["./convex/_generated"],
   "include": ["convex/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

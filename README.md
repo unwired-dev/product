@@ -32,10 +32,11 @@ pnpm install
 Run the Convex backend development environment:
 
 ```sh
-pnpm --filter @private-email/convex dev
+cp .env.example packages/convex/.env.local
+pnpm dev
 ```
 
-Set `CONVEX_URL` for the Apple app to the Convex deployment URL shown by `convex dev`. Use a local Xcode scheme environment variable or an untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
+`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use a local Xcode scheme environment variable or an untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
 
 Open and run the Apple app:
 
