@@ -3,18 +3,18 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 60;
 	objects = {
 
 /* Begin PBXBuildFile section */
-		71A6A0012C0B000100000001 /* UnwiredMailApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0112C0B000100000001 /* UnwiredMailApp.swift */; };
-		71A6A0022C0B000100000001 /* SmokeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0122C0B000100000001 /* SmokeView.swift */; };
-		71A6A0032C0B000100000001 /* BackendHealthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0132C0B000100000001 /* BackendHealthService.swift */; };
+		71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */; };
+		71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */; };
+		71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */; };
 		71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */; };
-		71A6A0062C0B000100000001 /* BackendEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0162C0B000100000001 /* BackendEnvironment.swift */; };
-		71A6A0072C0B000100000001 /* ConvexClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0172C0B000100000001 /* ConvexClient.swift */; };
+		71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */; };
+		71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */; };
 		71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0182C0B000100000001 /* ConvexClientTests.swift */; };
-		71A6A0092C0B000100000001 /* DotEnvFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0192C0B000100000001 /* DotEnvFile.swift */; };
+		71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */; };
 		71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */; };
 /* End PBXBuildFile section */
 
@@ -30,16 +30,16 @@
 
 /* Begin PBXFileReference section */
 		71A6A0102C0B000100000001 /* unwired-mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "unwired-mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
-		71A6A0112C0B000100000001 /* UnwiredMailApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/UnwiredMailApp.swift; sourceTree = "<group>"; };
-		71A6A0122C0B000100000001 /* SmokeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Smoke/SmokeView.swift; sourceTree = "<group>"; };
-		71A6A0132C0B000100000001 /* BackendHealthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendHealthService.swift; sourceTree = "<group>"; };
+		71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/UnwiredMailApp.swift; sourceTree = "<group>"; };
+		71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Smoke/SmokeView.swift; sourceTree = "<group>"; };
+		71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendHealthService.swift; sourceTree = "<group>"; };
 		71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendHealthServiceTests.swift; sourceTree = "<group>"; };
-		71A6A0162C0B000100000001 /* BackendEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendEnvironment.swift; sourceTree = "<group>"; };
-		71A6A0172C0B000100000001 /* ConvexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Convex/ConvexClient.swift; sourceTree = "<group>"; };
-		71A6A0182C0B000100000001 /* ConvexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexClientTests.swift; sourceTree = "<group>"; };
-		71A6A0192C0B000100000001 /* DotEnvFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/DotEnvFile.swift; sourceTree = "<group>"; };
-		71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotEnvFileTests.swift; sourceTree = "<group>"; };
 		71A6A0152C0B000100000001 /* unwired-mailTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "unwired-mailTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendEnvironment.swift; sourceTree = "<group>"; };
+		71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Convex/ConvexClient.swift; sourceTree = "<group>"; };
+		71A6A0182C0B000100000001 /* ConvexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexClientTests.swift; sourceTree = "<group>"; };
+		71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/DotEnvFile.swift; sourceTree = "<group>"; };
+		71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotEnvFileTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -72,12 +72,12 @@
 		71A6A0242C0B000100000001 /* unwired-mail */ = {
 			isa = PBXGroup;
 			children = (
-				71A6A0112C0B000100000001 /* UnwiredMailApp.swift */,
-				71A6A0122C0B000100000001 /* SmokeView.swift */,
-				71A6A0162C0B000100000001 /* BackendEnvironment.swift */,
-				71A6A0192C0B000100000001 /* DotEnvFile.swift */,
-				71A6A0172C0B000100000001 /* ConvexClient.swift */,
-				71A6A0132C0B000100000001 /* BackendHealthService.swift */,
+				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
+				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
+				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
+				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
+				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
+				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
 			);
 			path = "unwired-mail";
 			sourceTree = "<group>";
@@ -147,7 +147,7 @@
 			attributes = {
 				BuildIndependentTargetsInParallel = 1;
 				LastSwiftUpdateCheck = 1600;
-				LastUpgradeCheck = 1600;
+				LastUpgradeCheck = 2650;
 				TargetAttributes = {
 					71A6A0302C0B000100000001 = {
 						CreatedOnToolsVersion = 16.0;
@@ -199,12 +199,12 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				71A6A0012C0B000100000001 /* UnwiredMailApp.swift in Sources */,
-				71A6A0022C0B000100000001 /* SmokeView.swift in Sources */,
-				71A6A0062C0B000100000001 /* BackendEnvironment.swift in Sources */,
-				71A6A0092C0B000100000001 /* DotEnvFile.swift in Sources */,
-				71A6A0072C0B000100000001 /* ConvexClient.swift in Sources */,
-				71A6A0032C0B000100000001 /* BackendHealthService.swift in Sources */,
+				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
+				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
+				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
+				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
+				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
+				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -233,6 +233,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -286,6 +287,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -295,6 +297,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
 				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
@@ -341,6 +344,7 @@
 				MTL_ENABLE_DEBUG_INFO = NO;
 				MTL_FAST_MATH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				VALIDATE_PRODUCT = YES;
 			};
