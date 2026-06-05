@@ -6,7 +6,7 @@
   "scripts": {
     "changeset": "changeset",
     "check-types": "turbo run check-types",
-    "fallow": "fallow",
+    "fallow": "fallow --format json",
     "format": "turbo run format",
     "lint": "turbo run lint",
     "test": "turbo run test",
