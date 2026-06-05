@@ -1,0 +1,58 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+
+jobs:
+  typescript:
+    name: TypeScript
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Format
+        run: pnpm format
+
+      - name: Typecheck
+        run: pnpm turbo run check-types
+
+      - name: Test
+        run: pnpm test
+
+  apple:
+    name: Apple
+    runs-on: macos-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Apple lint tools
+        run: brew install swift-format swiftlint
+
+      - name: Swift format
+        run: swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests
+
+      - name: SwiftLint
+        run: swiftlint lint apps/unwired-mail
+
+      - name: Test
+        run: xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'

@@ -1,0 +1,25 @@
+{
+  "name": "@private-email/product",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.5.2",
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": "11.5.2"
+  },
+  "scripts": {
+    "changeset": "changeset",
+    "lint": "turbo run lint",
+    "format": "turbo run format",
+    "check-types": "turbo run check-types",
+    "test": "turbo run test",
+    "version-packages": "changeset version"
+  },
+  "devDependencies": {
+    "@changesets/cli": "catalog:",
+    "@rajzik/oxfmt-config": "catalog:",
+    "@rajzik/oxlint-config": "catalog:",
+    "turbo": "catalog:"
+  }
+}
