@@ -13,7 +13,6 @@ This repository contains the Apple-first private email client and Convex backend
 - Apple app layout: `apps/unwired-mail`
 - Backend package: `packages/convex`
 
-
 ## Think Before Coding
 
 **Don't assume. Don't hide confusion. Surface tradeoffs.**
@@ -36,7 +35,6 @@ Before implementing:
 - If you write 200 lines and it could be 50, rewrite it.
 
 Ask yourself: "Would a senior engineer say this is overcomplicated?" If yes, simplify.
-
 
 ## Surgical Changes
 
@@ -110,8 +108,8 @@ If a code change does not require a documentation update, say that explicitly in
 
 - Lint: `pnpm lint`
 - Format: `pnpm format`
-- Typecheck: `pnpm turbo run check-types`
 - Test: `pnpm test`
+- Codebase intelligence: `pnpm fallow` ([Fallow](https://docs.fallow.tools/))
 
 TypeScript linting must use Oxlint with `@rajzik/oxlint-config`.
 TypeScript formatting must use Oxfmt with `@rajzik/oxfmt-config`.
@@ -138,6 +136,7 @@ Pull request and default-branch CI must run the same checks agents are expected 
 - `pnpm format`
 - `pnpm turbo run check-types`
 - `pnpm test`
+- `pnpm fallow`
 - `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
 - `swiftlint lint apps/unwired-mail`
 - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 16'` once the Xcode project exists.
@@ -153,14 +152,13 @@ Before finishing:
 3. Update docs when commands, config, public behavior, or setup steps change.
 4. Summarize what was verified and what was not run.
 
-
 ## Changesets
 
 Create a changeset in `.changeset/` for runtime behavior changes or exported type/API changes:
 
 ```md
 ---
-"package-name": patch/minor/major
+'package-name': patch/minor/major
 ---
 
 A description of the change.

@@ -3,16 +3,12 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "packageManager": "pnpm@11.5.2",
-  "engines": {
-    "node": ">=24 <25",
-    "pnpm": "11.5.2"
-  },
   "scripts": {
     "changeset": "changeset",
-    "lint": "turbo run lint",
-    "format": "turbo run format",
     "check-types": "turbo run check-types",
+    "fallow": "fallow",
+    "format": "turbo run format",
+    "lint": "turbo run lint",
     "test": "turbo run test",
     "version-packages": "changeset version"
   },
@@ -20,6 +16,12 @@
     "@changesets/cli": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",
+    "fallow": "^2.88.3",
     "turbo": "catalog:"
-  }
+  },
+  "engines": {
+    "node": ">=24 <25",
+    "pnpm": "11.5.2"
+  },
+  "packageManager": "pnpm@11.5.2"
 }

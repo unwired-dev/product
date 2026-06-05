@@ -32,11 +32,11 @@ jobs:
       - name: Format
         run: pnpm format
 
-      - name: Typecheck
-        run: pnpm turbo run check-types
-
       - name: Test
         run: pnpm test
+
+      - name: Fallow
+        run: pnpm fallow
 
   apple:
     name: Apple

@@ -72,7 +72,10 @@ pnpm lint
 pnpm format
 pnpm turbo run check-types
 pnpm test
+pnpm fallow
 ```
+
+[Fallow](https://docs.fallow.tools/) runs dead-code, duplication, and complexity analysis on the TypeScript workspace.
 
 Apple:
 
