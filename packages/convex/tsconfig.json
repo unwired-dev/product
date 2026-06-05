@@ -1,0 +1,13 @@
+{
+  "extends": "@rajzik/tsconfig",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "target": "ES2022",
+    "types": ["node", "vitest/globals"]
+  },
+  "exclude": ["./convex/_generated"],
+  "include": ["convex/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
+}

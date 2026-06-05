@@ -1,0 +1,30 @@
+{
+  "name": "@private-email/contracts",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./health": "./src/health.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "dev": "vitest",
+    "format": "oxfmt --ignore-path ../../.gitignore --check .",
+    "format:write": "oxfmt --ignore-path ../../.gitignore --write .",
+    "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives .",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "convex": "catalog:"
+  },
+  "devDependencies": {
+    "@rajzik/tsconfig": "catalog:",
+    "@types/node": "catalog:",
+    "oxfmt": "catalog:",
+    "oxlint": "catalog:",
+    "oxlint-tsgolint": "catalog:",
+    "typescript": "catalog:",
+    "vitest": "catalog:"
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
+  "ignorePatterns": ["oxfmt.config.ts", "oxlint.config.ts"],
+  "ignoreDependencies": [
+    "@rajzik/oxfmt-config",
+    "@rajzik/oxlint-config",
+    "@rajzik/tsconfig"
+  ]
+}

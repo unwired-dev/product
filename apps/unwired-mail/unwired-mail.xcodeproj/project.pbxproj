@@ -1,0 +1,484 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */; };
+		71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */; };
+		71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */; };
+		71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */; };
+		71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */; };
+		71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */; };
+		71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0182C0B000100000001 /* ConvexClientTests.swift */; };
+		71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */; };
+		71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		71A6A0052C0B000100000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 71A6A0202C0B000100000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 71A6A0302C0B000100000001;
+			remoteInfo = "unwired-mail";
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		71A6A0102C0B000100000001 /* unwired-mail.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "unwired-mail.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/UnwiredMailApp.swift; sourceTree = "<group>"; };
+		71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Smoke/SmokeView.swift; sourceTree = "<group>"; };
+		71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendHealthService.swift; sourceTree = "<group>"; };
+		71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendHealthServiceTests.swift; sourceTree = "<group>"; };
+		71A6A0152C0B000100000001 /* unwired-mailTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = "unwired-mailTests.xctest"; sourceTree = BUILT_PRODUCTS_DIR; };
+		71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/BackendEnvironment.swift; sourceTree = "<group>"; };
+		71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Convex/ConvexClient.swift; sourceTree = "<group>"; };
+		71A6A0182C0B000100000001 /* ConvexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexClientTests.swift; sourceTree = "<group>"; };
+		71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/DotEnvFile.swift; sourceTree = "<group>"; };
+		71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotEnvFileTests.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		71A6A0212C0B000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		71A6A0222C0B000100000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		71A6A0232C0B000100000001 = {
+			isa = PBXGroup;
+			children = (
+				71A6A0242C0B000100000001 /* unwired-mail */,
+				71A6A0252C0B000100000001 /* unwired-mailTests */,
+				71A6A0262C0B000100000001 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		71A6A0242C0B000100000001 /* unwired-mail */ = {
+			isa = PBXGroup;
+			children = (
+				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
+				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
+				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
+				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
+				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
+				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
+			);
+			path = "unwired-mail";
+			sourceTree = "<group>";
+		};
+		71A6A0252C0B000100000001 /* unwired-mailTests */ = {
+			isa = PBXGroup;
+			children = (
+				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
+				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
+				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
+			);
+			path = "unwired-mailTests";
+			sourceTree = "<group>";
+		};
+		71A6A0262C0B000100000001 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				71A6A0102C0B000100000001 /* unwired-mail.app */,
+				71A6A0152C0B000100000001 /* unwired-mailTests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		71A6A0302C0B000100000001 /* unwired-mail */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 71A6A0402C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mail" */;
+			buildPhases = (
+				71A6A0312C0B000100000001 /* Sources */,
+				71A6A0212C0B000100000001 /* Frameworks */,
+				71A6A0322C0B000100000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = "unwired-mail";
+			productName = "unwired-mail";
+			productReference = 71A6A0102C0B000100000001 /* unwired-mail.app */;
+			productType = "com.apple.product-type.application";
+		};
+		71A6A0332C0B000100000001 /* unwired-mailTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 71A6A0412C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mailTests" */;
+			buildPhases = (
+				71A6A0342C0B000100000001 /* Sources */,
+				71A6A0222C0B000100000001 /* Frameworks */,
+				71A6A0352C0B000100000001 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				71A6A0362C0B000100000001 /* PBXTargetDependency */,
+			);
+			name = "unwired-mailTests";
+			productName = "unwired-mailTests";
+			productReference = 71A6A0152C0B000100000001 /* unwired-mailTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		71A6A0202C0B000100000001 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastSwiftUpdateCheck = 1600;
+				LastUpgradeCheck = 2650;
+				TargetAttributes = {
+					71A6A0302C0B000100000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					71A6A0332C0B000100000001 = {
+						CreatedOnToolsVersion = 16.0;
+						TestTargetID = 71A6A0302C0B000100000001;
+					};
+				};
+			};
+			buildConfigurationList = 71A6A0422C0B000100000001 /* Build configuration list for PBXProject "unwired-mail" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 71A6A0232C0B000100000001;
+			productRefGroup = 71A6A0262C0B000100000001 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				71A6A0302C0B000100000001 /* unwired-mail */,
+				71A6A0332C0B000100000001 /* unwired-mailTests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		71A6A0322C0B000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		71A6A0352C0B000100000001 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		71A6A0312C0B000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
+				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
+				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
+				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
+				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
+				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		71A6A0342C0B000100000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
+				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
+				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		71A6A0362C0B000100000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 71A6A0302C0B000100000001 /* unwired-mail */;
+			targetProxy = 71A6A0052C0B000100000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		71A6A0502C0B000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"$(inherited)",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		71A6A0512C0B000100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++20";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu17;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		71A6A0522C0B000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,6";
+			};
+			name = Debug;
+		};
+		71A6A0532C0B000100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_PREVIEWS = YES;
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = YES;
+				SUPPORTS_MAC_DESIGNED_FOR_IPHONE_IPAD = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2,6";
+			};
+			name = Release;
+		};
+		71A6A0542C0B000100000001 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/unwired-mail.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/unwired-mail";
+			};
+			name = Debug;
+		};
+		71A6A0552C0B000100000001 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				MARKETING_VERSION = 0.1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = dev.unwired.mail.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/unwired-mail.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/unwired-mail";
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		71A6A0402C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71A6A0522C0B000100000001 /* Debug */,
+				71A6A0532C0B000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		71A6A0412C0B000100000001 /* Build configuration list for PBXNativeTarget "unwired-mailTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71A6A0542C0B000100000001 /* Debug */,
+				71A6A0552C0B000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		71A6A0422C0B000100000001 /* Build configuration list for PBXProject "unwired-mail" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				71A6A0502C0B000100000001 /* Debug */,
+				71A6A0512C0B000100000001 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 71A6A0202C0B000100000001 /* Project object */;
+}
