@@ -54,7 +54,7 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   }
 
   func restoreSession(appleUserIdentifier: String) async throws -> AppleSignInCredential {
-    let credentialState = await credentialState(for: appleUserIdentifier)
+    let credentialState = await Self.fetchCredentialState(forAppleUserIdentifier: appleUserIdentifier)
 
     switch credentialState {
     case .authorized:
@@ -66,6 +66,18 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
     @unknown default:
       throw AppleSignInError.credentialUnavailable
     }
+  }
+
+  private nonisolated static func fetchCredentialState(
+    forAppleUserIdentifier userIdentifier: String
+  ) async -> ASAuthorizationAppleIDProvider.CredentialState {
+    await Task.detached(priority: .userInitiated) {
+      await withCheckedContinuation { continuation in
+        ASAuthorizationAppleIDProvider().getCredentialState(forUserID: userIdentifier) { state, _ in
+          continuation.resume(returning: state)
+        }
+      }
+    }.value
   }
 
   private func performAuthorization() async throws -> AppleSignInCredential {
@@ -80,18 +92,6 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
       controller.delegate = self
       controller.presentationContextProvider = self
       controller.performRequests()
-    }
-  }
-
-  private func credentialState(for userIdentifier: String) async
-    -> ASAuthorizationAppleIDProvider.CredentialState
-  {
-    await withCheckedContinuation { continuation in
-      ASAuthorizationAppleIDProvider().getCredentialState(forUserID: userIdentifier) {
-        state,
-        _ in
-        continuation.resume(returning: state)
-      }
     }
   }
 }
