@@ -54,7 +54,9 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   }
 
   func restoreSession(appleUserIdentifier: String) async throws -> AppleSignInCredential {
-    let credentialState = await Self.fetchCredentialState(forAppleUserIdentifier: appleUserIdentifier)
+    let credentialState = await Self.fetchCredentialState(
+      forAppleUserIdentifier: appleUserIdentifier
+    )
 
     switch credentialState {
     case .authorized:
