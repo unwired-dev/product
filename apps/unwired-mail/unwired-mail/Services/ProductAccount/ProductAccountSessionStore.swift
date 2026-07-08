@@ -16,9 +16,9 @@ protocol ProductAccountSessionPersisting {
 enum ProductAccountSessionStore {
   static let serviceName = "dev.unwired.mail.product-account"
 
-  static func load(using persistence: ProductAccountSessionPersisting = KeychainProductAccountSessionStore())
-    throws -> ProductAccountSessionSnapshot?
-  {
+  static func load(
+    using persistence: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+  ) throws -> ProductAccountSessionSnapshot? {
     try persistence.load()
   }
 

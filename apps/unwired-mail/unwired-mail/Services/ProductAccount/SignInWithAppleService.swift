@@ -1,5 +1,11 @@
 import AuthenticationServices
 import Foundation
+#if canImport(AppKit)
+  import AppKit
+#endif
+#if canImport(UIKit)
+  import UIKit
+#endif
 
 struct AppleSignInCredential: Equatable {
   let appleUserIdentifier: String
@@ -128,22 +134,18 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
 
 extension SignInWithAppleService: ASAuthorizationControllerPresentationContextProviding {
   func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-    #if targetEnvironment(macCatalyst)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
+    #if canImport(UIKit)
       let scenes = UIApplication.shared.connectedScenes
       let windowScene = scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
       let window = windowScene?.windows.first { $0.isKeyWindow }
       return window ?? ASPresentationAnchor()
+    #elseif canImport(AppKit)
+      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
+    #else
+      return ASPresentationAnchor()
     #endif
   }
 }
-
-#if targetEnvironment(macCatalyst)
-  import AppKit
-#else
-  import UIKit
-#endif
 
 struct PreviewAppleSignInService: AppleSignInPerforming {
   let credential: AppleSignInCredential

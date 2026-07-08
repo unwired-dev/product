@@ -1,7 +1,9 @@
 {
   "$schema": "https://raw.githubusercontent.com/fallow-rs/fallow/main/schema.json",
-  "ignorePatterns": ["oxfmt.config.ts", "oxlint.config.ts"],
+  "ignorePatterns": ["oxfmt.config.ts", "oxlint.config.ts", "**/convex/_generated/**"],
+  "ignoreUnresolvedImports": ["**/_generated/**", "./_generated/dataModel.js"],
   "ignoreDependencies": [
+    "@edge-runtime/vm",
     "@rajzik/oxfmt-config",
     "@rajzik/oxlint-config",
     "@rajzik/tsconfig"
