@@ -65,6 +65,19 @@ xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mai
 
 The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, register the current trusted device with the backend using only operational account data, and still verify backend health from the authenticated screen.
 
+### Sign in with Apple (local development)
+
+Sign in with Apple requires a signed build with the capability enabled. Error 1000 (`AuthorizationError unknown`) almost always means signing or entitlements are missing.
+
+1. Open `apps/unwired-mail/unwired-mail.xcodeproj` in Xcode.
+2. Select the `unwired-mail` target → **Signing & Capabilities**.
+3. Choose your **Development Team** (Apple Developer Program membership required).
+4. Confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
+5. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control.
+6. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
+
+CI keeps code signing disabled for simulator tests; only local runs that exercise Apple sign-in need the steps above.
+
 ### Product Account verification
 
 Manual verification against a running Convex deployment:

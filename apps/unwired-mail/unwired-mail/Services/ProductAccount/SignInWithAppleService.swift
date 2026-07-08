@@ -17,6 +17,7 @@ enum AppleSignInError: LocalizedError, Equatable {
   case missingUserIdentifier
   case credentialUnavailable
   case notAuthorized
+  case configurationMissing
 
   var errorDescription: String? {
     switch self {
@@ -28,6 +29,13 @@ enum AppleSignInError: LocalizedError, Equatable {
       return "Sign in with Apple credentials are unavailable."
     case .notAuthorized:
       return "Sign in with Apple authorization was revoked."
+    case .configurationMissing:
+      return """
+        Sign in with Apple is not configured for this build. In Xcode, select a \
+        Development Team, enable the Sign in with Apple capability, and rebuild. \
+        The App ID dev.unwired.mail must also have Sign in with Apple enabled in \
+        the Apple Developer portal.
+        """
     }
   }
 }
@@ -127,7 +135,11 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
     controller: ASAuthorizationController,
     didCompleteWithError error: Error
   ) {
-    continuation?.resume(throwing: error)
+    if let authError = error as? ASAuthorizationError, authError.code == .unknown {
+      continuation?.resume(throwing: AppleSignInError.configurationMissing)
+    } else {
+      continuation?.resume(throwing: error)
+    }
     continuation = nil
   }
 }
