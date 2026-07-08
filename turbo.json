@@ -1,5 +1,6 @@
 {
   "$schema": "https://turbo.build/schema.json",
+  "globalEnv": ["APPLE_BUNDLE_ID"],
   "tasks": {
     "lint": {
       "dependsOn": ["^lint"]

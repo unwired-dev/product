@@ -3,7 +3,7 @@ import Foundation
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
   case httpError(statusCode: Int)
-  case convexFailure(status: String)
+  case convexFailure(status: String, message: String?)
   case decodeError
 
   var errorDescription: String? {
@@ -13,10 +13,13 @@ enum ConvexClientError: LocalizedError, Equatable {
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
-    case .convexFailure(let status):
-      return "The backend action returned status '\(status)'."
+    case .convexFailure(let status, let message):
+      if let message, !message.isEmpty {
+        return message
+      }
+      return "The backend returned status '\(status)'."
     case .decodeError:
-      return "The backend returned an unexpected action response."
+      return "The backend returned an unexpected response."
     }
   }
 }
@@ -37,19 +40,64 @@ final class ConvexClient {
     try await performAction(path: "health:health")
   }
 
+  func connectProductAccount(
+    identityToken: String,
+    deviceIdentifier: String,
+    platform: String
+  ) async throws -> ProductAccountConnectResponse {
+    try await performMutation(
+      path: "productAccount:connect",
+      args: ConnectProductAccountArgs(
+        deviceIdentifier: deviceIdentifier,
+        platform: platform
+      ),
+      identityToken: identityToken
+    )
+  }
+
   private func performAction<Response: Decodable>(
     path: String,
-    args: [String: String] = [:]
+    args: some Encodable = EmptyConvexArgs()
+  ) async throws -> Response {
+    try await performRequest(
+      endpoint: "api/action",
+      path: path,
+      args: args,
+      identityToken: nil
+    )
+  }
+
+  private func performMutation<Response: Decodable>(
+    path: String,
+    args: some Encodable,
+    identityToken: String
+  ) async throws -> Response {
+    try await performRequest(
+      endpoint: "api/mutation",
+      path: path,
+      args: args,
+      identityToken: identityToken
+    )
+  }
+
+  private func performRequest<Response: Decodable>(
+    endpoint: String,
+    path: String,
+    args: some Encodable,
+    identityToken: String?
   ) async throws -> Response {
     guard let convexURL else {
       throw ConvexClientError.missingConvexURL
     }
 
-    var request = URLRequest(url: convexURL.appending(path: "api/action"))
+    var request = URLRequest(url: convexURL.appending(path: endpoint))
     request.httpMethod = "POST"
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let identityToken {
+      request.setValue("Bearer \(identityToken)", forHTTPHeaderField: "Authorization")
+    }
     request.httpBody = try JSONEncoder().encode(
-      ConvexActionRequest(path: path, args: args, format: "json")
+      ConvexFunctionRequest(path: path, args: AnyEncodable(args), format: "json")
     )
 
     let (data, response) = try await session.data(for: request)
@@ -60,27 +108,54 @@ final class ConvexClient {
       throw ConvexClientError.httpError(statusCode: httpResponse.statusCode)
     }
 
-    let actionResponse = try JSONDecoder().decode(
-      ConvexActionEnvelope<Response>.self,
+    let functionResponse = try JSONDecoder().decode(
+      ConvexFunctionEnvelope<Response>.self,
       from: data
     )
-    guard actionResponse.status == "success" else {
-      throw ConvexClientError.convexFailure(status: actionResponse.status)
+    guard functionResponse.status == "success" else {
+      throw ConvexClientError.convexFailure(
+        status: functionResponse.status,
+        message: functionResponse.errorMessage
+      )
     }
 
-    return actionResponse.value
+    guard let value = functionResponse.value else {
+      throw ConvexClientError.decodeError
+    }
+
+    return value
   }
 }
 
-private struct ConvexActionRequest: Encodable {
+private struct EmptyConvexArgs: Encodable {}
+
+private struct ConnectProductAccountArgs: Encodable {
+  let deviceIdentifier: String
+  let platform: String
+}
+
+private struct ConvexFunctionRequest: Encodable {
   let path: String
-  let args: [String: String]
+  let args: AnyEncodable
   let format: String
 }
 
-private struct ConvexActionEnvelope<Value: Decodable>: Decodable {
+private struct ConvexFunctionEnvelope<Value: Decodable>: Decodable {
   let status: String
-  let value: Value
+  let value: Value?
+  let errorMessage: String?
+}
+
+private struct AnyEncodable: Encodable {
+  private let encodeValue: (Encoder) throws -> Void
+
+  init(_ value: some Encodable) {
+    self.encodeValue = value.encode
+  }
+
+  func encode(to encoder: Encoder) throws {
+    try encodeValue(encoder)
+  }
 }
 
 #if DEBUG

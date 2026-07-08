@@ -16,6 +16,17 @@
 		71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0182C0B000100000001 /* ConvexClientTests.swift */; };
 		71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */; };
 		71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */; };
+		71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */; };
+		71A6A00C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift */; };
+		71A6A00D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */; };
+		71A6A00E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift */; };
+		71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */; };
+		71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */; };
+		71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */; };
+		71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */; };
+		71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0672C0B000100000001 /* Features/Account/RootView.swift */; };
+		71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */; };
+		71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -40,6 +51,18 @@
 		71A6A0182C0B000100000001 /* ConvexClientTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ConvexClientTests.swift; sourceTree = "<group>"; };
 		71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/DotEnvFile.swift; sourceTree = "<group>"; };
 		71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DotEnvFileTests.swift; sourceTree = "<group>"; };
+		71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Keychain/KeychainStore.swift; sourceTree = "<group>"; };
+		71A6A01C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/TrustedDeviceIdentity.swift; sourceTree = "<group>"; };
+		71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/ProductAccountSessionStore.swift; sourceTree = "<group>"; };
+		71A6A01E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/SignInWithAppleService.swift; sourceTree = "<group>"; };
+		71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/ProductAccountService.swift; sourceTree = "<group>"; };
+		71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/ProductAccountSession.swift; sourceTree = "<group>"; };
+		71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/SignInView.swift; sourceTree = "<group>"; };
+		71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/AccountView.swift; sourceTree = "<group>"; };
+		71A6A0672C0B000100000001 /* Features/Account/RootView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/RootView.swift; sourceTree = "<group>"; };
+		71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductAccountSessionStoreTests.swift; sourceTree = "<group>"; };
+		71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductAccountSessionTests.swift; sourceTree = "<group>"; };
+		71A6A06C2C0B000100000001 /* unwired-mail.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "unwired-mail.entitlements"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -73,11 +96,21 @@
 			isa = PBXGroup;
 			children = (
 				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
+				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
+				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
+				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
 				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
+				71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */,
 				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
+				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
+				71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */,
+				71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */,
+				71A6A01E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift */,
+				71A6A01C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
+				71A6A06C2C0B000100000001 /* unwired-mail.entitlements */,
 			);
 			path = "unwired-mail";
 			sourceTree = "<group>";
@@ -88,6 +121,8 @@
 				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
+				71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */,
+				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
 			);
 			path = "unwired-mailTests";
 			sourceTree = "<group>";
@@ -200,10 +235,19 @@
 			buildActionMask = 2147483647;
 			files = (
 				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
+				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
+				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
+				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
 				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
+				71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */,
 				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
+				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
+				71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */,
+				71A6A00D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift in Sources */,
+				71A6A00E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift in Sources */,
+				71A6A00C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift in Sources */,
 				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -215,6 +259,8 @@
 				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
+				71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */,
+				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -354,7 +400,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -382,7 +429,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
-				CODE_SIGNING_ALLOWED = NO;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";

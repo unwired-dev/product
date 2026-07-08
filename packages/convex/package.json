@@ -17,12 +17,15 @@
     "convex": "catalog:"
   },
   "devDependencies": {
+    "@edge-runtime/vm": "^5.0.0",
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
+    "convex-test": "^0.0.41",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
+    "vite": "^7.1.12",
     "vitest": "catalog:"
   }
 }

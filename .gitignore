@@ -154,3 +154,6 @@ DerivedData/
 
 # Mac
 .DS_Store
+
+## User settings
+xcuserdata/
