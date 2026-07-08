@@ -53,4 +53,39 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
   }
+
+  func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    try store.save(snapshot)
+
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: FailingProductAccountService(),
+      sessionStore: store
+    )
+
+    await session.bootstrap()
+
+    guard case .failed = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(try store.load(), snapshot)
+  }
+}
+
+private struct FailingProductAccountService: ProductAccountConnecting {
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
+    _ = identityToken
+    throw ConvexClientError.missingConvexURL
+  }
 }

@@ -1,4 +1,5 @@
 import Foundation
+import Security
 
 enum TrustedDeviceIdentity {
   private static let service = "dev.unwired.mail.trusted-device"
@@ -10,7 +11,12 @@ enum TrustedDeviceIdentity {
     }
 
     let identifier = UUID().uuidString
-    try KeychainStore.writeString(identifier, service: service, account: account)
+    try KeychainStore.writeString(
+      identifier,
+      service: service,
+      account: account,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
     return identifier
   }
 

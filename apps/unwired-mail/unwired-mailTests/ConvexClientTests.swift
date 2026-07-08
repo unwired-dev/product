@@ -69,7 +69,7 @@ final class ConvexClientTests: XCTestCase {
       _ = try await client.health()
       XCTFail("Expected Convex failure error")
     } catch let error as ConvexClientError {
-      XCTAssertEqual(error, .convexFailure(status: "failure"))
+      XCTAssertEqual(error, .convexFailure(status: "failure", message: nil))
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
@@ -152,5 +152,43 @@ final class ConvexClientTests: XCTestCase {
     )
 
     XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+  }
+
+  func testConvexErrorEnvelopeSurfacesBackendMessage() async {
+    let fixtureEnvelope = """
+      {
+        "status": "error",
+        "errorMessage": "Authentication required"
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    do {
+      _ = try await client.connectProductAccount(
+        identityToken: "apple-token",
+        deviceIdentifier: "device-001",
+        platform: "ios"
+      )
+      XCTFail("Expected Convex error envelope")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .convexFailure(status: "error", message: "Authentication required")
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 }

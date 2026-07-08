@@ -73,7 +73,7 @@ Sign in with Apple requires a signed build with the capability enabled. Error 10
 2. Select the `unwired-mail` target → **Signing & Capabilities**.
 3. Choose your **Development Team** (Apple Developer Program membership required).
 4. Confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
-5. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control.
+5. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control and set matching `APPLE_BUNDLE_ID` in the Convex deployment environment (`packages/convex/.env.local` for local dev).
 6. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
 
 CI keeps code signing disabled for simulator tests; only local runs that exercise Apple sign-in need the steps above.

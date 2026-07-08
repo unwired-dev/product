@@ -42,7 +42,7 @@ enum AppleSignInError: LocalizedError, Equatable {
 
 protocol AppleSignInPerforming {
   func signIn() async throws -> AppleSignInCredential
-  func restoreSession(appleUserIdentifier: String) async throws -> AppleSignInCredential
+  func restoreSession(snapshot: ProductAccountSessionSnapshot) async throws -> AppleSignInCredential
 }
 
 @MainActor
@@ -53,14 +53,19 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
     try await performAuthorization()
   }
 
-  func restoreSession(appleUserIdentifier: String) async throws -> AppleSignInCredential {
+  func restoreSession(
+    snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
     let credentialState = await Self.fetchCredentialState(
-      forAppleUserIdentifier: appleUserIdentifier
+      forAppleUserIdentifier: snapshot.appleUserIdentifier
     )
 
     switch credentialState {
     case .authorized:
-      return try await performAuthorization()
+      return AppleSignInCredential(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        identityToken: snapshot.identityToken
+      )
     case .revoked, .notFound:
       throw AppleSignInError.notAuthorized
     case .transferred:
@@ -168,7 +173,10 @@ struct PreviewAppleSignInService: AppleSignInPerforming {
     credential
   }
 
-  func restoreSession(appleUserIdentifier: String) async throws -> AppleSignInCredential {
-    credential
+  func restoreSession(
+    snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    _ = snapshot
+    return credential
   }
 }

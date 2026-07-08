@@ -3,7 +3,7 @@ import Foundation
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
   case httpError(statusCode: Int)
-  case convexFailure(status: String)
+  case convexFailure(status: String, message: String?)
   case decodeError
 
   var errorDescription: String? {
@@ -13,8 +13,11 @@ enum ConvexClientError: LocalizedError, Equatable {
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
     case .httpError(let statusCode):
       return "The backend returned HTTP status \(statusCode)."
-    case .convexFailure(let status):
-      return "The backend action returned status '\(status)'."
+    case .convexFailure(let status, let message):
+      if let message, !message.isEmpty {
+        return message
+      }
+      return "The backend returned status '\(status)'."
     case .decodeError:
       return "The backend returned an unexpected response."
     }
@@ -110,10 +113,17 @@ final class ConvexClient {
       from: data
     )
     guard functionResponse.status == "success" else {
-      throw ConvexClientError.convexFailure(status: functionResponse.status)
+      throw ConvexClientError.convexFailure(
+        status: functionResponse.status,
+        message: functionResponse.errorMessage
+      )
     }
 
-    return functionResponse.value
+    guard let value = functionResponse.value else {
+      throw ConvexClientError.decodeError
+    }
+
+    return value
   }
 }
 
@@ -132,7 +142,8 @@ private struct ConvexFunctionRequest: Encodable {
 
 private struct ConvexFunctionEnvelope<Value: Decodable>: Decodable {
   let status: String
-  let value: Value
+  let value: Value?
+  let errorMessage: String?
 }
 
 private struct AnyEncodable: Encodable {

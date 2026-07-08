@@ -30,31 +30,35 @@ final class ProductAccountSession {
   func bootstrap() async {
     state = .loading
 
-    do {
-      if let snapshot = try sessionStore.load() {
-        let credential = try await appleSignInService.restoreSession(
-          appleUserIdentifier: snapshot.appleUserIdentifier
-        )
-        let response = try await productAccountService.connect(
-          identityToken: credential.identityToken
-        )
-        let refreshedSnapshot = ProductAccountSessionSnapshot(
-          appleUserIdentifier: credential.appleUserIdentifier,
-          identityToken: credential.identityToken,
-          productAccountId: response.productAccountId,
-          trustedDeviceId: response.trustedDeviceId
-        )
-        try sessionStore.save(refreshedSnapshot)
-        state = .signedIn(refreshedSnapshot)
-        return
-      }
-    } catch {
-      try? sessionStore.clear()
+    guard let snapshot = try? sessionStore.load() else {
       state = .signedOut
       return
     }
 
-    state = .signedOut
+    do {
+      let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
+      let response = try await productAccountService.connect(
+        identityToken: credential.identityToken
+      )
+      let refreshedSnapshot = ProductAccountSessionSnapshot(
+        appleUserIdentifier: credential.appleUserIdentifier,
+        identityToken: credential.identityToken,
+        productAccountId: response.productAccountId,
+        trustedDeviceId: response.trustedDeviceId
+      )
+      try sessionStore.save(refreshedSnapshot)
+      state = .signedIn(refreshedSnapshot)
+    } catch let error as AppleSignInError {
+      switch error {
+      case .notAuthorized:
+        try? sessionStore.clear()
+        state = .signedOut
+      default:
+        state = .failed(error.localizedDescription)
+      }
+    } catch {
+      state = .failed(error.localizedDescription)
+    }
   }
 
   func signInWithApple() async {
@@ -79,7 +83,11 @@ final class ProductAccountSession {
   }
 
   func signOut() {
-    try? sessionStore.clear()
-    state = .signedOut
+    do {
+      try sessionStore.clear()
+      state = .signedOut
+    } catch {
+      state = .failed(error.localizedDescription)
+    }
   }
 }

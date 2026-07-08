@@ -43,7 +43,12 @@ enum KeychainStore {
     return value
   }
 
-  static func writeString(_ value: String, service: String, account: String) throws {
+  static func writeString(
+    _ value: String,
+    service: String,
+    account: String,
+    accessible: CFString = kSecAttrAccessibleAfterFirstUnlock
+  ) throws {
     let data = Data(value.utf8)
 
     let query: [String: Any] = [
@@ -53,7 +58,8 @@ enum KeychainStore {
     ]
 
     let attributes: [String: Any] = [
-      kSecValueData as String: data
+      kSecValueData as String: data,
+      kSecAttrAccessible as String: accessible,
     ]
 
     let updateStatus = SecItemUpdate(query as CFDictionary, attributes as CFDictionary)
@@ -64,6 +70,7 @@ enum KeychainStore {
     if updateStatus == errSecItemNotFound {
       var addQuery = query
       addQuery[kSecValueData as String] = data
+      addQuery[kSecAttrAccessible as String] = accessible
       let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
       guard addStatus == errSecSuccess else {
         throw KeychainStoreError.unhandledStatus(addStatus)
