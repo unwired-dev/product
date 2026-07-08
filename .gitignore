@@ -148,12 +148,12 @@ vite.config.ts.timestamp-*
 .turbo/
 .cache/
 
-# Tooling excludes (Convex codegen remains committed)
-**/convex/_generated/**
-
 # Xcode
 DerivedData/
 *.xcuserdata/
 
 # Mac
 .DS_Store
+
+## User settings
+xcuserdata/
