@@ -1,0 +1,59 @@
+import Foundation
+
+struct ProductAccountConnectResponse: Decodable, Equatable {
+  let accountCreated: Bool
+  let deviceRegistered: Bool
+  let productAccountId: String
+  let trustedDeviceId: String
+}
+
+protocol ProductAccountConnecting {
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse
+}
+
+enum ProductAccountServiceError: LocalizedError, Equatable {
+  case missingConvexURL
+
+  var errorDescription: String? {
+    switch self {
+    case .missingConvexURL:
+      return ConvexClientError.missingConvexURL.errorDescription
+    }
+  }
+}
+
+final class ConvexProductAccountService: ProductAccountConnecting {
+  private let client: ConvexClient
+
+  init(client: ConvexClient = ConvexClient()) {
+    self.client = client
+  }
+
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
+    let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
+
+    return try await client.connectProductAccount(
+      identityToken: identityToken,
+      deviceIdentifier: deviceIdentifier,
+      platform: TrustedDeviceIdentity.platform
+    )
+  }
+}
+
+struct PreviewProductAccountService: ProductAccountConnecting {
+  let response: ProductAccountConnectResponse
+
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
+    _ = identityToken
+    return response
+  }
+}
+
+extension ProductAccountConnectResponse {
+  static let preview = ProductAccountConnectResponse(
+    accountCreated: true,
+    deviceRegistered: true,
+    productAccountId: "productAccountFixtureId",
+    trustedDeviceId: "trustedDeviceFixtureId"
+  )
+}

@@ -6,7 +6,7 @@
     "moduleResolution": "NodeNext",
     "noEmit": true,
     "target": "ES2022",
-    "types": ["node", "vitest/globals"]
+    "types": ["node", "vitest/globals", "vite/client"]
   },
   "exclude": ["./convex/_generated"],
   "include": ["convex/**/*.ts", "test/**/*.ts", "vitest.config.ts"]

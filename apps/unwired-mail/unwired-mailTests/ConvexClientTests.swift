@@ -115,4 +115,42 @@ final class ConvexClientTests: XCTestCase {
       )
     )
   }
+
+  func testConnectProductAccountSendsAuthenticatedMutation() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "accountCreated": true,
+          "deviceRegistered": true,
+          "productAccountId": "productAccountFixtureId",
+          "trustedDeviceId": "trustedDeviceFixtureId"
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.connectProductAccount(
+      identityToken: "apple-token",
+      deviceIdentifier: "device-001",
+      platform: "ios"
+    )
+
+    XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+  }
 }

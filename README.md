@@ -63,7 +63,16 @@ On Apple Silicon machines, use the explicit arm64 destination if Xcode tries to 
 xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=macOS,variant=Mac Catalyst,arch=arm64' build
 ```
 
-The first app screen is the smoke path. It calls the public Convex `health:health` action through the service boundary and displays loading, connected, or failed backend state.
+The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, register the current trusted device with the backend using only operational account data, and still verify backend health from the authenticated screen.
+
+### Product Account verification
+
+Manual verification against a running Convex deployment:
+
+1. Start the backend with `pnpm dev` and set `CONVEX_URL` for the Apple app.
+2. Launch the app, sign in with Apple, and confirm the authenticated screen shows product account and trusted device identifiers.
+3. Sign out, sign in again with the same Apple ID, and confirm the product account identifier stays the same while device registration resumes cleanly.
+4. Automated coverage lives in `packages/convex/test/productAccount.test.ts` and the Apple unit tests under `apps/unwired-mail/unwired-mailTests/`.
 
 ## Validation
 
