@@ -22,34 +22,37 @@ struct AccountView: View {
   }
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 24) {
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Unwired Mail")
-          .font(.largeTitle.bold())
-        Text("Product Account")
-          .font(.title2)
-          .foregroundStyle(.secondary)
+    ScrollView {
+      VStack(alignment: .leading, spacing: 24) {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Unwired Mail")
+            .font(.largeTitle.bold())
+          Text("Product Account")
+            .font(.title2)
+            .foregroundStyle(.secondary)
+        }
+
+        VStack(alignment: .leading, spacing: 8) {
+          Label("Signed in with Apple", systemImage: "checkmark.circle.fill")
+            .foregroundStyle(.green)
+            .font(.headline)
+          Text("Product account: \(snapshot.productAccountId)")
+          Text("Trusted device: \(snapshot.trustedDeviceId)")
+            .foregroundStyle(.secondary)
+        }
+
+        CustomCategoryPanel(viewModel: categoryViewModel)
+
+        SmokeView(service: ConvexBackendHealthService())
+
+        Button("Sign Out", role: .destructive) {
+          session.signOut()
+        }
+        .buttonStyle(.bordered)
       }
-
-      VStack(alignment: .leading, spacing: 8) {
-        Label("Signed in with Apple", systemImage: "checkmark.circle.fill")
-          .foregroundStyle(.green)
-          .font(.headline)
-        Text("Product account: \(snapshot.productAccountId)")
-        Text("Trusted device: \(snapshot.trustedDeviceId)")
-          .foregroundStyle(.secondary)
-      }
-
-      CustomCategoryPanel(viewModel: categoryViewModel)
-
-      SmokeView(service: ConvexBackendHealthService())
-
-      Button("Sign Out", role: .destructive) {
-        session.signOut()
-      }
-      .buttonStyle(.bordered)
+      .padding(32)
+      .frame(maxWidth: .infinity, alignment: .topLeading)
     }
-    .padding(32)
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
       await categoryViewModel.load()
@@ -67,6 +70,7 @@ private final class CustomCategoryViewModel {
   var isSyncing = false
   var name = ""
 
+  private var hasLoadedCategory = false
   private let service: CustomCategorySyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -76,7 +80,12 @@ private final class CustomCategoryViewModel {
   }
 
   var canSave: Bool {
-    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving && !isSyncing
+    let hasName = !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    return hasLoadedCategory && hasName && !isSaving && !isSyncing
+  }
+
+  var isEditingDisabled: Bool {
+    isSaving || isSyncing
   }
 
   func load() async {
@@ -88,6 +97,7 @@ private final class CustomCategoryViewModel {
     do {
       let syncedCategory = try await service.loadCategory(session: session)
       apply(syncedCategory)
+      hasLoadedCategory = true
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -169,18 +179,18 @@ private struct CustomCategoryPanel: View {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
         .buttonStyle(.bordered)
-        .disabled(viewModel.isSyncing)
+        .disabled(viewModel.isEditingDisabled)
       }
 
       VStack(alignment: .leading, spacing: 12) {
         TextField("Category name", text: $viewModel.name)
           .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isSyncing)
+          .disabled(viewModel.isEditingDisabled)
 
         TextField("Optional category description", text: $viewModel.description, axis: .vertical)
           .lineLimit(2...4)
           .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isSyncing)
+          .disabled(viewModel.isEditingDisabled)
       }
 
       HStack {
@@ -199,7 +209,7 @@ private struct CustomCategoryPanel: View {
             }
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isSaving || viewModel.isSyncing)
+          .disabled(viewModel.isEditingDisabled)
         }
       }
 
