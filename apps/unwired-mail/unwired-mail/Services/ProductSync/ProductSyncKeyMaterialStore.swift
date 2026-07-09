@@ -2,7 +2,10 @@ import Foundation
 
 protocol ProductSyncKeyMaterialPersisting {
   func clear(productAccountId: String) throws
-  func ensureMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial
+  func ensureMaterial(
+    productAccountId: String,
+    allowCreation: Bool
+  ) throws -> ProductSyncKeyMaterial
   func load(productAccountId: String) throws -> ProductSyncKeyMaterial?
   func restore(
     productAccountId: String,
@@ -10,6 +13,17 @@ protocol ProductSyncKeyMaterialPersisting {
     recoveryWrappedAccountKey: ProductSyncEncryptedPayload
   ) throws -> ProductSyncKeyMaterial
   func save(_ material: ProductSyncKeyMaterial, productAccountId: String) throws
+}
+
+enum ProductSyncKeyMaterialStoreError: LocalizedError, Equatable {
+  case recoveryRequired
+
+  var errorDescription: String? {
+    switch self {
+    case .recoveryRequired:
+      return "Recovery Key or trusted-device recovery is required for this Product Account."
+    }
+  }
 }
 
 enum ProductSyncKeyMaterialStore {
@@ -49,13 +63,20 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     try KeychainStore.writeString(
       rawValue,
       service: service,
-      account: accountName(productAccountId: productAccountId)
+      account: accountName(productAccountId: productAccountId),
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
 
-  func ensureMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
+  func ensureMaterial(
+    productAccountId: String,
+    allowCreation: Bool
+  ) throws -> ProductSyncKeyMaterial {
     if let material = try load(productAccountId: productAccountId) {
       return material
+    }
+    guard allowCreation else {
+      throw ProductSyncKeyMaterialStoreError.recoveryRequired
     }
 
     let material = try ProductSyncKeyMaterial.create()
@@ -100,9 +121,15 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
       materials[productAccountId] = material
     }
 
-    func ensureMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
+    func ensureMaterial(
+      productAccountId: String,
+      allowCreation: Bool
+    ) throws -> ProductSyncKeyMaterial {
       if let material = materials[productAccountId] {
         return material
+      }
+      guard allowCreation else {
+        throw ProductSyncKeyMaterialStoreError.recoveryRequired
       }
 
       let material = try ProductSyncKeyMaterial.create()

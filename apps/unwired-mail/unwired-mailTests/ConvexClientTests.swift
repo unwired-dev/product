@@ -207,29 +207,58 @@ final class ConvexClientTests: XCTestCase {
   }
 
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedQuery() async throws {
-    let fixtureEnvelope = """
+    let firstPageEnvelope = """
       {
         "status": "success",
-        "value": [
-          {
-            "encryptedPayload": {
-              "algorithm": "AES-GCM-256",
-              "ciphertextBase64": "Y2lwaGVydGV4dA",
-              "keyVersion": 1,
-              "nonceBase64": "bm9uY2U",
-              "schemaVersion": 1,
-              "tagBase64": "dGFn"
-            },
-            "payloadIdentifier": "payload-001",
-            "updatedAt": 1781200000000
-          }
-        ]
+        "value": {
+          "continueCursor": "next-page",
+          "isDone": false,
+          "page": [
+            {
+              "encryptedPayload": {
+                "algorithm": "AES-GCM-256",
+                "ciphertextBase64": "Y2lwaGVydGV4dA",
+                "keyVersion": 1,
+                "nonceBase64": "bm9uY2U",
+                "schemaVersion": 1,
+                "tagBase64": "dGFn"
+              },
+              "payloadIdentifier": "payload-001",
+              "updatedAt": 1781200000000
+            }
+          ]
+        }
       }
       """.data(using: .utf8)!
+    let secondPageEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "continueCursor": "",
+          "isDone": true,
+          "page": [
+            {
+              "encryptedPayload": {
+                "algorithm": "AES-GCM-256",
+                "ciphertextBase64": "Y2lwaGVydGV4dA",
+                "keyVersion": 1,
+                "nonceBase64": "bm9uY2U",
+                "schemaVersion": 1,
+                "tagBase64": "dGFn"
+              },
+              "payloadIdentifier": "payload-002",
+              "updatedAt": 1781200000001
+            }
+          ]
+        }
+      }
+      """.data(using: .utf8)!
+    var requestCount = 0
 
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
+        requestCount += 1
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/query")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
@@ -239,7 +268,7 @@ final class ConvexClientTests: XCTestCase {
           httpVersion: nil,
           headerFields: nil
         )!
-        return (response, fixtureEnvelope)
+        return (response, requestCount == 1 ? firstPageEnvelope : secondPageEnvelope)
       }
     )
 
@@ -247,7 +276,8 @@ final class ConvexClientTests: XCTestCase {
       identityToken: "apple-token"
     )
 
-    XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001"])
+    XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])
+    XCTAssertEqual(requestCount, 2)
   }
 
   func testConvexErrorEnvelopeSurfacesBackendMessage() async {

@@ -13,6 +13,12 @@ struct EncryptedProductSyncPayload: Codable, Equatable {
   let updatedAt: Int64
 }
 
+struct EncryptedProductSyncPayloadPage: Decodable, Equatable {
+  let continueCursor: String
+  let isDone: Bool
+  let page: [EncryptedProductSyncPayload]
+}
+
 protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
 }
@@ -58,6 +64,13 @@ struct PreviewProductAccountService: ProductAccountConnecting {
 extension ProductAccountConnectResponse {
   static let preview = ProductAccountConnectResponse(
     accountCreated: true,
+    deviceRegistered: true,
+    productAccountId: "productAccountFixtureId",
+    trustedDeviceId: "trustedDeviceFixtureId"
+  )
+
+  static let resumed = ProductAccountConnectResponse(
+    accountCreated: false,
     deviceRegistered: true,
     productAccountId: "productAccountFixtureId",
     trustedDeviceId: "trustedDeviceFixtureId"

@@ -11,10 +11,27 @@ final class ProductSyncKeyMaterialStoreTests: XCTestCase {
   }
 
   func testEnsureMaterialCreatesAndReusesLocalMaterialForProductAccount() throws {
-    let firstMaterial = try store.ensureMaterial(productAccountId: "productAccountFixtureId")
-    let secondMaterial = try store.ensureMaterial(productAccountId: "productAccountFixtureId")
+    let firstMaterial = try store.ensureMaterial(
+      productAccountId: "productAccountFixtureId",
+      allowCreation: true
+    )
+    let secondMaterial = try store.ensureMaterial(
+      productAccountId: "productAccountFixtureId",
+      allowCreation: false
+    )
 
     XCTAssertEqual(secondMaterial, firstMaterial)
+  }
+
+  func testEnsureMaterialRequiresRecoveryWhenCreationIsNotAllowed() {
+    XCTAssertThrowsError(
+      try store.ensureMaterial(
+        productAccountId: "productAccountFixtureId",
+        allowCreation: false
+      )
+    ) { error in
+      XCTAssertEqual(error as? ProductSyncKeyMaterialStoreError, .recoveryRequired)
+    }
   }
 
   func testRestorePersistsRecoveryKeyMaterialForProductAccount() throws {

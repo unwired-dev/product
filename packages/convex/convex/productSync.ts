@@ -2,8 +2,10 @@ import type { EncryptedProductSyncPayload } from '@private-email/contracts/produ
 
 import {
   encryptedProductSyncPayloadBodyValidator,
+  encryptedProductSyncPayloadPageValidator,
   encryptedProductSyncPayloadValidator,
 } from '@private-email/contracts/productSync';
+import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
@@ -119,8 +121,10 @@ export const putEncryptedPayload = mutation({
 });
 
 export const listEncryptedPayloads = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    paginationOpts: paginationOptsValidator,
+  },
+  handler: async (ctx, args) => {
     const { productAccountId } = await requireProductAccount(ctx);
     const payloads = await ctx.db
       .query('encryptedProductSyncPayloads')
@@ -128,9 +132,12 @@ export const listEncryptedPayloads = query({
         q.eq('productAccountId', productAccountId),
       )
       .order('asc')
-      .take(100);
+      .paginate(args.paginationOpts);
 
-    return payloads.map(serializePayload);
+    return {
+      ...payloads,
+      page: payloads.page.map(serializePayload),
+    };
   },
-  returns: v.array(encryptedProductSyncPayloadValidator),
+  returns: encryptedProductSyncPayloadPageValidator,
 });

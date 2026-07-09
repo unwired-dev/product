@@ -87,6 +87,35 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), snapshot)
   }
+
+  func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .resumed),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed(let message) = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(
+      message,
+      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
+    )
+    XCTAssertNil(
+      try keyMaterialStore.load(
+        productAccountId: ProductAccountConnectResponse.resumed.productAccountId
+      )
+    )
+  }
 }
 
 private struct FailingProductAccountService: ProductAccountConnecting {

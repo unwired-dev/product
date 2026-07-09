@@ -45,7 +45,8 @@ final class ProductAccountSession {
         identityToken: credential.identityToken
       )
       _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
+        productAccountId: response.productAccountId,
+        allowCreation: response.accountCreated
       )
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
@@ -77,7 +78,8 @@ final class ProductAccountSession {
         identityToken: credential.identityToken
       )
       _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
+        productAccountId: response.productAccountId,
+        allowCreation: response.accountCreated
       )
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,

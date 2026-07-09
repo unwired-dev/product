@@ -1,8 +1,11 @@
-import { encryptedProductSyncPayloadFixture } from '@private-email/contracts/productSync';
+import {
+  encryptedProductSyncPayloadFixture,
+  encryptedProductSyncPayloadPageFixture,
+} from '@private-email/contracts/productSync';
 
 describe('encrypted product sync payload contract', () => {
   it('uses the shared encrypted payload fixture shape', () => {
-    expect.assertions(1);
+    expect.assertions(2);
 
     expect(encryptedProductSyncPayloadFixture).toStrictEqual({
       encryptedPayload: {
@@ -15,6 +18,11 @@ describe('encrypted product sync payload contract', () => {
       },
       payloadIdentifier: 'fixture-payload-001',
       updatedAt: 1_781_200_000_000,
+    });
+    expect(encryptedProductSyncPayloadPageFixture).toStrictEqual({
+      continueCursor: '',
+      isDone: true,
+      page: [encryptedProductSyncPayloadFixture],
     });
   });
 });

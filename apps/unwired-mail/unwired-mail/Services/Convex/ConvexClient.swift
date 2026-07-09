@@ -75,10 +75,28 @@ final class ConvexClient {
   func listEncryptedProductSyncPayloads(
     identityToken: String
   ) async throws -> [EncryptedProductSyncPayload] {
-    try await performQuery(
-      path: "productSync:listEncryptedPayloads",
-      identityToken: identityToken
-    )
+    var allPayloads: [EncryptedProductSyncPayload] = []
+    var cursor: String?
+    var isDone = false
+
+    while !isDone {
+      let response: EncryptedProductSyncPayloadPage = try await performQuery(
+        path: "productSync:listEncryptedPayloads",
+        args: ListEncryptedProductSyncPayloadsArgs(
+          paginationOpts: ConvexPaginationOptions(
+            cursor: cursor,
+            numItems: 100
+          )
+        ),
+        identityToken: identityToken
+      )
+
+      allPayloads.append(contentsOf: response.page)
+      cursor = response.continueCursor
+      isDone = response.isDone
+    }
+
+    return allPayloads
   }
 
   private func performAction<Response: Decodable>(
@@ -177,6 +195,15 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let payloadIdentifier: String
   let trustedDeviceId: String
+}
+
+private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
+  let paginationOpts: ConvexPaginationOptions
+}
+
+private struct ConvexPaginationOptions: Encodable {
+  let cursor: String?
+  let numItems: Int
 }
 
 private struct ConvexFunctionRequest: Encodable {
