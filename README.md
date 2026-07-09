@@ -104,8 +104,7 @@ pnpm fallow
 Apple:
 
 ```sh
-swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests
-swiftlint lint apps/unwired-mail
+zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 

@@ -57,11 +57,8 @@ jobs:
       - name: Install Apple lint tools
         run: brew install swift-format swiftlint
 
-      - name: Swift format
-        run: swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests
-
-      - name: SwiftLint
-        run: swiftlint lint apps/unwired-mail
+      - name: Swift format and lint
+        run: zsh scripts/check-apple-lint.zsh
 
       - name: Test
         run: xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO

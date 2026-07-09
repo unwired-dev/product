@@ -155,8 +155,8 @@ private struct CustomCategoryPanel: View {
           Text(
             "Custom categories sync between trusted devices separately from provider folders or labels."
           )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
         }
 
         Spacer()
