@@ -21,6 +21,23 @@ struct VerifiedGmailAccount: Equatable {
   let tokens: GmailProviderTokens
 }
 
+enum GmailProviderCredentialVerificationError: LocalizedError, Equatable {
+  case invalidAccessToken
+  case accountMismatch
+  case missingVerificationResponse
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidAccessToken:
+      return "Gmail did not accept the access token."
+    case .accountMismatch:
+      return "The Gmail account did not match the verified token account."
+    case .missingVerificationResponse:
+      return "Gmail did not return account verification details."
+    }
+  }
+}
+
 protocol GmailProviderTokenPersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> GmailProviderTokens?
@@ -51,6 +68,15 @@ protocol GmailProviderConnecting {
   ) async throws -> GmailProviderConnectionStatus?
 }
 
+protocol GmailProviderCredentialVerifying {
+  func verify(
+    accessToken: String,
+    refreshToken: String,
+    expectedEmailAddress: String,
+    expectedProviderAccountIdentifier: String
+  ) async throws -> VerifiedGmailAccount
+}
+
 struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
   private let service = "private-email.gmail-provider-tokens"
 
@@ -77,7 +103,8 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
     try KeychainStore.writeString(
       json,
       service: service,
-      account: accountName(productAccountId: productAccountId)
+      account: accountName(productAccountId: productAccountId),
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
 
@@ -109,6 +136,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     verifiedAccount: VerifiedGmailAccount,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
+    let previousTokens = try tokenStore.load(productAccountId: session.productAccountId)
     try tokenStore.save(
       verifiedAccount.tokens,
       productAccountId: session.productAccountId
@@ -122,7 +150,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
       )
     } catch {
-      try tokenStore.clear(productAccountId: session.productAccountId)
+      if let previousTokens {
+        try tokenStore.save(previousTokens, productAccountId: session.productAccountId)
+      } else {
+        try tokenStore.clear(productAccountId: session.productAccountId)
+      }
       throw error
     }
   }
@@ -130,11 +162,81 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   func loadConnection(
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus? {
-    try await transport.getGmailProviderConnection(identityToken: session.identityToken)
+    guard
+      let status = try await transport.getGmailProviderConnection(
+        identityToken: session.identityToken
+      ),
+      status.trustedDeviceId == session.trustedDeviceId,
+      try tokenStore.load(productAccountId: session.productAccountId) != nil
+    else {
+      return nil
+    }
+
+    return status
   }
 }
 
 extension ConvexClient: GmailProviderConnectionTransport {}
+
+struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
+  private let session: URLSession
+  private let tokenInfoURL: URL
+
+  init(
+    session: URLSession = .shared,
+    tokenInfoURL: URL = URL(string: "https://oauth2.googleapis.com/tokeninfo")!
+  ) {
+    self.session = session
+    self.tokenInfoURL = tokenInfoURL
+  }
+
+  func verify(
+    accessToken: String,
+    refreshToken: String,
+    expectedEmailAddress: String,
+    expectedProviderAccountIdentifier: String
+  ) async throws -> VerifiedGmailAccount {
+    var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "access_token", value: accessToken)
+    ]
+    guard let url = components?.url else {
+      throw GmailProviderCredentialVerificationError.invalidAccessToken
+    }
+
+    let (data, response) = try await session.data(from: url)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailProviderCredentialVerificationError.invalidAccessToken
+    }
+
+    let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: data)
+    guard let emailAddress = tokenInfo.email, let subject = tokenInfo.sub else {
+      throw GmailProviderCredentialVerificationError.missingVerificationResponse
+    }
+    guard
+      emailAddress.caseInsensitiveCompare(expectedEmailAddress) == .orderedSame,
+      subject == expectedProviderAccountIdentifier
+    else {
+      throw GmailProviderCredentialVerificationError.accountMismatch
+    }
+
+    return VerifiedGmailAccount(
+      emailAddress: emailAddress,
+      providerAccountIdentifier: subject,
+      tokens: GmailProviderTokens(
+        accessToken: accessToken,
+        refreshToken: refreshToken
+      )
+    )
+  }
+}
+
+private struct GoogleTokenInfoResponse: Decodable {
+  let email: String?
+  let sub: String?
+}
 
 #if DEBUG
   final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {

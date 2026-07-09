@@ -70,7 +70,48 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testCompleteConnectionRestoresPreviousTokensWhenUpdateRegistrationFails() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailProviderConnectionTransport()
+    transport.connectError = GmailProviderConnectionTestError.registrationFailed
+    let service = GmailProviderConnectionService(
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "user@example.com",
+          providerAccountIdentifier: "gmail-user-001",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected backend registration failure")
+    } catch GmailProviderConnectionTestError.registrationFailed {
+      XCTAssertEqual(
+        try tokenStore.load(productAccountId: session.productAccountId),
+        GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testLoadConnectionReadsBackendStatus() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
     let transport = RecordingGmailProviderConnectionTransport()
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -82,7 +123,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       updatedAt: 1_781_200_000_000
     )
     let service = GmailProviderConnectionService(
-      tokenStore: InMemoryGmailProviderTokenStore(),
+      tokenStore: tokenStore,
       transport: transport
     )
 
@@ -90,6 +131,43 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(status?.emailAddress, "user@example.com")
     XCTAssertEqual(transport.loadIdentityToken, "apple-token")
+  }
+
+  func testLoadConnectionRequiresLocalTokens() async throws {
+    let service = GmailProviderConnectionService(
+      tokenStore: InMemoryGmailProviderTokenStore(),
+      transport: RecordingGmailProviderConnectionTransport()
+    )
+
+    let status = try await service.loadConnection(session: session)
+
+    XCTAssertNil(status)
+  }
+
+  func testLoadConnectionRequiresCurrentTrustedDevice() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailProviderConnectionTransport()
+    transport.status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "user@example.com",
+      lastVerifiedAt: 1_781_200_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-001",
+      trustedDeviceId: "other-trusted-device",
+      updatedAt: 1_781_200_000_000
+    )
+    let service = GmailProviderConnectionService(
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    let status = try await service.loadConnection(session: session)
+
+    XCTAssertNil(status)
   }
 }
 

@@ -11,7 +11,9 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
-    gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService()
+    gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
+    gmailCredentialVerifier: GmailProviderCredentialVerifying =
+      GoogleGmailProviderCredentialVerifier()
   ) {
     self.session = session
     self.snapshot = snapshot
@@ -23,6 +25,7 @@ struct AccountView: View {
     )
     _gmailViewModel = State(
       initialValue: GmailProviderConnectionViewModel(
+        credentialVerifier: gmailCredentialVerifier,
         service: gmailConnectionService,
         session: snapshot
       )
@@ -83,10 +86,16 @@ private final class GmailProviderConnectionViewModel {
   var providerAccountIdentifier = ""
   var refreshToken = ""
 
+  private let credentialVerifier: GmailProviderCredentialVerifying
   private let service: GmailProviderConnecting
   private let session: ProductAccountSessionSnapshot
 
-  init(service: GmailProviderConnecting, session: ProductAccountSessionSnapshot) {
+  init(
+    credentialVerifier: GmailProviderCredentialVerifying,
+    service: GmailProviderConnecting,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.credentialVerifier = credentialVerifier
     self.service = service
     self.session = session
   }
@@ -138,15 +147,14 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
+      let verifiedAccount = try await credentialVerifier.verify(
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        expectedEmailAddress: trimmedEmailAddress,
+        expectedProviderAccountIdentifier: trimmedProviderAccountIdentifier
+      )
       connection = try await service.completeConnection(
-        verifiedAccount: VerifiedGmailAccount(
-          emailAddress: trimmedEmailAddress,
-          providerAccountIdentifier: trimmedProviderAccountIdentifier,
-          tokens: GmailProviderTokens(
-            accessToken: accessToken,
-            refreshToken: refreshToken
-          )
-        ),
+        verifiedAccount: verifiedAccount,
         session: session
       )
       accessToken = ""
