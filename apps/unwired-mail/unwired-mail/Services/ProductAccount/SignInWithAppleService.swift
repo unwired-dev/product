@@ -1,5 +1,6 @@
 import AuthenticationServices
 import Foundation
+
 #if canImport(AppKit)
   import AppKit
 #endif

@@ -2,7 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable type_body_length
+// swiftlint:disable file_length type_body_length
 final class GmailProviderConnectionServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -13,7 +13,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
   func testCompleteConnectionStoresTokensLocallyAndSendsOnlyMetadataToBackend() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     let service = GmailProviderConnectionService(
       tokenStore: tokenStore,
       transport: transport
@@ -44,7 +44,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
   func testCompleteConnectionClearsLocalTokensWhenBackendRegistrationFails() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     transport.connectError = GmailProviderConnectionTestError.registrationFailed
     let service = GmailProviderConnectionService(
       tokenStore: tokenStore,
@@ -77,7 +77,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
       productAccountId: session.productAccountId
     )
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     transport.connectError = GmailProviderConnectionTestError.registrationFailed
     let service = GmailProviderConnectionService(
       tokenStore: tokenStore,
@@ -113,7 +113,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
       productAccountId: session.productAccountId
     )
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     transport.onConnect = {
       try tokenStore.clear(productAccountId: self.session.productAccountId)
     }
@@ -149,7 +149,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
       emailAddress: "user@example.com",
@@ -174,7 +174,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
   func testLoadConnectionRequiresLocalTokens() async throws {
     let service = GmailProviderConnectionService(
       tokenStore: InMemoryGmailProviderTokenStore(),
-      transport: RecordingGmailProviderConnectionTransport()
+      transport: RecordingGmailConnectionTransport()
     )
 
     let status = try await service.loadConnection(session: session)
@@ -188,7 +188,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
-    let transport = RecordingGmailProviderConnectionTransport()
+    let transport = RecordingGmailConnectionTransport()
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
       emailAddress: "user@example.com",
@@ -522,7 +522,7 @@ private enum GmailProviderConnectionTestError: Error {
   case registrationFailed
 }
 
-private final class RecordingGmailProviderConnectionTransport: GmailProviderConnectionTransport {
+private final class RecordingGmailConnectionTransport: GmailProviderConnectionTransport {
   struct ConnectCall: Equatable {
     let identityToken: String
     let trustedDeviceId: String

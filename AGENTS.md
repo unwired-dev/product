@@ -78,11 +78,12 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 1. Inspect nearby implementation, tests, and pattern docs before editing.
 2. Prefer existing abstractions and conventions over introducing new ones.
-3. For ad hoc runnable code, create a temporary file in `scratchpad/`, run it with `node scratchpad/<file>.ts`, and delete it when done.
+3. Trust the local mise config with `mise trust .mise.toml`, then set up the local toolchain with `mise install` before running validation. If mise is not activated in the shell, run tools through `mise exec -- <command>` so `.mise.toml` versions are used.
+4. For ad hoc runnable code, create a temporary file in `scratchpad/`, run it with `node scratchpad/<file>.ts`, and delete it when done.
    The local runtime is Node 24, which can run TypeScript files directly; use plain `node` for local TypeScript probes instead of `tsx` unless `node` fails.
-4. Add a changeset with `pnpm changeset` when the change should appear in package release notes.
-5. Run the validation appropriate to the change type.
-6. Report which validation commands were run and any commands that could not be run.
+5. Add a changeset with `pnpm changeset` when the change should appear in package release notes.
+6. Run the validation appropriate to the change type.
+7. Report which validation commands were run and any commands that could not be run.
 
 ## Required Checks
 
@@ -122,6 +123,8 @@ The iOS, iPadOS, and macOS app must provide formatter, linter, and test commands
 - Format and lint: `zsh scripts/check-apple-lint.zsh`
 - Test: `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 
+SwiftLint is managed by mise and runs in strict mode so warnings fail validation. Run `mise trust .mise.toml` and `mise install` first, or use `mise exec -- zsh scripts/check-apple-lint.zsh` when mise is not activated. Apple `swift-format` may come from Xcode via `xcrun`.
+
 If Apple tooling is unavailable in the current environment, state that clearly in the final handoff.
 
 ## CI Expectations
@@ -137,7 +140,7 @@ Pull request and default-branch CI must run the same checks agents are expected 
 - `pnpm test`
 - `pnpm fallow`
 - `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
-- `swiftlint lint apps/unwired-mail`
+- `swiftlint lint --strict apps/unwired-mail`
 - `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'` once the Xcode project exists.
 
 Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v2`](https://docs.fallow.tools/integrations/ci) GitHub Action (equivalent to `pnpm fallow --ci`). Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.

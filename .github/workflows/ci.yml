@@ -55,10 +55,13 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Install Apple lint tools
-        run: brew install swift-format swiftlint
+        run: |
+          brew install mise swift-format
+          mise trust .mise.toml
+          mise install swiftlint
 
       - name: Swift format and lint
-        run: zsh scripts/check-apple-lint.zsh
+        run: mise exec -- zsh scripts/check-apple-lint.zsh
 
       - name: Test
         run: xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17' CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO

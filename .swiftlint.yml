@@ -1,0 +1,9 @@
+disabled_rules:
+  # Apple swift-format requires multiline trailing commas and its function
+  # declaration wrapping can disagree with SwiftLint's opening_brace rule.
+  - opening_brace
+  - trailing_comma
+
+  # This repo uses file-local rule disables for large test fixture files where
+  # splitting the file would obscure the tested request/response shape.
+  - blanket_disable_command

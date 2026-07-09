@@ -14,7 +14,10 @@ struct SignInView: View {
       }
 
       Text(
-        "Sign in with Apple to create or resume your Product Account and register this device with the backend using only operational account data."
+        """
+        Sign in with Apple to create or resume your Product Account and register \
+        this device with the backend using only operational account data.
+        """
       )
       .foregroundStyle(.secondary)
 
