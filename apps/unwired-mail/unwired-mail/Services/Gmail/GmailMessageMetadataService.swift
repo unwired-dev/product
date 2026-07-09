@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   var id: String {
     stableProviderMessageId
@@ -33,6 +35,8 @@ struct GmailMetadataSyncResult: Equatable {
 }
 
 protocol GmailMessageMetadataPersisting {
+  func clearMessages(productAccountId: String) throws
+
   func loadMessages(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -70,6 +74,21 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       rootDirectory
       ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
       .appendingPathComponent("UnwiredMail/GmailMetadata", isDirectory: true)
+  }
+
+  func clearMessages(productAccountId: String) throws {
+    guard fileManager.fileExists(atPath: rootDirectory.path) else {
+      return
+    }
+
+    let prefix = "\(safeFileComponent(productAccountId))-"
+    let fileURLs = try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: nil
+    )
+    for fileURL in fileURLs where fileURL.lastPathComponent.hasPrefix(prefix) {
+      try fileManager.removeItem(at: fileURL)
+    }
   }
 
   func loadMessages(
@@ -127,23 +146,29 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
 
 struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
   private let gmailBaseURL: URL
-  private let now: () -> Date
+  private let oauthClientId: String?
   private let session: URLSession
   private let store: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
+  private let tokenRefreshURL: URL
 
   init(
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
-    now: @escaping () -> Date = Date.init,
+    oauthClientId: String? =
+      ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
+      ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
+      ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
     store: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
-    tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore()
+    tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
+    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
   ) {
     self.gmailBaseURL = gmailBaseURL
-    self.now = now
+    self.oauthClientId = oauthClientId
     self.session = session
     self.store = store
     self.tokenStore = tokenStore
+    self.tokenRefreshURL = tokenRefreshURL
   }
 
   func loadInbox(
@@ -164,11 +189,17 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    guard let tokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
 
-    let categorizationBoundary = now()
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      productAccountId: session.productAccountId
+    )
+    let categorizationBoundary = Date(
+      timeIntervalSince1970: TimeInterval(connection.connectedAt) / 1_000
+    )
     let listedMessages = try await listInboxMessages(accessToken: tokens.accessToken)
     var fetchedMessages: [GmailMessageMetadata] = []
     for listedMessage in listedMessages {
@@ -286,12 +317,66 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
 
     return try JSONDecoder().decode(Response.self, from: data)
   }
+
+  private func refreshedTokens(
+    _ tokens: GmailProviderTokens,
+    productAccountId: String
+  ) async throws -> GmailProviderTokens {
+    guard let oauthClientId, !oauthClientId.isEmpty else {
+      throw GmailMessageMetadataSyncError.missingOAuthClientId
+    }
+
+    var request = URLRequest(url: tokenRefreshURL)
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.httpBody = formURLEncodedBody([
+      "client_id": oauthClientId,
+      "grant_type": "refresh_token",
+      "refresh_token": tokens.refreshToken,
+    ])
+
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailMessageMetadataSyncError.refreshTokenRejected
+    }
+
+    let tokenResponse = try JSONDecoder().decode(GmailRefreshTokenResponse.self, from: data)
+    guard !tokenResponse.accessToken.isEmpty else {
+      throw GmailMessageMetadataSyncError.refreshTokenRejected
+    }
+
+    let refreshedTokens = GmailProviderTokens(
+      accessToken: tokenResponse.accessToken,
+      refreshToken: tokens.refreshToken
+    )
+    try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    return refreshedTokens
+  }
+
+  private func formURLEncodedBody(_ fields: [String: String]) -> Data {
+    fields
+      .map { key, value in
+        "\(formURLEncode(key))=\(formURLEncode(value))"
+      }
+      .joined(separator: "&")
+      .data(using: .utf8) ?? Data()
+  }
+
+  private func formURLEncode(_ value: String) -> String {
+    var allowed = CharacterSet.urlQueryAllowed
+    allowed.remove(charactersIn: "+&=")
+    return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+  }
 }
 
 enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case gmailRequestFailed
   case invalidGmailRequest
   case missingLocalGmailTokens
+  case missingOAuthClientId
+  case refreshTokenRejected
 
   var errorDescription: String? {
     switch self {
@@ -301,6 +386,10 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Gmail message metadata request could not be created."
     case .missingLocalGmailTokens:
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
+    case .missingOAuthClientId:
+      return "Gmail OAuth client id is not configured."
+    case .refreshTokenRejected:
+      return "Gmail did not refresh local mail access for this account."
     }
   }
 }
@@ -356,4 +445,12 @@ private struct GmailMessagePayload: Decodable {
 private struct GmailMessageHeader: Decodable {
   let name: String
   let value: String
+}
+
+private struct GmailRefreshTokenResponse: Decodable {
+  let accessToken: String
+
+  enum CodingKeys: String, CodingKey {
+    case accessToken = "access_token"
+  }
 }

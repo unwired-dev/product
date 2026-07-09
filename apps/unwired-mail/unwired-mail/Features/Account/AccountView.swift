@@ -101,6 +101,7 @@ private final class GmailInboxViewModel {
   var isSyncing = false
   var threads: [GmailInboxThread] = []
 
+  private var loadedProviderAccountIdentifier: String?
   private let service: GmailMessageMetadataSyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -122,6 +123,12 @@ private final class GmailInboxViewModel {
     }
   }
 
+  func clear() {
+    loadedProviderAccountIdentifier = nil
+    threads = []
+    errorMessage = nil
+  }
+
   func load(connection: GmailProviderConnectionStatus) async {
     isLoading = true
     defer {
@@ -133,6 +140,7 @@ private final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
+      loadedProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = result.threads
       errorMessage = nil
     } catch {
@@ -140,7 +148,19 @@ private final class GmailInboxViewModel {
     }
   }
 
+  func loadAfterConnectionChange(connection: GmailProviderConnectionStatus) async {
+    if loadedProviderAccountIdentifier != connection.providerAccountIdentifier {
+      clear()
+    }
+
+    await load(connection: connection)
+  }
+
   func sync(connection: GmailProviderConnectionStatus) async {
+    if loadedProviderAccountIdentifier != connection.providerAccountIdentifier {
+      clear()
+    }
+
     isSyncing = true
     defer {
       isSyncing = false
@@ -151,6 +171,7 @@ private final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
+      loadedProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = result.threads
       errorMessage = nil
     } catch {
@@ -561,6 +582,14 @@ private struct GmailInboxPanel: View {
           .foregroundStyle(.red)
           .font(.footnote)
       }
+    }
+    .task(id: connection?.providerAccountIdentifier) {
+      guard let connection else {
+        viewModel.clear()
+        return
+      }
+
+      await viewModel.loadAfterConnectionChange(connection: connection)
     }
   }
 

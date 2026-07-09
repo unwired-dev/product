@@ -30,6 +30,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.paths,
       [
+        "/token",
         "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-002",
         "/gmail/v1/users/me/messages/message-001",
@@ -46,6 +47,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
     XCTAssertTrue(result.messages.allSatisfy { $0.categoryId == nil })
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
+    XCTAssertEqual(
+      try fixture.tokenStore.load(productAccountId: session.productAccountId),
+      GmailProviderTokens(accessToken: "refreshed-access-token", refreshToken: "refresh-token")
+    )
   }
 
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
@@ -155,15 +160,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     let service = GmailMessageMetadataService(
       gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
-      now: { Date(timeIntervalSince1970: 1_781_204_400) },
+      oauthClientId: "gmail-client-id",
       session: urlSession,
       store: store,
-      tokenStore: tokenStore
+      tokenStore: tokenStore,
+      tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
     )
     return GmailMessageMetadataSyncFixture(
       requestRecorder: requestRecorder,
       service: service,
-      store: store
+      store: store,
+      tokenStore: tokenStore
     )
   }
 
@@ -171,8 +178,24 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     for request: URLRequest,
     requestRecorder: GmailMetadataRequestRecorder
   ) -> (HTTPURLResponse, Data) {
-    XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-token")
     requestRecorder.paths.append(request.url?.path ?? "")
+
+    if request.url?.path == "/token" {
+      XCTAssertEqual(request.httpMethod, "POST")
+      XCTAssertEqual(
+        request.value(forHTTPHeaderField: "Content-Type"),
+        "application/x-www-form-urlencoded"
+      )
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+      )
+    }
+
+    XCTAssertEqual(
+      request.value(forHTTPHeaderField: "Authorization"),
+      "Bearer refreshed-access-token"
+    )
 
     if request.url?.path == "/gmail/v1/users/me/messages" {
       XCTAssertTrue(request.url?.query?.contains("labelIds=INBOX") == true)
@@ -228,6 +251,7 @@ private struct GmailMessageMetadataSyncFixture {
   let requestRecorder: GmailMetadataRequestRecorder
   let service: GmailMessageMetadataService
   let store: RecordingGmailMessageMetadataStore
+  let tokenStore: RecordingGmailProviderTokenStore
 }
 
 private final class GmailMetadataRequestRecorder {
@@ -235,8 +259,15 @@ private final class GmailMetadataRequestRecorder {
 }
 
 private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPersisting {
+  var didClear = false
   var messages: [GmailMessageMetadata] = []
   var savedMessages: [GmailMessageMetadata] = []
+
+  func clearMessages(productAccountId _: String) throws {
+    didClear = true
+    messages = []
+    savedMessages = []
+  }
 
   func loadMessages(
     productAccountId _: String,

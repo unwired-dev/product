@@ -137,13 +137,16 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 }
 
 struct GmailProviderConnectionService: GmailProviderConnecting {
+  private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
 
   init(
+    metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
+    self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
   }
@@ -183,6 +186,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) throws {
     try tokenStore.clear(productAccountId: session.productAccountId)
+    try metadataStore.clearMessages(productAccountId: session.productAccountId)
   }
 
   func loadConnection(

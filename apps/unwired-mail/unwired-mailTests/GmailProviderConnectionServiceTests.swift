@@ -208,6 +208,25 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(status)
   }
 
+  func testClearLocalConnectionClearsTokensAndMetadata() throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let service = GmailProviderConnectionService(
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    try service.clearLocalConnection(session: session)
+
+    XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+  }
+
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let response = HTTPURLResponse(
@@ -573,4 +592,25 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     loadTrustedDeviceId = trustedDeviceId
     return status
   }
+}
+
+private final class RecordingGmailProviderMetadataStore: GmailMessageMetadataPersisting {
+  var clearedProductAccountIds: [String] = []
+
+  func clearMessages(productAccountId: String) throws {
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func loadMessages(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> [GmailMessageMetadata] {
+    []
+  }
+
+  func saveMessages(
+    _: [GmailMessageMetadata],
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 }
