@@ -137,19 +137,19 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
 extension ConvexClient: GmailProviderConnectionTransport {}
 
 #if DEBUG
-final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
-  private var tokensByProductAccountId: [String: GmailProviderTokens] = [:]
+  final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
+    private var tokensByProductAccountId: [String: GmailProviderTokens] = [:]
 
-  func load(productAccountId: String) throws -> GmailProviderTokens? {
-    tokensByProductAccountId[productAccountId]
-  }
+    func load(productAccountId: String) throws -> GmailProviderTokens? {
+      tokensByProductAccountId[productAccountId]
+    }
 
-  func save(_ tokens: GmailProviderTokens, productAccountId: String) throws {
-    tokensByProductAccountId[productAccountId] = tokens
-  }
+    func save(_ tokens: GmailProviderTokens, productAccountId: String) throws {
+      tokensByProductAccountId[productAccountId] = tokens
+    }
 
-  func clear(productAccountId: String) throws {
-    tokensByProductAccountId[productAccountId] = nil
+    func clear(productAccountId: String) throws {
+      tokensByProductAccountId[productAccountId] = nil
+    }
   }
-}
 #endif
