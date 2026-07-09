@@ -345,6 +345,25 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  func testClearLocalConnectionAttemptsMetadataCleanupWhenTokenCleanupFails() throws {
+    let tokenStore = FailingClearGmailProviderTokenStore()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let service = GmailProviderConnectionService(
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    do {
+      try service.clearLocalConnection(session: session)
+      XCTFail("Expected token cleanup failure")
+    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+      XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let response = HTTPURLResponse(
@@ -658,6 +677,7 @@ private enum GmailProviderConnectionTestError: Error {
   case bundleCreationFailed
   case metadataCleanupFailed
   case registrationFailed
+  case tokenCleanupFailed
 }
 
 private final class RecordingGmailConnectionTransport: GmailProviderConnectionTransport {
@@ -717,6 +737,18 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
 
     return status
   }
+}
+
+private final class FailingClearGmailProviderTokenStore: GmailProviderTokenPersisting {
+  func clear(productAccountId _: String) throws {
+    throw GmailProviderConnectionTestError.tokenCleanupFailed
+  }
+
+  func load(productAccountId _: String) throws -> GmailProviderTokens? {
+    nil
+  }
+
+  func save(_: GmailProviderTokens, productAccountId _: String) throws {}
 }
 
 private final class RecordingGmailProviderMetadataStore: GmailMessageMetadataPersisting {

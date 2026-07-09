@@ -207,12 +207,23 @@ export const connectGmailProvider = mutation({
       };
     }
 
+    const providerAccountChanged =
+      existingConnection.providerAccountIdentifier !==
+      args.providerAccountIdentifier;
+    const updatedAt = providerAccountChanged
+      ? now
+      : existingConnection.updatedAt;
+
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existingConnection._id, connection);
+    await ctx.db.patch(existingConnection._id, {
+      ...connection,
+      updatedAt,
+    });
 
     return {
       connectedAt: existingConnection.connectedAt,
       ...connection,
+      updatedAt,
     };
   },
   returns: gmailProviderConnectionStatusValidator,

@@ -205,8 +205,20 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
   ) throws {
-    try tokenStore.clear(productAccountId: session.productAccountId)
-    try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    var cleanupError: Error?
+    do {
+      try tokenStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   func loadConnection(
