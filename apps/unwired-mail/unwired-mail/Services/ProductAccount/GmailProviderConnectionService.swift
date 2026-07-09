@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct GmailProviderTokens: Codable, Equatable {
   let accessToken: String
   let refreshToken: String

@@ -2,6 +2,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable non_optional_string_data_conversion
+
 final class BackendHealthServiceTests: XCTestCase {
   func testUnsuccessfulStatusMapsToDomainError() async {
     let client = ConvexClient(

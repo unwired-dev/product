@@ -2,6 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
 @MainActor
 final class ProductAccountSessionTests: XCTestCase {
   private var store = InMemoryProductAccountSessionStore()

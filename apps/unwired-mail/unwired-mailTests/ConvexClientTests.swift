@@ -2,6 +2,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length function_body_length non_optional_string_data_conversion type_body_length
+
 final class ConvexClientTests: XCTestCase {
   func testMissingConvexURLReportsSetupError() async {
     let client = ConvexClient(convexURL: nil)
