@@ -69,6 +69,7 @@ struct AccountView: View {
 
         GmailInboxPanel(
           connection: gmailViewModel.connection,
+          isConnectionBusy: gmailViewModel.isEditingDisabled,
           viewModel: inboxViewModel
         )
 
@@ -528,7 +529,9 @@ private struct GmailProviderConnectionPanel: View {
 
 private struct GmailInboxPanel: View {
   let connection: GmailProviderConnectionStatus?
+  let isConnectionBusy: Bool
   @Bindable var viewModel: GmailInboxViewModel
+  @State private var syncTask: Task<Void, Never>?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -545,14 +548,15 @@ private struct GmailInboxPanel: View {
 
         if let connection {
           Button {
-            Task {
+            syncTask?.cancel()
+            syncTask = Task {
               await viewModel.sync(connection: connection)
             }
           } label: {
             Label("Sync", systemImage: "arrow.triangle.2.circlepath")
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isRefreshDisabled)
+          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
         }
       }
 
@@ -590,6 +594,9 @@ private struct GmailInboxPanel: View {
       }
 
       await viewModel.loadAfterConnectionChange(connection: connection)
+    }
+    .onDisappear {
+      syncTask?.cancel()
     }
   }
 

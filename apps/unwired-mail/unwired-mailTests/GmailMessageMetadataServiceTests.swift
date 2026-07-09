@@ -87,6 +87,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       result.threads[1].messages.map(\.providerMessageId), ["message-002", "message-001"])
   }
 
+  func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
+    let fixture = try makeSyncFixture()
+    let switchedConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_180_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_200_000_000
+    )
+
+    let result = try await fixture.service.syncInbox(
+      connection: switchedConnection,
+      session: session
+    )
+
+    XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
+  }
+
   func testSyncInboxRequiresDeviceHeldGmailTokens() async throws {
     let service = GmailMessageMetadataService(
       session: ConvexClientTesting.makeSession { request in

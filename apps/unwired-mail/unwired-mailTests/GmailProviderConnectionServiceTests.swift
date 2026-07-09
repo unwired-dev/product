@@ -107,6 +107,50 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testCompleteConnectionClearsMetadataWhenProviderAccountChanges() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let transport = RecordingGmailConnectionTransport()
+    transport.status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "old@example.com",
+      lastVerifiedAt: 1_781_200_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "old-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_200_000_000
+    )
+    transport.connectStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "new@example.com",
+      lastVerifiedAt: 1_781_210_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "new-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_210_000_000
+    )
+    let service = GmailProviderConnectionService(
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    let status = try await service.completeConnection(
+      verifiedAccount: VerifiedGmailAccount(
+        emailAddress: "new@example.com",
+        providerAccountIdentifier: "new-gmail-user",
+        tokens: GmailProviderTokens(
+          accessToken: "new-access-token",
+          refreshToken: "new-refresh-token"
+        )
+      ),
+      session: session
+    )
+
+    XCTAssertEqual(status.providerAccountIdentifier, "new-gmail-user")
+    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+  }
+
   func testCompleteConnectionDoesNotRestorePreviousTokensWhenCancelled() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -554,6 +598,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   var loadIdentityToken: String?
   var loadTrustedDeviceId: String?
   var onConnect: (() throws -> Void)?
+  var connectStatus: GmailProviderConnectionStatus?
   var status = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
@@ -581,7 +626,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
       throw connectError
     }
 
-    return status
+    return connectStatus ?? status
   }
 
   func getGmailProviderConnection(

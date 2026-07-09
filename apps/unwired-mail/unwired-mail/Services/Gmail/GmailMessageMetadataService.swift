@@ -197,8 +197,13 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       storedTokens,
       productAccountId: session.productAccountId
     )
-    let categorizationBoundary = Date(
-      timeIntervalSince1970: TimeInterval(connection.connectedAt) / 1_000
+    let existingMessages = try store.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let categorizationBoundary = historicalCutoff(
+      connection: connection,
+      hasLocalMetadata: !existingMessages.isEmpty
     )
     let listedMessages = try await listInboxMessages(accessToken: tokens.accessToken)
     var fetchedMessages: [GmailMessageMetadata] = []
@@ -212,6 +217,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
         )
       )
     }
+    try Task.checkCancellation()
     fetchedMessages = fetchedMessages.sorted {
       if $0.providerInternalDateMilliseconds == $1.providerInternalDateMilliseconds {
         return $0.providerMessageId < $1.providerMessageId
@@ -219,6 +225,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
     }
 
+    try Task.checkCancellation()
     try store.saveMessages(
       fetchedMessages,
       productAccountId: session.productAccountId,
@@ -316,6 +323,14 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     }
 
     return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func historicalCutoff(
+    connection: GmailProviderConnectionStatus,
+    hasLocalMetadata: Bool
+  ) -> Date {
+    let cutoffMilliseconds = hasLocalMetadata ? connection.connectedAt : connection.updatedAt
+    return Date(timeIntervalSince1970: TimeInterval(cutoffMilliseconds) / 1_000)
   }
 
   private func refreshedTokens(
