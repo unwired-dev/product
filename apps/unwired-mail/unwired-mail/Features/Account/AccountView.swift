@@ -8,6 +8,7 @@ struct AccountView: View {
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
+  @State private var inboxViewModel: GmailInboxViewModel
 
   init(
     session: ProductAccountSession,
@@ -15,7 +16,8 @@ struct AccountView: View {
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
     gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
-      GoogleGmailProviderCredentialVerifier()
+      GoogleGmailProviderCredentialVerifier(),
+    gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
   ) {
     self.session = session
     self.snapshot = snapshot
@@ -30,6 +32,12 @@ struct AccountView: View {
         credentialVerifier: gmailCredentialVerifier,
         service: gmailConnectionService,
         isSessionCurrent: { session.isCurrent($0) },
+        session: snapshot
+      )
+    )
+    _inboxViewModel = State(
+      initialValue: GmailInboxViewModel(
+        service: gmailMessageMetadataService,
         session: snapshot
       )
     )
@@ -59,6 +67,11 @@ struct AccountView: View {
 
         GmailProviderConnectionPanel(viewModel: gmailViewModel)
 
+        GmailInboxPanel(
+          connection: gmailViewModel.connection,
+          viewModel: inboxViewModel
+        )
+
         SmokeView(service: ConvexBackendHealthService())
 
         Button("Sign Out", role: .destructive) {
@@ -73,6 +86,75 @@ struct AccountView: View {
     .task {
       await categoryViewModel.load()
       await gmailViewModel.load()
+      if let connection = gmailViewModel.connection {
+        await inboxViewModel.load(connection: connection)
+      }
+    }
+  }
+}
+
+@MainActor
+@Observable
+private final class GmailInboxViewModel {
+  var errorMessage: String?
+  var isLoading = false
+  var isSyncing = false
+  var threads: [GmailInboxThread] = []
+
+  private let service: GmailMessageMetadataSyncing
+  private let session: ProductAccountSessionSnapshot
+
+  init(
+    service: GmailMessageMetadataSyncing,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.service = service
+    self.session = session
+  }
+
+  var isRefreshDisabled: Bool {
+    isLoading || isSyncing
+  }
+
+  var messageCount: Int {
+    threads.reduce(0) { count, thread in
+      count + thread.messages.count
+    }
+  }
+
+  func load(connection: GmailProviderConnectionStatus) async {
+    isLoading = true
+    defer {
+      isLoading = false
+    }
+
+    do {
+      let result = try await service.loadInbox(
+        connection: connection,
+        session: session
+      )
+      threads = result.threads
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func sync(connection: GmailProviderConnectionStatus) async {
+    isSyncing = true
+    defer {
+      isSyncing = false
+    }
+
+    do {
+      let result = try await service.syncInbox(
+        connection: connection,
+        session: session
+      )
+      threads = result.threads
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
     }
   }
 }
@@ -420,6 +502,118 @@ private struct GmailProviderConnectionPanel: View {
     .onDisappear {
       connectTask?.cancel()
     }
+  }
+}
+
+private struct GmailInboxPanel: View {
+  let connection: GmailProviderConnectionStatus?
+  @Bindable var viewModel: GmailInboxViewModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Inbox")
+            .font(.headline)
+          Text(summaryText)
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+
+        if let connection {
+          Button {
+            Task {
+              await viewModel.sync(connection: connection)
+            }
+          } label: {
+            Label("Sync", systemImage: "arrow.triangle.2.circlepath")
+          }
+          .buttonStyle(.bordered)
+          .disabled(viewModel.isRefreshDisabled)
+        }
+      }
+
+      if connection == nil {
+        Text("Connect Gmail to sync inbox metadata.")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      } else if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
+        Text("No local inbox metadata yet.")
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+      } else {
+        VStack(alignment: .leading, spacing: 12) {
+          ForEach(viewModel.threads) { thread in
+            GmailInboxThreadRow(thread: thread)
+            Divider()
+          }
+        }
+      }
+
+      if viewModel.isLoading || viewModel.isSyncing {
+        ProgressView(viewModel.isSyncing ? "Syncing Gmail metadata..." : "Loading inbox...")
+      }
+
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
+    }
+  }
+
+  private var summaryText: String {
+    guard connection != nil else {
+      return "Gmail metadata stays local on this trusted device."
+    }
+
+    return "\(viewModel.threads.count) threads, \(viewModel.messageCount) messages"
+  }
+}
+
+private struct GmailInboxThreadRow: View {
+  let thread: GmailInboxThread
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      HStack(alignment: .firstTextBaseline) {
+        VStack(alignment: .leading, spacing: 4) {
+          Text(thread.latestMessage.subject)
+            .font(.subheadline.bold())
+          if let from = thread.latestMessage.from {
+            Text(from)
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        Spacer()
+
+        VStack(alignment: .trailing, spacing: 4) {
+          Text(categoryState)
+            .font(.caption.bold())
+            .foregroundStyle(.secondary)
+          if thread.messages.count > 1 {
+            Text("\(thread.messages.count) messages")
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+        }
+      }
+
+      if !thread.latestMessage.snippet.isEmpty {
+        Text(thread.latestMessage.snippet)
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+          .lineLimit(2)
+      }
+    }
+  }
+
+  private var categoryState: String {
+    thread.messages.allSatisfy { $0.categoryId == nil } ? "Uncategorized" : "Categorized"
   }
 }
 
