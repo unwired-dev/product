@@ -142,7 +142,9 @@ final class ConvexClientTests: XCTestCase {
 
     XCTAssertEqual(response, ProductAccountConnectResponse.preview)
   }
+}
 
+final class ConvexClientProductSyncTests: XCTestCase {
   func testMarkProductSyncMaterialInitializedSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = """
       {
