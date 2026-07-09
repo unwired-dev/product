@@ -67,6 +67,60 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     XCTAssertNil(loadedCategory)
     XCTAssertEqual(transport.writeHistory.count, 2)
   }
+
+  func testLoadExistingRemoteCategoryRequiresLocalKeyMaterial() async throws {
+    let firstStore = InMemoryProductSyncKeyMaterialStore()
+    let transport = RecordingProductSyncTransport()
+    let firstDeviceService = CustomCategorySyncService(
+      keyMaterialStore: firstStore,
+      transport: transport
+    )
+    _ = try await firstDeviceService.saveCategory(
+      CustomCategory(name: "Finance", description: nil),
+      session: session
+    )
+    let freshDeviceService = CustomCategorySyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await freshDeviceService.loadCategory(session: session)
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as CustomCategorySyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+  }
+
+  func testSaveDoesNotOverwriteRemoteCategoryWithoutLocalKeyMaterial() async throws {
+    let firstStore = InMemoryProductSyncKeyMaterialStore()
+    let transport = RecordingProductSyncTransport()
+    let firstDeviceService = CustomCategorySyncService(
+      keyMaterialStore: firstStore,
+      transport: transport
+    )
+    _ = try await firstDeviceService.saveCategory(
+      CustomCategory(name: "Finance", description: nil),
+      session: session
+    )
+    let freshDeviceService = CustomCategorySyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await freshDeviceService.saveCategory(
+        CustomCategory(name: "Travel", description: nil),
+        session: session
+      )
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as CustomCategorySyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+
+    let loadedCategory = try await firstDeviceService.loadCategory(session: session)
+    XCTAssertEqual(loadedCategory?.name, "Finance")
+  }
 }
 
 private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
@@ -78,6 +132,14 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
   {
     _ = identityToken
     return writes
+  }
+
+  func getEncryptedProductSyncPayload(
+    identityToken: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    _ = identityToken
+    return writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
   func putEncryptedProductSyncPayload(

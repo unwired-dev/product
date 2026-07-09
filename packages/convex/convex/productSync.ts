@@ -3,6 +3,7 @@ import type { EncryptedProductSyncPayload } from '@private-email/contracts/produ
 import {
   encryptedProductSyncPayloadBodyValidator,
   encryptedProductSyncPayloadValidator,
+  maybeEncryptedProductSyncPayloadValidator,
 } from '@private-email/contracts/productSync';
 import { v } from 'convex/values';
 
@@ -133,4 +134,24 @@ export const listEncryptedPayloads = query({
     return payloads.map(serializePayload);
   },
   returns: v.array(encryptedProductSyncPayloadValidator),
+});
+
+export const getEncryptedPayload = query({
+  args: {
+    payloadIdentifier: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    const payload = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('payloadIdentifier', args.payloadIdentifier),
+      )
+      .unique();
+
+    return payload === null ? null : serializePayload(payload);
+  },
+  returns: maybeEncryptedProductSyncPayloadValidator,
 });

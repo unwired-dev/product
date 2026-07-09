@@ -39,6 +39,34 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testSignInForExistingProductAccountDoesNotCreateNewProductSyncMaterial() async {
+    let existingAccountResponse = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: existingAccountResponse),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+  }
+
   func testSignOutClearsStoredSession() async {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(

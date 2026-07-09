@@ -72,6 +72,17 @@ final class ConvexClient {
     )
   }
 
+  func getEncryptedProductSyncPayload(
+    identityToken: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    try await performNullableQuery(
+      path: "productSync:getEncryptedPayload",
+      args: GetEncryptedProductSyncPayloadArgs(payloadIdentifier: payloadIdentifier),
+      identityToken: identityToken
+    )
+  }
+
   func listEncryptedProductSyncPayloads(
     identityToken: String
   ) async throws -> [EncryptedProductSyncPayload] {
@@ -112,6 +123,19 @@ final class ConvexClient {
     identityToken: String
   ) async throws -> Response {
     try await performRequest(
+      endpoint: "api/query",
+      path: path,
+      args: args,
+      identityToken: identityToken
+    )
+  }
+
+  private func performNullableQuery<Response: Decodable>(
+    path: String,
+    args: some Encodable = EmptyConvexArgs(),
+    identityToken: String
+  ) async throws -> Response? {
+    try await performNullableRequest(
       endpoint: "api/query",
       path: path,
       args: args,
@@ -164,6 +188,48 @@ final class ConvexClient {
 
     return value
   }
+
+  private func performNullableRequest<Response: Decodable>(
+    endpoint: String,
+    path: String,
+    args: some Encodable,
+    identityToken: String?
+  ) async throws -> Response? {
+    guard let convexURL else {
+      throw ConvexClientError.missingConvexURL
+    }
+
+    var request = URLRequest(url: convexURL.appending(path: endpoint))
+    request.httpMethod = "POST"
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    if let identityToken {
+      request.setValue("Bearer \(identityToken)", forHTTPHeaderField: "Authorization")
+    }
+    request.httpBody = try JSONEncoder().encode(
+      ConvexFunctionRequest(path: path, args: AnyEncodable(args), format: "json")
+    )
+
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw ConvexClientError.decodeError
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      throw ConvexClientError.httpError(statusCode: httpResponse.statusCode)
+    }
+
+    let functionResponse = try JSONDecoder().decode(
+      ConvexFunctionEnvelope<Response>.self,
+      from: data
+    )
+    guard functionResponse.status == "success" else {
+      throw ConvexClientError.convexFailure(
+        status: functionResponse.status,
+        message: functionResponse.errorMessage
+      )
+    }
+
+    return functionResponse.value
+  }
 }
 
 private struct EmptyConvexArgs: Encodable {}
@@ -177,6 +243,10 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let payloadIdentifier: String
   let trustedDeviceId: String
+}
+
+private struct GetEncryptedProductSyncPayloadArgs: Encodable {
+  let payloadIdentifier: String
 }
 
 private struct ConvexFunctionRequest: Encodable {

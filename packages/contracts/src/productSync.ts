@@ -25,6 +25,11 @@ export type EncryptedProductSyncPayload = Infer<
   typeof encryptedProductSyncPayloadValidator
 >;
 
+export const maybeEncryptedProductSyncPayloadValidator = v.union(
+  encryptedProductSyncPayloadValidator,
+  v.null(),
+);
+
 export const encryptedProductSyncPayloadFixture: EncryptedProductSyncPayload = {
   encryptedPayload: {
     algorithm: 'AES-GCM-256',

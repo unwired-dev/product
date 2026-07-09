@@ -250,6 +250,78 @@ final class ConvexClientTests: XCTestCase {
     XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001"])
   }
 
+  func testGetEncryptedProductSyncPayloadSendsAuthenticatedQuery() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "encryptedPayload": {
+            "algorithm": "AES-GCM-256",
+            "ciphertextBase64": "Y2lwaGVydGV4dA",
+            "keyVersion": 1,
+            "nonceBase64": "bm9uY2U",
+            "schemaVersion": 1,
+            "tagBase64": "dGFn"
+          },
+          "payloadIdentifier": "custom-category-primary",
+          "updatedAt": 1781200000000
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/query")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.getEncryptedProductSyncPayload(
+      identityToken: "apple-token",
+      payloadIdentifier: "custom-category-primary"
+    )
+
+    XCTAssertEqual(response?.payloadIdentifier, "custom-category-primary")
+  }
+
+  func testGetEncryptedProductSyncPayloadDecodesMissingPayload() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": null
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.getEncryptedProductSyncPayload(
+      identityToken: "apple-token",
+      payloadIdentifier: "custom-category-primary"
+    )
+
+    XCTAssertNil(response)
+  }
+
   func testConvexErrorEnvelopeSurfacesBackendMessage() async {
     let fixtureEnvelope = """
       {

@@ -44,9 +44,11 @@ final class ProductAccountSession {
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
       )
-      _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
-      )
+      if response.accountCreated {
+        _ = try productSyncKeyMaterialStore.ensureMaterial(
+          productAccountId: response.productAccountId
+        )
+      }
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,
@@ -76,9 +78,11 @@ final class ProductAccountSession {
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
       )
-      _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
-      )
+      if response.accountCreated {
+        _ = try productSyncKeyMaterialStore.ensureMaterial(
+          productAccountId: response.productAccountId
+        )
+      }
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,

@@ -17,6 +17,10 @@ struct CustomCategory: Codable, Equatable, Identifiable {
 }
 
 protocol ProductSyncPayloadTransport {
+  func getEncryptedProductSyncPayload(
+    identityToken: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload?
   func listEncryptedProductSyncPayloads(identityToken: String) async throws
     -> [EncryptedProductSyncPayload]
   func putEncryptedProductSyncPayload(
@@ -32,6 +36,17 @@ protocol CustomCategorySyncing {
   func loadCategory(session: ProductAccountSessionSnapshot) async throws -> CustomCategory?
   func saveCategory(_ category: CustomCategory, session: ProductAccountSessionSnapshot) async throws
     -> CustomCategory
+}
+
+enum CustomCategorySyncError: LocalizedError, Equatable {
+  case missingProductSyncKeyMaterial
+
+  var errorDescription: String? {
+    switch self {
+    case .missingProductSyncKeyMaterial:
+      return "Restore Product Sync key material before changing this synced category."
+    }
+  }
 }
 
 struct CustomCategorySyncPayload: Codable, Equatable {
@@ -80,18 +95,14 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   }
 
   func loadCategory(session: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
-    let payloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken
-    )
-    guard
-      let syncedPayload = payloads.first(where: {
-        $0.payloadIdentifier == CustomCategorySyncPayload.primaryIdentifier
-      })
-    else {
+    guard let syncedPayload = try await loadRemotePayload(session: session) else {
       return nil
     }
 
-    let material = try keyMaterialStore.ensureMaterial(productAccountId: session.productAccountId)
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw CustomCategorySyncError.missingProductSyncKeyMaterial
+    }
     let plaintext = try material.decryptPayload(
       syncedPayload.encryptedPayload,
       associatedData: associatedData
@@ -115,7 +126,7 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     _ payload: CustomCategorySyncPayload,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let material = try keyMaterialStore.ensureMaterial(productAccountId: session.productAccountId)
+    let material = try await keyMaterialForWrite(session: session)
     let plaintext = try encoder.encode(payload)
     let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
 
@@ -129,6 +140,29 @@ final class CustomCategorySyncService: CustomCategorySyncing {
 
   private var associatedData: Data {
     Data(CustomCategorySyncPayload.primaryIdentifier.utf8)
+  }
+
+  private func keyMaterialForWrite(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncKeyMaterial {
+    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
+      return material
+    }
+
+    if try await loadRemotePayload(session: session) != nil {
+      throw CustomCategorySyncError.missingProductSyncKeyMaterial
+    }
+
+    return try keyMaterialStore.ensureMaterial(productAccountId: session.productAccountId)
+  }
+
+  private func loadRemotePayload(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> EncryptedProductSyncPayload? {
+    try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: CustomCategorySyncPayload.primaryIdentifier
+    )
   }
 }
 

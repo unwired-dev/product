@@ -76,7 +76,7 @@ private final class CustomCategoryViewModel {
   }
 
   var canSave: Bool {
-    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving
+    !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving && !isSyncing
   }
 
   func load() async {
@@ -175,10 +175,12 @@ private struct CustomCategoryPanel: View {
       VStack(alignment: .leading, spacing: 12) {
         TextField("Category name", text: $viewModel.name)
           .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isSyncing)
 
         TextField("Optional category description", text: $viewModel.description, axis: .vertical)
           .lineLimit(2...4)
           .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isSyncing)
       }
 
       HStack {
@@ -197,7 +199,7 @@ private struct CustomCategoryPanel: View {
             }
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isSaving)
+          .disabled(viewModel.isSaving || viewModel.isSyncing)
         }
       }
 
