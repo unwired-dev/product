@@ -1,6 +1,6 @@
 import Foundation
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   var id: String {
@@ -150,6 +150,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
   private let session: URLSession
   private let store: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
+  private let tokenInfoURL: URL
   private let tokenRefreshURL: URL
 
   init(
@@ -161,6 +162,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     session: URLSession = .shared,
     store: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
+    tokenInfoURL: URL = URL(string: "https://oauth2.googleapis.com/tokeninfo")!,
     tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
   ) {
     self.gmailBaseURL = gmailBaseURL
@@ -168,6 +170,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     self.session = session
     self.store = store
     self.tokenStore = tokenStore
+    self.tokenInfoURL = tokenInfoURL
     self.tokenRefreshURL = tokenRefreshURL
   }
 
@@ -197,6 +200,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       storedTokens,
       productAccountId: session.productAccountId
     )
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
     let existingMessages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -242,24 +246,37 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
   private func listInboxMessages(
     accessToken: String
   ) async throws -> [GmailListedMessage] {
-    var components = URLComponents(
-      url: gmailBaseURL.appendingPathComponent("users/me/messages"),
-      resolvingAgainstBaseURL: false
-    )
-    components?.queryItems = [
-      URLQueryItem(name: "labelIds", value: "INBOX"),
-      URLQueryItem(name: "maxResults", value: "25"),
-    ]
-    guard let url = components?.url else {
-      throw GmailMessageMetadataSyncError.invalidGmailRequest
-    }
+    var listedMessages: [GmailListedMessage] = []
+    var nextPageToken: String?
 
-    let response = try await sendAuthorizedRequest(
-      url: url,
-      accessToken: accessToken,
-      responseType: GmailListMessagesResponse.self
-    )
-    return response.messages ?? []
+    repeat {
+      var components = URLComponents(
+        url: gmailBaseURL.appendingPathComponent("users/me/messages"),
+        resolvingAgainstBaseURL: false
+      )
+      var queryItems = [
+        URLQueryItem(name: "labelIds", value: "INBOX"),
+        URLQueryItem(name: "maxResults", value: "25"),
+      ]
+      if let nextPageToken {
+        queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
+      }
+      components?.queryItems = queryItems
+      guard let url = components?.url else {
+        throw GmailMessageMetadataSyncError.invalidGmailRequest
+      }
+
+      let response = try await sendAuthorizedRequest(
+        url: url,
+        accessToken: accessToken,
+        responseType: GmailListMessagesResponse.self
+      )
+      listedMessages.append(contentsOf: response.messages ?? [])
+      nextPageToken = response.nextPageToken
+      try Task.checkCancellation()
+    } while nextPageToken != nil
+
+    return listedMessages
   }
 
   private func fetchMessageMetadata(
@@ -392,6 +409,36 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     return refreshedTokens
   }
 
+  private func validateRefreshedToken(
+    _ accessToken: String,
+    matches connection: GmailProviderConnectionStatus
+  ) async throws {
+    var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
+    components?.queryItems = [
+      URLQueryItem(name: "access_token", value: accessToken)
+    ]
+    guard let url = components?.url else {
+      throw GmailMessageMetadataSyncError.invalidGmailRequest
+    }
+
+    let (data, response) = try await session.data(from: url)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
+    }
+
+    let tokenInfo = try JSONDecoder().decode(GmailTokenInfoResponse.self, from: data)
+    guard let subject = tokenInfo.sub, subject == connection.providerAccountIdentifier else {
+      throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
+    }
+    if let email = tokenInfo.email, !email.isEmpty {
+      guard email.caseInsensitiveCompare(connection.emailAddress) == .orderedSame else {
+        throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
+      }
+    }
+  }
+
   private func formURLEncodedBody(_ fields: [String: String]) -> Data {
     fields
       .map { key, value in
@@ -413,6 +460,7 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case invalidGmailRequest
   case missingLocalGmailTokens
   case missingOAuthClientId
+  case refreshedTokenAccountMismatch
   case refreshTokenRejected
 
   var errorDescription: String? {
@@ -425,6 +473,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
     case .missingOAuthClientId:
       return "Gmail OAuth client id is not configured."
+    case .refreshedTokenAccountMismatch:
+      return "Local Gmail tokens belong to a different Google account."
     case .refreshTokenRejected:
       return "Gmail did not refresh local mail access for this account."
     }
@@ -480,6 +530,7 @@ extension GmailMessageMetadata {
 
 private struct GmailListMessagesResponse: Decodable {
   let messages: [GmailListedMessage]?
+  let nextPageToken: String?
 }
 
 private struct GmailListedMessage: Decodable {
@@ -509,4 +560,9 @@ private struct GmailRefreshTokenResponse: Decodable {
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
   }
+}
+
+private struct GmailTokenInfoResponse: Decodable {
+  let email: String?
+  let sub: String?
 }

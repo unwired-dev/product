@@ -141,9 +141,14 @@ private final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
-      currentProviderAccountIdentifier = connection.providerAccountIdentifier
+      try Task.checkCancellation()
+      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier
+      else {
+        return
+      }
       threads = result.threads
       errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -182,6 +187,7 @@ private final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }

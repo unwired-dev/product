@@ -2,7 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable type_body_length
+// swiftlint:disable file_length function_body_length type_body_length
 final class GmailMessageMetadataServiceTests: XCTestCase {
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
@@ -32,6 +32,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       fixture.requestRecorder.paths,
       [
         "/token",
+        "/tokeninfo",
         "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-002",
         "/gmail/v1/users/me/messages/message-001",
@@ -138,6 +139,56 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncInboxFollowsGmailPaginationBeforeSavingMetadata() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      result.messages.map(\.providerMessageId),
+      [
+        "message-003",
+        "message-002",
+        "message-001",
+      ])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
+      [
+        "labelIds=INBOX&maxResults=25",
+        "labelIds=INBOX&maxResults=25&pageToken=next-page-token",
+      ]
+    )
+    XCTAssertEqual(
+      fixture.store.savedMessages.map(\.providerMessageId),
+      [
+        "message-003",
+        "message-002",
+        "message-001",
+      ])
+  }
+
+  func testSyncInboxRejectsRefreshedTokenForDifferentGoogleAccount() async throws {
+    let fixture = try makeSyncFixture(tokenInfoSubject: "different-gmail-user")
+
+    do {
+      _ = try await fixture.service.syncInbox(
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected refreshed token account mismatch")
+    } catch GmailMessageMetadataSyncError.refreshedTokenAccountMismatch {
+      XCTAssertEqual(fixture.store.savedMessages, [])
+      XCTAssertFalse(
+        fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages")
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testSyncInboxRequiresDeviceHeldGmailTokens() async throws {
     let service = GmailMessageMetadataService(
       session: ConvexClientTesting.makeSession { request in
@@ -195,7 +246,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
-  private func makeSyncFixture() throws -> GmailMessageMetadataSyncFixture {
+  private func makeSyncFixture(
+    tokenInfoSubject: String = "gmail-user-001",
+    usesPagination: Bool = false
+  ) throws -> GmailMessageMetadataSyncFixture {
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
     let requestRecorder = GmailMetadataRequestRecorder()
@@ -206,7 +260,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let urlSession = ConvexClientTesting.makeSession { request in
       self.makeSyncResponse(
         for: request,
-        requestRecorder: requestRecorder
+        requestRecorder: requestRecorder,
+        tokenInfoSubject: tokenInfoSubject,
+        usesPagination: usesPagination
       )
     }
     let service = GmailMessageMetadataService(
@@ -215,6 +271,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: urlSession,
       store: store,
       tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
       tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
     )
     return GmailMessageMetadataSyncFixture(
@@ -227,9 +284,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   private func makeSyncResponse(
     for request: URLRequest,
-    requestRecorder: GmailMetadataRequestRecorder
+    requestRecorder: GmailMetadataRequestRecorder,
+    tokenInfoSubject: String,
+    usesPagination: Bool
   ) -> (HTTPURLResponse, Data) {
     requestRecorder.paths.append(request.url?.path ?? "")
+    requestRecorder.queries.append(request.url?.query ?? "")
 
     if request.url?.path == "/token" {
       XCTAssertEqual(request.httpMethod, "POST")
@@ -243,6 +303,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
 
+    if request.url?.path == "/tokeninfo" {
+      XCTAssertEqual(request.url?.query, "access_token=refreshed-access-token")
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(
+          """
+          {"sub":"\(tokenInfoSubject)","email":"user@example.com"}
+          """.utf8
+        )
+      )
+    }
+
     XCTAssertEqual(
       request.value(forHTTPHeaderField: "Authorization"),
       "Bearer refreshed-access-token"
@@ -250,6 +322,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     if request.url?.path == "/gmail/v1/users/me/messages" {
       XCTAssertTrue(request.url?.query?.contains("labelIds=INBOX") == true)
+      if usesPagination, request.url?.query?.contains("pageToken=next-page-token") == true {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"messages":[{"id":"message-001"}]}"#.utf8)
+        )
+      }
+      if usesPagination {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(
+            #"{"messages":[{"id":"message-003"},{"id":"message-002"}],"nextPageToken":"next-page-token"}"#
+              .utf8
+          )
+        )
+      }
       return (
         Self.httpResponse(for: request, statusCode: 200),
         Data(#"{"messages":[{"id":"message-002"},{"id":"message-001"}]}"#.utf8)
@@ -268,6 +355,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         messageId: "message-001",
         internalDate: "1781190000000",
         snippet: "Older message snippet"
+      )
+    }
+
+    if request.url?.path == "/gmail/v1/users/me/messages/message-003" {
+      return Self.messageMetadataResponseData(
+        messageId: "message-003",
+        internalDate: "1781199000000",
+        snippet: "Newest message snippet"
       )
     }
 
@@ -307,6 +402,7 @@ private struct GmailMessageMetadataSyncFixture {
 
 private final class GmailMetadataRequestRecorder {
   var paths: [String] = []
+  var queries: [String] = []
 }
 
 private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPersisting {

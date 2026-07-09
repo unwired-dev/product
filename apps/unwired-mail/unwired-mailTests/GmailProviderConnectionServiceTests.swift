@@ -231,6 +231,36 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testCompleteConnectionDoesNotSaveTokensWhenConnectionLookupIsCancelled() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let transport = RecordingGmailConnectionTransport()
+    transport.loadError = CancellationError()
+    let service = GmailProviderConnectionService(
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "user@example.com",
+          providerAccountIdentifier: "gmail-user-001",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+      XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+      XCTAssertNil(transport.connectCall)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testLoadConnectionReadsBackendStatus() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -640,6 +670,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
 
   var connectCall: ConnectCall?
   var connectError: Error?
+  var loadError: Error?
   var loadIdentityToken: String?
   var loadTrustedDeviceId: String?
   var onConnect: (() throws -> Void)?
@@ -680,6 +711,10 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   ) async throws -> GmailProviderConnectionStatus? {
     loadIdentityToken = identityToken
     loadTrustedDeviceId = trustedDeviceId
+    if let loadError {
+      throw loadError
+    }
+
     return status
   }
 }
