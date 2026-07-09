@@ -153,7 +153,10 @@ final class CustomCategorySyncService: CustomCategorySyncing {
       throw CustomCategorySyncError.missingProductSyncKeyMaterial
     }
 
-    return try keyMaterialStore.ensureMaterial(productAccountId: session.productAccountId)
+    return try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
   }
 
   private func loadRemotePayload(

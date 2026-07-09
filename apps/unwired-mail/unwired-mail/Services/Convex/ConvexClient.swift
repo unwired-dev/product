@@ -55,6 +55,19 @@ final class ConvexClient {
     )
   }
 
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    try await performMutation(
+      path: "productAccount:markProductSyncMaterialInitialized",
+      args: MarkProductSyncMaterialInitializedArgs(
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -86,10 +99,28 @@ final class ConvexClient {
   func listEncryptedProductSyncPayloads(
     identityToken: String
   ) async throws -> [EncryptedProductSyncPayload] {
-    try await performQuery(
-      path: "productSync:listEncryptedPayloads",
-      identityToken: identityToken
-    )
+    var allPayloads: [EncryptedProductSyncPayload] = []
+    var cursor: String?
+    var isDone = false
+
+    while !isDone {
+      let response: EncryptedProductSyncPayloadPage = try await performQuery(
+        path: "productSync:listEncryptedPayloads",
+        args: ListEncryptedProductSyncPayloadsArgs(
+          paginationOpts: ConvexPaginationOptions(
+            cursor: cursor,
+            numItems: 100
+          )
+        ),
+        identityToken: identityToken
+      )
+
+      allPayloads.append(contentsOf: response.page)
+      cursor = response.continueCursor
+      isDone = response.isDone
+    }
+
+    return allPayloads
   }
 
   private func performAction<Response: Decodable>(
@@ -247,6 +278,30 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
 
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
+}
+
+private struct MarkProductSyncMaterialInitializedArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
+  let paginationOpts: ConvexPaginationOptions
+}
+
+private struct ConvexPaginationOptions: Encodable {
+  let cursor: String?
+  let numItems: Int
+
+  enum CodingKeys: CodingKey {
+    case cursor
+    case numItems
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(cursor, forKey: .cursor)
+    try container.encode(numItems, forKey: .numItems)
+  }
 }
 
 private struct ConvexFunctionRequest: Encodable {

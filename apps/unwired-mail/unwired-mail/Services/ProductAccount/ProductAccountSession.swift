@@ -44,11 +44,14 @@ final class ProductAccountSession {
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
       )
-      if response.accountCreated {
-        _ = try productSyncKeyMaterialStore.ensureMaterial(
-          productAccountId: response.productAccountId
-        )
-      }
+      _ = try productSyncKeyMaterialStore.ensureMaterial(
+        productAccountId: response.productAccountId,
+        allowCreation: response.accountCreated
+      )
+      _ = try await productAccountService.markProductSyncMaterialInitialized(
+        identityToken: credential.identityToken,
+        trustedDeviceId: response.trustedDeviceId
+      )
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,
@@ -78,11 +81,14 @@ final class ProductAccountSession {
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
       )
-      if response.accountCreated {
-        _ = try productSyncKeyMaterialStore.ensureMaterial(
-          productAccountId: response.productAccountId
-        )
-      }
+      _ = try productSyncKeyMaterialStore.ensureMaterial(
+        productAccountId: response.productAccountId,
+        allowCreation: shouldCreateProductSyncMaterialAfterSignIn(response: response)
+      )
+      _ = try await productAccountService.markProductSyncMaterialInitialized(
+        identityToken: credential.identityToken,
+        trustedDeviceId: response.trustedDeviceId
+      )
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,
@@ -103,5 +109,12 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
+  }
+
+  private func shouldCreateProductSyncMaterialAfterSignIn(
+    response: ProductAccountConnectResponse
+  ) -> Bool {
+    response.accountCreated
+      || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
   }
 }

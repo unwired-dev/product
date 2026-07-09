@@ -1,10 +1,17 @@
-import { productAccountConnectResponseValidator } from '@private-email/contracts/productAccount';
+import {
+  productAccountConnectResponseValidator,
+  productSyncMaterialInitializedResponseValidator,
+} from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
 
 import type { Id } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
 import { mutation } from './_generated/server.js';
+import {
+  requireProductAccount,
+  requireTrustedDevice,
+} from './productAccountAuth.js';
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -114,13 +121,39 @@ export const connect = mutation({
         platform: args.platform,
       },
     );
+    const productAccount = await ctx.db.get(productAccountId);
 
     return {
       accountCreated,
       deviceRegistered,
+      productSyncMaterialInitialized:
+        productAccount?.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
       trustedDeviceId,
     };
   },
   returns: productAccountConnectResponseValidator,
+});
+
+export const markProductSyncMaterialInitialized = mutation({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    await ctx.db.patch(account.productAccountId, {
+      productSyncMaterialInitializedAt:
+        account.productSyncMaterialInitializedAt ?? Date.now(),
+    });
+
+    return {
+      productSyncMaterialInitialized: true,
+    };
+  },
+  returns: productSyncMaterialInitializedResponseValidator,
 });

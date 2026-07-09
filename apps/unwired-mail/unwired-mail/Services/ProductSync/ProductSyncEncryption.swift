@@ -261,24 +261,26 @@ struct ProductSyncKeyMaterial: Equatable {
   }
 }
 
-private extension AES.GCM.Nonce {
-  var data: Data {
+extension AES.GCM.Nonce {
+  fileprivate var data: Data {
     withUnsafeBytes { Data($0) }
   }
 }
 
-private extension Data {
-  init?(productSyncBase64URLEncoded value: String) {
-    var base64 = value
+extension Data {
+  fileprivate init?(productSyncBase64URLEncoded value: String) {
+    var base64 =
+      value
       .replacingOccurrences(of: "-", with: "+")
       .replacingOccurrences(of: "_", with: "/")
+
     let paddingLength = (4 - base64.count % 4) % 4
     base64.append(String(repeating: "=", count: paddingLength))
 
     self.init(base64Encoded: base64)
   }
 
-  func productSyncBase64URLString() -> String {
+  fileprivate func productSyncBase64URLString() -> String {
     base64EncodedString()
       .replacingOccurrences(of: "+", with: "-")
       .replacingOccurrences(of: "/", with: "_")
