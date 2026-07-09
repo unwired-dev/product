@@ -4,8 +4,11 @@ export {
   type HealthResponse,
 } from './health.ts';
 export {
+  gmailProviderConnectionStatusFixture,
+  gmailProviderConnectionStatusValidator,
   productAccountConnectResponseFixture,
   productAccountConnectResponseValidator,
+  type GmailProviderConnectionStatus,
   type ProductAccountConnectResponse,
 } from './productAccount.ts';
 export {

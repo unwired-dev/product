@@ -68,6 +68,32 @@ final class ConvexClient {
     )
   }
 
+  func connectGmailProvider(
+    identityToken: String,
+    trustedDeviceId: String,
+    emailAddress: String,
+    providerAccountIdentifier: String
+  ) async throws -> GmailProviderConnectionStatus {
+    try await performMutation(
+      path: "productAccount:connectGmailProvider",
+      args: ConnectGmailProviderArgs(
+        emailAddress: emailAddress,
+        providerAccountIdentifier: providerAccountIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func getGmailProviderConnection(
+    identityToken: String
+  ) async throws -> GmailProviderConnectionStatus? {
+    try await performNullableQuery(
+      path: "productAccount:getGmailProviderConnection",
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -268,6 +294,12 @@ private struct EmptyConvexArgs: Encodable {}
 private struct ConnectProductAccountArgs: Encodable {
   let deviceIdentifier: String
   let platform: String
+}
+
+private struct ConnectGmailProviderArgs: Encodable {
+  let emailAddress: String
+  let providerAccountIdentifier: String
+  let trustedDeviceId: String
 }
 
 private struct PutEncryptedProductSyncPayloadArgs: Encodable {

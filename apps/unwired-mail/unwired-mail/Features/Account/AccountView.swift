@@ -5,17 +5,25 @@ struct AccountView: View {
   let snapshot: ProductAccountSessionSnapshot
 
   @State private var categoryViewModel: CustomCategoryViewModel
+  @State private var gmailViewModel: GmailProviderConnectionViewModel
 
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
-    categorySyncService: CustomCategorySyncing = CustomCategorySyncService()
+    categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
+    gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService()
   ) {
     self.session = session
     self.snapshot = snapshot
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
+        session: snapshot
+      )
+    )
+    _gmailViewModel = State(
+      initialValue: GmailProviderConnectionViewModel(
+        service: gmailConnectionService,
         session: snapshot
       )
     )
@@ -43,6 +51,8 @@ struct AccountView: View {
 
         CustomCategoryPanel(viewModel: categoryViewModel)
 
+        GmailProviderConnectionPanel(viewModel: gmailViewModel)
+
         SmokeView(service: ConvexBackendHealthService())
 
         Button("Sign Out", role: .destructive) {
@@ -56,6 +66,94 @@ struct AccountView: View {
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
       await categoryViewModel.load()
+      await gmailViewModel.load()
+    }
+  }
+}
+
+@MainActor
+@Observable
+private final class GmailProviderConnectionViewModel {
+  var accessToken = ""
+  var connection: GmailProviderConnectionStatus?
+  var emailAddress = ""
+  var errorMessage: String?
+  var isConnecting = false
+  var isLoading = false
+  var providerAccountIdentifier = ""
+  var refreshToken = ""
+
+  private let service: GmailProviderConnecting
+  private let session: ProductAccountSessionSnapshot
+
+  init(service: GmailProviderConnecting, session: ProductAccountSessionSnapshot) {
+    self.service = service
+    self.session = session
+  }
+
+  var canConnect: Bool {
+    !isConnecting
+      && !isLoading
+      && !emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !providerAccountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      && !accessToken.isEmpty
+      && !refreshToken.isEmpty
+  }
+
+  var isEditingDisabled: Bool {
+    isConnecting || isLoading
+  }
+
+  func load() async {
+    isLoading = true
+    defer {
+      isLoading = false
+    }
+
+    do {
+      connection = try await service.loadConnection(session: session)
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func connect() async {
+    let trimmedEmailAddress = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
+    let trimmedProviderAccountIdentifier = providerAccountIdentifier.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    )
+    guard
+      !trimmedEmailAddress.isEmpty,
+      !trimmedProviderAccountIdentifier.isEmpty,
+      !accessToken.isEmpty,
+      !refreshToken.isEmpty
+    else {
+      return
+    }
+
+    isConnecting = true
+    defer {
+      isConnecting = false
+    }
+
+    do {
+      connection = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: trimmedEmailAddress,
+          providerAccountIdentifier: trimmedProviderAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: accessToken,
+            refreshToken: refreshToken
+          )
+        ),
+        session: session
+      )
+      accessToken = ""
+      refreshToken = ""
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
     }
   }
 }
@@ -215,6 +313,81 @@ private struct CustomCategoryPanel: View {
 
       if viewModel.isSyncing {
         ProgressView("Syncing category...")
+      }
+
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
+    }
+  }
+}
+
+private struct GmailProviderConnectionPanel: View {
+  @Bindable var viewModel: GmailProviderConnectionViewModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Gmail")
+            .font(.headline)
+          if let connection = viewModel.connection {
+            Label(connection.emailAddress, systemImage: "checkmark.circle.fill")
+              .foregroundStyle(.green)
+              .font(.subheadline)
+            Text("Provider account: \(connection.providerAccountIdentifier)")
+              .font(.footnote)
+              .foregroundStyle(.secondary)
+          } else {
+            Text("Not connected")
+              .font(.subheadline)
+              .foregroundStyle(.secondary)
+          }
+        }
+
+        Spacer()
+
+        Button {
+          Task {
+            await viewModel.load()
+          }
+        } label: {
+          Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.isEditingDisabled)
+      }
+
+      VStack(alignment: .leading, spacing: 12) {
+        TextField("Gmail address", text: $viewModel.emailAddress)
+          .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isEditingDisabled)
+
+        TextField("Gmail account ID", text: $viewModel.providerAccountIdentifier)
+          .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isEditingDisabled)
+
+        SecureField("Access token", text: $viewModel.accessToken)
+          .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isEditingDisabled)
+
+        SecureField("Refresh token", text: $viewModel.refreshToken)
+          .textFieldStyle(.roundedBorder)
+          .disabled(viewModel.isEditingDisabled)
+      }
+
+      Button(viewModel.connection == nil ? "Connect Gmail" : "Update Gmail") {
+        Task {
+          await viewModel.connect()
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!viewModel.canConnect)
+
+      if viewModel.isLoading || viewModel.isConnecting {
+        ProgressView(viewModel.isConnecting ? "Connecting Gmail..." : "Loading Gmail...")
       }
 
       if let errorMessage = viewModel.errorMessage {

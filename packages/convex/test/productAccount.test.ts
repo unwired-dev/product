@@ -168,3 +168,113 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Authentication required');
   });
 });
+
+describe('productAccount Gmail provider connection', () => {
+  it('stores Gmail connection metadata without provider tokens', async () => {
+    expect.assertions(5);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    const status = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'user@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(status).toMatchObject({
+      emailAddress: 'user@example.com',
+      provider: 'gmail',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    expect(JSON.stringify(status)).not.toMatch(/accessToken|refreshToken/iu);
+
+    const loadedStatus = await asUser.query(
+      api.productAccount.getGmailProviderConnection,
+      {},
+    );
+
+    expect(loadedStatus).toMatchObject({
+      emailAddress: 'user@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+    });
+    expect(JSON.stringify(loadedStatus)).not.toMatch(
+      /accessToken|refreshToken/iu,
+    );
+    expect(loadedStatus?.connectedAt).toBe(status.connectedAt);
+  });
+
+  it('requires a trusted device owned by the Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const otherConnect = await asOtherUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      },
+    );
+
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'user@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: otherConnect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
+  it('updates the existing Gmail connection for the Product Account', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    const firstStatus = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'user@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const secondStatus = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'renamed@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(secondStatus.emailAddress).toBe('renamed@example.com');
+    expect(secondStatus.connectedAt).toBe(firstStatus.connectedAt);
+    expect(secondStatus.updatedAt).toBeGreaterThanOrEqual(
+      firstStatus.updatedAt,
+    );
+  });
+});
