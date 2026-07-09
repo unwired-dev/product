@@ -5,6 +5,7 @@ export default defineSchema({
   productAccounts: defineTable({
     createdAt: v.number(),
     lastSeenAt: v.number(),
+    productSyncMaterialInitializedAt: v.optional(v.number()),
     tokenIdentifier: v.string(),
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 

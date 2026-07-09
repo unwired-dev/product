@@ -87,11 +87,142 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), snapshot)
   }
+
+  func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .resumed),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed(let message) = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(
+      message,
+      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
+    )
+    XCTAssertNil(
+      try keyMaterialStore.load(
+        productAccountId: ProductAccountConnectResponse.resumed.productAccountId
+      )
+    )
+  }
+
+  func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: false,
+      productSyncMaterialInitialized: false,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(snapshot.productAccountId, response.productAccountId)
+    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
+
+  func testReturningRegisteredDeviceWithInitializedSyncMaterialRequiresRecovery() async {
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: false,
+      productSyncMaterialInitialized: true,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed(let message) = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(
+      message,
+      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
+    )
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
+
+  func testNewDeviceForUninitializedAccountRequiresRecovery() async {
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: false,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed(let message) = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(
+      message,
+      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
+    )
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
 }
 
 private struct FailingProductAccountService: ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     _ = identityToken
+    throw ConvexClientError.missingConvexURL
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    _ = identityToken
+    _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
   }
 }

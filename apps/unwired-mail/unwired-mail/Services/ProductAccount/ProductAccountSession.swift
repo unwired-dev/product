@@ -45,7 +45,12 @@ final class ProductAccountSession {
         identityToken: credential.identityToken
       )
       _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
+        productAccountId: response.productAccountId,
+        allowCreation: response.accountCreated
+      )
+      _ = try await productAccountService.markProductSyncMaterialInitialized(
+        identityToken: credential.identityToken,
+        trustedDeviceId: response.trustedDeviceId
       )
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
@@ -77,7 +82,12 @@ final class ProductAccountSession {
         identityToken: credential.identityToken
       )
       _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId
+        productAccountId: response.productAccountId,
+        allowCreation: shouldCreateProductSyncMaterialAfterSignIn(response: response)
+      )
+      _ = try await productAccountService.markProductSyncMaterialInitialized(
+        identityToken: credential.identityToken,
+        trustedDeviceId: response.trustedDeviceId
       )
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
@@ -99,5 +109,12 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
+  }
+
+  private func shouldCreateProductSyncMaterialAfterSignIn(
+    response: ProductAccountConnectResponse
+  ) -> Bool {
+    response.accountCreated
+      || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
   }
 }

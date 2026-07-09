@@ -11,7 +11,10 @@ export {
 export {
   encryptedProductSyncPayloadBodyValidator,
   encryptedProductSyncPayloadFixture,
+  encryptedProductSyncPayloadPageFixture,
+  encryptedProductSyncPayloadPageValidator,
   encryptedProductSyncPayloadValidator,
   type EncryptedProductSyncPayload,
   type EncryptedProductSyncPayloadBody,
+  type EncryptedProductSyncPayloadPage,
 } from './productSync.ts';

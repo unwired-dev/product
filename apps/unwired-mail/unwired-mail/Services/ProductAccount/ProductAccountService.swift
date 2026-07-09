@@ -3,8 +3,13 @@ import Foundation
 struct ProductAccountConnectResponse: Decodable, Equatable {
   let accountCreated: Bool
   let deviceRegistered: Bool
+  let productSyncMaterialInitialized: Bool
   let productAccountId: String
   let trustedDeviceId: String
+}
+
+struct ProductSyncMaterialInitializedResponse: Decodable, Equatable {
+  let productSyncMaterialInitialized: Bool
 }
 
 struct EncryptedProductSyncPayload: Codable, Equatable {
@@ -13,8 +18,18 @@ struct EncryptedProductSyncPayload: Codable, Equatable {
   let updatedAt: Int64
 }
 
+struct EncryptedProductSyncPayloadPage: Decodable, Equatable {
+  let continueCursor: String
+  let isDone: Bool
+  let page: [EncryptedProductSyncPayload]
+}
+
 protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse
 }
 
 enum ProductAccountServiceError: LocalizedError, Equatable {
@@ -44,6 +59,16 @@ final class ConvexProductAccountService: ProductAccountConnecting {
       platform: TrustedDeviceIdentity.platform
     )
   }
+
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    try await client.markProductSyncMaterialInitialized(
+      identityToken: identityToken,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
 }
 
 struct PreviewProductAccountService: ProductAccountConnecting {
@@ -53,12 +78,32 @@ struct PreviewProductAccountService: ProductAccountConnecting {
     _ = identityToken
     return response
   }
+
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    _ = identityToken
+    _ = trustedDeviceId
+    return ProductSyncMaterialInitializedResponse(
+      productSyncMaterialInitialized: true
+    )
+  }
 }
 
 extension ProductAccountConnectResponse {
   static let preview = ProductAccountConnectResponse(
     accountCreated: true,
     deviceRegistered: true,
+    productSyncMaterialInitialized: false,
+    productAccountId: "productAccountFixtureId",
+    trustedDeviceId: "trustedDeviceFixtureId"
+  )
+
+  static let resumed = ProductAccountConnectResponse(
+    accountCreated: false,
+    deviceRegistered: true,
+    productSyncMaterialInitialized: true,
     productAccountId: "productAccountFixtureId",
     trustedDeviceId: "trustedDeviceFixtureId"
   )
