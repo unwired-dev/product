@@ -5,9 +5,11 @@ import XCTest
 @MainActor
 final class ProductAccountSessionTests: XCTestCase {
   private var store = InMemoryProductAccountSessionStore()
+  private var keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
 
   override func setUp() {
     store = InMemoryProductAccountSessionStore()
+    keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
   }
 
   func testSignInStoresSessionAndMovesToSignedInState() async {
@@ -19,7 +21,8 @@ final class ProductAccountSessionTests: XCTestCase {
         )
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
-      sessionStore: store
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
     )
 
     await session.signInWithApple()
@@ -33,6 +36,7 @@ final class ProductAccountSessionTests: XCTestCase {
       ProductAccountConnectResponse.preview.productAccountId
     )
     XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
   func testSignOutClearsStoredSession() async {
@@ -44,7 +48,8 @@ final class ProductAccountSessionTests: XCTestCase {
         )
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
-      sessionStore: store
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
     )
 
     await session.signInWithApple()
@@ -71,7 +76,8 @@ final class ProductAccountSessionTests: XCTestCase {
         )
       ),
       productAccountService: FailingProductAccountService(),
-      sessionStore: store
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
     )
 
     await session.bootstrap()

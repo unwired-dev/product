@@ -55,6 +55,32 @@ final class ConvexClient {
     )
   }
 
+  func putEncryptedProductSyncPayload(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:putEncryptedPayload",
+      args: PutEncryptedProductSyncPayloadArgs(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func listEncryptedProductSyncPayloads(
+    identityToken: String
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await performQuery(
+      path: "productSync:listEncryptedPayloads",
+      identityToken: identityToken
+    )
+  }
+
   private func performAction<Response: Decodable>(
     path: String,
     args: some Encodable = EmptyConvexArgs()
@@ -74,6 +100,19 @@ final class ConvexClient {
   ) async throws -> Response {
     try await performRequest(
       endpoint: "api/mutation",
+      path: path,
+      args: args,
+      identityToken: identityToken
+    )
+  }
+
+  private func performQuery<Response: Decodable>(
+    path: String,
+    args: some Encodable = EmptyConvexArgs(),
+    identityToken: String
+  ) async throws -> Response {
+    try await performRequest(
+      endpoint: "api/query",
       path: path,
       args: args,
       identityToken: identityToken
@@ -132,6 +171,12 @@ private struct EmptyConvexArgs: Encodable {}
 private struct ConnectProductAccountArgs: Encodable {
   let deviceIdentifier: String
   let platform: String
+}
+
+private struct PutEncryptedProductSyncPayloadArgs: Encodable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let payloadIdentifier: String
+  let trustedDeviceId: String
 }
 
 private struct ConvexFunctionRequest: Encodable {

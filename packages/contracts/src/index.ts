@@ -8,3 +8,10 @@ export {
   productAccountConnectResponseValidator,
   type ProductAccountConnectResponse,
 } from './productAccount.ts';
+export {
+  encryptedProductSyncPayloadBodyValidator,
+  encryptedProductSyncPayloadFixture,
+  encryptedProductSyncPayloadValidator,
+  type EncryptedProductSyncPayload,
+  type EncryptedProductSyncPayloadBody,
+} from './productSync.ts';
