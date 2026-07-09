@@ -4,6 +4,7 @@ import {
   encryptedProductSyncPayloadBodyValidator,
   encryptedProductSyncPayloadListResponseValidator,
   encryptedProductSyncPayloadValidator,
+  maybeEncryptedProductSyncPayloadValidator,
 } from '@private-email/contracts/productSync';
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
@@ -123,4 +124,24 @@ export const listEncryptedPayloads = query({
     };
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
+});
+
+export const getEncryptedPayload = query({
+  args: {
+    payloadIdentifier: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    const payload = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('payloadIdentifier', args.payloadIdentifier),
+      )
+      .unique();
+
+    return payload === null ? null : serializePayload(payload);
+  },
+  returns: maybeEncryptedProductSyncPayloadValidator,
 });

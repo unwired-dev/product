@@ -119,8 +119,7 @@ TypeScript config must extend `@rajzik/tsconfig`.
 
 The iOS, iPadOS, and macOS app must provide formatter, linter, and test commands.
 
-- Format: `swift-format lint --recursive --strict apps/unwired-mail/unwired-mail apps/unwired-mail/unwired-mailTests`
-- Lint: `swiftlint lint apps/unwired-mail`
+- Format and lint: `zsh scripts/check-apple-lint.zsh`
 - Test: `xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'`
 
 If Apple tooling is unavailable in the current environment, state that clearly in the final handoff.

@@ -25,6 +25,11 @@ export type EncryptedProductSyncPayload = Infer<
   typeof encryptedProductSyncPayloadValidator
 >;
 
+export const maybeEncryptedProductSyncPayloadValidator = v.union(
+  encryptedProductSyncPayloadValidator,
+  v.null(),
+);
+
 export const encryptedProductSyncPayloadPageValidator = v.object({
   continueCursor: v.string(),
   isDone: v.boolean(),

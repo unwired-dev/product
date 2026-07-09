@@ -199,6 +199,55 @@ describe('productSync encrypted payloads', () => {
     expect(listed).toHaveLength(100);
   });
 
+  it('gets an encrypted payload by opaque payload identifier', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    const stored = await asUser.mutation(api.productSync.putEncryptedPayload, {
+      encryptedPayload,
+      payloadIdentifier: 'payload-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    const found = await asUser.query(api.productSync.getEncryptedPayload, {
+      payloadIdentifier: 'payload-001',
+    });
+    const missing = await asUser.query(api.productSync.getEncryptedPayload, {
+      payloadIdentifier: 'missing-payload',
+    });
+
+    expect(found).toStrictEqual(stored);
+    expect(missing).toBeNull();
+  });
+
+  it('does not expose targeted encrypted payloads across Product Accounts', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity(otherAppleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
+
+    await asUser.mutation(api.productSync.putEncryptedPayload, {
+      encryptedPayload,
+      payloadIdentifier: 'payload-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+
+    await expect(
+      asOtherUser.query(api.productSync.getEncryptedPayload, {
+        payloadIdentifier: 'payload-001',
+      }),
+    ).resolves.toBeNull();
+  });
+
   it('does not expose encrypted payloads across Product Accounts', async () => {
     expect.assertions(1);
 
