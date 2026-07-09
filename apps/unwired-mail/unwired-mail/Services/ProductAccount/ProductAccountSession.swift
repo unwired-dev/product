@@ -16,18 +16,22 @@ final class ProductAccountSession {
   private let appleSignInService: AppleSignInPerforming
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
+  private let gmailProviderConnectionService: GmailProviderConnecting
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
     appleSignInService: AppleSignInPerforming,
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    gmailProviderConnectionService: GmailProviderConnecting =
+      GmailProviderConnectionService(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
     self.appleSignInService = appleSignInService
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
+    self.gmailProviderConnectionService = gmailProviderConnectionService
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
@@ -104,6 +108,10 @@ final class ProductAccountSession {
 
   func signOut() {
     do {
+      let snapshot = try sessionStore.load()
+      if let snapshot {
+        try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+      }
       try sessionStore.clear()
       state = .signedOut
     } catch {

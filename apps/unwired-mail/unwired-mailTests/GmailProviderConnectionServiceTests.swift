@@ -169,6 +169,220 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertNil(status)
   }
+
+  func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: request.url?.path == "/gmail/v1/users/me/profile" ? 403 : 200,
+        httpVersion: nil,
+        headerFields: nil
+      )!
+      return (response, Data("{}".utf8))
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    do {
+      _ = try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expectedEmailAddress: "user@example.com",
+        expectedProviderAccountIdentifier: "gmail-user-001"
+      )
+      XCTFail("Expected Gmail authorization failure")
+    } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testVerifierRequiresRefreshTokenForSameGmailAccount() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      let path = request.url?.path
+      if path == "/gmail/v1/users/me/profile" {
+        return (Self.httpResponse(for: request, statusCode: 200), Data("{}".utf8))
+      }
+
+      if path == "/token" {
+        let body = Self.httpBodyString(for: request)
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Content-Type"),
+          "application/x-www-form-urlencoded"
+        )
+        XCTAssertTrue(body?.contains("client_id=gmail-client-id") == true)
+        XCTAssertTrue(body?.contains("grant_type=refresh_token") == true)
+        XCTAssertTrue(body?.contains("refresh_token=refresh-token") == true)
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
+
+      if request.url?.query == "access_token=access-token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+        )
+      }
+
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"email":"other@example.com","sub":"other-gmail-user"}"#.utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    do {
+      _ = try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expectedEmailAddress: "user@example.com",
+        expectedProviderAccountIdentifier: "gmail-user-001"
+      )
+      XCTFail("Expected account mismatch")
+    } catch GmailProviderCredentialVerificationError.accountMismatch {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testVerifierRequiresRefreshedAccessTokenToHaveGmailProfileAccess() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      let path = request.url?.path
+      if path == "/gmail/v1/users/me/profile" {
+        let statusCode =
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer access-token" ? 200 : 403
+        return (Self.httpResponse(for: request, statusCode: statusCode), Data("{}".utf8))
+      }
+
+      if path == "/token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
+
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    do {
+      _ = try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expectedEmailAddress: "user@example.com",
+        expectedProviderAccountIdentifier: "gmail-user-001"
+      )
+      XCTFail("Expected Gmail authorization failure")
+    } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testVerifierReturnsVerifiedAccountAfterAccessRefreshAndGmailChecksPass() async throws {
+    var profileAuthorizations: [String] = []
+    let session = ConvexClientTesting.makeSession { request in
+      let path = request.url?.path
+      if path == "/gmail/v1/users/me/profile" {
+        if let authorization = request.value(forHTTPHeaderField: "Authorization") {
+          profileAuthorizations.append(authorization)
+        }
+        return (Self.httpResponse(for: request, statusCode: 200), Data("{}".utf8))
+      }
+
+      if path == "/token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
+
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    let account = try await verifier.verify(
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expectedEmailAddress: "user@example.com",
+      expectedProviderAccountIdentifier: "gmail-user-001"
+    )
+
+    XCTAssertEqual(account.emailAddress, "user@example.com")
+    XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertEqual(
+      profileAuthorizations,
+      ["Bearer access-token", "Bearer refreshed-access-token"]
+    )
+    XCTAssertEqual(
+      account.tokens,
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+    )
+  }
+
+  private static func httpResponse(
+    for request: URLRequest,
+    statusCode: Int
+  ) -> HTTPURLResponse {
+    HTTPURLResponse(
+      url: request.url!,
+      statusCode: statusCode,
+      httpVersion: nil,
+      headerFields: nil
+    )!
+  }
+
+  private static func httpBodyString(for request: URLRequest) -> String? {
+    if let body = request.httpBody {
+      return String(data: body, encoding: .utf8)
+    }
+
+    guard let stream = request.httpBodyStream else {
+      return nil
+    }
+
+    stream.open()
+    defer {
+      stream.close()
+    }
+
+    var data = Data()
+    let bufferSize = 1_024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer {
+      buffer.deallocate()
+    }
+
+    while stream.hasBytesAvailable {
+      let count = stream.read(buffer, maxLength: bufferSize)
+      if count <= 0 {
+        break
+      }
+      data.append(buffer, count: count)
+    }
+
+    return String(data: data, encoding: .utf8)
+  }
 }
 
 private enum GmailProviderConnectionTestError: Error {

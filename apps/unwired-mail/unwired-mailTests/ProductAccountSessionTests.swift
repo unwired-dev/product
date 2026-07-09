@@ -40,6 +40,7 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   func testSignOutClearsStoredSession() async {
+    let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -49,6 +50,7 @@ final class ProductAccountSessionTests: XCTestCase {
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -57,6 +59,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
+    XCTAssertEqual(
+      gmailConnectionService.clearedSession?.productAccountId,
+      ProductAccountConnectResponse.preview.productAccountId
+    )
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {
@@ -224,5 +230,31 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = identityToken
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
+  }
+}
+
+private final class RecordingGmailProviderConnecting: GmailProviderConnecting {
+  var clearedSession: ProductAccountSessionSnapshot?
+
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    clearedSession = session
+  }
+
+  func completeConnection(
+    verifiedAccount: VerifiedGmailAccount,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus {
+    _ = verifiedAccount
+    _ = session
+    throw ConvexClientError.missingConvexURL
+  }
+
+  func loadConnection(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    _ = session
+    return nil
   }
 }
