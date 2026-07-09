@@ -204,6 +204,17 @@ private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
 private struct ConvexPaginationOptions: Encodable {
   let cursor: String?
   let numItems: Int
+
+  enum CodingKeys: CodingKey {
+    case cursor
+    case numItems
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(cursor, forKey: .cursor)
+    try container.encode(numItems, forKey: .numItems)
+  }
 }
 
 private struct ConvexFunctionRequest: Encodable {

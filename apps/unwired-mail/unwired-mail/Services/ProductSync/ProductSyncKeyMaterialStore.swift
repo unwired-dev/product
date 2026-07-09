@@ -73,6 +73,7 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     allowCreation: Bool
   ) throws -> ProductSyncKeyMaterial {
     if let material = try load(productAccountId: productAccountId) {
+      try save(material, productAccountId: productAccountId)
       return material
     }
     guard allowCreation else {
@@ -112,12 +113,14 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
 #if DEBUG
   final class InMemoryProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     private var materials: [String: ProductSyncKeyMaterial] = [:]
+    private(set) var saveCount = 0
 
     func load(productAccountId: String) throws -> ProductSyncKeyMaterial? {
       materials[productAccountId]
     }
 
     func save(_ material: ProductSyncKeyMaterial, productAccountId: String) throws {
+      saveCount += 1
       materials[productAccountId] = material
     }
 
@@ -126,6 +129,7 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
       allowCreation: Bool
     ) throws -> ProductSyncKeyMaterial {
       if let material = materials[productAccountId] {
+        try save(material, productAccountId: productAccountId)
         return material
       }
       guard allowCreation else {
@@ -133,7 +137,7 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
       }
 
       let material = try ProductSyncKeyMaterial.create()
-      materials[productAccountId] = material
+      try save(material, productAccountId: productAccountId)
       return material
     }
 

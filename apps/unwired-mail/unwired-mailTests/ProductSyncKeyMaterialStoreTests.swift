@@ -21,6 +21,7 @@ final class ProductSyncKeyMaterialStoreTests: XCTestCase {
     )
 
     XCTAssertEqual(secondMaterial, firstMaterial)
+    XCTAssertEqual(store.saveCount, 2)
   }
 
   func testEnsureMaterialRequiresRecoveryWhenCreationIsNotAllowed() {

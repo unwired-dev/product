@@ -135,7 +135,8 @@ export const listEncryptedPayloads = query({
       .paginate(args.paginationOpts);
 
     return {
-      ...payloads,
+      continueCursor: payloads.continueCursor,
+      isDone: payloads.isDone,
       page: payloads.page.map(serializePayload),
     };
   },

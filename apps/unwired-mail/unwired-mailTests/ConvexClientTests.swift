@@ -262,6 +262,18 @@ final class ConvexClientTests: XCTestCase {
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/query")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        let paginationOpts = try XCTUnwrap(args["paginationOpts"] as? [String: Any])
+        XCTAssertEqual(paginationOpts["numItems"] as? Int, 100)
+        if requestCount == 1 {
+          XCTAssertTrue(paginationOpts["cursor"] is NSNull)
+        } else {
+          XCTAssertEqual(paginationOpts["cursor"] as? String, "next-page")
+        }
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -317,4 +329,36 @@ final class ConvexClientTests: XCTestCase {
       XCTFail("Unexpected error: \(error)")
     }
   }
+
+  private static func requestBody(from request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+      return body
+    }
+
+    let stream = try XCTUnwrap(request.httpBodyStream)
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    let bufferSize = 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+
+    while stream.hasBytesAvailable {
+      let bytesRead = stream.read(buffer, maxLength: bufferSize)
+      if bytesRead < 0 {
+        throw stream.streamError ?? ConvexClientTestError.unreadableRequestBody
+      }
+      if bytesRead == 0 {
+        break
+      }
+      data.append(buffer, count: bytesRead)
+    }
+
+    return data
+  }
+}
+
+private enum ConvexClientTestError: Error {
+  case unreadableRequestBody
 }

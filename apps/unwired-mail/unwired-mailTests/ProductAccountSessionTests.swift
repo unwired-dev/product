@@ -116,6 +116,34 @@ final class ProductAccountSessionTests: XCTestCase {
       )
     )
   }
+
+  func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: false,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(snapshot.productAccountId, response.productAccountId)
+    XCTAssertNotNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
 }
 
 private struct FailingProductAccountService: ProductAccountConnecting {

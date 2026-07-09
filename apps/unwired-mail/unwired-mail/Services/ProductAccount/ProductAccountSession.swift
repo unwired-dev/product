@@ -79,7 +79,7 @@ final class ProductAccountSession {
       )
       _ = try productSyncKeyMaterialStore.ensureMaterial(
         productAccountId: response.productAccountId,
-        allowCreation: response.accountCreated
+        allowCreation: shouldCreateProductSyncMaterialAfterSignIn(response: response)
       )
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
@@ -101,5 +101,11 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
+  }
+
+  private func shouldCreateProductSyncMaterialAfterSignIn(
+    response: ProductAccountConnectResponse
+  ) -> Bool {
+    response.accountCreated || !response.deviceRegistered
   }
 }
