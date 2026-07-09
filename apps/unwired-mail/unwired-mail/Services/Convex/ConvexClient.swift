@@ -86,10 +86,12 @@ final class ConvexClient {
   }
 
   func getGmailProviderConnection(
-    identityToken: String
+    identityToken: String,
+    trustedDeviceId: String
   ) async throws -> GmailProviderConnectionStatus? {
     try await performNullableQuery(
       path: "productAccount:getGmailProviderConnection",
+      args: GetGmailProviderConnectionArgs(trustedDeviceId: trustedDeviceId),
       identityToken: identityToken
     )
   }
@@ -299,6 +301,10 @@ private struct ConnectProductAccountArgs: Encodable {
 private struct ConnectGmailProviderArgs: Encodable {
   let emailAddress: String
   let providerAccountIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct GetGmailProviderConnectionArgs: Encodable {
   let trustedDeviceId: String
 }
 

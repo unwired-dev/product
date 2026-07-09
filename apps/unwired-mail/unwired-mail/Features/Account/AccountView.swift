@@ -27,6 +27,7 @@ struct AccountView: View {
       initialValue: GmailProviderConnectionViewModel(
         credentialVerifier: gmailCredentialVerifier,
         service: gmailConnectionService,
+        isSessionCurrent: { session.isCurrent($0) },
         session: snapshot
       )
     )
@@ -87,15 +88,18 @@ private final class GmailProviderConnectionViewModel {
   var refreshToken = ""
 
   private let credentialVerifier: GmailProviderCredentialVerifying
+  private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let service: GmailProviderConnecting
   private let session: ProductAccountSessionSnapshot
 
   init(
     credentialVerifier: GmailProviderCredentialVerifying,
     service: GmailProviderConnecting,
+    isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     session: ProductAccountSessionSnapshot
   ) {
     self.credentialVerifier = credentialVerifier
+    self.isSessionCurrent = isSessionCurrent
     self.service = service
     self.session = session
   }
@@ -153,6 +157,10 @@ private final class GmailProviderConnectionViewModel {
         expectedEmailAddress: trimmedEmailAddress,
         expectedProviderAccountIdentifier: trimmedProviderAccountIdentifier
       )
+      try Task.checkCancellation()
+      guard isSessionCurrent(session) else {
+        return
+      }
       connection = try await service.completeConnection(
         verifiedAccount: verifiedAccount,
         session: session
@@ -160,6 +168,7 @@ private final class GmailProviderConnectionViewModel {
       accessToken = ""
       refreshToken = ""
       errorMessage = nil
+    } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -334,6 +343,7 @@ private struct CustomCategoryPanel: View {
 
 private struct GmailProviderConnectionPanel: View {
   @Bindable var viewModel: GmailProviderConnectionViewModel
+  @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -387,7 +397,8 @@ private struct GmailProviderConnectionPanel: View {
       }
 
       Button(viewModel.connection == nil ? "Connect Gmail" : "Update Gmail") {
-        Task {
+        connectTask?.cancel()
+        connectTask = Task {
           await viewModel.connect()
         }
       }
@@ -403,6 +414,9 @@ private struct GmailProviderConnectionPanel: View {
           .foregroundStyle(.red)
           .font(.footnote)
       }
+    }
+    .onDisappear {
+      connectTask?.cancel()
     }
   }
 }

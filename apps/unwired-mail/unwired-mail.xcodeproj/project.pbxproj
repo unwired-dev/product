@@ -440,7 +440,9 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				GMAIL_OAUTH_CLIENT_ID = "";
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_GmailOAuthClientId = "$(GMAIL_OAUTH_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -469,7 +471,9 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				GMAIL_OAUTH_CLIENT_ID = "";
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_GmailOAuthClientId = "$(GMAIL_OAUTH_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;

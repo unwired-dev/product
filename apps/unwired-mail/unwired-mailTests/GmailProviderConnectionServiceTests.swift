@@ -2,6 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable type_body_length
 final class GmailProviderConnectionServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -106,6 +107,42 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testCompleteConnectionDoesNotRestorePreviousTokensWhenCancelled() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailProviderConnectionTransport()
+    transport.onConnect = {
+      try tokenStore.clear(productAccountId: self.session.productAccountId)
+    }
+    transport.connectError = CancellationError()
+    let service = GmailProviderConnectionService(
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "user@example.com",
+          providerAccountIdentifier: "gmail-user-001",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+      XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testLoadConnectionReadsBackendStatus() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -131,6 +168,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(status?.emailAddress, "user@example.com")
     XCTAssertEqual(transport.loadIdentityToken, "apple-token")
+    XCTAssertEqual(transport.loadTrustedDeviceId, "trusted-device-001")
   }
 
   func testLoadConnectionRequiresLocalTokens() async throws {
@@ -203,7 +241,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     let session = ConvexClientTesting.makeSession { request in
       let path = request.url?.path
       if path == "/gmail/v1/users/me/profile" {
-        return (Self.httpResponse(for: request, statusCode: 200), Data("{}".utf8))
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
       }
 
       if path == "/token" {
@@ -259,7 +300,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       if path == "/gmail/v1/users/me/profile" {
         let statusCode =
           request.value(forHTTPHeaderField: "Authorization") == "Bearer access-token" ? 200 : 403
-        return (Self.httpResponse(for: request, statusCode: statusCode), Data("{}".utf8))
+        return (
+          Self.httpResponse(for: request, statusCode: statusCode),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
       }
 
       if path == "/token" {
@@ -301,7 +345,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         if let authorization = request.value(forHTTPHeaderField: "Authorization") {
           profileAuthorizations.append(authorization)
         }
-        return (Self.httpResponse(for: request, statusCode: 200), Data("{}".utf8))
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
       }
 
       if path == "/token" {
@@ -313,7 +360,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+        Data(#"{"sub":"gmail-user-001"}"#.utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -338,6 +385,67 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       account.tokens,
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
     )
+  }
+
+  func testVerifierUsesGmailProfileEmailWhenTokenInfoOmitsEmail() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      let path = request.url?.path
+      if path == "/gmail/v1/users/me/profile" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
+      }
+
+      if path == "/token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
+
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"sub":"gmail-user-001"}"#.utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    let account = try await verifier.verify(
+      accessToken: "access-token",
+      refreshToken: "refresh-token",
+      expectedEmailAddress: "user@example.com",
+      expectedProviderAccountIdentifier: "gmail-user-001"
+    )
+
+    XCTAssertEqual(account.emailAddress, "user@example.com")
+    XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
+  }
+
+  func testBundledOAuthClientIdReadsGeneratedInfoPlistKey() throws {
+    let bundle = try Self.makeBundle(
+      infoDictionary: [
+        GmailOAuthClientIdConfiguration.infoDictionaryKey: " bundled-client-id "
+      ]
+    )
+
+    XCTAssertEqual(
+      GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle),
+      "bundled-client-id"
+    )
+  }
+
+  func testBundledOAuthClientIdIgnoresUnresolvedBuildSettingPlaceholder() throws {
+    let bundle = try Self.makeBundle(
+      infoDictionary: [
+        GmailOAuthClientIdConfiguration.infoDictionaryKey: "$(GMAIL_OAUTH_CLIENT_ID)"
+      ]
+    )
+
+    XCTAssertNil(GmailOAuthClientIdConfiguration.bundledValue(bundle: bundle))
   }
 
   private static func httpResponse(
@@ -383,9 +491,34 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     return String(data: data, encoding: .utf8)
   }
+
+  private static func makeBundle(infoDictionary: [String: String]) throws -> Bundle {
+    let bundleURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString)
+      .appendingPathExtension("bundle")
+    try FileManager.default.createDirectory(
+      at: bundleURL,
+      withIntermediateDirectories: true
+    )
+    let infoPlistURL = bundleURL.appendingPathComponent("Info.plist")
+    let data = try PropertyListSerialization.data(
+      fromPropertyList: infoDictionary,
+      format: .xml,
+      options: 0
+    )
+    try data.write(to: infoPlistURL)
+
+    guard let bundle = Bundle(url: bundleURL) else {
+      throw GmailProviderConnectionTestError.bundleCreationFailed
+    }
+
+    return bundle
+  }
 }
+// swiftlint:enable type_body_length
 
 private enum GmailProviderConnectionTestError: Error {
+  case bundleCreationFailed
   case registrationFailed
 }
 
@@ -400,6 +533,8 @@ private final class RecordingGmailProviderConnectionTransport: GmailProviderConn
   var connectCall: ConnectCall?
   var connectError: Error?
   var loadIdentityToken: String?
+  var loadTrustedDeviceId: String?
+  var onConnect: (() throws -> Void)?
   var status = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
@@ -422,6 +557,7 @@ private final class RecordingGmailProviderConnectionTransport: GmailProviderConn
       emailAddress: emailAddress,
       providerAccountIdentifier: providerAccountIdentifier
     )
+    try onConnect?()
     if let connectError {
       throw connectError
     }
@@ -430,9 +566,11 @@ private final class RecordingGmailProviderConnectionTransport: GmailProviderConn
   }
 
   func getGmailProviderConnection(
-    identityToken: String
+    identityToken: String,
+    trustedDeviceId: String
   ) async throws -> GmailProviderConnectionStatus? {
     loadIdentityToken = identityToken
+    loadTrustedDeviceId = trustedDeviceId
     return status
   }
 }

@@ -54,6 +54,11 @@ export default defineSchema({
     updatedAt: v.number(),
   })
     .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
+    .index('by_productAccountId_and_provider_and_trustedDeviceId', [
+      'productAccountId',
+      'provider',
+      'trustedDeviceId',
+    ])
     .index('by_productAccountId_and_providerAccountIdentifier', [
       'productAccountId',
       'providerAccountIdentifier',

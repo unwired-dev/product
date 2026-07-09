@@ -176,10 +176,11 @@ export const connectGmailProvider = mutation({
     const now = Date.now();
     const existingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider', (q) =>
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail'),
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
       )
       .unique();
 
@@ -218,15 +219,23 @@ export const connectGmailProvider = mutation({
 });
 
 export const getGmailProviderConnection = query({
-  args: {},
-  handler: async (ctx) => {
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
     const account = await requireProductAccount(ctx);
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
     const connection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider', (q) =>
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail'),
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
       )
       .unique();
 

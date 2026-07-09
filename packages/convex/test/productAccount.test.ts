@@ -199,7 +199,7 @@ describe('productAccount Gmail provider connection', () => {
 
     const loadedStatus = await asUser.query(
       api.productAccount.getGmailProviderConnection,
-      {},
+      { trustedDeviceId: connect.trustedDeviceId },
     );
 
     expect(loadedStatus).toMatchObject({
@@ -244,7 +244,7 @@ describe('productAccount Gmail provider connection', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
-  it('updates the existing Gmail connection for the Product Account', async () => {
+  it('updates the existing Gmail connection for the trusted device', async () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
@@ -276,5 +276,45 @@ describe('productAccount Gmail provider connection', () => {
     expect(secondStatus.updatedAt).toBeGreaterThanOrEqual(
       firstStatus.updatedAt,
     );
+  });
+
+  it('keeps Gmail connection metadata separate per trusted device', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'first@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'second@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+
+    const firstStatus = await asUser.query(
+      api.productAccount.getGmailProviderConnection,
+      { trustedDeviceId: firstDevice.trustedDeviceId },
+    );
+    const secondStatus = await asUser.query(
+      api.productAccount.getGmailProviderConnection,
+      { trustedDeviceId: secondDevice.trustedDeviceId },
+    );
+
+    expect(firstStatus?.emailAddress).toBe('first@example.com');
+    expect(firstStatus?.trustedDeviceId).toBe(firstDevice.trustedDeviceId);
+    expect(secondStatus?.emailAddress).toBe('second@example.com');
+    expect(secondStatus?.trustedDeviceId).toBe(secondDevice.trustedDeviceId);
   });
 });

@@ -224,6 +224,8 @@ final class ConvexClientTests: XCTestCase {
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
         XCTAssertEqual(requestJSON["path"] as? String, "productAccount:getGmailProviderConnection")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
         let response = HTTPURLResponse(
           url: request.url!,
           statusCode: 200,
@@ -234,7 +236,10 @@ final class ConvexClientTests: XCTestCase {
       }
     )
 
-    let response = try await client.getGmailProviderConnection(identityToken: "apple-token")
+    let response = try await client.getGmailProviderConnection(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
 
     XCTAssertEqual(response?.emailAddress, "user@example.com")
   }
