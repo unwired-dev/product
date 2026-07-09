@@ -189,7 +189,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     if previousConnection?.providerAccountIdentifier != nil
       && previousConnection?.providerAccountIdentifier != connection.providerAccountIdentifier
     {
-      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+      try? metadataStore.clearMessages(productAccountId: session.productAccountId)
     }
     return connection
   }

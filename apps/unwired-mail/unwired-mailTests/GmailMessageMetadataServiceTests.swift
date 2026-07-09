@@ -2,6 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable type_body_length
 final class GmailMessageMetadataServiceTests: XCTestCase {
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
@@ -105,6 +106,36 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
+  }
+
+  func testSyncInboxPreservesExistingHistoricalStateWhenRefreshingMetadata() async throws {
+    let fixture = try makeSyncFixture()
+    fixture.store.messages = [
+      metadata(
+        messageId: "message-002",
+        threadId: "thread-001",
+        internalDateMilliseconds: 1_781_197_200_000
+      )
+    ]
+    let connectionWithOlderCutoff = GmailProviderConnectionStatus(
+      connectedAt: 1_781_180_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_200_000_000
+    )
+
+    let result = try await fixture.service.syncInbox(
+      connection: connectionWithOlderCutoff,
+      session: session
+    )
+
+    XCTAssertEqual(
+      result.messages.first { $0.providerMessageId == "message-002" }?.isHistorical,
+      true
+    )
   }
 
   func testSyncInboxRequiresDeviceHeldGmailTokens() async throws {

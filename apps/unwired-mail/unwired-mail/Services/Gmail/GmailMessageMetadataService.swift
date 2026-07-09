@@ -201,6 +201,9 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
+    let existingMessagesByStableId = Dictionary(
+      uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }
+    )
     let categorizationBoundary = historicalCutoff(
       connection: connection,
       hasLocalMetadata: !existingMessages.isEmpty
@@ -218,12 +221,10 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       )
     }
     try Task.checkCancellation()
-    fetchedMessages = fetchedMessages.sorted {
-      if $0.providerInternalDateMilliseconds == $1.providerInternalDateMilliseconds {
-        return $0.providerMessageId < $1.providerMessageId
-      }
-      return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
-    }
+    fetchedMessages = sortedMessages(
+      fetchedMessages,
+      preservingExistingStateFrom: existingMessagesByStableId
+    )
 
     try Task.checkCancellation()
     try store.saveMessages(
@@ -323,6 +324,27 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     }
 
     return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func sortedMessages(
+    _ messages: [GmailMessageMetadata],
+    preservingExistingStateFrom existingMessagesByStableId: [String: GmailMessageMetadata]
+  ) -> [GmailMessageMetadata] {
+    messages
+      .map { message in
+        guard let existingMessage = existingMessagesByStableId[message.stableProviderMessageId]
+        else {
+          return message
+        }
+
+        return message.preservingCategoryStateAndHistoricalBoundary(from: existingMessage)
+      }
+      .sorted {
+        if $0.providerInternalDateMilliseconds == $1.providerInternalDateMilliseconds {
+          return $0.providerMessageId < $1.providerMessageId
+        }
+        return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
+      }
   }
 
   private func historicalCutoff(
@@ -434,6 +456,25 @@ extension GmailInboxThread {
         return $0.latestMessage.providerInternalDateMilliseconds
           > $1.latestMessage.providerInternalDateMilliseconds
       }
+  }
+}
+
+extension GmailMessageMetadata {
+  fileprivate func preservingCategoryStateAndHistoricalBoundary(
+    from existingMessage: GmailMessageMetadata
+  ) -> GmailMessageMetadata {
+    GmailMessageMetadata(
+      categoryId: existingMessage.categoryId,
+      from: from,
+      isHistorical: existingMessage.isHistorical,
+      providerAccountIdentifier: providerAccountIdentifier,
+      providerInternalDateMilliseconds: providerInternalDateMilliseconds,
+      providerMessageId: providerMessageId,
+      providerThreadId: providerThreadId,
+      snippet: snippet,
+      stableProviderMessageId: stableProviderMessageId,
+      subject: subject
+    )
   }
 }
 

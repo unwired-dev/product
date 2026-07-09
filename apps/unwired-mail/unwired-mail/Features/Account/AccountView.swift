@@ -102,7 +102,7 @@ private final class GmailInboxViewModel {
   var isSyncing = false
   var threads: [GmailInboxThread] = []
 
-  private var loadedProviderAccountIdentifier: String?
+  private var currentProviderAccountIdentifier: String?
   private let service: GmailMessageMetadataSyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -125,7 +125,7 @@ private final class GmailInboxViewModel {
   }
 
   func clear() {
-    loadedProviderAccountIdentifier = nil
+    currentProviderAccountIdentifier = nil
     threads = []
     errorMessage = nil
   }
@@ -141,7 +141,7 @@ private final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
-      loadedProviderAccountIdentifier = connection.providerAccountIdentifier
+      currentProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = result.threads
       errorMessage = nil
     } catch {
@@ -150,16 +150,20 @@ private final class GmailInboxViewModel {
   }
 
   func loadAfterConnectionChange(connection: GmailProviderConnectionStatus) async {
-    if loadedProviderAccountIdentifier != connection.providerAccountIdentifier {
-      clear()
+    if currentProviderAccountIdentifier != connection.providerAccountIdentifier {
+      currentProviderAccountIdentifier = connection.providerAccountIdentifier
+      threads = []
+      errorMessage = nil
     }
 
     await load(connection: connection)
   }
 
   func sync(connection: GmailProviderConnectionStatus) async {
-    if loadedProviderAccountIdentifier != connection.providerAccountIdentifier {
-      clear()
+    if currentProviderAccountIdentifier != connection.providerAccountIdentifier {
+      currentProviderAccountIdentifier = connection.providerAccountIdentifier
+      threads = []
+      errorMessage = nil
     }
 
     isSyncing = true
@@ -172,7 +176,10 @@ private final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
-      loadedProviderAccountIdentifier = connection.providerAccountIdentifier
+      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier
+      else {
+        return
+      }
       threads = result.threads
       errorMessage = nil
     } catch {
@@ -588,6 +595,7 @@ private struct GmailInboxPanel: View {
       }
     }
     .task(id: connection?.providerAccountIdentifier) {
+      syncTask?.cancel()
       guard let connection else {
         viewModel.clear()
         return
