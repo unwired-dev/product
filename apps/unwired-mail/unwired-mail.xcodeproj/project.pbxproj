@@ -31,6 +31,8 @@
 		71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */; };
 		71A6A0722C0B000100000001 /* ProductSyncEncryptionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */; };
 		71A6A0732C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */; };
+		71A6A0782C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */; };
+		71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -71,6 +73,8 @@
 		71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/ProductSyncKeyMaterialStore.swift; sourceTree = "<group>"; };
 		71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncEncryptionTests.swift; sourceTree = "<group>"; };
 		71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncKeyMaterialStoreTests.swift; sourceTree = "<group>"; };
+		71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/CustomCategorySyncService.swift; sourceTree = "<group>"; };
+		71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomCategorySyncServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -117,6 +121,7 @@
 				71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */,
 				71A6A01E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift */,
 				71A6A01C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift */,
+				71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */,
 				71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */,
 				71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
@@ -130,6 +135,7 @@
 			children = (
 				71A6A0142C0B000100000001 /* BackendHealthServiceTests.swift */,
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
+				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */,
 				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
@@ -260,6 +266,7 @@
 				71A6A00D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift in Sources */,
 				71A6A00E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift in Sources */,
 				71A6A00C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift in Sources */,
+				71A6A0782C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift in Sources */,
 				71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */,
 				71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */,
 				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
@@ -272,6 +279,7 @@
 			files = (
 				71A6A0042C0B000100000001 /* BackendHealthServiceTests.swift in Sources */,
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
+				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */,
 				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,
