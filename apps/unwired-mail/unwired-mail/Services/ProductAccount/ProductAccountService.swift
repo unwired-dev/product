@@ -3,6 +3,7 @@ import Foundation
 struct ProductAccountConnectResponse: Decodable, Equatable {
   let accountCreated: Bool
   let deviceRegistered: Bool
+  let hasEncryptedProductSyncPayloads: Bool
   let productAccountId: String
   let trustedDeviceId: String
 }
@@ -65,6 +66,7 @@ extension ProductAccountConnectResponse {
   static let preview = ProductAccountConnectResponse(
     accountCreated: true,
     deviceRegistered: true,
+    hasEncryptedProductSyncPayloads: false,
     productAccountId: "productAccountFixtureId",
     trustedDeviceId: "trustedDeviceFixtureId"
   )
@@ -72,6 +74,7 @@ extension ProductAccountConnectResponse {
   static let resumed = ProductAccountConnectResponse(
     accountCreated: false,
     deviceRegistered: true,
+    hasEncryptedProductSyncPayloads: true,
     productAccountId: "productAccountFixtureId",
     trustedDeviceId: "trustedDeviceFixtureId"
   )

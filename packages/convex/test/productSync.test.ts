@@ -134,6 +134,30 @@ describe('productSync encrypted payloads', () => {
     expect(pageTwo.page).toHaveLength(5);
   });
 
+  it('caps encrypted payload listing pages at the server page size', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    for (let index = 0; index < 105; index += 1) {
+      await putPayload(
+        asUser,
+        connect.trustedDeviceId,
+        `payload-${String(index).padStart(3, '0')}`,
+      );
+    }
+
+    const page = await asUser.query(api.productSync.listEncryptedPayloads, {
+      paginationOpts: {
+        cursor: null,
+        numItems: 1000,
+      },
+    });
+
+    expect(page).toMatchObject({ isDone: false });
+    expect(page.page).toHaveLength(100);
+  });
+
   it('does not expose encrypted payloads across Product Accounts', async () => {
     expect.assertions(1);
 

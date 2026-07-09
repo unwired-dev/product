@@ -7,6 +7,7 @@ describe('product account connect response contract', () => {
     expect(productAccountConnectResponseFixture).toStrictEqual({
       accountCreated: true,
       deviceRegistered: true,
+      hasEncryptedProductSyncPayloads: false,
       productAccountId: 'productAccountFixtureId',
       trustedDeviceId: 'trustedDeviceFixtureId',
     });

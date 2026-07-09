@@ -88,6 +88,20 @@ async function upsertTrustedDevice(
   };
 }
 
+async function hasEncryptedProductSyncPayloads(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<boolean> {
+  const payload = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .first();
+
+  return payload !== null;
+}
+
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
@@ -118,6 +132,10 @@ export const connect = mutation({
     return {
       accountCreated,
       deviceRegistered,
+      hasEncryptedProductSyncPayloads: await hasEncryptedProductSyncPayloads(
+        ctx,
+        productAccountId,
+      ),
       productAccountId,
       trustedDeviceId,
     };

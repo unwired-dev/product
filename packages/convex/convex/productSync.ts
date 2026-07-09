@@ -17,6 +17,8 @@ type AuthenticatedProductAccount = Readonly<{
   productAccountId: Id<'productAccounts'>;
 }>;
 
+const encryptedProductSyncPayloadPageSize = 100;
+
 async function requireProductAccount(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
 ): Promise<AuthenticatedProductAccount> {
@@ -126,13 +128,20 @@ export const listEncryptedPayloads = query({
   },
   handler: async (ctx, args) => {
     const { productAccountId } = await requireProductAccount(ctx);
+    const paginationOpts = {
+      cursor: args.paginationOpts.cursor,
+      numItems: Math.min(
+        Math.max(args.paginationOpts.numItems, 1),
+        encryptedProductSyncPayloadPageSize,
+      ),
+    };
     const payloads = await ctx.db
       .query('encryptedProductSyncPayloads')
       .withIndex('by_productAccountId', (q) =>
         q.eq('productAccountId', productAccountId),
       )
       .order('asc')
-      .paginate(args.paginationOpts);
+      .paginate(paginationOpts);
 
     return {
       continueCursor: payloads.continueCursor,

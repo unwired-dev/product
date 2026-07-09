@@ -106,6 +106,6 @@ final class ProductAccountSession {
   private func shouldCreateProductSyncMaterialAfterSignIn(
     response: ProductAccountConnectResponse
   ) -> Bool {
-    response.accountCreated || !response.deviceRegistered
+    response.accountCreated || !response.hasEncryptedProductSyncPayloads
   }
 }

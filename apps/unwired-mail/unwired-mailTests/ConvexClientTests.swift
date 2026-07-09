@@ -123,6 +123,7 @@ final class ConvexClientTests: XCTestCase {
         "value": {
           "accountCreated": true,
           "deviceRegistered": true,
+          "hasEncryptedProductSyncPayloads": false,
           "productAccountId": "productAccountFixtureId",
           "trustedDeviceId": "trustedDeviceFixtureId"
         }

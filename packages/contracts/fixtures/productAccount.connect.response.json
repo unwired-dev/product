@@ -1,6 +1,7 @@
 {
   "accountCreated": true,
   "deviceRegistered": true,
+  "hasEncryptedProductSyncPayloads": false,
   "productAccountId": "productAccountFixtureId",
   "trustedDeviceId": "trustedDeviceFixtureId"
 }
