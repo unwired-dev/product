@@ -16,15 +16,19 @@ final class ProductAccountSession {
   private let appleSignInService: AppleSignInPerforming
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
+  private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
     appleSignInService: AppleSignInPerforming,
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
-    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore()
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
+      KeychainProductSyncKeyMaterialStore()
   ) {
     self.appleSignInService = appleSignInService
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
+    self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
   func bootstrap() async {
@@ -39,6 +43,9 @@ final class ProductAccountSession {
       let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
+      )
+      _ = try productSyncKeyMaterialStore.ensureMaterial(
+        productAccountId: response.productAccountId
       )
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
@@ -68,6 +75,9 @@ final class ProductAccountSession {
       let credential = try await appleSignInService.signIn()
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
+      )
+      _ = try productSyncKeyMaterialStore.ensureMaterial(
+        productAccountId: response.productAccountId
       )
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,

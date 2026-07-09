@@ -7,6 +7,12 @@ struct ProductAccountConnectResponse: Decodable, Equatable {
   let trustedDeviceId: String
 }
 
+struct EncryptedProductSyncPayload: Codable, Equatable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let payloadIdentifier: String
+  let updatedAt: Int64
+}
+
 protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
 }

@@ -20,4 +20,25 @@ export default defineSchema({
       'productAccountId',
       'deviceIdentifier',
     ]),
+
+  encryptedProductSyncPayloads: defineTable({
+    encryptedPayload: v.object({
+      algorithm: v.literal('AES-GCM-256'),
+      ciphertextBase64: v.string(),
+      keyVersion: v.number(),
+      nonceBase64: v.string(),
+      schemaVersion: v.number(),
+      tagBase64: v.string(),
+    }),
+    payloadIdentifier: v.string(),
+    productAccountId: v.id('productAccounts'),
+    trustedDeviceId: v.id('trustedDevices'),
+    updatedAt: v.number(),
+    writtenAt: v.number(),
+  })
+    .index('by_productAccountId', ['productAccountId'])
+    .index('by_productAccountId_and_payloadIdentifier', [
+      'productAccountId',
+      'payloadIdentifier',
+    ]),
 });
