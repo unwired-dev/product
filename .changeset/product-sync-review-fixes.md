@@ -3,4 +3,4 @@
 '@private-email/convex': patch
 ---
 
-Paginate encrypted Product Sync payload listing, expose the shared page contract, report whether connected Product Accounts already have encrypted sync payloads, and cap sync listing pages server-side.
+Paginate encrypted Product Sync payload listing, keep legacy no-args listing calls compatible during rollout, track explicit Product Sync material initialization for connected Product Accounts, and cap sync listing pages server-side.

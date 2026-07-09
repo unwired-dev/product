@@ -94,13 +94,7 @@ final class ConvexClientTests: XCTestCase {
       session: ConvexClientTesting.makeSession { request in
         XCTAssertEqual(request.httpMethod, "POST")
         XCTAssertEqual(request.url?.path, "/api/action")
-        let response = HTTPURLResponse(
-          url: request.url!,
-          statusCode: 200,
-          httpVersion: nil,
-          headerFields: nil
-        )!
-        return (response, fixtureEnvelope)
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
 
@@ -123,9 +117,38 @@ final class ConvexClientTests: XCTestCase {
         "value": {
           "accountCreated": true,
           "deviceRegistered": true,
-          "hasEncryptedProductSyncPayloads": false,
+          "productSyncMaterialInitialized": false,
           "productAccountId": "productAccountFixtureId",
           "trustedDeviceId": "trustedDeviceFixtureId"
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.connectProductAccount(
+      identityToken: "apple-token",
+      deviceIdentifier: "device-001",
+      platform: "ios"
+    )
+
+    XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+  }
+
+  func testMarkProductSyncMaterialInitializedSendsAuthenticatedMutation() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "productSyncMaterialInitialized": true
         }
       }
       """.data(using: .utf8)!
@@ -146,13 +169,15 @@ final class ConvexClientTests: XCTestCase {
       }
     )
 
-    let response = try await client.connectProductAccount(
+    let response = try await client.markProductSyncMaterialInitialized(
       identityToken: "apple-token",
-      deviceIdentifier: "device-001",
-      platform: "ios"
+      trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+    XCTAssertEqual(
+      response,
+      ProductSyncMaterialInitializedResponse(productSyncMaterialInitialized: true)
+    )
   }
 
   func testPutEncryptedProductSyncPayloadSendsAuthenticatedMutation() async throws {
@@ -362,4 +387,13 @@ final class ConvexClientTests: XCTestCase {
 
 private enum ConvexClientTestError: Error {
   case unreadableRequestBody
+}
+
+private func convexClientTestResponse(for request: URLRequest) -> HTTPURLResponse {
+  HTTPURLResponse(
+    url: request.url!,
+    statusCode: 200,
+    httpVersion: nil,
+    headerFields: nil
+  )!
 }

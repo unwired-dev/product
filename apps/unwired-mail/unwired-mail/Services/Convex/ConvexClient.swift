@@ -55,6 +55,19 @@ final class ConvexClient {
     )
   }
 
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    try await performMutation(
+      path: "productAccount:markProductSyncMaterialInitialized",
+      args: MarkProductSyncMaterialInitializedArgs(
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -194,6 +207,10 @@ private struct ConnectProductAccountArgs: Encodable {
 private struct PutEncryptedProductSyncPayloadArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let payloadIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct MarkProductSyncMaterialInitializedArgs: Encodable {
   let trustedDeviceId: String
 }
 

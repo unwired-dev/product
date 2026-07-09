@@ -121,7 +121,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
       deviceRegistered: false,
-      hasEncryptedProductSyncPayloads: false,
+      productSyncMaterialInitialized: false,
       productAccountId: "productAccountFixtureId",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
@@ -146,11 +146,43 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
   }
 
-  func testReturningRegisteredDeviceWithExistingSyncPayloadsRequiresRecovery() async {
+  func testReturningRegisteredDeviceWithInitializedSyncMaterialRequiresRecovery() async {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
       deviceRegistered: false,
-      hasEncryptedProductSyncPayloads: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed(let message) = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(
+      message,
+      ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
+    )
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
+
+  func testNewDeviceForUninitializedAccountRequiresRecovery() async {
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: false,
       productAccountId: "productAccountFixtureId",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
@@ -182,6 +214,15 @@ final class ProductAccountSessionTests: XCTestCase {
 private struct FailingProductAccountService: ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     _ = identityToken
+    throw ConvexClientError.missingConvexURL
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    _ = identityToken
+    _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
   }
 }

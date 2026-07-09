@@ -35,6 +35,15 @@ export type EncryptedProductSyncPayloadPage = Infer<
   typeof encryptedProductSyncPayloadPageValidator
 >;
 
+export const encryptedProductSyncPayloadListResponseValidator = v.union(
+  encryptedProductSyncPayloadPageValidator,
+  v.array(encryptedProductSyncPayloadValidator),
+);
+
+export type EncryptedProductSyncPayloadListResponse = Infer<
+  typeof encryptedProductSyncPayloadListResponseValidator
+>;
+
 export const encryptedProductSyncPayloadFixture: EncryptedProductSyncPayload = {
   encryptedPayload: {
     algorithm: 'AES-GCM-256',

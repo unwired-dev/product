@@ -1,10 +1,17 @@
-import { productAccountConnectResponseValidator } from '@private-email/contracts/productAccount';
+import {
+  productAccountConnectResponseValidator,
+  productSyncMaterialInitializedResponseValidator,
+} from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
 
 import type { Id } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
 import { mutation } from './_generated/server.js';
+import {
+  requireProductAccount,
+  requireTrustedDevice,
+} from './productAccountAuth.js';
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -88,20 +95,6 @@ async function upsertTrustedDevice(
   };
 }
 
-async function hasEncryptedProductSyncPayloads(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  productAccountId: Id<'productAccounts'>,
-): Promise<boolean> {
-  const payload = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId', (q) =>
-      q.eq('productAccountId', productAccountId),
-    )
-    .first();
-
-  return payload !== null;
-}
-
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
@@ -128,17 +121,39 @@ export const connect = mutation({
         platform: args.platform,
       },
     );
+    const productAccount = await ctx.db.get(productAccountId);
 
     return {
       accountCreated,
       deviceRegistered,
-      hasEncryptedProductSyncPayloads: await hasEncryptedProductSyncPayloads(
-        ctx,
-        productAccountId,
-      ),
+      productSyncMaterialInitialized:
+        productAccount?.productSyncMaterialInitializedAt !== undefined,
       productAccountId,
       trustedDeviceId,
     };
   },
   returns: productAccountConnectResponseValidator,
+});
+
+export const markProductSyncMaterialInitialized = mutation({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    await ctx.db.patch(account.productAccountId, {
+      productSyncMaterialInitializedAt:
+        account.productSyncMaterialInitializedAt ?? Date.now(),
+    });
+
+    return {
+      productSyncMaterialInitialized: true,
+    };
+  },
+  returns: productSyncMaterialInitializedResponseValidator,
 });

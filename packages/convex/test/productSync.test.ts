@@ -1,5 +1,10 @@
 /// <reference types="vite/client" />
 
+import type {
+  EncryptedProductSyncPayloadListResponse,
+  EncryptedProductSyncPayloadPage,
+} from '@private-email/contracts/productSync';
+
 import { convexTest } from 'convex-test';
 
 import type { Id } from '../convex/_generated/dataModel.js';
@@ -58,6 +63,16 @@ async function putPayload(
   });
 }
 
+function requirePayloadPage(
+  response: EncryptedProductSyncPayloadListResponse,
+): EncryptedProductSyncPayloadPage {
+  if (Array.isArray(response)) {
+    throw new TypeError('Expected paginated encrypted payload response');
+  }
+
+  return response;
+}
+
 describe('productSync encrypted payloads', () => {
   it('stores and returns opaque encrypted payloads for the signed-in Product Account', async () => {
     expect.assertions(2);
@@ -100,9 +115,10 @@ describe('productSync encrypted payloads', () => {
     const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
       paginationOpts: firstPage,
     });
+    const listedPage = requirePayloadPage(listed);
 
-    expect(listed.page).toHaveLength(1);
-    expect(listed.page[0]).toStrictEqual(updated);
+    expect(listedPage.page).toHaveLength(1);
+    expect(listedPage.page[0]).toStrictEqual(updated);
   });
 
   it('paginates encrypted payload listing past the first page', async () => {
@@ -121,17 +137,19 @@ describe('productSync encrypted payloads', () => {
     const pageOne = await asUser.query(api.productSync.listEncryptedPayloads, {
       paginationOpts: firstPage,
     });
+    const pageOneResponse = requirePayloadPage(pageOne);
     const pageTwo = await asUser.query(api.productSync.listEncryptedPayloads, {
       paginationOpts: {
-        cursor: pageOne.continueCursor,
+        cursor: pageOneResponse.continueCursor,
         numItems: 100,
       },
     });
+    const pageTwoResponse = requirePayloadPage(pageTwo);
 
-    expect(pageOne).toMatchObject({ isDone: false });
-    expect(pageOne.page).toHaveLength(100);
-    expect(pageTwo.isDone).toBe(true);
-    expect(pageTwo.page).toHaveLength(5);
+    expect(pageOneResponse).toMatchObject({ isDone: false });
+    expect(pageOneResponse.page).toHaveLength(100);
+    expect(pageTwoResponse.isDone).toBe(true);
+    expect(pageTwoResponse.page).toHaveLength(5);
   });
 
   it('caps encrypted payload listing pages at the server page size', async () => {
@@ -153,9 +171,32 @@ describe('productSync encrypted payloads', () => {
         numItems: 1000,
       },
     });
+    const pageResponse = requirePayloadPage(page);
 
-    expect(page).toMatchObject({ isDone: false });
-    expect(page.page).toHaveLength(100);
+    expect(pageResponse).toMatchObject({ isDone: false });
+    expect(pageResponse.page).toHaveLength(100);
+  });
+
+  it('keeps the no-args encrypted payload listing compatible with old clients', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    for (let index = 0; index < 105; index += 1) {
+      await putPayload(
+        asUser,
+        connect.trustedDeviceId,
+        `payload-${String(index).padStart(3, '0')}`,
+      );
+    }
+
+    const listed = await asUser.query(
+      api.productSync.listEncryptedPayloads,
+      {},
+    );
+
+    expect(Array.isArray(listed)).toBe(true);
+    expect(listed).toHaveLength(100);
   });
 
   it('does not expose encrypted payloads across Product Accounts', async () => {

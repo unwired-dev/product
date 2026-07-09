@@ -5,7 +5,7 @@ import { v } from 'convex/values';
 export const productAccountConnectResponseValidator = v.object({
   accountCreated: v.boolean(),
   deviceRegistered: v.boolean(),
-  hasEncryptedProductSyncPayloads: v.boolean(),
+  productSyncMaterialInitialized: v.boolean(),
   productAccountId: v.string(),
   trustedDeviceId: v.string(),
 });
@@ -18,7 +18,15 @@ export const productAccountConnectResponseFixture: ProductAccountConnectResponse
   {
     accountCreated: true,
     deviceRegistered: true,
-    hasEncryptedProductSyncPayloads: false,
+    productSyncMaterialInitialized: false,
     productAccountId: 'productAccountFixtureId',
     trustedDeviceId: 'trustedDeviceFixtureId',
   };
+
+export const productSyncMaterialInitializedResponseValidator = v.object({
+  productSyncMaterialInitialized: v.boolean(),
+});
+
+export type ProductSyncMaterialInitializedResponse = Infer<
+  typeof productSyncMaterialInitializedResponseValidator
+>;

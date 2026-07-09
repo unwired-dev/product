@@ -2,60 +2,21 @@ import type { EncryptedProductSyncPayload } from '@private-email/contracts/produ
 
 import {
   encryptedProductSyncPayloadBodyValidator,
-  encryptedProductSyncPayloadPageValidator,
+  encryptedProductSyncPayloadListResponseValidator,
   encryptedProductSyncPayloadValidator,
 } from '@private-email/contracts/productSync';
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 
-import type { Doc, Id } from './_generated/dataModel.js';
-import type { MutationCtx, QueryCtx } from './_generated/server.js';
+import type { Doc } from './_generated/dataModel.js';
 
 import { mutation, query } from './_generated/server.js';
-
-type AuthenticatedProductAccount = Readonly<{
-  productAccountId: Id<'productAccounts'>;
-}>;
+import {
+  requireProductAccount,
+  requireTrustedDevice,
+} from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
-
-async function requireProductAccount(
-  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-): Promise<AuthenticatedProductAccount> {
-  const identity = await ctx.auth.getUserIdentity();
-  if (!identity) {
-    throw new Error('Authentication required');
-  }
-
-  const account = await ctx.db
-    .query('productAccounts')
-    .withIndex('by_tokenIdentifier', (q) =>
-      q.eq('tokenIdentifier', identity.tokenIdentifier),
-    )
-    .unique();
-  if (account === null) {
-    throw new Error('Product Account required');
-  }
-
-  return {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    productAccountId: account._id,
-  };
-}
-
-async function requireTrustedDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  productAccountId: Id<'productAccounts'>,
-  trustedDeviceId: Id<'trustedDevices'>,
-): Promise<void> {
-  const trustedDevice = await ctx.db.get(trustedDeviceId);
-  if (
-    trustedDevice === null ||
-    trustedDevice.productAccountId !== productAccountId
-  ) {
-    throw new Error('Trusted device required');
-  }
-}
 
 function serializePayload(
   payload: Doc<'encryptedProductSyncPayloads'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are generated mutable framework types.
@@ -124,10 +85,22 @@ export const putEncryptedPayload = mutation({
 
 export const listEncryptedPayloads = query({
   args: {
-    paginationOpts: paginationOptsValidator,
+    paginationOpts: v.optional(paginationOptsValidator),
   },
   handler: async (ctx, args) => {
     const { productAccountId } = await requireProductAccount(ctx);
+    if (args.paginationOpts === undefined) {
+      const payloads = await ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId', (q) =>
+          q.eq('productAccountId', productAccountId),
+        )
+        .order('asc')
+        .take(encryptedProductSyncPayloadPageSize);
+
+      return payloads.map(serializePayload);
+    }
+
     const paginationOpts = {
       cursor: args.paginationOpts.cursor,
       numItems: Math.min(
@@ -149,5 +122,5 @@ export const listEncryptedPayloads = query({
       page: payloads.page.map(serializePayload),
     };
   },
-  returns: encryptedProductSyncPayloadPageValidator,
+  returns: encryptedProductSyncPayloadListResponseValidator,
 });
