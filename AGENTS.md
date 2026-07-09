@@ -131,7 +131,7 @@ If Apple tooling is unavailable in the current environment, state that clearly i
 
 The repository must have CI pipelines under `.github/workflows/`.
 
-Pull request and default-branch CI must run the same checks agents are expected to run locally:
+Non-draft pull request and default-branch CI must run the same checks agents are expected to run locally:
 
 - `pnpm install --frozen-lockfile`
 - `pnpm lint`

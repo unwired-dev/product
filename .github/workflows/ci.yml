@@ -2,6 +2,11 @@ name: CI
 
 on:
   pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
   push:
     branches:
       - main
@@ -9,6 +14,7 @@ on:
 jobs:
   typescript:
     name: TypeScript
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -22,6 +28,15 @@ jobs:
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-${{ github.job }}-
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -37,6 +52,7 @@ jobs:
 
   fallow:
     name: Fallow
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
@@ -49,10 +65,21 @@ jobs:
 
   apple:
     name: Apple
+    if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: blacksmith-6vcpu-macos-26
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Restore mise cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/mise
+            ~/.local/share/mise
+          key: mise-${{ runner.os }}-${{ hashFiles('.mise.toml') }}
+          restore-keys: |
+            mise-${{ runner.os }}-
 
       - name: Install Apple lint tools
         run: |
