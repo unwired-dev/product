@@ -30,3 +30,28 @@ export const productSyncMaterialInitializedResponseValidator = v.object({
 export type ProductSyncMaterialInitializedResponse = Infer<
   typeof productSyncMaterialInitializedResponseValidator
 >;
+
+export const gmailProviderConnectionStatusValidator = v.object({
+  connectedAt: v.number(),
+  emailAddress: v.string(),
+  lastVerifiedAt: v.number(),
+  provider: v.literal('gmail'),
+  providerAccountIdentifier: v.string(),
+  trustedDeviceId: v.string(),
+  updatedAt: v.number(),
+});
+
+export type GmailProviderConnectionStatus = Infer<
+  typeof gmailProviderConnectionStatusValidator
+>;
+
+export const gmailProviderConnectionStatusFixture: GmailProviderConnectionStatus =
+  {
+    connectedAt: 1_781_200_000_000,
+    emailAddress: 'user@example.com',
+    lastVerifiedAt: 1_781_200_000_000,
+    provider: 'gmail',
+    providerAccountIdentifier: 'gmail-user-001',
+    trustedDeviceId: 'trustedDeviceFixtureId',
+    updatedAt: 1_781_200_000_000,
+  };

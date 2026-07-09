@@ -40,6 +40,7 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   func testSignOutClearsStoredSession() async {
+    let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -49,6 +50,7 @@ final class ProductAccountSessionTests: XCTestCase {
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -57,6 +59,126 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
+    XCTAssertEqual(
+      gmailConnectionService.clearedSession?.productAccountId,
+      ProductAccountConnectResponse.preview.productAccountId
+    )
+  }
+
+  func testSignOutClearsStoredSessionWhenGmailCleanupFails() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    try store.save(snapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
+  }
+
+  func testSignOutClearsStoredSessionWhenSessionReloadFails() async {
+    let sessionStore = ControllableProductAccountSessionStore()
+    sessionStore.loadError = ProductAccountSessionTestError.sessionLoadFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertTrue(sessionStore.didClear)
+  }
+
+  func testSignInClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: "oldProductAccountId",
+      trustedDeviceId: "oldTrustedDeviceId"
+    )
+    try store.save(oldSnapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-002",
+          identityToken: "token-002"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(
+      snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+  }
+
+  func testSignInKeepsPreviousGmailTokensWhenNewSessionSaveFails() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: "oldProductAccountId",
+      trustedDeviceId: "oldTrustedDeviceId"
+    )
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: oldSnapshot)
+    sessionStore.saveError = ProductAccountSessionTestError.sessionSaveFailed
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-002",
+          identityToken: "token-002"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .failed = session.state else {
+      return XCTFail("Expected failed state")
+    }
+    XCTAssertEqual(try sessionStore.load(), oldSnapshot)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {
@@ -86,6 +208,63 @@ final class ProductAccountSessionTests: XCTestCase {
       return XCTFail("Expected failed state")
     }
     XCTAssertEqual(try store.load(), snapshot)
+  }
+
+  func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    try store.save(snapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: RevokedAppleSignInService(),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
+  }
+
+  func testBootstrapClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: "oldProductAccountId",
+      trustedDeviceId: "oldTrustedDeviceId"
+    )
+    try store.save(oldSnapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(
+      snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
   }
 
   func testExistingProductAccountWithoutLocalSyncMaterialRequiresRecovery() async {
@@ -224,5 +403,89 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = identityToken
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
+  }
+}
+
+private struct RevokedAppleSignInService: AppleSignInPerforming {
+  func signIn() async throws -> AppleSignInCredential {
+    throw AppleSignInError.notAuthorized
+  }
+
+  func restoreSession(
+    snapshot: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    _ = snapshot
+    throw AppleSignInError.notAuthorized
+  }
+}
+
+private enum ProductAccountSessionTestError: Error {
+  case gmailCleanupFailed
+  case sessionLoadFailed
+  case sessionSaveFailed
+}
+
+private final class ControllableProductAccountSessionStore: ProductAccountSessionPersisting {
+  var didClear = false
+  var loadError: Error?
+  var saveError: Error?
+
+  private var snapshot: ProductAccountSessionSnapshot?
+
+  init(snapshot: ProductAccountSessionSnapshot? = nil) {
+    self.snapshot = snapshot
+  }
+
+  func load() throws -> ProductAccountSessionSnapshot? {
+    if let loadError {
+      throw loadError
+    }
+
+    return snapshot
+  }
+
+  func save(_ snapshot: ProductAccountSessionSnapshot) throws {
+    if let saveError {
+      throw saveError
+    }
+
+    self.snapshot = snapshot
+  }
+
+  func clear() throws {
+    didClear = true
+    snapshot = nil
+  }
+}
+
+private final class RecordingGmailProviderConnecting: GmailProviderConnecting {
+  var clearedSession: ProductAccountSessionSnapshot?
+  var clearedSessions: [ProductAccountSessionSnapshot] = []
+  var clearError: Error?
+
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    clearedSession = session
+    clearedSessions.append(session)
+    if let clearError {
+      throw clearError
+    }
+  }
+
+  func completeConnection(
+    verifiedAccount: VerifiedGmailAccount,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus {
+    _ = verifiedAccount
+    _ = session
+    throw ConvexClientError.missingConvexURL
+  }
+
+  func loadConnection(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    _ = session
+    return nil
   }
 }

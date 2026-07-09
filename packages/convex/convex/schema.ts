@@ -42,4 +42,25 @@ export default defineSchema({
       'productAccountId',
       'payloadIdentifier',
     ]),
+
+  mailProviderConnections: defineTable({
+    connectedAt: v.number(),
+    emailAddress: v.string(),
+    lastVerifiedAt: v.number(),
+    productAccountId: v.id('productAccounts'),
+    provider: v.literal('gmail'),
+    providerAccountIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+    updatedAt: v.number(),
+  })
+    .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
+    .index('by_productAccountId_and_provider_and_trustedDeviceId', [
+      'productAccountId',
+      'provider',
+      'trustedDeviceId',
+    ])
+    .index('by_productAccountId_and_providerAccountIdentifier', [
+      'productAccountId',
+      'providerAccountIdentifier',
+    ]),
 });

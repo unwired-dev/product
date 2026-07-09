@@ -142,6 +142,135 @@ final class ConvexClientTests: XCTestCase {
 
     XCTAssertEqual(response, ProductAccountConnectResponse.preview)
   }
+
+  func testConnectGmailProviderSendsOnlyMetadataToBackend() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "connectedAt": 1781200000000,
+          "emailAddress": "user@example.com",
+          "lastVerifiedAt": 1781200000000,
+          "provider": "gmail",
+          "providerAccountIdentifier": "gmail-user-001",
+          "trustedDeviceId": "trustedDeviceFixtureId",
+          "updatedAt": 1781200000000
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        XCTAssertEqual(requestJSON["path"] as? String, "productAccount:connectGmailProvider")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["emailAddress"] as? String, "user@example.com")
+        XCTAssertEqual(args["providerAccountIdentifier"] as? String, "gmail-user-001")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        XCTAssertNil(args["accessToken"])
+        XCTAssertNil(args["refreshToken"])
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.connectGmailProvider(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId",
+      emailAddress: "user@example.com",
+      providerAccountIdentifier: "gmail-user-001"
+    )
+
+    XCTAssertEqual(response.emailAddress, "user@example.com")
+    XCTAssertEqual(response.provider, "gmail")
+  }
+
+  func testGetGmailProviderConnectionSendsAuthenticatedQuery() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "connectedAt": 1781200000000,
+          "emailAddress": "user@example.com",
+          "lastVerifiedAt": 1781200000000,
+          "provider": "gmail",
+          "providerAccountIdentifier": "gmail-user-001",
+          "trustedDeviceId": "trustedDeviceFixtureId",
+          "updatedAt": 1781200000000
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/query")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        XCTAssertEqual(requestJSON["path"] as? String, "productAccount:getGmailProviderConnection")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.getGmailProviderConnection(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(response?.emailAddress, "user@example.com")
+  }
+
+  private static func requestBody(from request: URLRequest) throws -> Data {
+    if let body = request.httpBody {
+      return body
+    }
+
+    let stream = try XCTUnwrap(request.httpBodyStream)
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    let bufferSize = 1024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+
+    while stream.hasBytesAvailable {
+      let bytesRead = stream.read(buffer, maxLength: bufferSize)
+      if bytesRead < 0 {
+        throw stream.streamError ?? ConvexClientTestError.unreadableRequestBody
+      }
+      if bytesRead == 0 {
+        break
+      }
+      data.append(buffer, count: bytesRead)
+    }
+
+    return data
+  }
 }
 
 final class ConvexClientProductSyncTests: XCTestCase {

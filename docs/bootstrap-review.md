@@ -131,12 +131,14 @@ Backend development:
 Apple development:
 
 - `CONVEX_URL`: Convex site or client URL used by debug builds to call backend functions.
+- `GMAIL_OAUTH_CLIENT_ID`: Google OAuth client id used by the Apple app to validate Gmail refresh tokens before storing device-held provider credentials.
 
 The Apple app should read `CONVEX_URL` from an untracked local Xcode configuration file or scheme environment during development. Do not commit developer-specific deployment URLs or secrets.
+The Apple app may read `GMAIL_OAUTH_CLIENT_ID` from the same untracked local configuration during development. Release-style builds should set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting so the non-secret client id is bundled in Info.plist. Never ship or commit Gmail OAuth client secrets.
 
 Not required for the smoke path:
 
-- Mail provider OAuth client IDs or secrets.
+- Mail provider OAuth client secrets.
 - Provider refresh tokens or access tokens.
 - Apple Sign in with Apple configuration.
 - APNs push keys.

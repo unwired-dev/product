@@ -39,6 +39,8 @@ pnpm dev
 
 `convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use an untracked `apps/unwired-mail/.env.local` file, a local Xcode scheme environment variable, or another untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
 
+Gmail provider connection also requires `GMAIL_OAUTH_CLIENT_ID` so the device can validate pasted refresh tokens with Google before storing them locally. Use an Apple app environment value for local development, and set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting for release-style builds so the non-secret client id is bundled in Info.plist. Keep any OAuth client secrets out of the app.
+
 Open and run the Apple app:
 
 ```sh

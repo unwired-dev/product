@@ -33,6 +33,8 @@
 		71A6A0732C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */; };
 		71A6A0782C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */; };
 		71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */; };
+		71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */; };
+		71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -75,6 +77,8 @@
 		71A6A0772C0B000100000001 /* ProductSyncKeyMaterialStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductSyncKeyMaterialStoreTests.swift; sourceTree = "<group>"; };
 		71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/CustomCategorySyncService.swift; sourceTree = "<group>"; };
 		71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomCategorySyncServiceTests.swift; sourceTree = "<group>"; };
+		71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GmailProviderConnectionService.swift; sourceTree = "<group>"; };
+		71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailProviderConnectionServiceTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,6 +120,7 @@
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */,
 				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
+				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
 				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
 				71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */,
 				71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */,
@@ -137,6 +142,7 @@
 				71A6A0182C0B000100000001 /* ConvexClientTests.swift */,
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
+				71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */,
 				71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */,
 				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
 				71A6A0762C0B000100000001 /* ProductSyncEncryptionTests.swift */,
@@ -261,6 +267,7 @@
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */,
 				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
+				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
 				71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */,
 				71A6A00D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift in Sources */,
@@ -281,6 +288,7 @@
 				71A6A0082C0B000100000001 /* ConvexClientTests.swift in Sources */,
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
+				71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */,
 				71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */,
 				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,
 				71A6A0722C0B000100000001 /* ProductSyncEncryptionTests.swift in Sources */,
@@ -432,7 +440,9 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				GMAIL_OAUTH_CLIENT_ID = "";
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_GmailOAuthClientId = "$(GMAIL_OAUTH_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
@@ -461,7 +471,9 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
+				GMAIL_OAUTH_CLIENT_ID = "";
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
+				INFOPLIST_KEY_GmailOAuthClientId = "$(GMAIL_OAUTH_CLIENT_ID)";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
