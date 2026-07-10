@@ -84,6 +84,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 5. Add a changeset with `pnpm changeset` when the change should appear in package release notes.
 6. Run the validation appropriate to the change type.
 7. Report which validation commands were run and any commands that could not be run.
+8. When addressing github comments after you fix them and push changes to PR resolve the comments
+9. Reference issue that your PR is solving
 
 ## Required Checks
 
