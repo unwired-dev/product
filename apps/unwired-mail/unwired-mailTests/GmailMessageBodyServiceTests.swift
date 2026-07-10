@@ -195,7 +195,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       if request.url?.path == "/tokeninfo" {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-          Data(#"{"sub":"gmail-user-001"}"#.utf8)
+          Data(
+            #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#
+              .utf8
+          )
         )
       }
       if request.url?.path.hasSuffix("/attachments/attachment-001") == true {
