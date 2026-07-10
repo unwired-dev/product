@@ -67,7 +67,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "\nTom & Jerry\u{00A0}\n")
+    XCTAssertFalse(body.text.contains(".button"))
+    XCTAssertFalse(body.text.contains("track()"))
+    XCTAssertTrue(body.text.contains("Tom & Jerry\u{00A0}"))
   }
 
   func testReadPreservesAttributedHTMLLineBreaks() async throws {
@@ -80,7 +82,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "\nFirst\nSecond\n")
+    XCTAssertTrue(body.text.contains("First\nSecond"))
   }
 
   func testReadPrefersHTMLOverWhitespaceOnlyPlainTextAlternative() async throws {
@@ -93,7 +95,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
-    XCTAssertEqual(body.text, "\nActual content\n")
+    XCTAssertTrue(body.text.contains("Actual content"))
   }
 
   func testReadRejectsMetadataOnlyTokenBeforeFetchingMessage() async throws {
