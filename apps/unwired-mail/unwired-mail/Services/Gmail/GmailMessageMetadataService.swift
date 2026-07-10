@@ -364,6 +364,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       "Subject: \(subject)",
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
     ]
     if let inReplyTo = message.inReplyTo {
       let replyHeader = try headerValue(inReplyTo)

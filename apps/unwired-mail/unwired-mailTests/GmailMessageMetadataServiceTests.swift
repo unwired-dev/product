@@ -297,7 +297,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     try await fixture.service.send(
-      GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+      GmailOutgoingMessage(body: "Café", recipient: "recipient@example.com", subject: "Subject"),
       connection: connection,
       session: session
     )
@@ -328,8 +328,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "Subject: Subject",
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
       "",
-      "Hello",
+      "Café",
     ].joined(separator: "\r\n")
     XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
   }

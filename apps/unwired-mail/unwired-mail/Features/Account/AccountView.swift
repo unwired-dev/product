@@ -742,6 +742,10 @@ private struct GmailInboxPanel: View {
     }
     .task(id: connection?.providerAccountIdentifier) {
       syncTask?.cancel()
+      replyToMessage = nil
+      recipient = ""
+      subject = ""
+      composeBody = ""
       guard let connection else {
         viewModel.clear()
         return
