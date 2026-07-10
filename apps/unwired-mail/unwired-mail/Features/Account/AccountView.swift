@@ -150,6 +150,7 @@ private final class GmailMailActionViewModel {
     connection: GmailProviderConnectionStatus
   ) async -> Bool {
     guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+    guard !isPerformingAction else { return false }
     isPerformingAction = true
     defer { isPerformingAction = false }
 
@@ -273,6 +274,13 @@ private final class GmailInboxViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+
+  func refresh(connection: GmailProviderConnectionStatus) async {
+    guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
+      return
+    }
+    await sync(connection: connection)
   }
 }
 
@@ -696,7 +704,7 @@ private struct GmailInboxPanel: View {
                   || viewModel.isRefreshDisabled
                   || isConnectionBusy,
                 mailActionViewModel: mailActionViewModel,
-                refreshInbox: { await viewModel.sync(connection: connection) },
+                refreshInbox: { await viewModel.refresh(connection: connection) },
                 reply: { message in
                   replyToMessage = message
                   recipient = message.replyTo ?? message.from ?? ""
@@ -777,6 +785,7 @@ private struct GmailComposePanel: View {
         .buttonStyle(.borderedProminent)
         .disabled(isDisabled || recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
+    .disabled(isDisabled)
   }
 }
 
@@ -845,11 +854,12 @@ private struct GmailInboxThreadRow: View {
 
   private func perform(_ action: GmailProviderMailAction) {
     Task {
-      if await mailActionViewModel.perform(
+      _ = await mailActionViewModel.perform(
         action,
         for: thread.messages,
         connection: connection
-      ) {
+      )
+      if !Task.isCancelled {
         await refreshInbox()
       }
     }
