@@ -150,6 +150,7 @@ struct GmailMessageBodyService: GmailMessageReading {
   private let session: URLSession
   private let tokenStore: GmailProviderTokenPersisting
   private let tokenRefreshURL: URL
+  private let tokenInfoURL: URL
 
   init(
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
@@ -161,7 +162,8 @@ struct GmailMessageBodyService: GmailMessageReading {
       ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
-    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
+    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!,
+    tokenInfoURL: URL = URL(string: "https://oauth2.googleapis.com/tokeninfo")!
   ) {
     self.cache = cache
     self.gmailBaseURL = gmailBaseURL
@@ -170,6 +172,7 @@ struct GmailMessageBodyService: GmailMessageReading {
     self.session = session
     self.tokenStore = tokenStore
     self.tokenRefreshURL = tokenRefreshURL
+    self.tokenInfoURL = tokenInfoURL
   }
 
   func loadMessageBody(
@@ -194,6 +197,10 @@ struct GmailMessageBodyService: GmailMessageReading {
     }
     let refreshedTokens = try await refreshedTokens(
       tokens, productAccountId: session.productAccountId)
+    try await validateRefreshedToken(
+      refreshedTokens.accessToken,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
     let body = try await fetchMessageBody(
       message: message, accessToken: refreshedTokens.accessToken)
     try? cache.saveMessageBody(
@@ -271,10 +278,11 @@ struct GmailMessageBodyService: GmailMessageReading {
     var request = URLRequest(url: tokenRefreshURL)
     request.httpMethod = "POST"
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
-    request.httpBody = Data(
-      "client_id=\(oauthClientId)&grant_type=refresh_token&refresh_token=\(tokens.refreshToken)"
-        .utf8
-    )
+    request.httpBody = formURLEncodedBody([
+      "client_id": oauthClientId,
+      "grant_type": "refresh_token",
+      "refresh_token": tokens.refreshToken,
+    ])
     let (data, response) = try await session.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode),
@@ -289,6 +297,32 @@ struct GmailMessageBodyService: GmailMessageReading {
     )
     try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
     return refreshedTokens
+  }
+
+  private func formURLEncodedBody(_ fields: [String: String]) -> Data {
+    fields.map { "\(formURLEncode($0.key))=\(formURLEncode($0.value))" }
+      .joined(separator: "&").data(using: .utf8) ?? Data()
+  }
+
+  private func formURLEncode(_ value: String) -> String {
+    var allowed = CharacterSet.urlQueryAllowed
+    allowed.remove(charactersIn: "+&=")
+    return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
+  }
+
+  private func validateRefreshedToken(
+    _ accessToken: String,
+    providerAccountIdentifier: String
+  ) async throws {
+    var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
+    components?.queryItems = [URLQueryItem(name: "access_token", value: accessToken)]
+    guard let url = components?.url else { throw GmailMessageBodyError.gmailRequestFailed }
+    let (data, response) = try await session.data(from: url)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode),
+      let tokenInfo = try? JSONDecoder().decode(GmailMessageBodyTokenInfo.self, from: data),
+      tokenInfo.sub == providerAccountIdentifier
+    else { throw GmailMessageBodyError.gmailRequestFailed }
   }
 
   private func encodedBodyData(
@@ -377,11 +411,17 @@ private struct GmailMessageBodyPart: Decodable {
       let charset = contentType.split(separator: ";").first(where: {
         $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("charset=")
       })?.split(separator: "=", maxSplits: 1).last,
-      CFStringConvertIANACharSetNameToEncoding(charset as CFString) != kCFStringEncodingInvalidId
+      CFStringConvertIANACharSetNameToEncoding(
+        charset.trimmingCharacters(
+          in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))) as CFString
+      ) != kCFStringEncodingInvalidId
     else {
       return .utf8
     }
-    let encoding = CFStringConvertIANACharSetNameToEncoding(charset as CFString)
+    let encoding = CFStringConvertIANACharSetNameToEncoding(
+      charset.trimmingCharacters(
+        in: .whitespacesAndNewlines.union(CharacterSet(charactersIn: "\"'"))) as CFString
+    )
     return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(encoding))
   }
 
@@ -413,6 +453,8 @@ private struct GmailMessageBodyTokenResponse: Decodable {
 
   enum CodingKeys: String, CodingKey { case accessToken = "access_token" }
 }
+
+private struct GmailMessageBodyTokenInfo: Decodable { let sub: String? }
 
 extension Data {
   fileprivate init?(gmailBase64URLEncoded value: String) {
