@@ -137,13 +137,16 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 }
 
 struct GmailProviderConnectionService: GmailProviderConnecting {
+  private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
 
   init(
+    metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
+    self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
   }
@@ -153,13 +156,26 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
     let previousTokens = try tokenStore.load(productAccountId: session.productAccountId)
+    let previousConnection: GmailProviderConnectionStatus?
+    do {
+      previousConnection = try await transport.getGmailProviderConnection(
+        identityToken: session.identityToken,
+        trustedDeviceId: session.trustedDeviceId
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      previousConnection = nil
+    }
+    try Task.checkCancellation()
     try tokenStore.save(
       verifiedAccount.tokens,
       productAccountId: session.productAccountId
     )
 
+    let connection: GmailProviderConnectionStatus
     do {
-      return try await transport.connectGmailProvider(
+      connection = try await transport.connectGmailProvider(
         identityToken: session.identityToken,
         trustedDeviceId: session.trustedDeviceId,
         emailAddress: verifiedAccount.emailAddress,
@@ -177,12 +193,32 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
       throw error
     }
+
+    if previousConnection?.providerAccountIdentifier != nil
+      && previousConnection?.providerAccountIdentifier != connection.providerAccountIdentifier
+    {
+      try? metadataStore.clearMessages(productAccountId: session.productAccountId)
+    }
+    return connection
   }
 
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
   ) throws {
-    try tokenStore.clear(productAccountId: session.productAccountId)
+    var cleanupError: Error?
+    do {
+      try tokenStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   func loadConnection(

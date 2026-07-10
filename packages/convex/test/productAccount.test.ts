@@ -245,7 +245,7 @@ describe('productAccount Gmail provider connection', () => {
   });
 
   it('updates the existing Gmail connection for the trusted device', async () => {
-    expect.assertions(3);
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -272,6 +272,40 @@ describe('productAccount Gmail provider connection', () => {
     );
 
     expect(secondStatus.emailAddress).toBe('renamed@example.com');
+    expect(secondStatus.connectedAt).toBe(firstStatus.connectedAt);
+    expect(secondStatus.lastVerifiedAt).toBeGreaterThanOrEqual(
+      firstStatus.lastVerifiedAt,
+    );
+    expect(secondStatus.updatedAt).toBe(firstStatus.updatedAt);
+  });
+
+  it('resets Gmail connection update time when the provider account changes', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    const firstStatus = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'user@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const secondStatus = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'other@example.com',
+        providerAccountIdentifier: 'gmail-user-002',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
     expect(secondStatus.connectedAt).toBe(firstStatus.connectedAt);
     expect(secondStatus.updatedAt).toBeGreaterThanOrEqual(
       firstStatus.updatedAt,
