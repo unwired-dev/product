@@ -211,7 +211,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
-  func testProviderActionsUseGmailModifyAndDeleteEndpoints() async throws {
+  func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
     let fixture = try makeMailActionFixture()
 
     try await fixture.service.perform(
@@ -231,12 +231,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       fixture.recorder.requests.map(\.path),
       [
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
-        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/trash",
       ])
     XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
-    XCTAssertEqual(fixture.recorder.requests[5].method, "DELETE")
+    XCTAssertEqual(fixture.recorder.requests[5].method, "POST")
   }
 
   func testSendUsesGmailRawMessageEndpoint() async throws {
@@ -266,6 +266,45 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "Hello",
     ].joined(separator: "\r\n")
     XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
+  }
+
+  func testSendAddsReplyThreadingHeadersAndRejectsHeaderInjection() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        inReplyTo: "<original@example.com>",
+        threadId: "thread-001"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let sentRequest = try XCTUnwrap(fixture.recorder.requests.last)
+    XCTAssertEqual(sentRequest.jsonBody["threadId"] as? String, "thread-001")
+    let raw = try XCTUnwrap(sentRequest.jsonBody["raw"] as? String)
+    let paddedRaw = raw + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(mimeText.contains("In-Reply-To: <original@example.com>"))
+    XCTAssertTrue(mimeText.contains("References: <original@example.com>"))
+
+    do {
+      try await fixture.service.send(
+        GmailOutgoingMessage(
+          body: "Hello",
+          recipient: "victim@example.com\r\nBcc: bad",
+          subject: "Subject"
+        ),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected header validation failure")
+    } catch GmailMessageMetadataSyncError.invalidMessageHeader {
+    }
   }
 
   private func makeMailActionFixture() throws -> GmailMailActionFixture {
@@ -482,7 +521,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerThreadId: threadId,
       snippet: "Snippet",
       stableProviderMessageId: "gmail:gmail-user-001:\(messageId)",
-      subject: "Subject"
+      subject: "Subject",
+      rfcMessageId: nil
     )
   }
 }

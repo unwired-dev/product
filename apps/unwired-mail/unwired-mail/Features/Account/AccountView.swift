@@ -119,23 +119,28 @@ private final class GmailMailActionViewModel {
 
   func perform(
     _ action: GmailProviderMailAction,
-    for message: GmailMessageMetadata,
+    for messages: [GmailMessageMetadata],
     connection: GmailProviderConnectionStatus
-  ) async {
+  ) async -> Bool {
     isPerformingAction = true
     defer { isPerformingAction = false }
 
     do {
-      try await service.perform(
-        action,
-        messageId: message.providerMessageId,
-        connection: connection,
-        session: session
-      )
+      for message in messages {
+        try await service.perform(
+          action,
+          messageId: message.providerMessageId,
+          connection: connection,
+          session: session
+        )
+      }
       errorMessage = nil
+      return true
     } catch is CancellationError {
+      return false
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -143,6 +148,7 @@ private final class GmailMailActionViewModel {
     recipient: String,
     subject: String,
     body: String,
+    replyTo: GmailMessageMetadata?,
     connection: GmailProviderConnectionStatus
   ) async {
     guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
@@ -151,7 +157,13 @@ private final class GmailMailActionViewModel {
 
     do {
       try await service.send(
-        GmailOutgoingMessage(body: body, recipient: recipient, subject: subject),
+        GmailOutgoingMessage(
+          body: body,
+          recipient: recipient,
+          subject: subject,
+          inReplyTo: replyTo?.rfcMessageId,
+          threadId: replyTo?.providerThreadId
+        ),
         connection: connection,
         session: session
       )
@@ -617,6 +629,7 @@ private struct GmailInboxPanel: View {
   @State private var syncTask: Task<Void, Never>?
   @State private var composeBody = ""
   @State private var recipient = ""
+  @State private var replyToMessage: GmailMessageMetadata?
   @State private var subject = ""
 
   var body: some View {
@@ -658,6 +671,7 @@ private struct GmailInboxPanel: View {
               recipient: recipient,
               subject: subject,
               body: composeBody,
+              replyTo: replyToMessage,
               connection: connection
             )
           }
@@ -674,13 +688,16 @@ private struct GmailInboxPanel: View {
                 connection: connection,
                 isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
                 mailActionViewModel: mailActionViewModel,
+                refreshInbox: { await viewModel.sync(connection: connection) },
                 reply: { message in
+                  replyToMessage = message
                   recipient = message.from ?? ""
                   subject = "Re: \(message.subject)"
                   composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
                 },
                 thread: thread,
                 forward: { message in
+                  replyToMessage = nil
                   recipient = ""
                   subject = "Fwd: \(message.subject)"
                   composeBody =
@@ -759,6 +776,7 @@ private struct GmailInboxThreadRow: View {
   let connection: GmailProviderConnectionStatus
   let isDisabled: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
+  let refreshInbox: () async -> Void
   let reply: (GmailMessageMetadata) -> Void
   let thread: GmailInboxThread
   let forward: (GmailMessageMetadata) -> Void
@@ -818,11 +836,13 @@ private struct GmailInboxThreadRow: View {
 
   private func perform(_ action: GmailProviderMailAction) {
     Task {
-      await mailActionViewModel.perform(
+      if await mailActionViewModel.perform(
         action,
-        for: thread.latestMessage,
+        for: thread.messages,
         connection: connection
-      )
+      ) {
+        await refreshInbox()
+      }
     }
   }
 }
