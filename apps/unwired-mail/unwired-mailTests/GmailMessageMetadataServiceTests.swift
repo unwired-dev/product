@@ -55,6 +55,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncInboxStoresReplyToHeader() async throws {
+    let fixture = try makeSyncFixture(replyTo: "Replies <replies@example.com>")
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      result.messages.first { $0.providerMessageId == "message-002" }?.replyTo,
+      "Replies <replies@example.com>"
+    )
+  }
+
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
     let store = RecordingGmailMessageMetadataStore()
     store.messages = [
@@ -277,6 +291,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
+  func testSendAcceptsGmailModifyScope() async throws {
+    let fixture = try makeMailActionFixture(
+      tokenScopes: "https://www.googleapis.com/auth/gmail.modify"
+    )
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(fixture.recorder.requests.last?.path, "/gmail/v1/users/me/messages/send")
+  }
+
   func testSendUsesGmailRawMessageEndpoint() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -403,9 +431,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   private static func messageMetadataResponseData(
     messageId: String,
     internalDate: String,
-    snippet: String
+    snippet: String,
+    replyTo: String? = nil
   ) -> Data {
-    Data(
+    let replyToHeader =
+      replyTo.map {
+        ",\n            {\"name\": \"Reply-To\", \"value\": \"\($0)\"}"
+      } ?? ""
+    return Data(
       """
       {
         "id": "\(messageId)",
@@ -415,7 +448,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "payload": {
           "headers": [
             {"name": "From", "value": "Sender <sender@example.com>"},
-            {"name": "Subject", "value": "Thread subject"}
+            {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
           ]
         }
       }
@@ -425,7 +458,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   private func makeSyncFixture(
     tokenInfoSubject: String = "gmail-user-001",
-    usesPagination: Bool = false
+    usesPagination: Bool = false,
+    replyTo: String? = nil
   ) throws -> GmailMessageMetadataSyncFixture {
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
@@ -439,7 +473,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         for: request,
         requestRecorder: requestRecorder,
         tokenInfoSubject: tokenInfoSubject,
-        usesPagination: usesPagination
+        usesPagination: usesPagination,
+        replyTo: replyTo
       )
     }
     let service = GmailMessageMetadataService(
@@ -463,7 +498,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     for request: URLRequest,
     requestRecorder: GmailMetadataRequestRecorder,
     tokenInfoSubject: String,
-    usesPagination: Bool
+    usesPagination: Bool,
+    replyTo: String?
   ) -> (HTTPURLResponse, Data) {
     requestRecorder.paths.append(request.url?.path ?? "")
     requestRecorder.queries.append(request.url?.query ?? "")
@@ -522,16 +558,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     return (
       Self.httpResponse(for: request, statusCode: 200),
-      makeMessageMetadataResponseData(for: request)
+      makeMessageMetadataResponseData(for: request, replyTo: replyTo)
     )
   }
 
-  private func makeMessageMetadataResponseData(for request: URLRequest) -> Data {
+  private func makeMessageMetadataResponseData(
+    for request: URLRequest,
+    replyTo: String?
+  ) -> Data {
     if request.url?.path == "/gmail/v1/users/me/messages/message-001" {
       return Self.messageMetadataResponseData(
         messageId: "message-001",
         internalDate: "1781190000000",
-        snippet: "Older message snippet"
+        snippet: "Older message snippet",
+        replyTo: replyTo
       )
     }
 
@@ -539,14 +579,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       return Self.messageMetadataResponseData(
         messageId: "message-003",
         internalDate: "1781199000000",
-        snippet: "Newest message snippet"
+        snippet: "Newest message snippet",
+        replyTo: replyTo
       )
     }
 
     return Self.messageMetadataResponseData(
       messageId: "message-002",
       internalDate: "1781197200000",
-      snippet: "Latest message snippet"
+      snippet: "Latest message snippet",
+      replyTo: replyTo
     )
   }
 
@@ -563,6 +605,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerInternalDateMilliseconds: internalDateMilliseconds,
       providerMessageId: messageId,
       providerThreadId: threadId,
+      replyTo: nil,
       snippet: "Snippet",
       stableProviderMessageId: "gmail:gmail-user-001:\(messageId)",
       subject: "Subject",

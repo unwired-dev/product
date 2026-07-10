@@ -14,6 +14,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let providerInternalDateMilliseconds: Int64
   let providerMessageId: String
   let providerThreadId: String
+  let replyTo: String?
   let snippet: String
   let stableProviderMessageId: String
   let subject: String
@@ -299,7 +300,10 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     let accessToken = try await authorizedAccessToken(
       connection: connection,
       session: session,
-      requiredScope: "https://www.googleapis.com/auth/gmail.modify"
+      requiredScopes: [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+      ]
     )
     for messageId in messageIds {
       let url = gmailBaseURL.appendingPathComponent("users/me/messages/\(messageId)")
@@ -346,7 +350,12 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     let accessToken = try await authorizedAccessToken(
       connection: connection,
       session: session,
-      requiredScope: "https://www.googleapis.com/auth/gmail.send"
+      requiredScopes: [
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://mail.google.com/",
+      ]
     )
     let recipient = try headerValue(message.recipient)
     let subject = try encodedHeaderValue(message.subject)
@@ -383,7 +392,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
   private func authorizedAccessToken(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot,
-    requiredScope: String
+    requiredScopes: Set<String>
   ) async throws -> String {
     guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
@@ -392,7 +401,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     try await validateRefreshedToken(
       tokens.accessToken,
       matches: connection,
-      requiredScope: requiredScope
+      requiredScopes: requiredScopes
     )
     return tokens.accessToken
   }
@@ -447,6 +456,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       URLQueryItem(name: "format", value: "metadata"),
       URLQueryItem(name: "metadataHeaders", value: "From"),
       URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
+      URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
       URLQueryItem(name: "metadataHeaders", value: "Subject"),
     ]
     guard let url = components?.url else {
@@ -474,6 +484,9 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       providerInternalDateMilliseconds: internalDateMilliseconds,
       providerMessageId: response.id,
       providerThreadId: response.threadId,
+      replyTo: response.payload?.headers.first {
+        $0.name.caseInsensitiveCompare("Reply-To") == .orderedSame
+      }?.value,
       snippet: response.snippet,
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
@@ -607,7 +620,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
   private func validateRefreshedToken(
     _ accessToken: String,
     matches connection: GmailProviderConnectionStatus,
-    requiredScope: String? = nil
+    requiredScopes: Set<String>? = nil
   ) async throws {
     var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
     components?.queryItems = [
@@ -633,8 +646,8 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
         throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
       }
     }
-    if let requiredScope {
-      guard tokenInfo.scopes.contains(requiredScope) else {
+    if let requiredScopes {
+      guard !tokenInfo.scopes.isDisjoint(with: requiredScopes) else {
         throw GmailMessageMetadataSyncError.insufficientGmailScope
       }
     }
@@ -728,6 +741,7 @@ extension GmailMessageMetadata {
       providerInternalDateMilliseconds: providerInternalDateMilliseconds,
       providerMessageId: providerMessageId,
       providerThreadId: providerThreadId,
+      replyTo: replyTo,
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,

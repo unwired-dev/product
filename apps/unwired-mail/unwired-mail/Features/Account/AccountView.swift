@@ -676,6 +676,9 @@ private struct GmailInboxPanel: View {
               connection: connection
             ) {
               replyToMessage = nil
+              recipient = ""
+              subject = ""
+              composeBody = ""
             }
           }
         }
@@ -696,7 +699,7 @@ private struct GmailInboxPanel: View {
                 refreshInbox: { await viewModel.sync(connection: connection) },
                 reply: { message in
                   replyToMessage = message
-                  recipient = message.from ?? ""
+                  recipient = message.replyTo ?? message.from ?? ""
                   subject = "Re: \(message.subject)"
                   composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
                 },
@@ -822,6 +825,7 @@ private struct GmailInboxThreadRow: View {
 
       Menu("Actions") {
         Button("Reply") { reply(thread.latestMessage) }
+          .disabled(thread.latestMessage.rfcMessageId == nil)
         Button("Forward") { forward(thread.latestMessage) }
         Divider()
         Button("Mark Read") { perform(.markRead) }
