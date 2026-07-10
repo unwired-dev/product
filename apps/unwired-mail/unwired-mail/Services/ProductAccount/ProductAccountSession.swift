@@ -17,6 +17,7 @@ final class ProductAccountSession {
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let gmailProviderConnectionService: GmailProviderConnecting
+  private let gmailMessageBodyReader: GmailMessageReading
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
@@ -25,6 +26,7 @@ final class ProductAccountSession {
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     gmailProviderConnectionService: GmailProviderConnecting =
       GmailProviderConnectionService(),
+    gmailMessageBodyReader: GmailMessageReading = GmailMessageBodyService(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -32,6 +34,7 @@ final class ProductAccountSession {
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.gmailProviderConnectionService = gmailProviderConnectionService
+    self.gmailMessageBodyReader = gmailMessageBodyReader
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
@@ -119,6 +122,7 @@ final class ProductAccountSession {
   func signOut() {
     if let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load()) {
       try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+      try? gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
     }
 
     do {
@@ -152,6 +156,7 @@ final class ProductAccountSession {
     }
 
     try? gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+    try? gmailMessageBodyReader.clearCachedMessageBodies(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {

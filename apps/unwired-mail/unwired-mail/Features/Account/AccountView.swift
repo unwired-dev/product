@@ -5,6 +5,7 @@ import SwiftUI
 struct AccountView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  private let gmailMessageBodyService: GmailMessageReading
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
@@ -17,10 +18,12 @@ struct AccountView: View {
     gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
-    gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
+    gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService()
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.gmailMessageBodyService = gmailMessageBodyService
     _categoryViewModel = State(
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
@@ -70,6 +73,8 @@ struct AccountView: View {
         GmailInboxPanel(
           connection: gmailViewModel.connection,
           isConnectionBusy: gmailViewModel.isEditingDisabled,
+          messageReader: gmailMessageBodyService,
+          session: snapshot,
           viewModel: inboxViewModel
         )
 
@@ -543,8 +548,11 @@ private struct GmailProviderConnectionPanel: View {
 private struct GmailInboxPanel: View {
   let connection: GmailProviderConnectionStatus?
   let isConnectionBusy: Bool
+  let messageReader: GmailMessageReading
+  let session: ProductAccountSessionSnapshot
   @Bindable var viewModel: GmailInboxViewModel
   @State private var syncTask: Task<Void, Never>?
+  @State private var selectedMessage: GmailMessageMetadata?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -560,6 +568,14 @@ private struct GmailInboxPanel: View {
         Spacer()
 
         if let connection {
+          Button("Remove Cached Bodies", role: .destructive) {
+            Task {
+              try? messageReader.clearCachedMessageBodies(session: session)
+            }
+          }
+          .buttonStyle(.bordered)
+          .disabled(isConnectionBusy)
+
           Button {
             syncTask?.cancel()
             syncTask = Task {
@@ -584,7 +600,12 @@ private struct GmailInboxPanel: View {
       } else {
         VStack(alignment: .leading, spacing: 12) {
           ForEach(viewModel.threads) { thread in
-            GmailInboxThreadRow(thread: thread)
+            Button {
+              selectedMessage = thread.latestMessage
+            } label: {
+              GmailInboxThreadRow(thread: thread)
+            }
+            .buttonStyle(.plain)
             Divider()
           }
         }
@@ -612,6 +633,13 @@ private struct GmailInboxPanel: View {
     .onDisappear {
       syncTask?.cancel()
     }
+    .sheet(item: $selectedMessage) { message in
+      GmailMessageBodySheet(
+        message: message,
+        reader: messageReader,
+        session: session
+      )
+    }
   }
 
   private var summaryText: String {
@@ -620,6 +648,103 @@ private struct GmailInboxPanel: View {
     }
 
     return "\(viewModel.threads.count) threads, \(viewModel.messageCount) messages"
+  }
+}
+
+private struct GmailMessageBodySheet: View {
+  let message: GmailMessageMetadata
+  @Environment(\.dismiss) private var dismiss
+  @State private var viewModel: GmailMessageBodyViewModel
+
+  init(
+    message: GmailMessageMetadata,
+    reader: GmailMessageReading,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.message = message
+    _viewModel = State(
+      initialValue: GmailMessageBodyViewModel(message: message, reader: reader, session: session)
+    )
+  }
+
+  var body: some View {
+    NavigationStack {
+      Group {
+        if let body = viewModel.body {
+          ScrollView {
+            Text(body.text)
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .textSelection(.enabled)
+              .padding()
+          }
+        } else if viewModel.isLoading {
+          ProgressView("Loading message…")
+        } else if let errorMessage = viewModel.errorMessage {
+          ContentUnavailableView(
+            "Message unavailable",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorMessage)
+          )
+        }
+      }
+      .navigationTitle(message.subject)
+      .navigationBarTitleDisplayMode(.inline)
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Done") { dismiss() }
+        }
+        if viewModel.body != nil {
+          ToolbarItem(placement: .primaryAction) {
+            Button("Remove Cached Body", role: .destructive) {
+              viewModel.removeCachedBody()
+            }
+          }
+        }
+      }
+      .task { await viewModel.load() }
+    }
+  }
+}
+
+@MainActor
+@Observable
+private final class GmailMessageBodyViewModel {
+  var body: GmailMessageBody?
+  var errorMessage: String?
+  var isLoading = false
+
+  private let message: GmailMessageMetadata
+  private let reader: GmailMessageReading
+  private let session: ProductAccountSessionSnapshot
+
+  init(
+    message: GmailMessageMetadata,
+    reader: GmailMessageReading,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.message = message
+    self.reader = reader
+    self.session = session
+  }
+
+  func load() async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      body = try await reader.loadMessageBody(message: message, session: session)
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func removeCachedBody() {
+    do {
+      try reader.removeCachedMessageBody(message: message, session: session)
+      body = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 }
 

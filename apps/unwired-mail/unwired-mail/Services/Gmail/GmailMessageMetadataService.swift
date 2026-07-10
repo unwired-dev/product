@@ -81,7 +81,7 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       return
     }
 
-    let prefix = "\(safeFileComponent(productAccountId))-"
+    let prefix = "\(gmailSafeFileComponent(productAccountId))-"
     let fileURLs = try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: nil
@@ -129,19 +129,19 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     providerAccountIdentifier: String
   ) -> URL {
     rootDirectory.appendingPathComponent(
-      "\(safeFileComponent(productAccountId))-\(safeFileComponent(providerAccountIdentifier)).json"
+      "\(gmailSafeFileComponent(productAccountId))-\(gmailSafeFileComponent(providerAccountIdentifier)).json"
     )
   }
+}
 
-  private func safeFileComponent(_ value: String) -> String {
-    value
-      .map { character in
-        character.isLetter || character.isNumber || character == "-" ? character : "_"
-      }
-      .reduce(into: "") { partialResult, character in
-        partialResult.append(character)
-      }
-  }
+func gmailSafeFileComponent(_ value: String) -> String {
+  value
+    .map { character in
+      character.isLetter || character.isNumber || character == "-" ? character : "_"
+    }
+    .reduce(into: "") { partialResult, character in
+      partialResult.append(character)
+    }
 }
 
 struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
