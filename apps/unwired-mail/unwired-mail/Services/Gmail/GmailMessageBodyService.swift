@@ -393,13 +393,11 @@ struct GmailMessageBodyService: GmailMessageReading {
     let withoutTags = withLineBreaks.replacingOccurrences(
       of: "<[^>]+>", with: "", options: .regularExpression)
     return
-      withoutTags
-      .replacingOccurrences(of: "&nbsp;", with: "\u{00A0}")
-      .replacingOccurrences(of: "&quot;", with: "\"")
-      .replacingOccurrences(of: "&apos;", with: "'")
-      .replacingOccurrences(of: "&lt;", with: "<")
-      .replacingOccurrences(of: "&gt;", with: ">")
-      .replacingOccurrences(of: "&amp;", with: "&")
+      (try? NSAttributedString(
+        data: Data(withoutTags.utf8),
+        options: [.documentType: NSAttributedString.DocumentType.html],
+        documentAttributes: nil
+      ).string) ?? withoutTags
   }
 }
 
