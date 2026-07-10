@@ -96,6 +96,35 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
   }
 
+  func testSignOutKeepsSessionWhenBodyCacheCleanupFails() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailMessageBodyReader: FailingGmailMessageReader(),
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    session.signOut()
+
+    XCTAssertEqual(
+      session.state, .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
+    )
+    XCTAssertEqual(try store.load(), snapshot)
+  }
+
   func testSignOutClearsStoredSessionWhenSessionReloadFails() async {
     let sessionStore = ControllableProductAccountSessionStore()
     sessionStore.loadError = ProductAccountSessionTestError.sessionLoadFailed
@@ -488,5 +517,25 @@ private final class RecordingGmailProviderConnecting: GmailProviderConnecting {
   ) async throws -> GmailProviderConnectionStatus? {
     _ = session
     return nil
+  }
+}
+
+private struct FailingGmailMessageReader: GmailMessageReading {
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {
+    throw ProductAccountSessionTestError.gmailCleanupFailed
+  }
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    throw ProductAccountSessionTestError.gmailCleanupFailed
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    throw ProductAccountSessionTestError.gmailCleanupFailed
   }
 }

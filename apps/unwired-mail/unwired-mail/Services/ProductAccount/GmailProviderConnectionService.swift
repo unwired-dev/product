@@ -176,15 +176,23 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       previousConnection = nil
       previousConnectionLookupFailed = true
     }
+    let shouldClearLocalCache =
+      previousConnection.map {
+        $0.providerAccountIdentifier != verifiedAccount.providerAccountIdentifier
+      } ?? (!previousConnectionLookupFailed && previousTokens != nil)
+    if shouldClearLocalCache {
+      try? metadataStore.clearMessages(productAccountId: session.productAccountId)
+      try bodyReader.clearCachedMessageBodies(session: session)
+    }
+
     try Task.checkCancellation()
     try tokenStore.save(
       verifiedAccount.tokens,
       productAccountId: session.productAccountId
     )
 
-    let connection: GmailProviderConnectionStatus
     do {
-      connection = try await transport.connectGmailProvider(
+      return try await transport.connectGmailProvider(
         identityToken: session.identityToken,
         trustedDeviceId: session.trustedDeviceId,
         emailAddress: verifiedAccount.emailAddress,
@@ -202,16 +210,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
       throw error
     }
-
-    let shouldClearLocalCache =
-      previousConnection.map {
-        $0.providerAccountIdentifier != connection.providerAccountIdentifier
-      } ?? (!previousConnectionLookupFailed && previousTokens != nil)
-    if shouldClearLocalCache {
-      try? metadataStore.clearMessages(productAccountId: session.productAccountId)
-      try bodyReader.clearCachedMessageBodies(session: session)
-    }
-    return connection
   }
 
   func clearLocalConnection(

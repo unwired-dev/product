@@ -199,6 +199,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
   func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
     let transport = RecordingGmailConnectionTransport()
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let previousTokens = GmailProviderTokens(
+      accessToken: "old-access-token",
+      refreshToken: "old-refresh-token"
+    )
+    try tokenStore.save(previousTokens, productAccountId: session.productAccountId)
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
       emailAddress: "old@example.com",
@@ -219,7 +225,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     let service = GmailProviderConnectionService(
       bodyReader: FailingGmailMessageReader(),
-      tokenStore: InMemoryGmailProviderTokenStore(),
+      tokenStore: tokenStore,
       transport: transport
     )
 
@@ -237,6 +243,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
+
+    XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
+    XCTAssertNil(transport.connectCall)
   }
 
   func testCompleteConnectionDoesNotClearMetadataWhenPriorLookupFails() async throws {

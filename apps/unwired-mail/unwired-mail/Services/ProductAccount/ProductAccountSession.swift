@@ -123,7 +123,12 @@ final class ProductAccountSession {
   func signOut() {
     if let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load()) {
       try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
-      try? gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
+      do {
+        try gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
+      } catch {
+        state = .failed(error.localizedDescription)
+        return
+      }
     }
 
     do {

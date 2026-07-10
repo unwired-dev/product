@@ -568,20 +568,20 @@ private struct GmailInboxPanel: View {
 
         Spacer()
 
-        if let connection {
-          Button("Remove Cached Bodies", role: .destructive) {
-            Task {
-              do {
-                try messageReader.clearCachedMessageBodies(session: session)
-                cacheErrorMessage = nil
-              } catch {
-                cacheErrorMessage = error.localizedDescription
-              }
+        Button("Remove Cached Bodies", role: .destructive) {
+          Task {
+            do {
+              try messageReader.clearCachedMessageBodies(session: session)
+              cacheErrorMessage = nil
+            } catch {
+              cacheErrorMessage = error.localizedDescription
             }
           }
-          .buttonStyle(.bordered)
-          .disabled(isConnectionBusy)
+        }
+        .buttonStyle(.bordered)
+        .disabled(isConnectionBusy)
 
+        if let connection {
           Button {
             syncTask?.cancel()
             syncTask = Task {
