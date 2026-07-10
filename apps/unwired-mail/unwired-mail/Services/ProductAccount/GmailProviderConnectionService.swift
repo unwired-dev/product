@@ -209,7 +209,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       } ?? (!previousConnectionLookupFailed && previousTokens != nil)
     if shouldClearLocalCache {
       try? metadataStore.clearMessages(productAccountId: session.productAccountId)
-      try? bodyReader.clearCachedMessageBodies(session: session)
+      try bodyReader.clearCachedMessageBodies(session: session)
     }
     return connection
   }

@@ -764,6 +764,7 @@ private final class GmailMessageBodyViewModel {
       try reader.removeCachedMessageBody(message: message, session: session)
       body = nil
     } catch {
+      body = nil
       errorMessage = error.localizedDescription
     }
   }

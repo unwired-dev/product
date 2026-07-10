@@ -392,12 +392,31 @@ struct GmailMessageBodyService: GmailMessageReading {
     )
     let withoutTags = withLineBreaks.replacingOccurrences(
       of: "<[^>]+>", with: "", options: .regularExpression)
-    return
-      (try? NSAttributedString(
-        data: Data(withoutTags.utf8),
+    return decodedHTMLEntities(in: withoutTags)
+  }
+
+}
+
+private func decodedHTMLEntities(in value: String) -> String {
+  guard
+    let expression = try? NSRegularExpression(
+      pattern: "&(?:#(?:x[0-9A-Fa-f]+|[0-9]+)|[A-Za-z][A-Za-z0-9]+);"
+    )
+  else {
+    return value
+  }
+  let range = NSRange(value.startIndex..., in: value)
+  return expression.matches(in: value, range: range).reversed().reduce(value) { result, match in
+    guard let entityRange = Range(match.range, in: result),
+      let decoded = try? NSAttributedString(
+        data: Data(result[entityRange].utf8),
         options: [.documentType: NSAttributedString.DocumentType.html],
         documentAttributes: nil
-      ).string) ?? withoutTags
+      ).string
+    else {
+      return result
+    }
+    return result.replacingCharacters(in: entityRange, with: decoded)
   }
 }
 

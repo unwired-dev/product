@@ -197,6 +197,47 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    transport.status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "old@example.com",
+      lastVerifiedAt: 1_781_200_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "old-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_200_000_000
+    )
+    transport.connectStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "new@example.com",
+      lastVerifiedAt: 1_781_210_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "new-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_210_000_000
+    )
+    let service = GmailProviderConnectionService(
+      bodyReader: FailingGmailMessageReader(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "new@example.com",
+          providerAccountIdentifier: "new-gmail-user",
+          tokens: GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+        ),
+        session: session
+      )
+      XCTFail("Expected body cache cleanup failure")
+    } catch GmailProviderConnectionTestError.bodyCacheCleanupFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testCompleteConnectionDoesNotClearMetadataWhenPriorLookupFails() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -751,10 +792,31 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 // swiftlint:enable type_body_length
 
 private enum GmailProviderConnectionTestError: Error {
+  case bodyCacheCleanupFailed
   case bundleCreationFailed
   case metadataCleanupFailed
   case registrationFailed
   case tokenCleanupFailed
+}
+
+private struct FailingGmailMessageReader: GmailMessageReading {
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
 }
 
 private final class RecordingGmailConnectionTransport: GmailProviderConnectionTransport {
