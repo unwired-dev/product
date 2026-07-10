@@ -211,6 +211,100 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
+  func testProviderActionsUseGmailModifyAndDeleteEndpoints() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.perform(
+      .markUnread,
+      messageId: "message-001",
+      connection: connection,
+      session: session
+    )
+    try await fixture.service.perform(
+      .delete,
+      messageId: "message-001",
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.recorder.requests.map(\.path),
+      [
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001",
+      ])
+    XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
+    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
+    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
+    XCTAssertEqual(fixture.recorder.requests[5].method, "DELETE")
+  }
+
+  func testSendUsesGmailRawMessageEndpoint() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+      connection: connection,
+      session: session
+    )
+
+    let sentRequest = fixture.recorder.requests.last
+    XCTAssertEqual(sentRequest?.path, "/gmail/v1/users/me/messages/send")
+    XCTAssertEqual(sentRequest?.method, "POST")
+    let raw = try XCTUnwrap(sentRequest?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let expectedMIME = [
+      "To: recipient@example.com",
+      "Subject: Subject",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      "Hello",
+    ].joined(separator: "\r\n")
+    XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
+  }
+
+  private func makeMailActionFixture() throws -> GmailMailActionFixture {
+    let tokenStore = RecordingGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let recorder = GmailMailActionRequestRecorder()
+    let urlSession = ConvexClientTesting.makeSession { request in
+      recorder.requests.append(GmailMailActionRequest(request: request))
+      switch request.url?.path {
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      case "/tokeninfo":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"gmail-user-001","email":"user@example.com"}"#.utf8)
+        )
+      default:
+        return (Self.httpResponse(for: request, statusCode: 200), Data())
+      }
+    }
+    return GmailMailActionFixture(
+      recorder: recorder,
+      service: GmailMessageMetadataService(
+        gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+        oauthClientId: "gmail-client-id",
+        session: urlSession,
+        tokenStore: tokenStore,
+        tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+        tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+      )
+    )
+  }
+
   private static func httpResponse(
     for request: URLRequest,
     statusCode: Int
@@ -403,6 +497,28 @@ private struct GmailMessageMetadataSyncFixture {
 private final class GmailMetadataRequestRecorder {
   var paths: [String] = []
   var queries: [String] = []
+}
+
+private struct GmailMailActionFixture {
+  let recorder: GmailMailActionRequestRecorder
+  let service: GmailMessageMetadataService
+}
+
+private final class GmailMailActionRequestRecorder {
+  var requests: [GmailMailActionRequest] = []
+}
+
+private struct GmailMailActionRequest {
+  let jsonBody: [String: Any]
+  let method: String
+  let path: String
+
+  init(request: URLRequest) {
+    method = request.httpMethod ?? "GET"
+    path = request.url?.path ?? ""
+    jsonBody =
+      (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any] ?? [:]
+  }
 }
 
 private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPersisting {

@@ -61,6 +61,36 @@ protocol GmailMessageMetadataSyncing {
   ) async throws -> GmailMetadataSyncResult
 }
 
+enum GmailProviderMailAction: Equatable {
+  case archive
+  case delete
+  case markRead
+  case markUnread
+  case star
+  case unstar
+}
+
+struct GmailOutgoingMessage: Equatable {
+  let body: String
+  let recipient: String
+  let subject: String
+}
+
+protocol GmailProviderMailActing {
+  func perform(
+    _ action: GmailProviderMailAction,
+    messageId: String,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func send(
+    _ message: GmailOutgoingMessage,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
 struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
   private let fileManager: FileManager
   private let rootDirectory: URL
@@ -144,7 +174,7 @@ func gmailSafeFileComponent(_ value: String) -> String {
     }
 }
 
-struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
+struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMailActing {
   private let gmailBaseURL: URL
   private let oauthClientId: String?
   private let session: URLSession
@@ -241,6 +271,87 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       messages: fetchedMessages,
       threads: GmailInboxThread.group(fetchedMessages)
     )
+  }
+
+  func perform(
+    _ action: GmailProviderMailAction,
+    messageId: String,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let accessToken = try await authorizedAccessToken(connection: connection, session: session)
+    let url = gmailBaseURL.appendingPathComponent("users/me/messages/\(messageId)")
+
+    switch action {
+    case .delete:
+      try await sendAuthorizedRequest(url: url, accessToken: accessToken, method: "DELETE")
+    case .archive, .markRead, .markUnread, .star, .unstar:
+      let labels: (add: [String], remove: [String])
+      switch action {
+      case .archive:
+        labels = ([], ["INBOX"])
+      case .markRead:
+        labels = ([], ["UNREAD"])
+      case .markUnread:
+        labels = (["UNREAD"], [])
+      case .star:
+        labels = (["STARRED"], [])
+      case .unstar:
+        labels = ([], ["STARRED"])
+      case .delete:
+        fatalError("Handled above")
+      }
+      let body = try JSONEncoder().encode([
+        "addLabelIds": labels.add,
+        "removeLabelIds": labels.remove,
+      ])
+      try await sendAuthorizedRequest(
+        url: url.appendingPathComponent("modify"),
+        accessToken: accessToken,
+        method: "POST",
+        body: body
+      )
+    }
+  }
+
+  func send(
+    _ message: GmailOutgoingMessage,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let accessToken = try await authorizedAccessToken(connection: connection, session: session)
+    let mimeMessage = [
+      "To: \(message.recipient)",
+      "Subject: \(message.subject)",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "",
+      message.body,
+    ].joined(separator: "\r\n")
+    let raw = Data(mimeMessage.utf8)
+      .base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    let body = try JSONEncoder().encode(["raw": raw])
+    try await sendAuthorizedRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/messages/send"),
+      accessToken: accessToken,
+      method: "POST",
+      body: body
+    )
+  }
+
+  private func authorizedAccessToken(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+    let tokens = try await refreshedTokens(storedTokens, productAccountId: session.productAccountId)
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    return tokens.accessToken
   }
 
   private func listInboxMessages(
@@ -341,6 +452,28 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     }
 
     return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func sendAuthorizedRequest(
+    url: URL,
+    accessToken: String,
+    method: String,
+    body: Data? = nil
+  ) async throws {
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.httpBody = body
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    if body != nil {
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+
+    let (_, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailMessageMetadataSyncError.gmailRequestFailed
+    }
   }
 
   private func sortedMessages(
