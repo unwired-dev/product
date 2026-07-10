@@ -76,6 +76,8 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 ## Workflow
 
+All work must be performed in the assigned Git worktree. Do not make changes outside it.
+
 1. Inspect nearby implementation, tests, and pattern docs before editing.
 2. Prefer existing abstractions and conventions over introducing new ones.
 3. Trust the local mise config with `mise trust .mise.toml`, then set up the local toolchain with `mise install` before running validation. If mise is not activated in the shell, run tools through `mise exec -- <command>` so `.mise.toml` versions are used.
