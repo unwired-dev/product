@@ -163,15 +163,18 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   ) async throws -> GmailProviderConnectionStatus {
     let previousTokens = try tokenStore.load(productAccountId: session.productAccountId)
     let previousConnection: GmailProviderConnectionStatus?
+    let previousConnectionLookupFailed: Bool
     do {
       previousConnection = try await transport.getGmailProviderConnection(
         identityToken: session.identityToken,
         trustedDeviceId: session.trustedDeviceId
       )
+      previousConnectionLookupFailed = false
     } catch is CancellationError {
       throw CancellationError()
     } catch {
       previousConnection = nil
+      previousConnectionLookupFailed = true
     }
     try Task.checkCancellation()
     try tokenStore.save(
@@ -200,9 +203,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       throw error
     }
 
-    if previousConnection?.providerAccountIdentifier != connection.providerAccountIdentifier
-      || previousConnection == nil && previousTokens != nil
-    {
+    let shouldClearLocalCache =
+      previousConnection.map {
+        $0.providerAccountIdentifier != connection.providerAccountIdentifier
+      } ?? (!previousConnectionLookupFailed && previousTokens != nil)
+    if shouldClearLocalCache {
       try? metadataStore.clearMessages(productAccountId: session.productAccountId)
       try? bodyReader.clearCachedMessageBodies(session: session)
     }

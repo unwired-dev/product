@@ -197,6 +197,36 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  func testCompleteConnectionDoesNotClearMetadataWhenPriorLookupFails() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let transport = RecordingGmailConnectionTransport()
+    transport.loadError = GmailProviderConnectionTestError.registrationFailed
+    let service = GmailProviderConnectionService(
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    _ = try await service.completeConnection(
+      verifiedAccount: VerifiedGmailAccount(
+        emailAddress: "user@example.com",
+        providerAccountIdentifier: "gmail-user-001",
+        tokens: GmailProviderTokens(
+          accessToken: "new-access-token",
+          refreshToken: "new-refresh-token"
+        )
+      ),
+      session: session
+    )
+
+    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+  }
+
   func testCompleteConnectionDoesNotRestorePreviousTokensWhenCancelled() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(

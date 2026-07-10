@@ -335,7 +335,8 @@ struct GmailMessageBodyService: GmailMessageReading {
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode),
       let tokenInfo = try? JSONDecoder().decode(GmailMessageBodyTokenInfo.self, from: data),
-      tokenInfo.sub == providerAccountIdentifier
+      tokenInfo.sub == providerAccountIdentifier,
+      tokenInfo.allowsReadingMessageBodies
     else { throw GmailMessageBodyError.gmailRequestFailed }
   }
 
@@ -385,7 +386,7 @@ struct GmailMessageBodyService: GmailMessageReading {
       options: [.regularExpression, .caseInsensitive]
     )
     let withLineBreaks = withoutNonVisibleBlocks.replacingOccurrences(
-      of: "<(?:br\\s*/?|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
+      of: "<(?:br\\b[^>]*|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
       with: "\n",
       options: [.regularExpression, .caseInsensitive]
     )
@@ -414,7 +415,7 @@ private struct GmailMessageBodyPart: Decodable {
   let parts: [GmailMessageBodyPart]?
 
   var preferredBodyPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", hasNonEmptyBodyData {
+    if !isAttachment, mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
       return self
     }
     if let plainTextPart = parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first {
@@ -439,7 +440,7 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", hasNonEmptyBodyData {
+    if !isAttachment, mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first
@@ -503,6 +504,16 @@ private struct GmailMessageBodyPart: Decodable {
   private var hasNonEmptyBodyData: Bool {
     body?.attachmentId != nil || body?.data?.isEmpty == false
   }
+
+  private var hasNonWhitespacePlainTextBodyData: Bool {
+    guard let encodedBody = body?.data,
+      let data = Data(gmailBase64URLEncoded: encodedBody),
+      let text = String(data: data, encoding: textEncoding)
+    else {
+      return body?.attachmentId != nil
+    }
+    return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
 }
 
 private struct GmailMessageBodyData: Decodable {
@@ -525,7 +536,21 @@ private struct GmailMessageBodyTokenResponse: Decodable {
   enum CodingKeys: String, CodingKey { case accessToken = "access_token" }
 }
 
-private struct GmailMessageBodyTokenInfo: Decodable { let sub: String? }
+private struct GmailMessageBodyTokenInfo: Decodable {
+  private static let bodyReadableScopes: Set = [
+    "https://mail.google.com/",
+    "https://www.googleapis.com/auth/gmail.modify",
+    "https://www.googleapis.com/auth/gmail.readonly",
+  ]
+
+  let scope: String?
+  let sub: String?
+
+  var allowsReadingMessageBodies: Bool {
+    guard let scope else { return false }
+    return !Self.bodyReadableScopes.isDisjoint(with: scope.split(separator: " ").map(String.init))
+  }
+}
 
 extension Data {
   fileprivate init?(gmailBase64URLEncoded value: String) {

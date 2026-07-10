@@ -2,7 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable function_body_length
+// swiftlint:disable function_body_length type_body_length
 
 final class GmailMessageBodyServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
@@ -68,6 +68,48 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.text, "\nTom & Jerry\u{00A0}\n")
+  }
+
+  func testReadPreservesAttributedHTMLLineBreaks() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"text/html","body":{"data":""#
+        + #"PHA+Rmlyc3Q8YnIgY2xhc3M9Im1lc3NhZ2UtYnJlYWsiPlNlY29uZDwvcD4="#
+        + #""}}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "\nFirst\nSecond\n")
+  }
+
+  func testReadPrefersHTMLOverWhitespaceOnlyPlainTextAlternative() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"DQo="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+QWN0dWFsIGNvbnRlbnQ8L3A+"}}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "\nActual content\n")
+  }
+
+  func testReadRejectsMetadataOnlyTokenBeforeFetchingMessage() async throws {
+    let fixture = try makeFixture(
+      tokenInfoResponse:
+        #"{"scope":"https://www.googleapis.com/auth/gmail.metadata","sub":"gmail-user-001"}"#
+    )
+
+    do {
+      _ = try await fixture.service.loadMessageBody(message: message, session: session)
+      XCTFail("Expected Gmail request failure")
+    } catch GmailMessageBodyError.gmailRequestFailed {
+      XCTAssertEqual(fixture.requestPaths, ["/token", "/tokeninfo"])
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   func testRemovingCachedBodyLeavesDurableMessageMetadataUntouched() async throws {
@@ -186,6 +228,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   private func makeFixture(
+    tokenInfoResponse: String =
+      #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#,
     messageResponse: String =
       #"{"id":"message-001","payload":{"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}}}"#
   ) throws -> GmailMessageBodyFixture {
@@ -215,7 +259,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       if request.url?.path == "/tokeninfo" {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
-          Data(#"{"sub":"gmail-user-001"}"#.utf8)
+          Data(tokenInfoResponse.utf8)
         )
       }
       XCTAssertEqual(
