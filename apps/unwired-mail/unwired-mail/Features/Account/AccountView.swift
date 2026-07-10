@@ -126,14 +126,12 @@ private final class GmailMailActionViewModel {
     defer { isPerformingAction = false }
 
     do {
-      for message in messages {
-        try await service.perform(
-          action,
-          messageId: message.providerMessageId,
-          connection: connection,
-          session: session
-        )
-      }
+      try await service.perform(
+        action,
+        messageIds: messages.map(\.providerMessageId),
+        connection: connection,
+        session: session
+      )
       errorMessage = nil
       return true
     } catch is CancellationError {
@@ -150,8 +148,8 @@ private final class GmailMailActionViewModel {
     body: String,
     replyTo: GmailMessageMetadata?,
     connection: GmailProviderConnectionStatus
-  ) async {
-    guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+  ) async -> Bool {
+    guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
     isPerformingAction = true
     defer { isPerformingAction = false }
 
@@ -162,15 +160,18 @@ private final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
-          threadId: replyTo?.providerThreadId
+          threadId: replyTo?.rfcMessageId == nil ? nil : replyTo?.providerThreadId
         ),
         connection: connection,
         session: session
       )
       errorMessage = nil
+      return true
     } catch is CancellationError {
+      return false
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 }
@@ -667,13 +668,15 @@ private struct GmailInboxPanel: View {
           subject: $subject
         ) {
           Task {
-            await mailActionViewModel.send(
+            if await mailActionViewModel.send(
               recipient: recipient,
               subject: subject,
               body: composeBody,
               replyTo: replyToMessage,
               connection: connection
-            )
+            ) {
+              replyToMessage = nil
+            }
           }
         }
 
@@ -686,7 +689,9 @@ private struct GmailInboxPanel: View {
             ForEach(viewModel.threads) { thread in
               GmailInboxThreadRow(
                 connection: connection,
-                isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
+                isDisabled: mailActionViewModel.isPerformingAction
+                  || viewModel.isRefreshDisabled
+                  || isConnectionBusy,
                 mailActionViewModel: mailActionViewModel,
                 refreshInbox: { await viewModel.sync(connection: connection) },
                 reply: { message in

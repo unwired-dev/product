@@ -216,13 +216,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     try await fixture.service.perform(
       .markUnread,
-      messageId: "message-001",
+      messageIds: ["message-001"],
       connection: connection,
       session: session
     )
     try await fixture.service.perform(
       .delete,
-      messageId: "message-001",
+      messageIds: ["message-001"],
       connection: connection,
       session: session
     )
@@ -237,6 +237,44 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
     XCTAssertEqual(fixture.recorder.requests[5].method, "POST")
+  }
+
+  func testProviderThreadActionsAuthorizeOnce() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.perform(
+      .archive,
+      messageIds: ["message-001", "message-002"],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.recorder.requests.map(\.path),
+      [
+        "/token", "/tokeninfo",
+        "/gmail/v1/users/me/messages/message-001/modify",
+        "/gmail/v1/users/me/messages/message-002/modify",
+      ]
+    )
+  }
+
+  func testProviderActionsRequireGmailWriteScope() async throws {
+    let fixture = try makeMailActionFixture(
+      tokenScopes: "https://www.googleapis.com/auth/gmail.readonly"
+    )
+
+    do {
+      try await fixture.service.perform(
+        .archive,
+        messageIds: ["message-001"],
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected insufficient Gmail scope")
+    } catch GmailMessageMetadataSyncError.insufficientGmailScope {
+      XCTAssertEqual(fixture.recorder.requests.map(\.path), ["/token", "/tokeninfo"])
+    }
   }
 
   func testSendUsesGmailRawMessageEndpoint() async throws {
@@ -307,7 +345,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
-  private func makeMailActionFixture() throws -> GmailMailActionFixture {
+  private func makeMailActionFixture(
+    tokenScopes: String =
+      "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send"
+  ) throws -> GmailMailActionFixture {
     let tokenStore = RecordingGmailProviderTokenStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
@@ -325,7 +366,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       case "/tokeninfo":
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(#"{"sub":"gmail-user-001","email":"user@example.com"}"#.utf8)
+          Data(
+            "{\"sub\":\"gmail-user-001\",\"email\":\"user@example.com\",\"scope\":\"\(tokenScopes)\"}"
+              .utf8
+          )
         )
       default:
         return (Self.httpResponse(for: request, statusCode: 200), Data())
