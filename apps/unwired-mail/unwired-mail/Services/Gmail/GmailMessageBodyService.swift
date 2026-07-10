@@ -184,12 +184,19 @@ struct GmailMessageBodyService: GmailMessageReading {
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     ) {
-      let decrypted = try material.decryptPayload(
-        cached, associatedData: associatedData(for: message))
-      guard let text = String(bytes: decrypted, encoding: .utf8) else {
-        throw GmailMessageBodyError.missingMessageBody
+      do {
+        let decrypted = try material.decryptPayload(
+          cached, associatedData: associatedData(for: message))
+        guard let text = String(bytes: decrypted, encoding: .utf8) else {
+          throw GmailMessageBodyError.missingMessageBody
+        }
+        return GmailMessageBody(text: text)
+      } catch {
+        try? cache.removeMessageBody(
+          productAccountId: session.productAccountId,
+          stableProviderMessageId: message.stableProviderMessageId
+        )
       }
-      return GmailMessageBody(text: text)
     }
 
     guard let tokens = try tokenStore.load(productAccountId: session.productAccountId) else {

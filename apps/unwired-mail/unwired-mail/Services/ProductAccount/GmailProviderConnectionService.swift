@@ -199,10 +199,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       throw error
     }
 
-    if previousTokens != nil
-      && (previousConnectionLookupFailed
-        || previousConnection?.providerAccountIdentifier != nil
-          && previousConnection?.providerAccountIdentifier != connection.providerAccountIdentifier)
+    if previousConnection?.providerAccountIdentifier != nil
+      && previousConnection?.providerAccountIdentifier != connection.providerAccountIdentifier
+      || previousConnectionLookupFailed && previousTokens != nil
     {
       try? metadataStore.clearMessages(productAccountId: session.productAccountId)
       try? bodyReader.clearCachedMessageBodies(session: session)
