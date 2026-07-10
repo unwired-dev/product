@@ -379,12 +379,28 @@ struct GmailMessageBodyService: GmailMessageReading {
   }
 
   private func htmlText(_ value: String) -> String {
-    let withLineBreaks = value.replacingOccurrences(
+    let withoutNonVisibleBlocks = value.replacingOccurrences(
+      of: "<(?:script|style)\\b[^>]*>[\\s\\S]*?</(?:script|style)\\s*>",
+      with: "",
+      options: [.regularExpression, .caseInsensitive]
+    )
+    let withLineBreaks = withoutNonVisibleBlocks.replacingOccurrences(
       of: "<(?:br\\s*/?|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
       with: "\n",
       options: [.regularExpression, .caseInsensitive]
     )
-    return withLineBreaks.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+    let withoutTags = withLineBreaks.replacingOccurrences(
+      of: "<[^>]+>", with: "", options: .regularExpression)
+    guard
+      let decoded = try? NSAttributedString(
+        data: Data(withoutTags.utf8),
+        options: [.documentType: NSAttributedString.DocumentType.html],
+        documentAttributes: nil
+      )
+    else {
+      return withoutTags
+    }
+    return decoded.string
   }
 }
 

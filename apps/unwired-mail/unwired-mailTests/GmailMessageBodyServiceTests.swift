@@ -56,6 +56,20 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.text, "\nHi\n\nThere\n\n")
   }
 
+  func testReadRemovesNonVisibleHTMLContentAndDecodesEntities() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"text/html","body":{"data":""#
+        + #"PHN0eWxlPi5idXR0b257Y29sb3I6cmVkfTwvc3R5bGU+PHNjcmlwdD50cmFjaygpPC9zY3JpcHQ+PHA+"#
+        + #"VG9tICZhbXA7IEplcnJ5Jm5ic3A7PC9wPg=="#
+        + #""}}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "\nTom & Jerry\u{00A0}\n")
+  }
+
   func testRemovingCachedBodyLeavesDurableMessageMetadataUntouched() async throws {
     let fixture = try makeFixture()
     _ = try await fixture.service.loadMessageBody(message: message, session: session)
