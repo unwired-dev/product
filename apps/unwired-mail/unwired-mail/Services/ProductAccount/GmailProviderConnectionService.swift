@@ -180,17 +180,70 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       previousConnection.map {
         $0.providerAccountIdentifier != verifiedAccount.providerAccountIdentifier
       } ?? (!previousConnectionLookupFailed && previousTokens != nil)
-    if shouldClearLocalCache {
-      try? metadataStore.clearMessages(productAccountId: session.productAccountId)
-      try bodyReader.clearCachedMessageBodies(session: session)
+    if shouldClearLocalCache, previousConnection == nil {
+      try clearLocalCache(session: session)
     }
 
     try Task.checkCancellation()
-    try tokenStore.save(
-      verifiedAccount.tokens,
-      productAccountId: session.productAccountId
+
+    let connection = try await registerConnection(
+      verifiedAccount: verifiedAccount,
+      session: session,
+      previousTokens: previousTokens
     )
 
+    if shouldClearLocalCache, let previousConnection {
+      do {
+        try clearLocalCache(session: session)
+      } catch {
+        try? await restoreConnection(previousConnection, session: session)
+        throw error
+      }
+    }
+
+    do {
+      try tokenStore.save(
+        verifiedAccount.tokens,
+        productAccountId: session.productAccountId
+      )
+    } catch {
+      if let previousConnection {
+        try? await restoreConnection(previousConnection, session: session)
+      }
+      throw error
+    }
+    return connection
+  }
+
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    var cleanupError: Error?
+    do {
+      try tokenStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
+  }
+
+  private func clearLocalCache(session: ProductAccountSessionSnapshot) throws {
+    try bodyReader.clearCachedMessageBodies(session: session)
+    try? metadataStore.clearMessages(productAccountId: session.productAccountId)
+  }
+
+  private func registerConnection(
+    verifiedAccount: VerifiedGmailAccount,
+    session: ProductAccountSessionSnapshot,
+    previousTokens: GmailProviderTokens?
+  ) async throws -> GmailProviderConnectionStatus {
     do {
       return try await transport.connectGmailProvider(
         identityToken: session.identityToken,
@@ -212,23 +265,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  func clearLocalConnection(
+  private func restoreConnection(
+    _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
-  ) throws {
-    var cleanupError: Error?
-    do {
-      try tokenStore.clear(productAccountId: session.productAccountId)
-    } catch {
-      cleanupError = error
-    }
-    do {
-      try metadataStore.clearMessages(productAccountId: session.productAccountId)
-    } catch {
-      cleanupError = cleanupError ?? error
-    }
-    if let cleanupError {
-      throw cleanupError
-    }
+  ) async throws {
+    _ = try await transport.connectGmailProvider(
+      identityToken: session.identityToken,
+      trustedDeviceId: session.trustedDeviceId,
+      emailAddress: connection.emailAddress,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
   }
 
   func loadConnection(

@@ -245,7 +245,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
-    XCTAssertNil(transport.connectCall)
+    XCTAssertEqual(
+      transport.connectCalls.map(\.providerAccountIdentifier),
+      ["new-gmail-user", "old-gmail-user"]
+    )
   }
 
   func testCompleteConnectionDoesNotClearMetadataWhenPriorLookupFails() async throws {
@@ -838,6 +841,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   }
 
   var connectCall: ConnectCall?
+  var connectCalls: [ConnectCall] = []
   var connectError: Error?
   var loadError: Error?
   var loadIdentityToken: String?
@@ -860,12 +864,14 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     emailAddress: String,
     providerAccountIdentifier: String
   ) async throws -> GmailProviderConnectionStatus {
-    connectCall = ConnectCall(
+    let connectCall = ConnectCall(
       identityToken: identityToken,
       trustedDeviceId: trustedDeviceId,
       emailAddress: emailAddress,
       providerAccountIdentifier: providerAccountIdentifier
     )
+    self.connectCall = connectCall
+    connectCalls.append(connectCall)
     try onConnect?()
     if let connectError {
       throw connectError
