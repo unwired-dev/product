@@ -377,27 +377,27 @@ private struct GmailMessageBodyPart: Decodable {
   let parts: [GmailMessageBodyPart]?
 
   var preferredBodyPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/plain", hasBodyData {
       return self
     }
     if let plainTextPart = parts?.lazy.compactMap(\.preferredPlainTextPart).first {
       return plainTextPart
     }
-    if !isAttachment, mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/html", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
   }
 
   private var preferredPlainTextPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/plain", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredPlainTextPart).first
   }
 
   private var preferredHTMLPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/html", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
@@ -431,6 +431,10 @@ private struct GmailMessageBodyPart: Decodable {
       $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
         && $0.value.lowercased().contains("attachment")
     } == true
+  }
+
+  private var hasBodyData: Bool {
+    body?.attachmentId != nil || body?.data?.isEmpty == false
   }
 }
 

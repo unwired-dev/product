@@ -606,6 +606,16 @@ private struct GmailInboxPanel: View {
               GmailInboxThreadRow(thread: thread)
             }
             .buttonStyle(.plain)
+            ForEach(thread.messages.dropFirst()) { message in
+              Button {
+                selectedMessage = message
+              } label: {
+                Text(message.subject)
+                  .font(.footnote)
+                  .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .buttonStyle(.plain)
+            }
             Divider()
           }
         }
