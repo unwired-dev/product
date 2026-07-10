@@ -357,10 +357,12 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
         "https://mail.google.com/",
       ]
     )
+    let sender = try headerValue(connection.emailAddress)
     let recipient = try headerValue(message.recipient)
     let subject = try encodedHeaderValue(message.subject)
     var headers = [
       "To: \(recipient)",
+      "From: \(sender)",
       "Subject: \(subject)",
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",

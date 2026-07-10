@@ -671,7 +671,12 @@ private struct GmailInboxPanel: View {
 
       if let connection {
         GmailComposePanel(
-          cancelReply: { replyToMessage = nil },
+          cancelReply: {
+            replyToMessage = nil
+            recipient = ""
+            subject = ""
+            composeBody = ""
+          },
           messageBody: $composeBody,
           isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
           isReplying: replyToMessage != nil,
@@ -712,7 +717,7 @@ private struct GmailInboxPanel: View {
                 reply: { message in
                   replyToMessage = message
                   recipient = message.replyTo ?? message.from ?? ""
-                  subject = "Re: \(message.subject)"
+                  subject = message.subject == "(No subject)" ? "" : "Re: \(message.subject)"
                   composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
                 },
                 thread: thread,

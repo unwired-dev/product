@@ -325,6 +325,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
     let expectedMIME = [
       "To: recipient@example.com",
+      "From: user@example.com",
       "Subject: Subject",
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
