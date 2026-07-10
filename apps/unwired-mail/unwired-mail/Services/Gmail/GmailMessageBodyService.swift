@@ -380,7 +380,7 @@ struct GmailMessageBodyService: GmailMessageReading {
 
   private func htmlText(_ value: String) -> String {
     let withLineBreaks = value.replacingOccurrences(
-      of: "<(?:br\\s*/?|/p|/div|/li|/h[1-6])\\s*>",
+      of: "<(?:br\\s*/?|/p|/div|/li|/h[1-6]|/tr|/?t[dh])\\s*>",
       with: "\n",
       options: [.regularExpression, .caseInsensitive]
     )

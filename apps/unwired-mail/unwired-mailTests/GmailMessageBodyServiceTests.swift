@@ -43,6 +43,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
 
+  func testReadPreservesSeparatorsBetweenHTMLTableCells() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"text/html","body":{"data":""#
+        + #"PHRhYmxlPjx0cj48dGQ+SGk8L3RkPjx0ZD5UaGVyZTwvdGQ+PC90cj48L3RhYmxlPg=="#
+        + #""}}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "\nHi\n\nThere\n\n")
+  }
+
   func testRemovingCachedBodyLeavesDurableMessageMetadataUntouched() async throws {
     let fixture = try makeFixture()
     _ = try await fixture.service.loadMessageBody(message: message, session: session)
@@ -158,7 +171,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.text, "Private attachment body")
   }
 
-  private func makeFixture() throws -> GmailMessageBodyFixture {
+  private func makeFixture(
+    messageResponse: String =
+      #"{"id":"message-001","payload":{"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}}}"#
+  ) throws -> GmailMessageBodyFixture {
     let cache = RecordingGmailMessageBodyCache()
     let keyMaterialStore = RecordingBodyCacheKeyMaterialStore()
     try keyMaterialStore.save(
@@ -195,10 +211,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         HTTPURLResponse(
           url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
         )!,
-        Data(
-          #"{"id":"message-001","payload":{"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}}}"#
-            .utf8
-        )
+        Data(messageResponse.utf8)
       )
     }
     return GmailMessageBodyFixture(
