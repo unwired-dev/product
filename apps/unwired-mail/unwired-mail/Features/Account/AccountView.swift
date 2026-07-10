@@ -122,6 +122,7 @@ private final class GmailMailActionViewModel {
     for messages: [GmailMessageMetadata],
     connection: GmailProviderConnectionStatus
   ) async -> Bool {
+    guard !isPerformingAction else { return false }
     isPerformingAction = true
     defer { isPerformingAction = false }
 
@@ -670,26 +671,29 @@ private struct GmailInboxPanel: View {
 
       if let connection {
         GmailComposePanel(
+          cancelReply: { replyToMessage = nil },
           messageBody: $composeBody,
           isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
+          isReplying: replyToMessage != nil,
           recipient: $recipient,
-          subject: $subject
-        ) {
-          Task {
-            if await mailActionViewModel.send(
-              recipient: recipient,
-              subject: subject,
-              body: composeBody,
-              replyTo: replyToMessage,
-              connection: connection
-            ) {
-              replyToMessage = nil
-              recipient = ""
-              subject = ""
-              composeBody = ""
+          subject: $subject,
+          send: {
+            Task {
+              if await mailActionViewModel.send(
+                recipient: recipient,
+                subject: subject,
+                body: composeBody,
+                replyTo: replyToMessage,
+                connection: connection
+              ) {
+                replyToMessage = nil
+                recipient = ""
+                subject = ""
+                composeBody = ""
+              }
             }
           }
-        }
+        )
 
         if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
           Text("No local inbox metadata yet.")
@@ -768,8 +772,10 @@ private struct GmailInboxPanel: View {
 }
 
 private struct GmailComposePanel: View {
+  let cancelReply: () -> Void
   @Binding var messageBody: String
   let isDisabled: Bool
+  let isReplying: Bool
   @Binding var recipient: String
   @Binding var subject: String
   let send: () -> Void
@@ -778,6 +784,10 @@ private struct GmailComposePanel: View {
     VStack(alignment: .leading, spacing: 8) {
       Text("Compose")
         .font(.subheadline.bold())
+      if isReplying {
+        Button("Cancel Reply", action: cancelReply)
+          .buttonStyle(.borderless)
+      }
       TextField("To", text: $recipient)
         .textFieldStyle(.roundedBorder)
       TextField("Subject", text: $subject)

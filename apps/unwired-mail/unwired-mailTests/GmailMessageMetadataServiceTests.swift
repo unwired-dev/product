@@ -309,7 +309,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let fixture = try makeMailActionFixture()
 
     try await fixture.service.send(
-      GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+      GmailOutgoingMessage(body: "Café", recipient: "recipient@example.com", subject: "Subject"),
       connection: connection,
       session: session
     )
