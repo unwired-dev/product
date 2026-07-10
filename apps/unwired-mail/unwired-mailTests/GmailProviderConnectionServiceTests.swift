@@ -4,6 +4,8 @@ import XCTest
 
 // swiftlint:disable file_length type_body_length
 final class GmailProviderConnectionServiceTests: XCTestCase {
+  private static let gmailReadScope = "https://www.googleapis.com/auth/gmail.readonly"
+
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "apple-token",
@@ -393,6 +395,41 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testVerifierRejectsMetadataOnlyGmailAuthorization() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      if request.url?.path == "/gmail/v1/users/me/profile" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
+      }
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.metadata","sub":"gmail-user-001"}"#
+            .utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    do {
+      _ = try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expectedEmailAddress: "user@example.com",
+        expectedProviderAccountIdentifier: "gmail-user-001"
+      )
+      XCTFail("Expected insufficient Gmail scope")
+    } catch GmailProviderCredentialVerificationError.insufficientGmailScope {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
   func testVerifierRequiresRefreshTokenForSameGmailAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let path = request.url?.path
@@ -422,13 +459,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       if request.url?.query == "access_token=access-token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+          Data(
+            #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
+              .utf8)
         )
       }
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"email":"other@example.com","sub":"other-gmail-user"}"#.utf8)
+        Data(
+          #"{"email":"other@example.com","scope":"\#(Self.gmailReadScope)","sub":"other-gmail-user"}"#
+            .utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -471,7 +512,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
+            .utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -516,7 +559,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
+        )
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -562,7 +607,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
+        )
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(

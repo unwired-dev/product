@@ -180,10 +180,20 @@ struct GmailMessageBodyService: GmailMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody {
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
-    if let cached = try cache.loadMessageBody(
-      productAccountId: session.productAccountId,
-      stableProviderMessageId: message.stableProviderMessageId
-    ) {
+    let cached: ProductSyncEncryptedPayload?
+    do {
+      cached = try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    } catch {
+      try? cache.removeMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+      cached = nil
+    }
+    if let cached {
       do {
         let decrypted = try material.decryptPayload(
           cached, associatedData: associatedData(for: message))
@@ -268,10 +278,7 @@ struct GmailMessageBodyService: GmailMessageReading {
     else {
       throw GmailMessageBodyError.missingMessageBody
     }
-    let text =
-      bodyPart.mimeType == "text/html"
-      ? decodedText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
-      : decodedText
+    let text = bodyPart.mimeType == "text/html" ? htmlText(decodedText) : decodedText
     return GmailMessageBody(text: text)
   }
 
@@ -370,6 +377,15 @@ struct GmailMessageBodyService: GmailMessageReading {
   private func associatedData(for message: GmailMessageMetadata) -> Data {
     Data("gmail-body-cache:\(message.stableProviderMessageId)".utf8)
   }
+
+  private func htmlText(_ value: String) -> String {
+    let withLineBreaks = value.replacingOccurrences(
+      of: "<(?:br\\s*/?|/p|/div|/li|/h[1-6])\\s*>",
+      with: "\n",
+      options: [.regularExpression, .caseInsensitive]
+    )
+    return withLineBreaks.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
+  }
 }
 
 private struct GmailMessageBodyResponse: Decodable {
@@ -384,6 +400,18 @@ private struct GmailMessageBodyPart: Decodable {
   let parts: [GmailMessageBodyPart]?
 
   var preferredBodyPart: GmailMessageBodyPart? {
+    if !isAttachment, mimeType == "text/plain", hasNonEmptyBodyData {
+      return self
+    }
+    if let plainTextPart = parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first {
+      return plainTextPart
+    }
+    if !isAttachment, mimeType == "text/html", hasNonEmptyBodyData {
+      return self
+    }
+    if let htmlPart = parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first {
+      return htmlPart
+    }
     if !isAttachment, mimeType == "text/plain", hasBodyData {
       return self
     }
@@ -394,6 +422,13 @@ private struct GmailMessageBodyPart: Decodable {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
+  }
+
+  private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
+    if !isAttachment, mimeType == "text/plain", hasNonEmptyBodyData {
+      return self
+    }
+    return parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first
   }
 
   private var preferredPlainTextPart: GmailMessageBodyPart? {
@@ -408,6 +443,13 @@ private struct GmailMessageBodyPart: Decodable {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
+  }
+
+  private var preferredNonEmptyHTMLPart: GmailMessageBodyPart? {
+    if !isAttachment, mimeType == "text/html", hasNonEmptyBodyData {
+      return self
+    }
+    return parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first
   }
 
   var textEncoding: String.Encoding {
@@ -441,6 +483,10 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   private var hasBodyData: Bool {
+    body?.attachmentId != nil || body?.data != nil
+  }
+
+  private var hasNonEmptyBodyData: Bool {
     body?.attachmentId != nil || body?.data?.isEmpty == false
   }
 }

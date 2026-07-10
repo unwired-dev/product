@@ -553,6 +553,7 @@ private struct GmailInboxPanel: View {
   @Bindable var viewModel: GmailInboxViewModel
   @State private var syncTask: Task<Void, Never>?
   @State private var selectedMessage: GmailMessageMetadata?
+  @State private var cacheErrorMessage: String?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -570,7 +571,12 @@ private struct GmailInboxPanel: View {
         if let connection {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
-              try? messageReader.clearCachedMessageBodies(session: session)
+              do {
+                try messageReader.clearCachedMessageBodies(session: session)
+                cacheErrorMessage = nil
+              } catch {
+                cacheErrorMessage = error.localizedDescription
+              }
             }
           }
           .buttonStyle(.bordered)
@@ -627,6 +633,11 @@ private struct GmailInboxPanel: View {
 
       if let errorMessage = viewModel.errorMessage {
         Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
+      if let cacheErrorMessage {
+        Text(cacheErrorMessage)
           .foregroundStyle(.red)
           .font(.footnote)
       }
