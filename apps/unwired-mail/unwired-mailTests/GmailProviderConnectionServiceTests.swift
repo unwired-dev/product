@@ -219,6 +219,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     let service = GmailProviderConnectionService(
       bodyReader: FailingGmailMessageReader(),
+      tokenStore: InMemoryGmailProviderTokenStore(),
       transport: transport
     )
 
