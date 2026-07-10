@@ -29,14 +29,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.text, "Private trip details")
-    XCTAssertEqual(fixture.requestPaths, ["/gmail/v1/users/me/messages/message-001"])
+    XCTAssertEqual(fixture.requestPaths, ["/token", "/gmail/v1/users/me/messages/message-001"])
     XCTAssertNotNil(fixture.cache.payload)
     XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
 
     let cachedBody = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(cachedBody, body)
-    XCTAssertEqual(fixture.requestPaths, ["/gmail/v1/users/me/messages/message-001"])
+    XCTAssertEqual(fixture.requestPaths, ["/token", "/gmail/v1/users/me/messages/message-001"])
   }
 
   func testRemovingCachedBodyLeavesDurableMessageMetadataUntouched() async throws {
@@ -113,6 +113,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let urlSession = ConvexClientTesting.makeSession { request in
+      if request.url?.path == "/token" {
+        return (
+          HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
       if request.url?.path.hasSuffix("/attachments/attachment-001") == true {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
@@ -130,8 +136,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
       cache: cache,
       keyMaterialStore: keyMaterialStore,
+      oauthClientId: "gmail-client-id",
       session: urlSession,
-      tokenStore: tokenStore
+      tokenStore: tokenStore,
+      tokenRefreshURL: URL(string: "https://gmail.example.test/token")!
     )
 
     let body = try await service.loadMessageBody(message: message, session: session)
@@ -157,7 +165,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let requestPaths = NSMutableArray()
     let urlSession = ConvexClientTesting.makeSession { request in
       requestPaths.add(request.url!.path)
-      XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer access-token")
+      if request.url?.path == "/token" {
+        return (
+          HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
+      XCTAssertEqual(
+        request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
       XCTAssertEqual(request.url?.query, "format=full")
       return (
         HTTPURLResponse(
@@ -176,8 +191,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
         cache: cache,
         keyMaterialStore: keyMaterialStore,
+        oauthClientId: "gmail-client-id",
         session: urlSession,
-        tokenStore: tokenStore
+        tokenStore: tokenStore,
+        tokenRefreshURL: URL(string: "https://gmail.example.test/token")!
       )
     )
   }

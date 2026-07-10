@@ -75,6 +75,7 @@ final class ProductAccountSession {
       switch error {
       case .notAuthorized:
         try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+        try? gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
         try? sessionStore.clear()
         state = .signedOut
       default:

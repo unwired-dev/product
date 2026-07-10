@@ -1,4 +1,7 @@
+import CoreFoundation
 import Foundation
+
+// swiftlint:disable file_length
 
 struct GmailMessageBody: Equatable {
   let text: String
@@ -120,6 +123,8 @@ enum GmailMessageBodyError: LocalizedError, Equatable {
   case gmailRequestFailed
   case missingLocalGmailTokens
   case missingMessageBody
+  case missingOAuthClientId
+  case refreshTokenRejected
 
   var errorDescription: String? {
     switch self {
@@ -129,6 +134,10 @@ enum GmailMessageBodyError: LocalizedError, Equatable {
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
     case .missingMessageBody:
       return "Gmail did not return a readable message body."
+    case .missingOAuthClientId:
+      return "Gmail OAuth client id is not configured."
+    case .refreshTokenRejected:
+      return "Gmail did not refresh local mail access for this account."
     }
   }
 }
@@ -137,21 +146,30 @@ struct GmailMessageBodyService: GmailMessageReading {
   private let cache: GmailMessageBodyCaching
   private let gmailBaseURL: URL
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let oauthClientId: String?
   private let session: URLSession
   private let tokenStore: GmailProviderTokenPersisting
+  private let tokenRefreshURL: URL
 
   init(
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    oauthClientId: String? =
+      ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
+      ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
+      ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
-    tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore()
+    tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
+    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
   ) {
     self.cache = cache
     self.gmailBaseURL = gmailBaseURL
     self.keyMaterialStore = keyMaterialStore
+    self.oauthClientId = oauthClientId
     self.session = session
     self.tokenStore = tokenStore
+    self.tokenRefreshURL = tokenRefreshURL
   }
 
   func loadMessageBody(
@@ -174,8 +192,11 @@ struct GmailMessageBodyService: GmailMessageReading {
     guard let tokens = try tokenStore.load(productAccountId: session.productAccountId) else {
       throw GmailMessageBodyError.missingLocalGmailTokens
     }
-    let body = try await fetchMessageBody(message: message, accessToken: tokens.accessToken)
-    try cache.saveMessageBody(
+    let refreshedTokens = try await refreshedTokens(
+      tokens, productAccountId: session.productAccountId)
+    let body = try await fetchMessageBody(
+      message: message, accessToken: refreshedTokens.accessToken)
+    try? cache.saveMessageBody(
       material.encryptPayload(Data(body.text.utf8), associatedData: associatedData(for: message)),
       productAccountId: session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
@@ -229,7 +250,7 @@ struct GmailMessageBodyService: GmailMessageReading {
       accessToken: accessToken
     )
     guard let data = Data(gmailBase64URLEncoded: encodedBody),
-      let decodedText = String(data: data, encoding: .utf8)
+      let decodedText = String(data: data, encoding: bodyPart.textEncoding)
     else {
       throw GmailMessageBodyError.missingMessageBody
     }
@@ -238,6 +259,36 @@ struct GmailMessageBodyService: GmailMessageReading {
       ? decodedText.replacingOccurrences(of: "<[^>]+>", with: "", options: .regularExpression)
       : decodedText
     return GmailMessageBody(text: text)
+  }
+
+  private func refreshedTokens(
+    _ tokens: GmailProviderTokens,
+    productAccountId: String
+  ) async throws -> GmailProviderTokens {
+    guard let oauthClientId, !oauthClientId.isEmpty else {
+      throw GmailMessageBodyError.missingOAuthClientId
+    }
+    var request = URLRequest(url: tokenRefreshURL)
+    request.httpMethod = "POST"
+    request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
+    request.httpBody = Data(
+      "client_id=\(oauthClientId)&grant_type=refresh_token&refresh_token=\(tokens.refreshToken)"
+        .utf8
+    )
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode),
+      let responseBody = try? JSONDecoder().decode(GmailMessageBodyTokenResponse.self, from: data),
+      !responseBody.accessToken.isEmpty
+    else {
+      throw GmailMessageBodyError.refreshTokenRejected
+    }
+    let refreshedTokens = GmailProviderTokens(
+      accessToken: responseBody.accessToken,
+      refreshToken: tokens.refreshToken
+    )
+    try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    return refreshedTokens
   }
 
   private func encodedBodyData(
@@ -286,34 +337,60 @@ private struct GmailMessageBodyResponse: Decodable {
 
 private struct GmailMessageBodyPart: Decodable {
   let body: GmailMessageBodyData?
+  let filename: String?
+  let headers: [GmailMessageBodyHeader]?
   let mimeType: String?
   let parts: [GmailMessageBodyPart]?
 
   var preferredBodyPart: GmailMessageBodyPart? {
-    if mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
       return self
     }
     if let plainTextPart = parts?.lazy.compactMap(\.preferredPlainTextPart).first {
       return plainTextPart
     }
-    if mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
   }
 
   private var preferredPlainTextPart: GmailMessageBodyPart? {
-    if mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/plain", body?.data != nil || body?.attachmentId != nil {
       return self
     }
     return parts?.lazy.compactMap(\.preferredPlainTextPart).first
   }
 
   private var preferredHTMLPart: GmailMessageBodyPart? {
-    if mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
+    if !isAttachment, mimeType == "text/html", body?.data != nil || body?.attachmentId != nil {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
+  }
+
+  var textEncoding: String.Encoding {
+    guard
+      let contentType = headers?.first(where: {
+        $0.name.caseInsensitiveCompare("Content-Type") == .orderedSame
+      })?.value,
+      let charset = contentType.split(separator: ";").first(where: {
+        $0.trimmingCharacters(in: .whitespaces).lowercased().hasPrefix("charset=")
+      })?.split(separator: "=", maxSplits: 1).last,
+      CFStringConvertIANACharSetNameToEncoding(charset as CFString) != kCFStringEncodingInvalidId
+    else {
+      return .utf8
+    }
+    let encoding = CFStringConvertIANACharSetNameToEncoding(charset as CFString)
+    return String.Encoding(rawValue: CFStringConvertEncodingToNSStringEncoding(encoding))
+  }
+
+  private var isAttachment: Bool {
+    guard filename?.isEmpty != false else { return true }
+    return headers?.contains {
+      $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
+        && $0.value.lowercased().contains("attachment")
+    } == true
   }
 }
 
@@ -322,8 +399,19 @@ private struct GmailMessageBodyData: Decodable {
   let data: String?
 }
 
+private struct GmailMessageBodyHeader: Decodable {
+  let name: String
+  let value: String
+}
+
 private struct GmailMessageBodyAttachment: Decodable {
   let data: String?
+}
+
+private struct GmailMessageBodyTokenResponse: Decodable {
+  let accessToken: String
+
+  enum CodingKeys: String, CodingKey { case accessToken = "access_token" }
 }
 
 extension Data {
