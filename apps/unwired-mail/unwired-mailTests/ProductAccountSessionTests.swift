@@ -75,6 +75,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     try store.save(snapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
+    gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
