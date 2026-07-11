@@ -437,53 +437,68 @@ private struct GmailMessageBodyPart: Decodable {
   let parts: [GmailMessageBodyPart]?
 
   var preferredBodyPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
+    guard !isAttachment else {
+      return nil
+    }
+    if mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
       return self
     }
     if let plainTextPart = parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first {
       return plainTextPart
     }
-    if !isAttachment, mimeType == "text/html", hasNonEmptyBodyData {
+    if mimeType == "text/html", hasNonEmptyBodyData {
       return self
     }
     if let htmlPart = parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first {
       return htmlPart
     }
-    if !isAttachment, mimeType == "text/plain", hasBodyData {
+    if mimeType == "text/plain", hasBodyData {
       return self
     }
     if let plainTextPart = parts?.lazy.compactMap(\.preferredPlainTextPart).first {
       return plainTextPart
     }
-    if !isAttachment, mimeType == "text/html", hasBodyData {
+    if mimeType == "text/html", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
+    guard !isAttachment else {
+      return nil
+    }
+    if mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first
   }
 
   private var preferredPlainTextPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/plain", hasBodyData {
+    guard !isAttachment else {
+      return nil
+    }
+    if mimeType == "text/plain", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredPlainTextPart).first
   }
 
   private var preferredHTMLPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/html", hasBodyData {
+    guard !isAttachment else {
+      return nil
+    }
+    if mimeType == "text/html", hasBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredHTMLPart).first
   }
 
   private var preferredNonEmptyHTMLPart: GmailMessageBodyPart? {
-    if !isAttachment, mimeType == "text/html", hasNonEmptyBodyData {
+    guard !isAttachment else {
+      return nil
+    }
+    if mimeType == "text/html", hasNonEmptyBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first

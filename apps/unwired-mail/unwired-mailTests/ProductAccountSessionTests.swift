@@ -75,7 +75,6 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     try store.save(snapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
-    gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -225,6 +224,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     try store.save(oldSnapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
+    gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -235,7 +235,6 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       gmailProviderConnectionService: gmailConnectionService,
-      gmailMessageBodyReader: FailingGmailMessageReader(),
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -245,7 +244,7 @@ final class ProductAccountSessionTests: XCTestCase {
       return XCTFail("Expected failed state")
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
-    XCTAssertTrue(gmailConnectionService.clearedSessions.isEmpty)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {

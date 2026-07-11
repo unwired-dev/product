@@ -153,7 +153,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
-  func testCompleteConnectionStillReturnsUpdatedConnectionWhenMetadataCleanupFails() async throws {
+  func testCompleteConnectionRollsBackWhenMetadataCleanupFails() async throws {
     let metadataStore = RecordingGmailProviderMetadataStore()
     metadataStore.clearError = GmailProviderConnectionTestError.metadataCleanupFailed
     let transport = RecordingGmailConnectionTransport()
@@ -181,19 +181,22 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       transport: transport
     )
 
-    let status = try await service.completeConnection(
-      verifiedAccount: VerifiedGmailAccount(
-        emailAddress: "new@example.com",
-        providerAccountIdentifier: "new-gmail-user",
-        tokens: GmailProviderTokens(
-          accessToken: "new-access-token",
-          refreshToken: "new-refresh-token"
-        )
-      ),
-      session: session
-    )
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "new@example.com",
+          providerAccountIdentifier: "new-gmail-user",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected metadata cleanup failure")
+    } catch GmailProviderConnectionTestError.metadataCleanupFailed {
+    }
 
-    XCTAssertEqual(status.providerAccountIdentifier, "new-gmail-user")
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
