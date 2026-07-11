@@ -4,6 +4,8 @@ import XCTest
 
 // swiftlint:disable file_length type_body_length
 final class GmailProviderConnectionServiceTests: XCTestCase {
+  private static let gmailReadScope = "https://www.googleapis.com/auth/gmail.readonly"
+
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "apple-token",
@@ -151,7 +153,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
-  func testCompleteConnectionStillReturnsUpdatedConnectionWhenMetadataCleanupFails() async throws {
+  func testCompleteConnectionRollsBackWhenMetadataCleanupFails() async throws {
     let metadataStore = RecordingGmailProviderMetadataStore()
     metadataStore.clearError = GmailProviderConnectionTestError.metadataCleanupFailed
     let transport = RecordingGmailConnectionTransport()
@@ -179,10 +181,100 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       transport: transport
     )
 
-    let status = try await service.completeConnection(
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "new@example.com",
+          providerAccountIdentifier: "new-gmail-user",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected metadata cleanup failure")
+    } catch GmailProviderConnectionTestError.metadataCleanupFailed {
+    }
+
+    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+  }
+
+  func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let previousTokens = GmailProviderTokens(
+      accessToken: "old-access-token",
+      refreshToken: "old-refresh-token"
+    )
+    try tokenStore.save(previousTokens, productAccountId: session.productAccountId)
+    transport.status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "old@example.com",
+      lastVerifiedAt: 1_781_200_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "old-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_200_000_000
+    )
+    transport.connectStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "new@example.com",
+      lastVerifiedAt: 1_781_210_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "new-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_210_000_000
+    )
+    let service = GmailProviderConnectionService(
+      bodyReader: FailingGmailMessageReader(),
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "new@example.com",
+          providerAccountIdentifier: "new-gmail-user",
+          tokens: GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+        ),
+        session: session
+      )
+      XCTFail("Expected body cache cleanup failure")
+    } catch GmailProviderConnectionTestError.bodyCacheCleanupFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
+    XCTAssertEqual(
+      transport.connectCalls.map(\.providerAccountIdentifier),
+      ["new-gmail-user", "old-gmail-user"]
+    )
+  }
+
+  func testCompleteConnectionClearsLocalCacheWhenPriorLookupFails() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let bodyReader = RecordingGmailMessageReader()
+    let transport = RecordingGmailConnectionTransport()
+    transport.loadError = GmailProviderConnectionTestError.registrationFailed
+    let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    _ = try await service.completeConnection(
       verifiedAccount: VerifiedGmailAccount(
-        emailAddress: "new@example.com",
-        providerAccountIdentifier: "new-gmail-user",
+        emailAddress: "user@example.com",
+        providerAccountIdentifier: "gmail-user-001",
         tokens: GmailProviderTokens(
           accessToken: "new-access-token",
           refreshToken: "new-refresh-token"
@@ -191,7 +283,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(status.providerAccountIdentifier, "new-gmail-user")
+    XCTAssertEqual(bodyReader.clearedSessions, [session])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
@@ -326,14 +418,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(status)
   }
 
-  func testClearLocalConnectionClearsTokensAndMetadata() throws {
+  func testClearLocalConnectionClearsTokensMetadataAndCachedBodies() throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
+    let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
     let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
       metadataStore: metadataStore,
       tokenStore: tokenStore,
       transport: RecordingGmailConnectionTransport()
@@ -342,6 +436,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     try service.clearLocalConnection(session: session)
 
     XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    XCTAssertEqual(bodyReader.clearedSessions, [session])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
@@ -393,6 +488,41 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testVerifierRejectsMetadataOnlyGmailAuthorization() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      if request.url?.path == "/gmail/v1/users/me/profile" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"emailAddress":"user@example.com"}"#.utf8)
+        )
+      }
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.metadata","sub":"gmail-user-001"}"#
+            .utf8)
+      )
+    }
+    let verifier = GoogleGmailProviderCredentialVerifier(
+      oauthClientId: "gmail-client-id",
+      session: session
+    )
+
+    do {
+      _ = try await verifier.verify(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        expectedEmailAddress: "user@example.com",
+        expectedProviderAccountIdentifier: "gmail-user-001"
+      )
+      XCTFail("Expected insufficient Gmail scope")
+    } catch GmailProviderCredentialVerificationError.insufficientGmailScope {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
   func testVerifierRequiresRefreshTokenForSameGmailAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       let path = request.url?.path
@@ -422,13 +552,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       if request.url?.query == "access_token=access-token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+          Data(
+            #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
+              .utf8)
         )
       }
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"email":"other@example.com","sub":"other-gmail-user"}"#.utf8)
+        Data(
+          #"{"email":"other@example.com","scope":"\#(Self.gmailReadScope)","sub":"other-gmail-user"}"#
+            .utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -471,7 +605,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"email":"user@example.com","sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
+            .utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -516,7 +652,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
+        )
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -562,7 +700,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        Data(
+          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
+        )
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -674,10 +814,53 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 // swiftlint:enable type_body_length
 
 private enum GmailProviderConnectionTestError: Error {
+  case bodyCacheCleanupFailed
   case bundleCreationFailed
   case metadataCleanupFailed
   case registrationFailed
   case tokenCleanupFailed
+}
+
+private struct FailingGmailMessageReader: GmailMessageReading {
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+}
+
+private final class RecordingGmailMessageReader: GmailMessageReading {
+  var clearedSessions: [ProductAccountSessionSnapshot] = []
+
+  func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
+    clearedSessions.append(session)
+  }
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
 }
 
 private final class RecordingGmailConnectionTransport: GmailProviderConnectionTransport {
@@ -689,6 +872,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   }
 
   var connectCall: ConnectCall?
+  var connectCalls: [ConnectCall] = []
   var connectError: Error?
   var loadError: Error?
   var loadIdentityToken: String?
@@ -711,12 +895,14 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     emailAddress: String,
     providerAccountIdentifier: String
   ) async throws -> GmailProviderConnectionStatus {
-    connectCall = ConnectCall(
+    let connectCall = ConnectCall(
       identityToken: identityToken,
       trustedDeviceId: trustedDeviceId,
       emailAddress: emailAddress,
       providerAccountIdentifier: providerAccountIdentifier
     )
+    self.connectCall = connectCall
+    connectCalls.append(connectCall)
     try onConnect?()
     if let connectError {
       throw connectError
