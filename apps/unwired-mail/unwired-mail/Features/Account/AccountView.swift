@@ -665,7 +665,11 @@ private struct GmailInboxPanel: View {
             Label("Sync", systemImage: "arrow.triangle.2.circlepath")
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+          .disabled(
+            viewModel.isRefreshDisabled
+              || mailActionViewModel.isPerformingAction
+              || isConnectionBusy
+          )
         }
       }
 
@@ -873,12 +877,12 @@ private struct GmailInboxThreadRow: View {
 
   private func perform(_ action: GmailProviderMailAction) {
     Task {
-      _ = await mailActionViewModel.perform(
+      let didPerformAction = await mailActionViewModel.perform(
         action,
         for: thread.messages,
         connection: connection
       )
-      if !Task.isCancelled {
+      if didPerformAction && !Task.isCancelled {
         await refreshInbox()
       }
     }
