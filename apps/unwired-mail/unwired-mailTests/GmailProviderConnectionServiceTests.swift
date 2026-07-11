@@ -251,16 +251,18 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
-  func testCompleteConnectionDoesNotClearMetadataWhenPriorLookupFails() async throws {
+  func testCompleteConnectionClearsLocalCacheWhenPriorLookupFails() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
       productAccountId: session.productAccountId
     )
     let metadataStore = RecordingGmailProviderMetadataStore()
+    let bodyReader = RecordingGmailMessageReader()
     let transport = RecordingGmailConnectionTransport()
     transport.loadError = GmailProviderConnectionTestError.registrationFailed
     let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
       metadataStore: metadataStore,
       tokenStore: tokenStore,
       transport: transport
@@ -278,7 +280,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+    XCTAssertEqual(bodyReader.clearedSessions, [session])
+    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
   func testCompleteConnectionDoesNotRestorePreviousTokensWhenCancelled() async throws {
@@ -412,14 +415,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(status)
   }
 
-  func testClearLocalConnectionClearsTokensAndMetadata() throws {
+  func testClearLocalConnectionClearsTokensMetadataAndCachedBodies() throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
+    let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
       productAccountId: session.productAccountId
     )
     let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
       metadataStore: metadataStore,
       tokenStore: tokenStore,
       transport: RecordingGmailConnectionTransport()
@@ -428,6 +433,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     try service.clearLocalConnection(session: session)
 
     XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    XCTAssertEqual(bodyReader.clearedSessions, [session])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
@@ -815,6 +821,28 @@ private enum GmailProviderConnectionTestError: Error {
 private struct FailingGmailMessageReader: GmailMessageReading {
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {
     throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    throw GmailProviderConnectionTestError.bodyCacheCleanupFailed
+  }
+}
+
+private final class RecordingGmailMessageReader: GmailMessageReading {
+  var clearedSessions: [ProductAccountSessionSnapshot] = []
+
+  func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
+    clearedSessions.append(session)
   }
 
   func loadMessageBody(

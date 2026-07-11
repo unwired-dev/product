@@ -172,8 +172,8 @@ final class ProductAccountSession {
       return
     }
 
-    try? gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
     try gmailMessageBodyReader.clearCachedMessageBodies(session: existingSnapshot)
+    try? gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {
