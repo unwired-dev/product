@@ -231,8 +231,20 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   }
 
   private func clearLocalCache(session: ProductAccountSessionSnapshot) throws {
-    try bodyReader.clearCachedMessageBodies(session: session)
-    try? metadataStore.clearMessages(productAccountId: session.productAccountId)
+    var cleanupError: Error?
+    do {
+      try bodyReader.clearCachedMessageBodies(session: session)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   private func registerConnection(

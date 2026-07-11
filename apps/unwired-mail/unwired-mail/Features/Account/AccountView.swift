@@ -706,6 +706,12 @@ private struct GmailMessageBodySheet: View {
             systemImage: "exclamationmark.triangle",
             description: Text(errorMessage)
           )
+        } else if viewModel.didRemoveCachedBody {
+          ContentUnavailableView(
+            "Cached body removed",
+            systemImage: "trash",
+            description: Text("Reopen this message to fetch it again.")
+          )
         }
       }
       .navigationTitle(message.subject)
@@ -731,6 +737,7 @@ private struct GmailMessageBodySheet: View {
 @Observable
 private final class GmailMessageBodyViewModel {
   var body: GmailMessageBody?
+  var didRemoveCachedBody = false
   var errorMessage: String?
   var isLoading = false
 
@@ -753,6 +760,7 @@ private final class GmailMessageBodyViewModel {
     defer { isLoading = false }
     do {
       body = try await reader.loadMessageBody(message: message, session: session)
+      didRemoveCachedBody = false
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -763,8 +771,11 @@ private final class GmailMessageBodyViewModel {
     do {
       try reader.removeCachedMessageBody(message: message, session: session)
       body = nil
+      didRemoveCachedBody = true
+      errorMessage = nil
     } catch {
       body = nil
+      didRemoveCachedBody = false
       errorMessage = error.localizedDescription
     }
   }

@@ -65,20 +65,23 @@ final class ProductAccountSession {
         productAccountId: response.productAccountId,
         trustedDeviceId: response.trustedDeviceId
       )
+      try sessionStore.save(refreshedSnapshot)
       try clearLocalGmailConnectionIfProductAccountChanged(
         from: snapshot,
         to: refreshedSnapshot
       )
-      try sessionStore.save(refreshedSnapshot)
       state = .signedIn(refreshedSnapshot)
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:
         do {
-          try gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
-          try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
           try sessionStore.clear()
-          state = .signedOut
+          do {
+            try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+            state = .signedOut
+          } catch {
+            state = .failed(error.localizedDescription)
+          }
         } catch {
           state = .failed(error.localizedDescription)
         }
@@ -132,19 +135,19 @@ final class ProductAccountSession {
   }
 
   func signOut() {
-    if let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load()) {
-      do {
-        try gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
-      } catch {
-        state = .failed(error.localizedDescription)
-        return
-      }
-      try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
-    }
-
+    let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     do {
       try sessionStore.clear()
-      state = .signedOut
+      if let snapshot {
+        do {
+          try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+          state = .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
+      } else {
+        state = .signedOut
+      }
     } catch {
       state = .failed(error.localizedDescription)
     }
@@ -172,8 +175,7 @@ final class ProductAccountSession {
       return
     }
 
-    try gmailMessageBodyReader.clearCachedMessageBodies(session: existingSnapshot)
-    try? gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+    try gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {

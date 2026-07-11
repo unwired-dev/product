@@ -278,7 +278,12 @@ struct GmailMessageBodyService: GmailMessageReading {
     else {
       throw GmailMessageBodyError.missingMessageBody
     }
-    let text = bodyPart.mimeType == "text/html" ? htmlText(decodedText) : decodedText
+    let text: String
+    if bodyPart.mimeType == "text/html" {
+      text = await MainActor.run { htmlText(decodedText) }
+    } else {
+      text = decodedText
+    }
     return GmailMessageBody(text: text)
   }
 
