@@ -211,7 +211,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [])
   }
 
-  func testSignInKeepsPreviousSessionWhenBodyCacheCleanupFails() async throws {
+  func testSignInPersistsNewSessionWhenBodyCacheCleanupFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -237,7 +237,11 @@ final class ProductAccountSessionTests: XCTestCase {
     guard case .failed = session.state else {
       return XCTFail("Expected failed state")
     }
-    XCTAssertEqual(try store.load(), oldSnapshot)
+    let persistedSnapshot = try XCTUnwrap(try store.load())
+    XCTAssertEqual(
+      persistedSnapshot.productAccountId,
+      ProductAccountConnectResponse.preview.productAccountId
+    )
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {

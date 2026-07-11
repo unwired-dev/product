@@ -113,11 +113,11 @@ final class ProductAccountSession {
         trustedDeviceId: response.trustedDeviceId
       )
       let previousSnapshot = try? sessionStore.load()
+      try sessionStore.save(snapshot)
       try clearLocalGmailConnectionIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
       )
-      try sessionStore.save(snapshot)
       state = .signedIn(snapshot)
     } catch {
       state = .failed(error.localizedDescription)
