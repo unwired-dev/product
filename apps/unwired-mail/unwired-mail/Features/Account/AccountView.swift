@@ -117,6 +117,10 @@ private final class GmailMailActionViewModel {
     self.session = session
   }
 
+  func clearError() {
+    errorMessage = nil
+  }
+
   func perform(
     _ action: GmailProviderMailAction,
     for messages: [GmailMessageMetadata],
@@ -248,7 +252,7 @@ private final class GmailInboxViewModel {
     await load(connection: connection)
   }
 
-  func sync(connection: GmailProviderConnectionStatus) async {
+  func sync(connection: GmailProviderConnectionStatus) async -> Bool {
     if currentProviderAccountIdentifier != connection.providerAccountIdentifier {
       currentProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = []
@@ -267,21 +271,24 @@ private final class GmailInboxViewModel {
       )
       guard currentProviderAccountIdentifier == connection.providerAccountIdentifier
       else {
-        return
+        return false
       }
       threads = result.threads
       errorMessage = nil
+      return true
     } catch is CancellationError {
+      return false
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
-  func refresh(connection: GmailProviderConnectionStatus) async {
+  func refresh(connection: GmailProviderConnectionStatus) async -> Bool {
     guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
-      return
+      return false
     }
-    await sync(connection: connection)
+    return await sync(connection: connection)
   }
 }
 
@@ -659,7 +666,9 @@ private struct GmailInboxPanel: View {
           Button {
             syncTask?.cancel()
             syncTask = Task {
-              await viewModel.sync(connection: connection)
+              if await viewModel.sync(connection: connection) {
+                mailActionViewModel.clearError()
+              }
             }
           } label: {
             Label("Sync", systemImage: "arrow.triangle.2.circlepath")
@@ -717,7 +726,11 @@ private struct GmailInboxPanel: View {
                   || viewModel.isRefreshDisabled
                   || isConnectionBusy,
                 mailActionViewModel: mailActionViewModel,
-                refreshInbox: { await viewModel.refresh(connection: connection) },
+                refreshInbox: {
+                  if await viewModel.refresh(connection: connection) {
+                    mailActionViewModel.clearError()
+                  }
+                },
                 reply: { message in
                   replyToMessage = message
                   recipient = message.replyTo ?? message.from ?? ""
@@ -755,6 +768,7 @@ private struct GmailInboxPanel: View {
     }
     .task(id: connection?.providerAccountIdentifier) {
       syncTask?.cancel()
+      mailActionViewModel.clearError()
       replyToMessage = nil
       recipient = ""
       subject = ""

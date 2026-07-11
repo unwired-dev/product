@@ -350,7 +350,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
-    let paddedRaw = raw + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
     let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
     let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
     XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?Sm9zw6kgR2FyY8OtYQ==?= <jose@example.com>"))
