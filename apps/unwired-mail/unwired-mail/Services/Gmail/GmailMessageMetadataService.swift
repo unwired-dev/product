@@ -358,7 +358,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       ]
     )
     let sender = try headerValue(connection.emailAddress)
-    let recipient = try headerValue(message.recipient)
+    let recipient = try mailboxHeaderValue(message.recipient)
     let subject = try encodedHeaderValue(message.subject)
     var headers = [
       "To: \(recipient)",
@@ -530,6 +530,18 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       return value
     }
     return "=?UTF-8?B?\(Data(value.utf8).base64EncodedString())?="
+  }
+
+  private func mailboxHeaderValue(_ value: String) throws -> String {
+    let value = try headerValue(value)
+    guard let addressStart = value.lastIndex(of: "<"), value.hasSuffix(">") else {
+      return value
+    }
+    let displayName = value[..<addressStart].trimmingCharacters(in: .whitespaces)
+    guard !displayName.isEmpty else {
+      return String(value[addressStart...])
+    }
+    return "\(try encodedHeaderValue(displayName)) \(value[addressStart...])"
   }
 
   private func sendAuthorizedRequest(
