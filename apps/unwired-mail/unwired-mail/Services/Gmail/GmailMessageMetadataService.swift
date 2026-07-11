@@ -518,7 +518,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
   }
 
   private func headerValue(_ value: String) throws -> String {
-    guard !value.contains("\r"), !value.contains("\n") else {
+    guard !value.unicodeScalars.contains(where: { $0.value == 0x0A || $0.value == 0x0D }) else {
       throw GmailMessageMetadataSyncError.invalidMessageHeader
     }
     return value
