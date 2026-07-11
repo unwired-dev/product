@@ -114,10 +114,17 @@ final class ProductAccountSession {
       )
       let previousSnapshot = try? sessionStore.load()
       try sessionStore.save(snapshot)
-      try clearLocalGmailConnectionIfProductAccountChanged(
-        from: previousSnapshot,
-        to: snapshot
-      )
+      do {
+        try clearLocalGmailConnectionIfProductAccountChanged(
+          from: previousSnapshot,
+          to: snapshot
+        )
+      } catch {
+        if let previousSnapshot {
+          try? sessionStore.save(previousSnapshot)
+        }
+        throw error
+      }
       state = .signedIn(snapshot)
     } catch {
       state = .failed(error.localizedDescription)
@@ -126,13 +133,13 @@ final class ProductAccountSession {
 
   func signOut() {
     if let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load()) {
-      try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
       do {
         try gmailMessageBodyReader.clearCachedMessageBodies(session: snapshot)
       } catch {
         state = .failed(error.localizedDescription)
         return
       }
+      try? gmailProviderConnectionService.clearLocalConnection(session: snapshot)
     }
 
     do {

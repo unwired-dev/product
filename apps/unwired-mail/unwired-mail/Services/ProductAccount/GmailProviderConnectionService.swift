@@ -186,6 +186,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
 
     try Task.checkCancellation()
 
+    try tokenStore.save(
+      verifiedAccount.tokens,
+      productAccountId: session.productAccountId
+    )
+
     let connection = try await registerConnection(
       verifiedAccount: verifiedAccount,
       session: session,
@@ -197,20 +202,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         try clearLocalCache(session: session)
       } catch {
         try? await restoreConnection(previousConnection, session: session)
+        try? restoreTokens(previousTokens, session: session)
         throw error
       }
-    }
-
-    do {
-      try tokenStore.save(
-        verifiedAccount.tokens,
-        productAccountId: session.productAccountId
-      )
-    } catch {
-      if let previousConnection {
-        try? await restoreConnection(previousConnection, session: session)
-      }
-      throw error
     }
     return connection
   }
@@ -262,6 +256,17 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         try tokenStore.clear(productAccountId: session.productAccountId)
       }
       throw error
+    }
+  }
+
+  private func restoreTokens(
+    _ tokens: GmailProviderTokens?,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    if let tokens {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    } else {
+      try tokenStore.clear(productAccountId: session.productAccountId)
     }
   }
 

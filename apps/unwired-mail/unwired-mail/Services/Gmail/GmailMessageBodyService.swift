@@ -345,7 +345,7 @@ struct GmailMessageBodyService: GmailMessageReading {
     message: GmailMessageMetadata,
     accessToken: String
   ) async throws -> String {
-    if let data = bodyPart.body?.data {
+    if let data = bodyPart.body?.data, !data.isEmpty {
       return data
     }
     guard let attachmentId = bodyPart.body?.attachmentId else {
