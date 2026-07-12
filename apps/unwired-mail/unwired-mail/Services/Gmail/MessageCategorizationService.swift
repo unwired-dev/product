@@ -332,6 +332,7 @@ protocol GmailMessageCategorizing {
 }
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
+  private static let assignmentPrefetchBatchSize = 8_192
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let bodyReader: GmailCachedMessageBodyReading
   private let categorySync: CustomCategorySyncing
@@ -409,10 +410,26 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
       message.categoryId == nil ? message.stableProviderMessageId : nil
     }
     do {
-      return try await assignmentSync.loadAssignments(
-        stableProviderMessageIds: uncategorizedMessageIds,
-        session: session
-      )
+      var assignments: [String: MessageCategoryAssignment] = [:]
+      for startIndex in stride(
+        from: 0,
+        to: uncategorizedMessageIds.count,
+        by: Self.assignmentPrefetchBatchSize
+      ) {
+        let endIndex = min(
+          startIndex + Self.assignmentPrefetchBatchSize,
+          uncategorizedMessageIds.count
+        )
+        let batch = Array(uncategorizedMessageIds[startIndex..<endIndex])
+        assignments.merge(
+          try await assignmentSync.loadAssignments(
+            stableProviderMessageIds: batch,
+            session: session
+          ),
+          uniquingKeysWith: { existing, _ in existing }
+        )
+      }
+      return assignments
     } catch {
       try Task.checkCancellation()
       return [:]

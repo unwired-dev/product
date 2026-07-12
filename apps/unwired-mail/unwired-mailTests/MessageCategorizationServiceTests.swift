@@ -221,6 +221,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
 
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
     let service = MessageCategoryAssignmentSyncService(
       keyMaterialStore: keyStore,
@@ -288,6 +289,21 @@ final class MessageCategorizationServiceTests: XCTestCase {
 }
 
 extension MessageCategorizationServiceTests {
+  func testCategorizationBatchesLargeAssignmentPrefetches() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: FailingClassificationEngine()
+    )
+    let messages = (0...8_192).map { message(messageId: "message-\($0)") }
+
+    _ = try await service.categorize(messages: messages, session: session)
+
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [8_192, 1])
+  }
+
   func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailBatchLoad = true
