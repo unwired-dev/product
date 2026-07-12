@@ -1,7 +1,7 @@
 import CoreFoundation
 import Foundation
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 struct GmailMessageBody: Equatable {
   let text: String
@@ -39,6 +39,27 @@ protocol GmailMessageReading {
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws
+}
+
+/// Reads only message bodies already present in the encrypted On-Demand Body Cache.
+///
+/// This boundary never fetches mail from Gmail. System Categorization uses it to keep
+/// provider body retrieval reserved for an explicit user-open action.
+///
+/// Example:
+/// ```swift
+/// func cachedBody(
+///   for message: GmailMessageMetadata,
+///   session: ProductAccountSessionSnapshot
+/// ) throws -> GmailMessageBody? {
+///   try GmailMessageBodyService().loadCachedMessageBody(message: message, session: session)
+/// }
+/// ```
+protocol GmailCachedMessageBodyReading {
+  func loadCachedMessageBody(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailMessageBody?
 }
 
 struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
@@ -142,7 +163,7 @@ enum GmailMessageBodyError: LocalizedError, Equatable {
   }
 }
 
-struct GmailMessageBodyService: GmailMessageReading {
+struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReading {
   private let cache: GmailMessageBodyCaching
   private let gmailBaseURL: URL
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -179,35 +200,10 @@ struct GmailMessageBodyService: GmailMessageReading {
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody {
+    if let cachedBody = try loadCachedMessageBody(message: message, session: session) {
+      return cachedBody
+    }
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
-    let cached: ProductSyncEncryptedPayload?
-    do {
-      cached = try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
-    } catch {
-      try? cache.removeMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
-      cached = nil
-    }
-    if let cached {
-      do {
-        let decrypted = try material.decryptPayload(
-          cached, associatedData: associatedData(for: message))
-        guard let text = String(bytes: decrypted, encoding: .utf8) else {
-          throw GmailMessageBodyError.missingMessageBody
-        }
-        return GmailMessageBody(text: text)
-      } catch {
-        try? cache.removeMessageBody(
-          productAccountId: session.productAccountId,
-          stableProviderMessageId: message.stableProviderMessageId
-        )
-      }
-    }
 
     guard let tokens = try tokenStore.load(productAccountId: session.productAccountId) else {
       throw GmailMessageBodyError.missingLocalGmailTokens
@@ -226,6 +222,43 @@ struct GmailMessageBodyService: GmailMessageReading {
       stableProviderMessageId: message.stableProviderMessageId
     )
     return body
+  }
+
+  func loadCachedMessageBody(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailMessageBody? {
+    let cached: ProductSyncEncryptedPayload?
+    do {
+      cached = try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    } catch {
+      try? cache.removeMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+      cached = nil
+    }
+    guard let cached else {
+      return nil
+    }
+    let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
+    do {
+      let decrypted = try material.decryptPayload(
+        cached, associatedData: associatedData(for: message))
+      guard let text = String(bytes: decrypted, encoding: .utf8) else {
+        throw GmailMessageBodyError.missingMessageBody
+      }
+      return GmailMessageBody(text: text)
+    } catch {
+      try? cache.removeMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+      return nil
+    }
   }
 
   func removeCachedMessageBody(

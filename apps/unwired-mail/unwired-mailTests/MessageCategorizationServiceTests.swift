@@ -56,7 +56,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
     let engine = RecordingClassificationEngine(
       decisions: [.needsBody, .assigned(categoryId: "system:invoices")]
     )
-    let bodyReader = RecordingCategorizationBodyReader(bodyText: "Invoice total: 42 EUR")
+    let bodyReader = RecordingCachedBodyReader(bodyText: "Invoice total: 42 EUR")
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -88,7 +88,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
     let engine = RecordingClassificationEngine(
       decisions: [.assigned(categoryId: "system:promotions")]
     )
-    let bodyReader = RecordingCategorizationBodyReader(bodyText: "Unused body")
+    let bodyReader = RecordingCachedBodyReader(bodyText: "Unused body")
     let service = GmailMessageCategorizationService(
       assignmentSync: RecordingMessageCategoryAssignmentSync(),
       bodyReader: bodyReader,
@@ -106,9 +106,46 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(categorized[0].categoryId, "system:promotions")
   }
 
+  func testCategorizationLeavesMessageUncategorizedWhenNoBodyIsCached() async throws {
+    let engine = RecordingClassificationEngine(decisions: [.needsBody])
+    let bodyReader = RecordingCachedBodyReader(bodyText: nil)
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: bodyReader,
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message()],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertEqual(bodyReader.loadedMessageIds, ["gmail:account:message-001"])
+    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+  }
+
+  func testCategorizationLeavesMessageUncategorizedWhenClassificationFails() async throws {
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: FailingClassificationEngine()
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message()],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+  }
+
   func testCategorizationPreservesHistoricalAndAssignedMessages() async throws {
     let engine = RecordingClassificationEngine(decisions: [])
-    let bodyReader = RecordingCategorizationBodyReader(bodyText: "Unused body")
+    let bodyReader = RecordingCachedBodyReader(bodyText: "Unused body")
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -141,7 +178,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
       )
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
-      bodyReader: RecordingCategorizationBodyReader(bodyText: "Unused body"),
+      bodyReader: RecordingCachedBodyReader(bodyText: "Unused body"),
       categorySync: StubCustomCategorySync(),
       engine: engine
     )
@@ -221,28 +258,30 @@ private final class RecordingClassificationEngine: ClassificationEngine {
   }
 }
 
-private final class RecordingCategorizationBodyReader: GmailMessageReading {
-  private(set) var loadedMessageIds: [String] = []
-  private let bodyText: String
+private struct FailingClassificationEngine: ClassificationEngine {
+  func classify(
+    input _: ClassificationInput,
+    categories _: [MessageClassificationCategory]
+  ) async throws -> ClassificationDecision {
+    throw URLError(.cannotDecodeContentData)
+  }
+}
 
-  init(bodyText: String) {
+private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
+  private(set) var loadedMessageIds: [String] = []
+  private let bodyText: String?
+
+  init(bodyText: String?) {
     self.bodyText = bodyText
   }
 
-  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
-
-  func loadMessageBody(
+  func loadCachedMessageBody(
     message: GmailMessageMetadata,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMessageBody {
+  ) throws -> GmailMessageBody? {
     loadedMessageIds.append(message.stableProviderMessageId)
-    return GmailMessageBody(text: bodyText)
+    return bodyText.map(GmailMessageBody.init(text:))
   }
-
-  func removeCachedMessageBody(
-    message _: GmailMessageMetadata,
-    session _: ProductAccountSessionSnapshot
-  ) throws {}
 }
 
 private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssignmentSyncing {
