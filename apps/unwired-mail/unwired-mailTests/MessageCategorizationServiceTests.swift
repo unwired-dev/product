@@ -166,7 +166,8 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(categorized, [historical, assigned])
     XCTAssertTrue(engine.inputs.isEmpty)
     XCTAssertTrue(bodyReader.loadedMessageIds.isEmpty)
-    XCTAssertEqual(assignmentSync.loadedMessageIds, [historical.stableProviderMessageId])
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches, [[historical.stableProviderMessageId]])
+    XCTAssertTrue(assignmentSync.loadedMessageIds.isEmpty)
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
@@ -331,8 +332,17 @@ private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
 
 private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssignmentSyncing {
   var assignmentsByMessageId: [String: MessageCategoryAssignment] = [:]
+  private(set) var loadedAssignmentBatches: [[String]] = []
   private(set) var loadedMessageIds: [String] = []
   private(set) var savedAssignments: [MessageCategoryAssignment] = []
+
+  func loadAssignments(
+    stableProviderMessageIds: [String],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [String: MessageCategoryAssignment] {
+    loadedAssignmentBatches.append(stableProviderMessageIds)
+    return assignmentsByMessageId
+  }
 
   func loadAssignment(
     stableProviderMessageId: String,

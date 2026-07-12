@@ -143,6 +143,12 @@ struct MessageCategoryAssignment: Codable, Equatable {
 /// }
 /// ```
 protocol MessageCategoryAssignmentSyncing {
+  /// Loads assignments for Stable Provider Message Identities in one Product Sync read.
+  func loadAssignments(
+    stableProviderMessageIds: [String],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String: MessageCategoryAssignment]
+
   /// Loads and decrypts the assignment addressed by Stable Provider Message Identity.
   func loadAssignment(
     stableProviderMessageId: String,
@@ -182,6 +188,41 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   ) {
     self.keyMaterialStore = keyMaterialStore
     self.transport = transport
+  }
+
+  func loadAssignments(
+    stableProviderMessageIds: [String],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String: MessageCategoryAssignment] {
+    let identifiers = Dictionary(
+      uniqueKeysWithValues: stableProviderMessageIds.map {
+        (payloadIdentifier(for: $0), $0)
+      }
+    )
+    let payloads = try await transport.listEncryptedProductSyncPayloads(
+      identityToken: session.identityToken
+    )
+    let relevantPayloads = payloads.filter { identifiers[$0.payloadIdentifier] != nil }
+    guard !relevantPayloads.isEmpty else { return [:] }
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
+    }
+
+    return Dictionary(
+      uniqueKeysWithValues: try relevantPayloads.map { payload in
+        let stableProviderMessageId = identifiers[payload.payloadIdentifier]!
+        return (
+          stableProviderMessageId,
+          try decryptedAssignment(
+            from: payload,
+            identifier: payload.payloadIdentifier,
+            material: material,
+            stableProviderMessageId: stableProviderMessageId
+          )
+        )
+      }
+    )
   }
 
   func loadAssignment(
@@ -313,16 +354,19 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
   ) async throws -> [GmailMessageMetadata] {
     var categories: [MessageClassificationCategory]?
     var categorizedMessages: [GmailMessageMetadata] = []
+    let assignments = try await assignmentSync.loadAssignments(
+      stableProviderMessageIds: messages.compactMap { message in
+        message.categoryId == nil ? message.stableProviderMessageId : nil
+      },
+      session: session
+    )
     for message in messages {
       guard message.categoryId == nil else {
         categorizedMessages.append(message)
         continue
       }
       do {
-        if let assignment = try await assignmentSync.loadAssignment(
-          stableProviderMessageId: message.stableProviderMessageId,
-          session: session
-        ) {
+        if let assignment = assignments[message.stableProviderMessageId] {
           categorizedMessages.append(message.assigningCategory(assignment.categoryId))
           continue
         }
@@ -386,7 +430,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
         categories: categories
       )
     }
-    guard case .assigned(let categoryId) = decision else {
+    guard
+      case .assigned(let categoryId) = decision,
+      categories.contains(where: { $0.id == categoryId })
+    else {
       return nil
     }
     return categoryId

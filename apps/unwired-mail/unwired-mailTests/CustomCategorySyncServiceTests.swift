@@ -168,7 +168,10 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload {
-    try await putEncryptedProductSyncPayload(
+    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
+      return existingPayload
+    }
+    return try await putEncryptedProductSyncPayload(
       identityToken: identityToken,
       payloadIdentifier: payloadIdentifier,
       encryptedPayload: encryptedPayload,
