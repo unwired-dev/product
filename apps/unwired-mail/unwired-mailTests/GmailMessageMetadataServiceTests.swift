@@ -153,6 +153,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncInboxCategorizesAndPersistsMessagesAfterAccountInstall() async throws {
+    let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
+    let fixture = try makeSyncFixture(categorizer: categorizer)
+    let installedConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_100_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_100_000_000
+    )
+
+    let result = try await fixture.service.syncInbox(
+      connection: installedConnection,
+      session: session
+    )
+
+    XCTAssertTrue(categorizer.receivedMessages.allSatisfy { !$0.isHistorical })
+    XCTAssertEqual(
+      categorizer.receivedMessages.map(\.stableProviderMessageId),
+      ["gmail:gmail-user-001:message-002", "gmail:gmail-user-001:message-001"]
+    )
+    XCTAssertTrue(result.messages.allSatisfy { $0.categoryId == "system:promotions" })
+    XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
   func testSyncInboxFollowsGmailPaginationBeforeSavingMetadata() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
 
@@ -530,6 +557,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   private func makeSyncFixture(
+    categorizer: GmailMessageCategorizing = RecordingGmailMessageCategorizer(),
     tokenInfoSubject: String = "gmail-user-001",
     usesPagination: Bool = false,
     replyTo: String? = nil
@@ -551,6 +579,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     let service = GmailMessageMetadataService(
+      categorizer: categorizer,
       gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
       oauthClientId: "gmail-client-id",
       session: urlSession,
@@ -697,6 +726,41 @@ private struct GmailMessageMetadataSyncFixture {
 private final class GmailMetadataRequestRecorder {
   var paths: [String] = []
   var queries: [String] = []
+}
+
+private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
+  private let categoryId: String?
+  private(set) var receivedMessages: [GmailMessageMetadata] = []
+
+  init(categoryId: String? = nil) {
+    self.categoryId = categoryId
+  }
+
+  func categorize(
+    messages: [GmailMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    receivedMessages = messages
+    guard let categoryId else {
+      return messages
+    }
+    return messages.map { message in
+      GmailMessageMetadata(
+        categoryId: categoryId,
+        from: message.from,
+        isHistorical: message.isHistorical,
+        providerAccountIdentifier: message.providerAccountIdentifier,
+        providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
+        providerMessageId: message.providerMessageId,
+        providerThreadId: message.providerThreadId,
+        replyTo: message.replyTo,
+        snippet: message.snippet,
+        stableProviderMessageId: message.stableProviderMessageId,
+        subject: message.subject,
+        rfcMessageId: message.rfcMessageId
+      )
+    }
+  }
 }
 
 private struct GmailMailActionFixture {

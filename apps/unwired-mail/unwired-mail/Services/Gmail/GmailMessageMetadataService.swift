@@ -193,6 +193,7 @@ func gmailSafeFileComponent(_ value: String) -> String {
 }
 
 struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMailActing {
+  private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
   private let oauthClientId: String?
   private let session: URLSession
@@ -202,6 +203,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
   private let tokenRefreshURL: URL
 
   init(
+    categorizer: GmailMessageCategorizing = GmailMessageCategorizationService(),
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     oauthClientId: String? =
       ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
@@ -213,6 +215,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     tokenInfoURL: URL = URL(string: "https://oauth2.googleapis.com/tokeninfo")!,
     tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
   ) {
+    self.categorizer = categorizer
     self.gmailBaseURL = gmailBaseURL
     self.oauthClientId = oauthClientId
     self.session = session
@@ -276,6 +279,10 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     fetchedMessages = sortedMessages(
       fetchedMessages,
       preservingExistingStateFrom: existingMessagesByStableId
+    )
+    fetchedMessages = try await categorizer.categorize(
+      messages: fetchedMessages,
+      session: session
     )
 
     try Task.checkCancellation()
