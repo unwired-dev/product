@@ -534,16 +534,55 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
 
   private func mailboxHeaderValue(_ value: String) throws -> String {
     let value = try headerValue(value)
+    return try mailboxValues(in: value)
+      .map { try encodedMailboxHeaderValue($0) }
+      .joined(separator: ", ")
+  }
 
-    let mailboxes =
-      try value
-      .split(separator: ",", omittingEmptySubsequences: false)
-      .map { try encodedMailboxHeaderValue(String($0)) }
+  private func mailboxValues(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
 
-    return mailboxes.joined(separator: ",")
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<":
+        angleBracketDepth += 1
+      case ">":
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+
+      mailbox.append(character)
+    }
+
+    mailboxes.append(mailbox)
+    return mailboxes
   }
 
   private func encodedMailboxHeaderValue(_ value: String) throws -> String {
+    let value = value.trimmingCharacters(in: .whitespaces)
     guard let addressStart = value.lastIndex(of: "<"), value.hasSuffix(">") else {
       return value
     }

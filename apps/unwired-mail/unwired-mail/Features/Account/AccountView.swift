@@ -761,11 +761,23 @@ private struct GmailInboxPanel: View {
                 },
                 thread: thread,
                 forward: { message in
-                  replyToMessage = nil
-                  recipient = ""
-                  subject = "Fwd: \(message.subject)"
-                  composeBody =
-                    "\n\nForwarded message from \(message.from ?? "Unknown sender"):\n\(message.snippet)"
+                  do {
+                    let body = try await messageReader.loadMessageBody(
+                      message: message,
+                      session: session
+                    )
+                    guard !Task.isCancelled else { return }
+                    cacheErrorMessage = nil
+                    replyToMessage = nil
+                    recipient = ""
+                    subject = "Fwd: \(message.subject)"
+                    composeBody =
+                      "\n\nForwarded message from \(message.from ?? "Unknown sender"):\n\(body.text)"
+                  } catch is CancellationError {
+                    return
+                  } catch {
+                    cacheErrorMessage = error.localizedDescription
+                  }
                 },
                 open: { message in
                   selectedMessage = message
@@ -989,7 +1001,7 @@ private struct GmailInboxThreadRow: View {
   let refreshInbox: () async -> Void
   let reply: (GmailMessageMetadata) -> Void
   let thread: GmailInboxThread
-  let forward: (GmailMessageMetadata) -> Void
+  let forward: (GmailMessageMetadata) async -> Void
   let open: (GmailMessageMetadata) -> Void
 
   var body: some View {
@@ -1031,7 +1043,9 @@ private struct GmailInboxThreadRow: View {
         Divider()
         Button("Reply") { reply(thread.latestMessage) }
           .disabled(thread.latestMessage.rfcMessageId == nil)
-        Button("Forward") { forward(thread.latestMessage) }
+        Button("Forward") {
+          Task { await forward(thread.latestMessage) }
+        }
         Divider()
         Button("Mark Read") { perform(.markRead) }
         Button("Mark Unread") { perform(.markUnread) }
