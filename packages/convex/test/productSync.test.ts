@@ -251,6 +251,25 @@ describe('productSync encrypted payloads', () => {
     expect(missing).toBeNull();
   });
 
+  it('gets only requested encrypted payloads', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    const stored = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'payload-001',
+    );
+    await putPayload(asUser, connect.trustedDeviceId, 'payload-002');
+    const found = await asUser.query(api.productSync.getEncryptedPayloads, {
+      payloadIdentifiers: ['payload-001', 'missing-payload'],
+    });
+
+    expect(found).toStrictEqual([stored]);
+    expect(found).toHaveLength(1);
+  });
+
   it('does not expose targeted encrypted payloads across Product Accounts', async () => {
     expect.assertions(1);
 

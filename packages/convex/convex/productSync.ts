@@ -198,3 +198,27 @@ export const getEncryptedPayload = query({
   },
   returns: maybeEncryptedProductSyncPayloadValidator,
 });
+
+export const getEncryptedPayloads = query({
+  args: {
+    payloadIdentifiers: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    const payloads = await Promise.all(
+      args.payloadIdentifiers.map(async (payloadIdentifier) =>
+        ctx.db
+          .query('encryptedProductSyncPayloads')
+          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+            q
+              .eq('productAccountId', productAccountId)
+              .eq('payloadIdentifier', payloadIdentifier),
+          )
+          .unique(),
+      ),
+    );
+
+    return payloads.filter((payload) => payload !== null).map(serializePayload);
+  },
+  returns: v.array(encryptedProductSyncPayloadValidator),
+});

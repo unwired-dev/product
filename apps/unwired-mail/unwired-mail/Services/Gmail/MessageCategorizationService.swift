@@ -194,23 +194,24 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     stableProviderMessageIds: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [String: MessageCategoryAssignment] {
+    guard !stableProviderMessageIds.isEmpty else { return [:] }
     let identifiers = Dictionary(
       uniqueKeysWithValues: stableProviderMessageIds.map {
         (payloadIdentifier(for: $0), $0)
       }
     )
-    let payloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken
+    let payloads = try await transport.getEncryptedProductSyncPayloads(
+      identityToken: session.identityToken,
+      payloadIdentifiers: Array(identifiers.keys)
     )
-    let relevantPayloads = payloads.filter { identifiers[$0.payloadIdentifier] != nil }
-    guard !relevantPayloads.isEmpty else { return [:] }
+    guard !payloads.isEmpty else { return [:] }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
 
     return Dictionary(
-      uniqueKeysWithValues: try relevantPayloads.map { payload in
+      uniqueKeysWithValues: try payloads.map { payload in
         let stableProviderMessageId = identifiers[payload.payloadIdentifier]!
         return (
           stableProviderMessageId,
@@ -354,12 +355,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
   ) async throws -> [GmailMessageMetadata] {
     var categories: [MessageClassificationCategory]?
     var categorizedMessages: [GmailMessageMetadata] = []
-    let assignments = try await assignmentSync.loadAssignments(
-      stableProviderMessageIds: messages.compactMap { message in
-        message.categoryId == nil ? message.stableProviderMessageId : nil
-      },
-      session: session
-    )
+    let assignments = try await prefetchedAssignments(messages: messages, session: session)
     for message in messages {
       guard message.categoryId == nil else {
         categorizedMessages.append(message)
@@ -403,6 +399,24 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
       }
     }
     return categorizedMessages
+  }
+
+  private func prefetchedAssignments(
+    messages: [GmailMessageMetadata],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [String: MessageCategoryAssignment] {
+    let uncategorizedMessageIds = messages.compactMap { message in
+      message.categoryId == nil ? message.stableProviderMessageId : nil
+    }
+    do {
+      return try await assignmentSync.loadAssignments(
+        stableProviderMessageIds: uncategorizedMessageIds,
+        session: session
+      )
+    } catch {
+      try Task.checkCancellation()
+      return [:]
+    }
   }
 
   private func classifiedCategoryId(

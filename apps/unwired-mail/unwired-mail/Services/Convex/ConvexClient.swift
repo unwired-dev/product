@@ -144,6 +144,17 @@ final class ConvexClient {
     )
   }
 
+  func getEncryptedProductSyncPayloads(
+    identityToken: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await performQuery(
+      path: "productSync:getEncryptedPayloads",
+      args: GetEncryptedProductSyncPayloadsArgs(payloadIdentifiers: payloadIdentifiers),
+      identityToken: identityToken
+    )
+  }
+
   func listEncryptedProductSyncPayloads(
     identityToken: String
   ) async throws -> [EncryptedProductSyncPayload] {
@@ -336,6 +347,10 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
 
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
+}
+
+private struct GetEncryptedProductSyncPayloadsArgs: Encodable {
+  let payloadIdentifiers: [String]
 }
 
 private struct MarkProductSyncMaterialInitializedArgs: Encodable {

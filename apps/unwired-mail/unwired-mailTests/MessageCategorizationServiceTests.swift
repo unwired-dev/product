@@ -287,6 +287,26 @@ final class MessageCategorizationServiceTests: XCTestCase {
   }
 }
 
+extension MessageCategorizationServiceTests {
+  func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.shouldFailBatchLoad = true
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: FailingClassificationEngine()
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message()],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+  }
+}
+
 private final class RecordingClassificationEngine: ClassificationEngine {
   private var decisions: [ClassificationDecision]
   private(set) var inputs: [ClassificationInput] = []
@@ -332,6 +352,7 @@ private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
 
 private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssignmentSyncing {
   var assignmentsByMessageId: [String: MessageCategoryAssignment] = [:]
+  var shouldFailBatchLoad = false
   private(set) var loadedAssignmentBatches: [[String]] = []
   private(set) var loadedMessageIds: [String] = []
   private(set) var savedAssignments: [MessageCategoryAssignment] = []
@@ -341,6 +362,9 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     session _: ProductAccountSessionSnapshot
   ) async throws -> [String: MessageCategoryAssignment] {
     loadedAssignmentBatches.append(stableProviderMessageIds)
+    if shouldFailBatchLoad {
+      throw URLError(.cannotConnectToHost)
+    }
     return assignmentsByMessageId
   }
 
@@ -385,6 +409,13 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
     writes.first { $0.payloadIdentifier == payloadIdentifier }
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
   func listEncryptedProductSyncPayloads(

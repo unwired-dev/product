@@ -142,6 +142,13 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
     return writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
