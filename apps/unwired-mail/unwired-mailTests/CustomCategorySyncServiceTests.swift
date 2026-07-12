@@ -161,4 +161,18 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
     writeHistory.append(payload)
     return payload
   }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload {
+    try await putEncryptedProductSyncPayload(
+      identityToken: identityToken,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
 }

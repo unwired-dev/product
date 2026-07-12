@@ -201,15 +201,12 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
-    let plaintext = try material.decryptPayload(
-      syncedPayload.encryptedPayload,
-      associatedData: Data(identifier.utf8)
+    return try decryptedAssignment(
+      from: syncedPayload,
+      identifier: identifier,
+      material: material,
+      stableProviderMessageId: stableProviderMessageId
     )
-    let assignment = try decoder.decode(MessageCategoryAssignment.self, from: plaintext)
-    guard assignment.stableProviderMessageId == stableProviderMessageId else {
-      throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
-    }
-    return assignment
   }
 
   func saveAssignment(
@@ -225,7 +222,7 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
 
     let material = try keyMaterialStore.ensureMaterial(
       productAccountId: session.productAccountId,
-      allowCreation: true
+      allowCreation: false
     )
     let identifier = payloadIdentifier(for: assignment.stableProviderMessageId)
     let plaintext = try encoder.encode(assignment)
@@ -233,12 +230,34 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       plaintext,
       associatedData: Data(identifier.utf8)
     )
-    _ = try await transport.putEncryptedProductSyncPayload(
+    let storedPayload = try await transport.putEncryptedProductSyncPayloadIfAbsent(
       identityToken: session.identityToken,
       payloadIdentifier: identifier,
       encryptedPayload: encryptedPayload,
       trustedDeviceId: session.trustedDeviceId
     )
+    return try decryptedAssignment(
+      from: storedPayload,
+      identifier: identifier,
+      material: material,
+      stableProviderMessageId: assignment.stableProviderMessageId
+    )
+  }
+
+  private func decryptedAssignment(
+    from payload: EncryptedProductSyncPayload,
+    identifier: String,
+    material: ProductSyncKeyMaterial,
+    stableProviderMessageId: String
+  ) throws -> MessageCategoryAssignment {
+    let plaintext = try material.decryptPayload(
+      payload.encryptedPayload,
+      associatedData: Data(identifier.utf8)
+    )
+    let assignment = try decoder.decode(MessageCategoryAssignment.self, from: plaintext)
+    guard assignment.stableProviderMessageId == stableProviderMessageId else {
+      throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
+    }
     return assignment
   }
 
@@ -295,7 +314,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     var categories: [MessageClassificationCategory]?
     var categorizedMessages: [GmailMessageMetadata] = []
     for message in messages {
-      guard !message.isHistorical, message.categoryId == nil else {
+      guard message.categoryId == nil else {
         categorizedMessages.append(message)
         continue
       }
@@ -305,6 +324,11 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
           session: session
         ) {
           categorizedMessages.append(message.assigningCategory(assignment.categoryId))
+          continue
+        }
+
+        guard !message.isHistorical else {
+          categorizedMessages.append(message)
           continue
         }
 

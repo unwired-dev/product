@@ -26,6 +26,7 @@ enum ConvexClientError: LocalizedError, Equatable {
   }
 }
 
+// swiftlint:disable:next type_body_length
 final class ConvexClient {
   private let convexURL: URL?
   private let session: URLSession
@@ -106,6 +107,23 @@ final class ConvexClient {
   ) async throws -> EncryptedProductSyncPayload {
     try await performMutation(
       path: "productSync:putEncryptedPayload",
+      args: PutEncryptedProductSyncPayloadArgs(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:putEncryptedPayloadIfAbsent",
       args: PutEncryptedProductSyncPayloadArgs(
         encryptedPayload: encryptedPayload,
         payloadIdentifier: payloadIdentifier,

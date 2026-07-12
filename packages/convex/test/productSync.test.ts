@@ -121,6 +121,37 @@ describe('productSync encrypted payloads', () => {
     expect(listedPage.page[0]).toStrictEqual(updated);
   });
 
+  it('keeps the first encrypted payload when a caller writes only if absent', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    const first = await asUser.mutation(
+      api.productSync.putEncryptedPayloadIfAbsent,
+      {
+        encryptedPayload,
+        payloadIdentifier: 'message-category-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const second = await asUser.mutation(
+      api.productSync.putEncryptedPayloadIfAbsent,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'bmV3LWNpcGhlcnRleHQ',
+        },
+        payloadIdentifier: 'message-category-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(second).toStrictEqual(first);
+    expect(second.encryptedPayload.ciphertextBase64).toBe(
+      encryptedPayload.ciphertextBase64,
+    );
+  });
+
   it('paginates encrypted payload listing past the first page', async () => {
     expect.assertions(4);
 

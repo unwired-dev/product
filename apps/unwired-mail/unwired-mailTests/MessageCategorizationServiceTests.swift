@@ -2,6 +2,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 final class MessageCategorizationServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -164,7 +166,7 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(categorized, [historical, assigned])
     XCTAssertTrue(engine.inputs.isEmpty)
     XCTAssertTrue(bodyReader.loadedMessageIds.isEmpty)
-    XCTAssertTrue(assignmentSync.loadedMessageIds.isEmpty)
+    XCTAssertEqual(assignmentSync.loadedMessageIds, [historical.stableProviderMessageId])
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
@@ -193,6 +195,29 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
+  func testCategorizationAppliesSyncedAssignmentToHistoricalMessage() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.assignmentsByMessageId["gmail:account:message-001"] =
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        stableProviderMessageId: "gmail:account:message-001"
+      )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: "Unused body"),
+      categorySync: StubCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(isHistorical: true)],
+      session: session
+    )
+
+    XCTAssertEqual(categorized[0].categoryId, "system:flights")
+    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+  }
+
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     let transport = RecordingCategorySyncTransport()
@@ -217,6 +242,26 @@ final class MessageCategorizationServiceTests: XCTestCase {
       session: session
     )
     XCTAssertEqual(loadedAssignment, assignment)
+  }
+
+  func testAssignmentSyncRequiresExistingProductSyncKeyMaterial() async throws {
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: RecordingCategorySyncTransport()
+    )
+
+    do {
+      _ = try await service.saveAssignment(
+        MessageCategoryAssignment(
+          categoryId: "system:flights",
+          stableProviderMessageId: "gmail:account:message-001"
+        ),
+        session: session
+      )
+      XCTFail("Expected Product Sync key material recovery to be required")
+    } catch let error as ProductSyncKeyMaterialStoreError {
+      XCTAssertEqual(error, .recoveryRequired)
+    }
   }
 
   private func message(
@@ -350,6 +395,24 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
       updatedAt: 1_781_300_000_000
     )
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
+    writes.append(payload)
+    return payload
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
+      return existingPayload
+    }
+    let payload = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: 1_781_300_000_000
+    )
     writes.append(payload)
     return payload
   }

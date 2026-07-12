@@ -84,6 +84,47 @@ export const putEncryptedPayload = mutation({
   returns: encryptedProductSyncPayloadValidator,
 });
 
+export const putEncryptedPayloadIfAbsent = mutation({
+  args: {
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    payloadIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+
+    const existingPayload = await ctx.db
+      .query('encryptedProductSyncPayloads')
+      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('payloadIdentifier', args.payloadIdentifier),
+      )
+      .unique();
+
+    if (existingPayload !== null) {
+      return serializePayload(existingPayload);
+    }
+
+    const now = Date.now();
+    const payloadId = await ctx.db.insert('encryptedProductSyncPayloads', {
+      encryptedPayload: args.encryptedPayload,
+      payloadIdentifier: args.payloadIdentifier,
+      productAccountId,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+      writtenAt: now,
+    });
+    const insertedPayload = await ctx.db.get(payloadId);
+    if (insertedPayload === null) {
+      throw new Error('Encrypted Product Sync payload was not stored');
+    }
+    return serializePayload(insertedPayload);
+  },
+  returns: encryptedProductSyncPayloadValidator,
+});
+
 export const listEncryptedPayloads = query({
   args: {
     paginationOpts: v.optional(paginationOptsValidator),
