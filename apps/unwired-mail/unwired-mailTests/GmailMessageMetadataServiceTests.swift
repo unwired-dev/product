@@ -359,6 +359,31 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?Sm9zw6kgR2FyY8OtYQ==?= <jose@example.com>"))
   }
 
+  func testSendPreservesMultipleRecipientsWhenEncodingDisplayNames() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "Alice <alice@example.com>, José <jose@example.com>",
+        subject: "Subject"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(
+      mimeText.contains("To: Alice <alice@example.com>, =?UTF-8?B?Sm9zw6k=?= <jose@example.com>")
+    )
+  }
+
   func testSendAddsReplyThreadingHeadersAndRejectsHeaderInjection() async throws {
     let fixture = try makeMailActionFixture()
 

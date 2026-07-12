@@ -534,6 +534,16 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
 
   private func mailboxHeaderValue(_ value: String) throws -> String {
     let value = try headerValue(value)
+
+    let mailboxes =
+      try value
+      .split(separator: ",", omittingEmptySubsequences: false)
+      .map { try encodedMailboxHeaderValue(String($0)) }
+
+    return mailboxes.joined(separator: ",")
+  }
+
+  private func encodedMailboxHeaderValue(_ value: String) throws -> String {
     guard let addressStart = value.lastIndex(of: "<"), value.hasSuffix(">") else {
       return value
     }
