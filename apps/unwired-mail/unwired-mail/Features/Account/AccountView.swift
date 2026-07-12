@@ -10,6 +10,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
+  @State private var mailActionViewModel: GmailMailActionViewModel
 
   init(
     session: ProductAccountSession,
@@ -19,7 +20,8 @@ struct AccountView: View {
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
-    gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService()
+    gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
+    gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService()
   ) {
     self.session = session
     self.snapshot = snapshot
@@ -41,6 +43,12 @@ struct AccountView: View {
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
         service: gmailMessageMetadataService,
+        session: snapshot
+      )
+    )
+    _mailActionViewModel = State(
+      initialValue: GmailMailActionViewModel(
+        service: gmailMailActionService,
         session: snapshot
       )
     )
@@ -73,6 +81,7 @@ struct AccountView: View {
         GmailInboxPanel(
           connection: gmailViewModel.connection,
           isConnectionBusy: gmailViewModel.isEditingDisabled,
+          mailActionViewModel: mailActionViewModel,
           messageReader: gmailMessageBodyService,
           session: snapshot,
           viewModel: inboxViewModel
@@ -95,6 +104,85 @@ struct AccountView: View {
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
       }
+    }
+  }
+}
+
+@MainActor
+@Observable
+private final class GmailMailActionViewModel {
+  var errorMessage: String?
+  var isPerformingAction = false
+
+  private let service: GmailProviderMailActing
+  private let session: ProductAccountSessionSnapshot
+
+  init(service: GmailProviderMailActing, session: ProductAccountSessionSnapshot) {
+    self.service = service
+    self.session = session
+  }
+
+  func clearError() {
+    errorMessage = nil
+  }
+
+  func perform(
+    _ action: GmailProviderMailAction,
+    for messages: [GmailMessageMetadata],
+    connection: GmailProviderConnectionStatus
+  ) async -> Bool {
+    guard !isPerformingAction else { return false }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+
+    do {
+      try await service.perform(
+        action,
+        messageIds: messages.map(\.providerMessageId),
+        connection: connection,
+        session: session
+      )
+      errorMessage = nil
+      return true
+    } catch is CancellationError {
+      return false
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  func send(
+    recipient: String,
+    subject: String,
+    body: String,
+    replyTo: GmailMessageMetadata?,
+    connection: GmailProviderConnectionStatus
+  ) async -> Bool {
+    guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
+    guard !isPerformingAction else { return false }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+
+    do {
+      try await service.send(
+        GmailOutgoingMessage(
+          body: body,
+          recipient: recipient,
+          subject: subject,
+          inReplyTo: replyTo?.rfcMessageId,
+          threadId: replyTo?.rfcMessageId == nil ? nil : replyTo?.providerThreadId
+        ),
+        connection: connection,
+        session: session
+      )
+      errorMessage = nil
+      return true
+    } catch is CancellationError {
+      return false
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
   }
 }
@@ -169,7 +257,7 @@ private final class GmailInboxViewModel {
     await load(connection: connection)
   }
 
-  func sync(connection: GmailProviderConnectionStatus) async {
+  func sync(connection: GmailProviderConnectionStatus) async -> Bool {
     if currentProviderAccountIdentifier != connection.providerAccountIdentifier {
       currentProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = []
@@ -188,14 +276,24 @@ private final class GmailInboxViewModel {
       )
       guard currentProviderAccountIdentifier == connection.providerAccountIdentifier
       else {
-        return
+        return false
       }
       threads = result.threads
       errorMessage = nil
+      return true
     } catch is CancellationError {
+      return false
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
+  }
+
+  func refresh(connection: GmailProviderConnectionStatus) async -> Bool {
+    guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
+      return false
+    }
+    return await sync(connection: connection)
   }
 }
 
@@ -548,12 +646,17 @@ private struct GmailProviderConnectionPanel: View {
 private struct GmailInboxPanel: View {
   let connection: GmailProviderConnectionStatus?
   let isConnectionBusy: Bool
+  @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: GmailMessageReading
   let session: ProductAccountSessionSnapshot
   @Bindable var viewModel: GmailInboxViewModel
   @State private var syncTask: Task<Void, Never>?
-  @State private var selectedMessage: GmailMessageMetadata?
   @State private var cacheErrorMessage: String?
+  @State private var composeBody = ""
+  @State private var recipient = ""
+  @State private var replyToMessage: GmailMessageMetadata?
+  @State private var selectedMessage: GmailMessageMetadata?
+  @State private var subject = ""
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -579,59 +682,132 @@ private struct GmailInboxPanel: View {
           }
         }
         .buttonStyle(.bordered)
-        .disabled(isConnectionBusy)
+        .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
 
         if let connection {
           Button {
             syncTask?.cancel()
             syncTask = Task {
-              await viewModel.sync(connection: connection)
+              if await viewModel.sync(connection: connection) {
+                mailActionViewModel.clearError()
+              }
             }
           } label: {
             Label("Sync", systemImage: "arrow.triangle.2.circlepath")
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+          .disabled(
+            viewModel.isRefreshDisabled
+              || mailActionViewModel.isPerformingAction
+              || isConnectionBusy
+          )
         }
       }
 
-      if connection == nil {
+      if let connection {
+        GmailComposePanel(
+          cancelReply: {
+            replyToMessage = nil
+            recipient = ""
+            subject = ""
+            composeBody = ""
+          },
+          messageBody: $composeBody,
+          isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
+          isReplying: replyToMessage != nil,
+          recipient: $recipient,
+          subject: $subject,
+          send: {
+            Task {
+              if await mailActionViewModel.send(
+                recipient: recipient,
+                subject: subject,
+                body: composeBody,
+                replyTo: replyToMessage,
+                connection: connection
+              ) {
+                replyToMessage = nil
+                recipient = ""
+                subject = ""
+                composeBody = ""
+              }
+            }
+          }
+        )
+
+        if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
+          Text("No local inbox metadata yet.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        } else {
+          VStack(alignment: .leading, spacing: 12) {
+            ForEach(viewModel.threads) { thread in
+              GmailInboxThreadRow(
+                connection: connection,
+                isDisabled: mailActionViewModel.isPerformingAction
+                  || viewModel.isRefreshDisabled
+                  || isConnectionBusy,
+                mailActionViewModel: mailActionViewModel,
+                refreshInbox: {
+                  if await viewModel.refresh(connection: connection) {
+                    mailActionViewModel.clearError()
+                  }
+                },
+                reply: { message in
+                  replyToMessage = message
+                  recipient = message.replyTo ?? message.from ?? ""
+                  subject = message.subject == "(No subject)" ? "" : "Re: \(message.subject)"
+                  composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
+                },
+                thread: thread,
+                forward: { message in
+                  do {
+                    let body = try await messageReader.loadMessageBody(
+                      message: message,
+                      session: session
+                    )
+                    guard !Task.isCancelled else { return }
+                    cacheErrorMessage = nil
+                    replyToMessage = nil
+                    recipient = ""
+                    subject = "Fwd: \(message.subject)"
+                    composeBody =
+                      "\n\nForwarded message from \(message.from ?? "Unknown sender"):\n\(body.text)"
+                  } catch is CancellationError {
+                    return
+                  } catch {
+                    cacheErrorMessage = error.localizedDescription
+                  }
+                },
+                open: { message in
+                  selectedMessage = message
+                }
+              )
+              ForEach(thread.messages.dropFirst()) { message in
+                Button {
+                  selectedMessage = message
+                } label: {
+                  Text(message.subject)
+                    .font(.footnote)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+              }
+              Divider()
+            }
+          }
+        }
+      } else {
         Text("Connect Gmail to sync inbox metadata.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
-      } else if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
-        Text("No local inbox metadata yet.")
-          .font(.subheadline)
-          .foregroundStyle(.secondary)
-      } else {
-        VStack(alignment: .leading, spacing: 12) {
-          ForEach(viewModel.threads) { thread in
-            Button {
-              selectedMessage = thread.latestMessage
-            } label: {
-              GmailInboxThreadRow(thread: thread)
-            }
-            .buttonStyle(.plain)
-            ForEach(thread.messages.dropFirst()) { message in
-              Button {
-                selectedMessage = message
-              } label: {
-                Text(message.subject)
-                  .font(.footnote)
-                  .frame(maxWidth: .infinity, alignment: .leading)
-              }
-              .buttonStyle(.plain)
-            }
-            Divider()
-          }
-        }
       }
 
       if viewModel.isLoading || viewModel.isSyncing {
         ProgressView(viewModel.isSyncing ? "Syncing Gmail metadata..." : "Loading inbox...")
       }
 
-      if let errorMessage = viewModel.errorMessage {
+      if let errorMessage = viewModel.errorMessage ?? mailActionViewModel.errorMessage {
         Text(errorMessage)
           .foregroundStyle(.red)
           .font(.footnote)
@@ -644,6 +820,11 @@ private struct GmailInboxPanel: View {
     }
     .task(id: connection?.providerAccountIdentifier) {
       syncTask?.cancel()
+      mailActionViewModel.clearError()
+      replyToMessage = nil
+      recipient = ""
+      subject = ""
+      composeBody = ""
       guard let connection else {
         viewModel.clear()
         return
@@ -781,8 +962,47 @@ private final class GmailMessageBodyViewModel {
   }
 }
 
+private struct GmailComposePanel: View {
+  let cancelReply: () -> Void
+  @Binding var messageBody: String
+  let isDisabled: Bool
+  let isReplying: Bool
+  @Binding var recipient: String
+  @Binding var subject: String
+  let send: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      Text("Compose")
+        .font(.subheadline.bold())
+      if isReplying {
+        Button("Cancel Reply", action: cancelReply)
+          .buttonStyle(.borderless)
+      }
+      TextField("To", text: $recipient)
+        .textFieldStyle(.roundedBorder)
+      TextField("Subject", text: $subject)
+        .textFieldStyle(.roundedBorder)
+      TextField("Message", text: $messageBody, axis: .vertical)
+        .lineLimit(3...6)
+        .textFieldStyle(.roundedBorder)
+      Button("Send", action: send)
+        .buttonStyle(.borderedProminent)
+        .disabled(isDisabled || recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    .disabled(isDisabled)
+  }
+}
+
 private struct GmailInboxThreadRow: View {
+  let connection: GmailProviderConnectionStatus
+  let isDisabled: Bool
+  @Bindable var mailActionViewModel: GmailMailActionViewModel
+  let refreshInbox: () async -> Void
+  let reply: (GmailMessageMetadata) -> Void
   let thread: GmailInboxThread
+  let forward: (GmailMessageMetadata) async -> Void
+  let open: (GmailMessageMetadata) -> Void
 
   var body: some View {
     VStack(alignment: .leading, spacing: 8) {
@@ -817,11 +1037,42 @@ private struct GmailInboxThreadRow: View {
           .foregroundStyle(.secondary)
           .lineLimit(2)
       }
+
+      Menu("Actions") {
+        Button("Open Message") { open(thread.latestMessage) }
+        Divider()
+        Button("Reply") { reply(thread.latestMessage) }
+          .disabled(thread.latestMessage.rfcMessageId == nil)
+        Button("Forward") {
+          Task { await forward(thread.latestMessage) }
+        }
+        Divider()
+        Button("Mark Read") { perform(.markRead) }
+        Button("Mark Unread") { perform(.markUnread) }
+        Button("Star") { perform(.star) }
+        Button("Unstar") { perform(.unstar) }
+        Button("Archive") { perform(.archive) }
+        Button("Delete", role: .destructive) { perform(.delete) }
+      }
+      .disabled(isDisabled)
     }
   }
 
   private var categoryState: String {
     thread.messages.allSatisfy { $0.categoryId == nil } ? "Uncategorized" : "Categorized"
+  }
+
+  private func perform(_ action: GmailProviderMailAction) {
+    Task {
+      let didPerformAction = await mailActionViewModel.perform(
+        action,
+        for: thread.messages,
+        connection: connection
+      )
+      if didPerformAction && !Task.isCancelled {
+        await refreshInbox()
+      }
+    }
   }
 }
 

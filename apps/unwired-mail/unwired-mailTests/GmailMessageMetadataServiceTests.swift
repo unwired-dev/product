@@ -55,6 +55,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncInboxStoresReplyToHeader() async throws {
+    let fixture = try makeSyncFixture(replyTo: "Replies <replies@example.com>")
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      result.messages.first { $0.providerMessageId == "message-002" }?.replyTo,
+      "Replies <replies@example.com>"
+    )
+  }
+
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
     let store = RecordingGmailMessageMetadataStore()
     store.messages = [
@@ -211,6 +225,270 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
+  func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.perform(
+      .markUnread,
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
+    try await fixture.service.perform(
+      .delete,
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.recorder.requests.map(\.path),
+      [
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/trash",
+      ])
+    XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
+    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
+    XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
+    XCTAssertEqual(fixture.recorder.requests[5].method, "POST")
+  }
+
+  func testProviderThreadActionsAuthorizeOnce() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.perform(
+      .archive,
+      messageIds: ["message-001", "message-002"],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.recorder.requests.map(\.path),
+      [
+        "/token", "/tokeninfo",
+        "/gmail/v1/users/me/messages/message-001/modify",
+        "/gmail/v1/users/me/messages/message-002/modify",
+      ]
+    )
+  }
+
+  func testProviderActionsRequireGmailWriteScope() async throws {
+    let fixture = try makeMailActionFixture(
+      tokenScopes: "https://www.googleapis.com/auth/gmail.readonly"
+    )
+
+    do {
+      try await fixture.service.perform(
+        .archive,
+        messageIds: ["message-001"],
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected insufficient Gmail scope")
+    } catch GmailMessageMetadataSyncError.insufficientGmailScope {
+      XCTAssertEqual(fixture.recorder.requests.map(\.path), ["/token", "/tokeninfo"])
+    }
+  }
+
+  func testSendAcceptsGmailModifyScope() async throws {
+    let fixture = try makeMailActionFixture(
+      tokenScopes: "https://www.googleapis.com/auth/gmail.modify"
+    )
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(body: "Café", recipient: "recipient@example.com", subject: "Subject"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(fixture.recorder.requests.last?.path, "/gmail/v1/users/me/messages/send")
+  }
+
+  func testSendUsesGmailRawMessageEndpoint() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(body: "Café", recipient: "recipient@example.com", subject: "Subject"),
+      connection: connection,
+      session: session
+    )
+
+    let sentRequest = fixture.recorder.requests.last
+    XCTAssertEqual(sentRequest?.path, "/gmail/v1/users/me/messages/send")
+    XCTAssertEqual(sentRequest?.method, "POST")
+    let raw = try XCTUnwrap(sentRequest?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let expectedMIME = [
+      "To: recipient@example.com",
+      "From: user@example.com",
+      "Subject: Subject",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+      "",
+      "Café",
+    ].joined(separator: "\r\n")
+    XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
+  }
+
+  func testSendEncodesRecipientDisplayName() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "José García <jose@example.com>",
+        subject: "Subject"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?Sm9zw6kgR2FyY8OtYQ==?= <jose@example.com>"))
+  }
+
+  func testSendPreservesMultipleRecipientsWhenEncodingDisplayNames() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "Alice <alice@example.com>, José <jose@example.com>",
+        subject: "Subject"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(
+      mimeText.contains("To: Alice <alice@example.com>, =?UTF-8?B?Sm9zw6k=?= <jose@example.com>")
+    )
+  }
+
+  func testSendEncodesQuotedDisplayNameWithComma() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "\"García, José\" <jose@example.com>",
+        subject: "Subject"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let raw = try XCTUnwrap(fixture.recorder.requests.last?.jsonBody["raw"] as? String)
+    let paddedRaw =
+      raw.replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+      + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(mimeText.contains("To: =?UTF-8?B?IkdhcmPDrWEsIEpvc8OpIg==?= <jose@example.com>"))
+  }
+
+  func testSendAddsReplyThreadingHeadersAndRejectsHeaderInjection() async throws {
+    let fixture = try makeMailActionFixture()
+
+    try await fixture.service.send(
+      GmailOutgoingMessage(
+        body: "Hello",
+        recipient: "recipient@example.com",
+        subject: "Subject",
+        inReplyTo: "<original@example.com>",
+        threadId: "thread-001"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let sentRequest = try XCTUnwrap(fixture.recorder.requests.last)
+    XCTAssertEqual(sentRequest.jsonBody["threadId"] as? String, "thread-001")
+    let raw = try XCTUnwrap(sentRequest.jsonBody["raw"] as? String)
+    let paddedRaw = raw + String(repeating: "=", count: (4 - raw.count % 4) % 4)
+    let mime = try XCTUnwrap(Data(base64Encoded: paddedRaw))
+    let mimeText = try XCTUnwrap(String(bytes: mime, encoding: .utf8))
+    XCTAssertTrue(mimeText.contains("In-Reply-To: <original@example.com>"))
+    XCTAssertTrue(mimeText.contains("References: <original@example.com>"))
+
+    do {
+      try await fixture.service.send(
+        GmailOutgoingMessage(
+          body: "Hello",
+          recipient: "victim@example.com\r\nBcc: bad",
+          subject: "Subject"
+        ),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected header validation failure")
+    } catch GmailMessageMetadataSyncError.invalidMessageHeader {
+    }
+  }
+
+  private func makeMailActionFixture(
+    tokenScopes: String =
+      "https://www.googleapis.com/auth/gmail.modify https://www.googleapis.com/auth/gmail.send"
+  ) throws -> GmailMailActionFixture {
+    let tokenStore = RecordingGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let recorder = GmailMailActionRequestRecorder()
+    let urlSession = ConvexClientTesting.makeSession { request in
+      recorder.requests.append(GmailMailActionRequest(request: request))
+      switch request.url?.path {
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      case "/tokeninfo":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(
+            "{\"sub\":\"gmail-user-001\",\"email\":\"user@example.com\",\"scope\":\"\(tokenScopes)\"}"
+              .utf8
+          )
+        )
+      default:
+        return (Self.httpResponse(for: request, statusCode: 200), Data())
+      }
+    }
+    return GmailMailActionFixture(
+      recorder: recorder,
+      service: GmailMessageMetadataService(
+        gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+        oauthClientId: "gmail-client-id",
+        session: urlSession,
+        tokenStore: tokenStore,
+        tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+        tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+      )
+    )
+  }
+
   private static func httpResponse(
     for request: URLRequest,
     statusCode: Int
@@ -226,9 +504,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   private static func messageMetadataResponseData(
     messageId: String,
     internalDate: String,
-    snippet: String
+    snippet: String,
+    replyTo: String? = nil
   ) -> Data {
-    Data(
+    let replyToHeader =
+      replyTo.map {
+        ",\n            {\"name\": \"Reply-To\", \"value\": \"\($0)\"}"
+      } ?? ""
+    return Data(
       """
       {
         "id": "\(messageId)",
@@ -238,7 +521,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "payload": {
           "headers": [
             {"name": "From", "value": "Sender <sender@example.com>"},
-            {"name": "Subject", "value": "Thread subject"}
+            {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
           ]
         }
       }
@@ -248,7 +531,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   private func makeSyncFixture(
     tokenInfoSubject: String = "gmail-user-001",
-    usesPagination: Bool = false
+    usesPagination: Bool = false,
+    replyTo: String? = nil
   ) throws -> GmailMessageMetadataSyncFixture {
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
@@ -262,7 +546,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         for: request,
         requestRecorder: requestRecorder,
         tokenInfoSubject: tokenInfoSubject,
-        usesPagination: usesPagination
+        usesPagination: usesPagination,
+        replyTo: replyTo
       )
     }
     let service = GmailMessageMetadataService(
@@ -286,7 +571,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     for request: URLRequest,
     requestRecorder: GmailMetadataRequestRecorder,
     tokenInfoSubject: String,
-    usesPagination: Bool
+    usesPagination: Bool,
+    replyTo: String?
   ) -> (HTTPURLResponse, Data) {
     requestRecorder.paths.append(request.url?.path ?? "")
     requestRecorder.queries.append(request.url?.query ?? "")
@@ -345,16 +631,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     return (
       Self.httpResponse(for: request, statusCode: 200),
-      makeMessageMetadataResponseData(for: request)
+      makeMessageMetadataResponseData(for: request, replyTo: replyTo)
     )
   }
 
-  private func makeMessageMetadataResponseData(for request: URLRequest) -> Data {
+  private func makeMessageMetadataResponseData(
+    for request: URLRequest,
+    replyTo: String?
+  ) -> Data {
     if request.url?.path == "/gmail/v1/users/me/messages/message-001" {
       return Self.messageMetadataResponseData(
         messageId: "message-001",
         internalDate: "1781190000000",
-        snippet: "Older message snippet"
+        snippet: "Older message snippet",
+        replyTo: replyTo
       )
     }
 
@@ -362,14 +652,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       return Self.messageMetadataResponseData(
         messageId: "message-003",
         internalDate: "1781199000000",
-        snippet: "Newest message snippet"
+        snippet: "Newest message snippet",
+        replyTo: replyTo
       )
     }
 
     return Self.messageMetadataResponseData(
       messageId: "message-002",
       internalDate: "1781197200000",
-      snippet: "Latest message snippet"
+      snippet: "Latest message snippet",
+      replyTo: replyTo
     )
   }
 
@@ -386,9 +678,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerInternalDateMilliseconds: internalDateMilliseconds,
       providerMessageId: messageId,
       providerThreadId: threadId,
+      replyTo: nil,
       snippet: "Snippet",
       stableProviderMessageId: "gmail:gmail-user-001:\(messageId)",
-      subject: "Subject"
+      subject: "Subject",
+      rfcMessageId: nil
     )
   }
 }
@@ -403,6 +697,57 @@ private struct GmailMessageMetadataSyncFixture {
 private final class GmailMetadataRequestRecorder {
   var paths: [String] = []
   var queries: [String] = []
+}
+
+private struct GmailMailActionFixture {
+  let recorder: GmailMailActionRequestRecorder
+  let service: GmailMessageMetadataService
+}
+
+private final class GmailMailActionRequestRecorder {
+  var requests: [GmailMailActionRequest] = []
+}
+
+private struct GmailMailActionRequest {
+  let jsonBody: [String: Any]
+  let method: String
+  let path: String
+
+  init(request: URLRequest) {
+    method = request.httpMethod ?? "GET"
+    path = request.url?.path ?? ""
+    jsonBody =
+      (try? JSONSerialization.jsonObject(with: Self.bodyData(for: request))) as? [String: Any]
+      ?? [:]
+  }
+
+  private static func bodyData(for request: URLRequest) -> Data {
+    if let body = request.httpBody {
+      return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+      return Data()
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    let bufferSize = 1_024
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: bufferSize)
+    defer { buffer.deallocate() }
+
+    while stream.hasBytesAvailable {
+      let count = stream.read(buffer, maxLength: bufferSize)
+      if count <= 0 {
+        break
+      }
+      data.append(buffer, count: count)
+    }
+
+    return data
+  }
 }
 
 private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPersisting {

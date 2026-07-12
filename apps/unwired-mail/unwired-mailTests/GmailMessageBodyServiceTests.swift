@@ -2,7 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable function_body_length type_body_length
+// swiftlint:disable file_length function_body_length type_body_length
 
 final class GmailMessageBodyServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
@@ -20,9 +20,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     providerInternalDateMilliseconds: 1_781_197_200_000,
     providerMessageId: "message-001",
     providerThreadId: "thread-001",
+    replyTo: nil,
     snippet: "Body preview",
     stableProviderMessageId: "gmail:gmail-user-001:message-001",
-    subject: "Trip details"
+    subject: "Trip details",
+    rfcMessageId: nil
   )
 
   func testReadFetchesBodyOnDemandAndCachesOnlyEncryptedPayload() async throws {

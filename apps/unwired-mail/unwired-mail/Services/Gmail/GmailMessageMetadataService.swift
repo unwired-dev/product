@@ -14,9 +14,11 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let providerInternalDateMilliseconds: Int64
   let providerMessageId: String
   let providerThreadId: String
+  let replyTo: String?
   let snippet: String
   let stableProviderMessageId: String
   let subject: String
+  let rfcMessageId: String?
 }
 
 struct GmailInboxThread: Equatable, Identifiable {
@@ -59,6 +61,52 @@ protocol GmailMessageMetadataSyncing {
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
+}
+
+enum GmailProviderMailAction: Equatable {
+  case archive
+  case delete
+  case markRead
+  case markUnread
+  case star
+  case unstar
+}
+
+struct GmailOutgoingMessage: Equatable {
+  let body: String
+  let recipient: String
+  let subject: String
+  let inReplyTo: String?
+  let threadId: String?
+
+  init(
+    body: String,
+    recipient: String,
+    subject: String,
+    inReplyTo: String? = nil,
+    threadId: String? = nil
+  ) {
+    self.body = body
+    self.recipient = recipient
+    self.subject = subject
+    self.inReplyTo = inReplyTo
+    self.threadId = threadId
+  }
+}
+
+protocol GmailProviderMailActing {
+  func perform(
+    _ action: GmailProviderMailAction,
+    messageIds: [String],
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func send(
+    _ message: GmailOutgoingMessage,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws
 }
 
 struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
@@ -144,7 +192,7 @@ func gmailSafeFileComponent(_ value: String) -> String {
     }
 }
 
-struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
+struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMailActing {
   private let gmailBaseURL: URL
   private let oauthClientId: String?
   private let session: URLSession
@@ -243,6 +291,124 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     )
   }
 
+  func perform(
+    _ action: GmailProviderMailAction,
+    messageIds: [String],
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let accessToken = try await authorizedAccessToken(
+      connection: connection,
+      session: session,
+      requiredScopes: [
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://mail.google.com/",
+      ]
+    )
+    for messageId in messageIds {
+      let url = gmailBaseURL.appendingPathComponent("users/me/messages/\(messageId)")
+
+      switch action {
+      case .delete:
+        try await sendAuthorizedRequest(
+          url: url.appendingPathComponent("trash"), accessToken: accessToken, method: "POST")
+      case .archive, .markRead, .markUnread, .star, .unstar:
+        let labels: (add: [String], remove: [String])
+        switch action {
+        case .archive:
+          labels = ([], ["INBOX"])
+        case .markRead:
+          labels = ([], ["UNREAD"])
+        case .markUnread:
+          labels = (["UNREAD"], [])
+        case .star:
+          labels = (["STARRED"], [])
+        case .unstar:
+          labels = ([], ["STARRED"])
+        case .delete:
+          fatalError("Handled above")
+        }
+        let body = try JSONEncoder().encode([
+          "addLabelIds": labels.add,
+          "removeLabelIds": labels.remove,
+        ])
+        try await sendAuthorizedRequest(
+          url: url.appendingPathComponent("modify"),
+          accessToken: accessToken,
+          method: "POST",
+          body: body
+        )
+      }
+    }
+  }
+
+  func send(
+    _ message: GmailOutgoingMessage,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let accessToken = try await authorizedAccessToken(
+      connection: connection,
+      session: session,
+      requiredScopes: [
+        "https://www.googleapis.com/auth/gmail.send",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.compose",
+        "https://mail.google.com/",
+      ]
+    )
+    let sender = try headerValue(connection.emailAddress)
+    let recipient = try mailboxHeaderValue(message.recipient)
+    let subject = try encodedHeaderValue(message.subject)
+    var headers = [
+      "To: \(recipient)",
+      "From: \(sender)",
+      "Subject: \(subject)",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+    ]
+    if let inReplyTo = message.inReplyTo {
+      let replyHeader = try headerValue(inReplyTo)
+      headers.append("In-Reply-To: \(replyHeader)")
+      headers.append("References: \(replyHeader)")
+    }
+    let mimeMessage = (headers + ["", message.body]).joined(separator: "\r\n")
+    let raw = Data(mimeMessage.utf8)
+      .base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    var payload: [String: String] = ["raw": raw]
+    if let threadId = message.threadId {
+      payload["threadId"] = threadId
+    }
+    let body = try JSONEncoder().encode(payload)
+    try await sendAuthorizedRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/messages/send"),
+      accessToken: accessToken,
+      method: "POST",
+      body: body
+    )
+  }
+
+  private func authorizedAccessToken(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    requiredScopes: Set<String>
+  ) async throws -> String {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+    let tokens = try await refreshedTokens(storedTokens, productAccountId: session.productAccountId)
+    try await validateRefreshedToken(
+      tokens.accessToken,
+      matches: connection,
+      requiredScopes: requiredScopes
+    )
+    return tokens.accessToken
+  }
+
   private func listInboxMessages(
     accessToken: String
   ) async throws -> [GmailListedMessage] {
@@ -292,6 +458,8 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     components?.queryItems = [
       URLQueryItem(name: "format", value: "metadata"),
       URLQueryItem(name: "metadataHeaders", value: "From"),
+      URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
+      URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
       URLQueryItem(name: "metadataHeaders", value: "Subject"),
     ]
     guard let url = components?.url else {
@@ -319,9 +487,15 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
       providerInternalDateMilliseconds: internalDateMilliseconds,
       providerMessageId: response.id,
       providerThreadId: response.threadId,
+      replyTo: response.payload?.headers.first {
+        $0.name.caseInsensitiveCompare("Reply-To") == .orderedSame
+      }?.value,
       snippet: response.snippet,
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
-      subject: subject?.isEmpty == false ? subject! : "(No subject)"
+      subject: subject?.isEmpty == false ? subject! : "(No subject)",
+      rfcMessageId: response.payload?.headers.first {
+        $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
+      }?.value
     )
   }
 
@@ -341,6 +515,104 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
     }
 
     return try JSONDecoder().decode(Response.self, from: data)
+  }
+
+  private func headerValue(_ value: String) throws -> String {
+    guard !value.unicodeScalars.contains(where: { $0.value == 0x0A || $0.value == 0x0D }) else {
+      throw GmailMessageMetadataSyncError.invalidMessageHeader
+    }
+    return value
+  }
+
+  private func encodedHeaderValue(_ value: String) throws -> String {
+    let value = try headerValue(value)
+    guard value.unicodeScalars.contains(where: { $0.value > 127 }) else {
+      return value
+    }
+    return "=?UTF-8?B?\(Data(value.utf8).base64EncodedString())?="
+  }
+
+  private func mailboxHeaderValue(_ value: String) throws -> String {
+    let value = try headerValue(value)
+    return try mailboxValues(in: value)
+      .map { try encodedMailboxHeaderValue($0) }
+      .joined(separator: ", ")
+  }
+
+  private func mailboxValues(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<":
+        angleBracketDepth += 1
+      case ">":
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+
+      mailbox.append(character)
+    }
+
+    mailboxes.append(mailbox)
+    return mailboxes
+  }
+
+  private func encodedMailboxHeaderValue(_ value: String) throws -> String {
+    let value = value.trimmingCharacters(in: .whitespaces)
+    guard let addressStart = value.lastIndex(of: "<"), value.hasSuffix(">") else {
+      return value
+    }
+    let displayName = value[..<addressStart].trimmingCharacters(in: .whitespaces)
+    guard !displayName.isEmpty else {
+      return String(value[addressStart...])
+    }
+    return "\(try encodedHeaderValue(displayName)) \(value[addressStart...])"
+  }
+
+  private func sendAuthorizedRequest(
+    url: URL,
+    accessToken: String,
+    method: String,
+    body: Data? = nil
+  ) async throws {
+    var request = URLRequest(url: url)
+    request.httpMethod = method
+    request.httpBody = body
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    if body != nil {
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    }
+
+    let (_, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailMessageMetadataSyncError.gmailRequestFailed
+    }
   }
 
   private func sortedMessages(
@@ -411,7 +683,8 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
 
   private func validateRefreshedToken(
     _ accessToken: String,
-    matches connection: GmailProviderConnectionStatus
+    matches connection: GmailProviderConnectionStatus,
+    requiredScopes: Set<String>? = nil
   ) async throws {
     var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
     components?.queryItems = [
@@ -437,6 +710,11 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
         throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
       }
     }
+    if let requiredScopes {
+      guard !tokenInfo.scopes.isDisjoint(with: requiredScopes) else {
+        throw GmailMessageMetadataSyncError.insufficientGmailScope
+      }
+    }
   }
 
   private func formURLEncodedBody(_ fields: [String: String]) -> Data {
@@ -456,8 +734,10 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing {
 }
 
 enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
+  case invalidMessageHeader
   case gmailRequestFailed
   case invalidGmailRequest
+  case insufficientGmailScope
   case missingLocalGmailTokens
   case missingOAuthClientId
   case refreshedTokenAccountMismatch
@@ -465,10 +745,14 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .invalidMessageHeader:
+      return "Message recipients and subjects cannot contain line breaks."
     case .gmailRequestFailed:
       return "Gmail message metadata sync failed."
     case .invalidGmailRequest:
       return "Gmail message metadata request could not be created."
+    case .insufficientGmailScope:
+      return "Reconnect Gmail with permission to send and manage mail."
     case .missingLocalGmailTokens:
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
     case .missingOAuthClientId:
@@ -521,9 +805,11 @@ extension GmailMessageMetadata {
       providerInternalDateMilliseconds: providerInternalDateMilliseconds,
       providerMessageId: providerMessageId,
       providerThreadId: providerThreadId,
+      replyTo: replyTo,
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
-      subject: subject
+      subject: subject,
+      rfcMessageId: rfcMessageId
     )
   }
 }
@@ -564,5 +850,10 @@ private struct GmailRefreshTokenResponse: Decodable {
 
 private struct GmailTokenInfoResponse: Decodable {
   let email: String?
+  let scope: String?
   let sub: String?
+
+  var scopes: Set<String> {
+    Set((scope ?? "").split(separator: " ").map(String.init))
+  }
 }
