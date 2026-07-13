@@ -525,6 +525,13 @@ extension MessageCategoryAssignmentSyncService {
         return storedAssignment
       }
       foundConcurrentWrite = true
+      if categoryConflictRuleKeepsExisting(
+        storedAssignment,
+        over: assignment,
+        afterConcurrentWrite: foundConcurrentWrite
+      ) {
+        return storedAssignment
+      }
       guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
       storedPayload = writtenPayload
     }
