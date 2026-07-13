@@ -21,9 +21,17 @@ protocol ProductSyncPayloadTransport {
     identityToken: String,
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload?
-  func listEncryptedProductSyncPayloads(identityToken: String) async throws
-    -> [EncryptedProductSyncPayload]
+  func getEncryptedProductSyncPayloads(
+    identityToken: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload]
   func putEncryptedProductSyncPayload(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload
+  func putEncryptedProductSyncPayloadIfAbsent(
     identityToken: String,
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,

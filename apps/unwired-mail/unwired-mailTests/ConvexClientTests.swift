@@ -494,6 +494,41 @@ final class ConvexClientProductSyncTests: XCTestCase {
     XCTAssertEqual(response?.payloadIdentifier, "custom-category-primary")
   }
 
+  func testGetEncryptedProductSyncPayloadsSendsTargetedQuery() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": []
+      }
+      """.data(using: .utf8)!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestBody = try Self.requestBody(from: request)
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+        )
+        XCTAssertEqual(requestJSON["path"] as? String, "productSync:getEncryptedPayloads")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["payloadIdentifiers"] as? [String], ["payload-001"])
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.getEncryptedProductSyncPayloads(
+      identityToken: "apple-token",
+      payloadIdentifiers: ["payload-001"]
+    )
+
+    XCTAssertTrue(response.isEmpty)
+  }
+
   func testGetEncryptedProductSyncPayloadDecodesMissingPayload() async throws {
     let fixtureEnvelope = """
       {

@@ -45,6 +45,15 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
   }
 
+  func testCachedReadDoesNotFetchMissingBodyFromGmail() throws {
+    let fixture = try makeFixture()
+
+    let body = try fixture.service.loadCachedMessageBody(message: message, session: session)
+
+    XCTAssertNil(body)
+    XCTAssertEqual(fixture.requestPaths, [])
+  }
+
   func testReadPreservesSeparatorsBetweenHTMLTableCells() async throws {
     let fixture = try makeFixture(
       messageResponse:

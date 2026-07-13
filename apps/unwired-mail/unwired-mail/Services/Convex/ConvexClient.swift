@@ -26,6 +26,7 @@ enum ConvexClientError: LocalizedError, Equatable {
   }
 }
 
+// swiftlint:disable:next type_body_length
 final class ConvexClient {
   private let convexURL: URL?
   private let session: URLSession
@@ -115,6 +116,23 @@ final class ConvexClient {
     )
   }
 
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:putEncryptedPayloadIfAbsent",
+      args: PutEncryptedProductSyncPayloadArgs(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func getEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String
@@ -122,6 +140,17 @@ final class ConvexClient {
     try await performNullableQuery(
       path: "productSync:getEncryptedPayload",
       args: GetEncryptedProductSyncPayloadArgs(payloadIdentifier: payloadIdentifier),
+      identityToken: identityToken
+    )
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    try await performQuery(
+      path: "productSync:getEncryptedPayloads",
+      args: GetEncryptedProductSyncPayloadsArgs(payloadIdentifiers: payloadIdentifiers),
       identityToken: identityToken
     )
   }
@@ -318,6 +347,10 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
 
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
+}
+
+private struct GetEncryptedProductSyncPayloadsArgs: Encodable {
+  let payloadIdentifiers: [String]
 }
 
 private struct MarkProductSyncMaterialInitializedArgs: Encodable {

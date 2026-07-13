@@ -142,6 +142,13 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
     return writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -160,5 +167,22 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
     writes.append(payload)
     writeHistory.append(payload)
     return payload
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload {
+    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }) {
+      return existingPayload
+    }
+    return try await putEncryptedProductSyncPayload(
+      identityToken: identityToken,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: trustedDeviceId
+    )
   }
 }
