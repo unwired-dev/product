@@ -233,6 +233,38 @@ describe('productSync encrypted payloads', () => {
     expect(pageTwoResponse.page).toHaveLength(5);
   });
 
+  it('paginates only encrypted payloads matching an identifier prefix', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+
+    await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'message-category-learning-signal:001',
+    );
+    await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'message-category-learning-signal:002',
+    );
+    await putPayload(asUser, connect.trustedDeviceId, 'message-category:001');
+
+    const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
+      paginationOpts: firstPage,
+      payloadIdentifierPrefix: 'message-category-learning-signal:',
+    });
+    const page = requirePayloadPage(listed);
+
+    expect(page.isDone).toBe(true);
+    expect(page.page.map((payload) => payload.payloadIdentifier)).toStrictEqual(
+      [
+        'message-category-learning-signal:001',
+        'message-category-learning-signal:002',
+      ],
+    );
+  });
+
   it('caps encrypted payload listing pages at the server page size', async () => {
     expect.assertions(2);
 

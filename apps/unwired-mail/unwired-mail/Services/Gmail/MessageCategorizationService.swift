@@ -73,10 +73,8 @@ struct FutureLearningSignal: Codable, Equatable {
   let senderAddresses: [String]
 }
 
-private struct FutureLearningSignalIndex: Codable {
-  static let payloadIdentifier = "message-category-learning-signals"
-
-  let signals: [FutureLearningSignal]
+private enum FutureLearningSignalPayload {
+  static let identifierPrefix = "message-category-learning-signal:"
 }
 
 enum MessageCategoryAssignmentSource: String, Codable {
@@ -373,29 +371,18 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   func loadFutureLearningSignals(
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    try await loadFutureLearningSignalIndex(session: session).signals
-  }
-
-  private func loadFutureLearningSignalIndex(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> (payload: EncryptedProductSyncPayload?, signals: [FutureLearningSignal]) {
-    guard
-      let payload = try await transport.getEncryptedProductSyncPayload(
-        identityToken: session.identityToken,
-        payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier
-      )
-    else {
-      return (nil, [])
-    }
+    let payloads = try await transport.listEncryptedProductSyncPayloads(
+      identityToken: session.identityToken,
+      payloadIdentifierPrefix: FutureLearningSignalPayload.identifierPrefix
+    )
+    guard !payloads.isEmpty else { return [] }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
-    let plaintext = try material.decryptPayload(
-      payload.encryptedPayload,
-      associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
-    )
-    return (payload, try decoder.decode(FutureLearningSignalIndex.self, from: plaintext).signals)
+    return try payloads.map { payload in
+      try decryptedLearningSignal(from: payload, material: material)
+    }
   }
 
   func saveAssignment(
@@ -516,36 +503,60 @@ extension MessageCategoryAssignmentSyncService {
     material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    var index = try await loadFutureLearningSignalIndex(session: session)
+    for senderAddress in signal.senderAddresses {
+      try await saveLearningSignal(
+        FutureLearningSignal(
+          appliesAfterTimestamp: signal.appliesAfterTimestamp,
+          categoryId: signal.categoryId,
+          senderAddresses: [senderAddress]
+        ),
+        for: senderAddress,
+        material: material,
+        session: session
+      )
+    }
+  }
+
+  private func saveLearningSignal(
+    _ signal: FutureLearningSignal,
+    for senderAddress: String,
+    material: ProductSyncKeyMaterial,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let identifier = learningSignalPayloadIdentifier(
+      for: senderAddress,
+      material: material
+    )
+    var storedPayload = try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: identifier
+    )
     for attempt in 1...Self.maximumConditionalWriteAttempts {
-      guard let signals = learningSignalsBySaving(signal, in: index.signals) else {
+      let existingSignals =
+        try storedPayload.map {
+          [try decryptedLearningSignal(from: $0, material: material)]
+        } ?? []
+      guard let storedSignal = learningSignalsBySaving(signal, in: existingSignals)?.first else {
         return
       }
 
-      let plaintext = try encoder.encode(FutureLearningSignalIndex(signals: signals))
+      let plaintext = try encoder.encode(storedSignal)
       let encryptedPayload = try material.encryptPayload(
         plaintext,
-        associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
+        associatedData: Data(identifier.utf8)
       )
-      let storedPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
         identityToken: session.identityToken,
-        payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier,
+        payloadIdentifier: identifier,
         encryptedPayload: encryptedPayload,
         trustedDeviceId: session.trustedDeviceId,
-        expectedUpdatedAt: index.payload?.updatedAt
+        expectedUpdatedAt: storedPayload?.updatedAt
       )
-      if storedPayload.encryptedPayload == encryptedPayload {
+      if writtenPayload.encryptedPayload == encryptedPayload {
         return
       }
       guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
-      let storedPlaintext = try material.decryptPayload(
-        storedPayload.encryptedPayload,
-        associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
-      )
-      index = (
-        storedPayload,
-        try decoder.decode(FutureLearningSignalIndex.self, from: storedPlaintext).signals
-      )
+      storedPayload = writtenPayload
     }
     throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
@@ -572,6 +583,29 @@ extension MessageCategoryAssignmentSyncService {
       throw MessageCategoryAssignmentSyncError.invalidStableProviderMessageIdentity
     }
     return assignment
+  }
+
+  private func decryptedLearningSignal(
+    from payload: EncryptedProductSyncPayload,
+    material: ProductSyncKeyMaterial
+  ) throws -> FutureLearningSignal {
+    let plaintext = try material.decryptPayload(
+      payload.encryptedPayload,
+      associatedData: Data(payload.payloadIdentifier.utf8)
+    )
+    return try decoder.decode(FutureLearningSignal.self, from: plaintext)
+  }
+
+  private func learningSignalPayloadIdentifier(
+    for senderAddress: String,
+    material: ProductSyncKeyMaterial
+  ) -> String {
+    let digest = HMAC<SHA256>.authenticationCode(
+      for: Data(senderAddress.utf8),
+      using: SymmetricKey(data: material.accountKeyData)
+    )
+    return FutureLearningSignalPayload.identifierPrefix
+      + digest.map { String(format: "%02x", $0) }.joined()
   }
 
   private func decryptedAssignment(
@@ -626,7 +660,7 @@ protocol GmailMessageCategorizing {
 }
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
-  private static let assignmentPrefetchBatchSize = 8_192
+  private static let assignmentPrefetchBatchSize = 4_000
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let bodyReader: GmailCachedMessageBodyReading
   private let categorySync: CustomCategorySyncing

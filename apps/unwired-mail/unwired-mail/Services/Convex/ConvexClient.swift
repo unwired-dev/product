@@ -175,7 +175,8 @@ final class ConvexClient {
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken: String
+    identityToken: String,
+    payloadIdentifierPrefix: String? = nil
   ) async throws -> [EncryptedProductSyncPayload] {
     var allPayloads: [EncryptedProductSyncPayload] = []
     var cursor: String?
@@ -188,7 +189,8 @@ final class ConvexClient {
           paginationOpts: ConvexPaginationOptions(
             cursor: cursor,
             numItems: 100
-          )
+          ),
+          payloadIdentifierPrefix: payloadIdentifierPrefix
         ),
         identityToken: identityToken
       )
@@ -385,6 +387,7 @@ private struct MarkProductSyncMaterialInitializedArgs: Encodable {
 
 private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
   let paginationOpts: ConvexPaginationOptions
+  let payloadIdentifierPrefix: String?
 }
 
 private struct ConvexPaginationOptions: Encodable {

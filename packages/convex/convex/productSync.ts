@@ -184,15 +184,28 @@ export const putEncryptedPayloadIfUnchanged = mutation({
 export const listEncryptedPayloads = query({
   args: {
     paginationOpts: v.optional(paginationOptsValidator),
+    payloadIdentifierPrefix: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const { productAccountId } = await requireProductAccount(ctx);
+    const { payloadIdentifierPrefix } = args;
+    const payloadsQuery =
+      payloadIdentifierPrefix === undefined
+        ? ctx.db
+            .query('encryptedProductSyncPayloads')
+            .withIndex('by_productAccountId', (q) =>
+              q.eq('productAccountId', productAccountId),
+            )
+        : ctx.db
+            .query('encryptedProductSyncPayloads')
+            .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+              q
+                .eq('productAccountId', productAccountId)
+                .gte('payloadIdentifier', payloadIdentifierPrefix)
+                .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
+            );
     if (args.paginationOpts === undefined) {
-      const payloads = await ctx.db
-        .query('encryptedProductSyncPayloads')
-        .withIndex('by_productAccountId', (q) =>
-          q.eq('productAccountId', productAccountId),
-        )
+      const payloads = await payloadsQuery
         .order('asc')
         .take(encryptedProductSyncPayloadPageSize);
 
@@ -206,13 +219,7 @@ export const listEncryptedPayloads = query({
         encryptedProductSyncPayloadPageSize,
       ),
     };
-    const payloads = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId', (q) =>
-        q.eq('productAccountId', productAccountId),
-      )
-      .order('asc')
-      .paginate(paginationOpts);
+    const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
 
     return {
       continueCursor: payloads.continueCursor,

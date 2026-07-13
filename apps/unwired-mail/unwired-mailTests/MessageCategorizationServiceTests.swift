@@ -470,7 +470,7 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(loadedAssignment, assignment)
   }
 
-  func testAssignmentSyncPreservesNewestSignalInCompactEncryptedIndex() async throws {
+  func testAssignmentSyncStoresOneBoundedEncryptedSignalPayloadPerSender() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingCategorySyncTransport()
@@ -514,7 +514,9 @@ extension MessageCategorizationServiceTests {
 
     XCTAssertEqual(signals, [newestSignal])
     XCTAssertEqual(
-      transport.writes.filter { $0.payloadIdentifier == "message-category-learning-signals" }.count,
+      transport.writes.filter {
+        $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      }.count,
       1
     )
   }
@@ -627,7 +629,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier == "message-category-learning-signals"
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
       keyMaterialStore: keyStore,
@@ -678,7 +680,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier == "message-category-learning-signals"
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     transport.repeatsConditionalConflictPayload = true
     let service = MessageCategoryAssignmentSyncService(
@@ -693,7 +695,7 @@ extension MessageCategorizationServiceTests {
           learningSignal: FutureLearningSignal(
             appliesAfterTimestamp: 200,
             categoryId: "system:flights",
-            senderAddresses: ["travel@merchant.example"]
+            senderAddresses: concurrentSignal.senderAddresses
           ),
           source: .userOverride,
           stableProviderMessageId: "gmail:account:local-message"
@@ -731,7 +733,7 @@ extension MessageCategorizationServiceTests {
 
     let transport = RecordingCategorySyncTransport()
     transport.conditionalConflictPayload = concurrentTransport.writes.first {
-      $0.payloadIdentifier == "message-category-learning-signals"
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
     }
     let service = MessageCategoryAssignmentSyncService(
       keyMaterialStore: keyStore,
@@ -740,7 +742,7 @@ extension MessageCategorizationServiceTests {
     let localSignal = FutureLearningSignal(
       appliesAfterTimestamp: 200,
       categoryId: "system:flights",
-      senderAddresses: ["travel@merchant.example"]
+      senderAddresses: concurrentSignal.senderAddresses
     )
     _ = try await service.saveUserOverride(
       MessageCategoryAssignment(
@@ -754,7 +756,7 @@ extension MessageCategorizationServiceTests {
 
     let signals = try await service.loadFutureLearningSignals(session: session)
 
-    XCTAssertEqual(signals, [concurrentSignal, localSignal])
+    XCTAssertEqual(signals, [localSignal])
   }
 
   func testConditionalWriteRejectsStaleExpectationWhenPayloadIsMissing() async {
@@ -872,11 +874,11 @@ extension MessageCategorizationServiceTests {
       categorySync: StubCustomCategorySync(),
       engine: FailingClassificationEngine()
     )
-    let messages = (0...8_192).map { message(messageId: "message-\($0)") }
+    let messages = (0...4_000).map { message(messageId: "message-\($0)") }
 
     _ = try await service.categorize(messages: messages, session: session)
 
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [8_192, 1])
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [4_000, 1])
   }
 
   func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {
@@ -1066,6 +1068,14 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
     writes.first { $0.payloadIdentifier == payloadIdentifier }
+  }
+
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix: String?
+  ) async throws -> [EncryptedProductSyncPayload] {
+    guard let payloadIdentifierPrefix else { return writes }
+    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
   }
 
   func getEncryptedProductSyncPayloads(

@@ -2,4 +2,4 @@
 '@private-email/convex': patch
 ---
 
-Add an optimistic encrypted Product Sync write primitive for conflict-safe learning-signal updates.
+Add optimistic writes and paginated prefix reads for conflict-safe, bounded learning-signal payloads.
