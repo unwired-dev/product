@@ -426,7 +426,9 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       stableProviderMessageId: assignment.stableProviderMessageId
     )
   }
+}
 
+extension MessageCategoryAssignmentSyncService {
   func saveUserOverride(
     _ assignment: MessageCategoryAssignment,
     session: ProductAccountSessionSnapshot
@@ -441,20 +443,66 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       plaintext,
       associatedData: Data(identifier.utf8)
     )
-    let storedPayload = try await transport.putEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: identifier,
+    let storedAssignment = try await saveNewestUserOverride(
+      assignment,
       encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    let storedAssignment = try decryptedAssignment(
-      from: storedPayload,
       identifier: identifier,
       material: material,
-      stableProviderMessageId: assignment.stableProviderMessageId
+      session: session
     )
     if let signal = storedAssignment.learningSignal, !signal.senderAddresses.isEmpty {
       try await saveLearningSignal(signal, material: material, session: session)
+    }
+    return storedAssignment
+  }
+
+  private func saveNewestUserOverride(
+    _ assignment: MessageCategoryAssignment,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    identifier: String,
+    material: ProductSyncKeyMaterial,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MessageCategoryAssignment {
+    var storedPayload = try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: identifier
+    )
+    var storedAssignment: MessageCategoryAssignment
+    while true {
+      if let storedPayload {
+        let existingAssignment = try decryptedAssignment(
+          from: storedPayload,
+          identifier: identifier,
+          material: material,
+          stableProviderMessageId: assignment.stableProviderMessageId
+        )
+        if existingAssignment.source == .userOverride,
+          (existingAssignment.learningSignal?.appliesAfterTimestamp ?? .min)
+            >= (assignment.learningSignal?.appliesAfterTimestamp ?? .min)
+        {
+          storedAssignment = existingAssignment
+          break
+        }
+      }
+
+      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+        identityToken: session.identityToken,
+        payloadIdentifier: identifier,
+        encryptedPayload: encryptedPayload,
+        trustedDeviceId: session.trustedDeviceId,
+        expectedUpdatedAt: storedPayload?.updatedAt
+      )
+      storedAssignment = try decryptedAssignment(
+        from: writtenPayload,
+        identifier: identifier,
+        material: material,
+        stableProviderMessageId: assignment.stableProviderMessageId
+      )
+      if writtenPayload.encryptedPayload == encryptedPayload {
+        break
+      }
+      try Task.checkCancellation()
+      storedPayload = writtenPayload
     }
     return storedAssignment
   }
@@ -466,19 +514,10 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   ) async throws {
     var index = try await loadFutureLearningSignalIndex(session: session)
     while true {
-      let senderAddresses = Set(signal.senderAddresses)
-      if index.signals.contains(where: { existingSignal in
-        !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
-          && existingSignal.appliesAfterTimestamp >= signal.appliesAfterTimestamp
-      }) {
+      guard let signals = learningSignalsBySaving(signal, in: index.signals) else {
         return
       }
 
-      var signals = index.signals
-      signals.removeAll { existingSignal in
-        !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
-      }
-      signals.append(signal)
       let plaintext = try encoder.encode(FutureLearningSignalIndex(signals: signals))
       let encryptedPayload = try material.encryptPayload(
         plaintext,
@@ -781,6 +820,40 @@ private enum ClassificationTokenizer {
   static func tokens(in value: String) -> Set<String> {
     Set(value.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init))
   }
+}
+
+private func learningSignalsBySaving(
+  _ signal: FutureLearningSignal,
+  in existingSignals: [FutureLearningSignal]
+) -> [FutureLearningSignal]? {
+  let senderAddresses = Set(signal.senderAddresses)
+  if existingSignals.contains(where: { existingSignal in
+    !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+      && existingSignal.appliesAfterTimestamp >= signal.appliesAfterTimestamp
+  }) {
+    return nil
+  }
+
+  let appliesAfterTimestamp =
+    existingSignals
+    .filter { existingSignal in
+      existingSignal.categoryId == signal.categoryId
+        && !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+    }
+    .map(\.appliesAfterTimestamp)
+    .min() ?? signal.appliesAfterTimestamp
+  var signals = existingSignals
+  signals.removeAll { existingSignal in
+    !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+  }
+  signals.append(
+    FutureLearningSignal(
+      appliesAfterTimestamp: appliesAfterTimestamp,
+      categoryId: signal.categoryId,
+      senderAddresses: signal.senderAddresses
+    )
+  )
+  return signals
 }
 
 private enum MessageSenderAddressParser {
