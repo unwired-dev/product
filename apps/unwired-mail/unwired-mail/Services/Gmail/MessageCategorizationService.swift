@@ -210,20 +210,23 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
 
-    return Dictionary(
-      uniqueKeysWithValues: try payloads.map { payload in
-        let stableProviderMessageId = identifiers[payload.payloadIdentifier]!
-        return (
-          stableProviderMessageId,
-          try decryptedAssignment(
-            from: payload,
-            identifier: payload.payloadIdentifier,
-            material: material,
-            stableProviderMessageId: stableProviderMessageId
-          )
-        )
+    var assignments: [String: MessageCategoryAssignment] = [:]
+    for payload in payloads {
+      guard let stableProviderMessageId = identifiers[payload.payloadIdentifier] else {
+        continue
       }
-    )
+      do {
+        assignments[stableProviderMessageId] = try decryptedAssignment(
+          from: payload,
+          identifier: payload.payloadIdentifier,
+          material: material,
+          stableProviderMessageId: stableProviderMessageId
+        )
+      } catch {
+        try Task.checkCancellation()
+      }
+    }
+    return assignments
   }
 
   func loadAssignment(

@@ -289,6 +289,37 @@ final class MessageCategorizationServiceTests: XCTestCase {
 }
 
 extension MessageCategorizationServiceTests {
+  func testAssignmentSyncKeepsValidAssignmentsWhenAnotherPayloadIsCorrupt() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let validAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    let corruptAssignment = MessageCategoryAssignment(
+      categoryId: "system:invoices",
+      stableProviderMessageId: "gmail:account:message-002"
+    )
+    _ = try await service.saveAssignment(validAssignment, session: session)
+    _ = try await service.saveAssignment(corruptAssignment, session: session)
+    transport.corruptLastPayload()
+
+    let assignments = try await service.loadAssignments(
+      stableProviderMessageIds: [
+        validAssignment.stableProviderMessageId,
+        corruptAssignment.stableProviderMessageId,
+      ],
+      session: session
+    )
+
+    XCTAssertEqual(assignments, [validAssignment.stableProviderMessageId: validAssignment])
+  }
+
   func testCategorizationBatchesLargeAssignmentPrefetches() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -419,6 +450,24 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 
 private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
   private(set) var writes: [EncryptedProductSyncPayload] = []
+
+  func corruptLastPayload() {
+    let payload = writes.removeLast()
+    writes.append(
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: payload.encryptedPayload.algorithm,
+          ciphertextBase64: "invalid",
+          keyVersion: payload.encryptedPayload.keyVersion,
+          nonceBase64: payload.encryptedPayload.nonceBase64,
+          schemaVersion: payload.encryptedPayload.schemaVersion,
+          tagBase64: payload.encryptedPayload.tagBase64
+        ),
+        payloadIdentifier: payload.payloadIdentifier,
+        updatedAt: payload.updatedAt
+      )
+    )
+  }
 
   func getEncryptedProductSyncPayload(
     identityToken _: String,
