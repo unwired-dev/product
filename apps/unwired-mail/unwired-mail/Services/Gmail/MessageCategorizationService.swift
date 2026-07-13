@@ -70,7 +70,20 @@ enum ClassificationDecision: Equatable {
 struct FutureLearningSignal: Codable, Equatable {
   let appliesAfterTimestamp: Int64
   let categoryId: String
+  let overrideTimestamp: Int64?
   let senderAddresses: [String]
+
+  init(
+    appliesAfterTimestamp: Int64,
+    categoryId: String,
+    overrideTimestamp: Int64? = nil,
+    senderAddresses: [String]
+  ) {
+    self.appliesAfterTimestamp = appliesAfterTimestamp
+    self.categoryId = categoryId
+    self.overrideTimestamp = overrideTimestamp
+    self.senderAddresses = senderAddresses
+  }
 }
 
 private enum FutureLearningSignalPayload {
@@ -541,6 +554,7 @@ extension MessageCategoryAssignmentSyncService {
         FutureLearningSignal(
           appliesAfterTimestamp: signal.appliesAfterTimestamp,
           categoryId: signal.categoryId,
+          overrideTimestamp: signal.overrideTimestamp,
           senderAddresses: [senderAddress]
         ),
         for: senderAddress,
@@ -809,6 +823,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
             message.providerInternalDateMilliseconds
           ),
           categoryId: categoryId,
+          overrideTimestamp: overrideTimestamp,
           senderAddresses: senderAddresses
         ),
         overrideTimestamp: overrideTimestamp,
@@ -940,21 +955,25 @@ private func learningSignalsBySaving(
   if existingSignals.contains(where: { existingSignal in
     !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
       && existingSignal.categoryId != signal.categoryId
-      && existingSignal.appliesAfterTimestamp >= signal.appliesAfterTimestamp
+      && learningSignalOrderTimestamp(existingSignal) >= learningSignalOrderTimestamp(signal)
   }) {
     return nil
   }
 
+  let matchingCategorySignals = existingSignals.filter { existingSignal in
+    existingSignal.categoryId == signal.categoryId
+      && !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+  }
   let appliesAfterTimestamp = min(
     signal.appliesAfterTimestamp,
-    existingSignals
-      .filter { existingSignal in
-        existingSignal.categoryId == signal.categoryId
-          && !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
-      }
+    matchingCategorySignals
       .map(\.appliesAfterTimestamp)
       .min() ?? signal.appliesAfterTimestamp
   )
+  let overrideTimestamp =
+    ([signal] + matchingCategorySignals)
+    .compactMap(\.overrideTimestamp)
+    .max()
   var signals = existingSignals
   signals.removeAll { existingSignal in
     !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
@@ -963,10 +982,15 @@ private func learningSignalsBySaving(
     FutureLearningSignal(
       appliesAfterTimestamp: appliesAfterTimestamp,
       categoryId: signal.categoryId,
+      overrideTimestamp: overrideTimestamp,
       senderAddresses: signal.senderAddresses
     )
   )
   return signals
+}
+
+private func learningSignalOrderTimestamp(_ signal: FutureLearningSignal) -> Int64 {
+  signal.overrideTimestamp ?? signal.appliesAfterTimestamp
 }
 
 private enum MessageSenderAddressParser {
@@ -1031,7 +1055,7 @@ private enum MessageSenderAddressParser {
 }
 
 extension GmailMessageMetadata {
-  fileprivate func assigningCategory(_ categoryId: String) -> GmailMessageMetadata {
+  func assigningCategory(_ categoryId: String) -> GmailMessageMetadata {
     GmailMessageMetadata(
       categoryId: categoryId,
       from: from,

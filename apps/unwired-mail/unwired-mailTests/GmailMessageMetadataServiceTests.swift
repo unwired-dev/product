@@ -170,7 +170,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let overrideTask = Task {
       await viewModel.overrideCategory("system:invoices", for: originalMessage)
     }
+    await service.waitUntilOverrideStarts()
     await viewModel.loadAfterConnectionChange(connection: switchedConnection)
+    await service.releaseOverride()
     await overrideTask.value
 
     XCTAssertEqual(viewModel.threads, GmailInboxThread.group([switchedMessage]))
@@ -789,8 +791,39 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 }
 
+private actor OverrideGate {
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+}
+
 private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
+  private let overrideGate = OverrideGate()
 
   func loadInbox(
     connection: GmailProviderConnectionStatus,
@@ -811,21 +844,16 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
-    try await Task.sleep(nanoseconds: 50_000_000)
-    return GmailMessageMetadata(
-      categoryId: categoryId,
-      from: message.from,
-      isHistorical: message.isHistorical,
-      providerAccountIdentifier: message.providerAccountIdentifier,
-      providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
-      providerMessageId: message.providerMessageId,
-      providerThreadId: message.providerThreadId,
-      replyTo: message.replyTo,
-      snippet: message.snippet,
-      stableProviderMessageId: message.stableProviderMessageId,
-      subject: message.subject,
-      rfcMessageId: message.rfcMessageId
-    )
+    await overrideGate.waitForRelease()
+    return message.assigningCategory(categoryId)
+  }
+
+  func waitUntilOverrideStarts() async {
+    await overrideGate.waitUntilStarted()
+  }
+
+  func releaseOverride() async {
+    await overrideGate.release()
   }
 
   private func result(for connection: GmailProviderConnectionStatus) -> GmailMetadataSyncResult {
@@ -871,22 +899,7 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
     guard let categoryId else {
       return messages
     }
-    return messages.map { message in
-      GmailMessageMetadata(
-        categoryId: categoryId,
-        from: message.from,
-        isHistorical: message.isHistorical,
-        providerAccountIdentifier: message.providerAccountIdentifier,
-        providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
-        providerMessageId: message.providerMessageId,
-        providerThreadId: message.providerThreadId,
-        replyTo: message.replyTo,
-        snippet: message.snippet,
-        stableProviderMessageId: message.stableProviderMessageId,
-        subject: message.subject,
-        rfcMessageId: message.rfcMessageId
-      )
-    }
+    return messages.map { $0.assigningCategory(categoryId) }
   }
 
   func overrideCategory(
@@ -894,20 +907,7 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
     for message: GmailMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
-    GmailMessageMetadata(
-      categoryId: categoryId,
-      from: message.from,
-      isHistorical: message.isHistorical,
-      providerAccountIdentifier: message.providerAccountIdentifier,
-      providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
-      providerMessageId: message.providerMessageId,
-      providerThreadId: message.providerThreadId,
-      replyTo: message.replyTo,
-      snippet: message.snippet,
-      stableProviderMessageId: message.stableProviderMessageId,
-      subject: message.subject,
-      rfcMessageId: message.rfcMessageId
-    )
+    message.assigningCategory(categoryId)
   }
 }
 

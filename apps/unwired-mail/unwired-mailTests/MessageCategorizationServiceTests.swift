@@ -249,6 +249,7 @@ extension MessageCategorizationServiceTests {
           learningSignal: FutureLearningSignal(
             appliesAfterTimestamp: 1_781_300_000_000,
             categoryId: "system:invoices",
+            overrideTimestamp: 1_781_300_000_000,
             senderAddresses: ["sender@example.com"]
           ),
           overrideTimestamp: 1_781_300_000_000,
@@ -390,6 +391,28 @@ extension MessageCategorizationServiceTests {
     _ = try await service.overrideCategory(
       "system:invoices",
       for: message(providerInternalDateMilliseconds: 200),
+      session: session
+    )
+
+    XCTAssertEqual(
+      assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp,
+      200
+    )
+  }
+
+  func testUserOverrideLearningUsesActionTimeWhenLaterThanMessage() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 200 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    _ = try await service.overrideCategory(
+      "system:invoices",
+      for: message(providerInternalDateMilliseconds: 100),
       session: session
     )
 
@@ -670,6 +693,62 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(newestOverride.categoryId, "system:flights")
     XCTAssertEqual(newestOverride.overrideTimestamp, 150)
     XCTAssertEqual(newestOverride.learningSignal?.appliesAfterTimestamp, 200)
+  }
+
+  func testAssignmentSyncOrdersSenderSignalsByOverrideTimestamp() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: RecordingCategorySyncTransport()
+    )
+    let senderAddresses = ["updates@merchant.example"]
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 300,
+          categoryId: "system:invoices",
+          overrideTimestamp: 100,
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:later-message"
+      ),
+      session: session
+    )
+
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          overrideTimestamp: 150,
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:earlier-message"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(
+      signals,
+      [
+        FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          overrideTimestamp: 150,
+          senderAddresses: senderAddresses
+        )
+      ]
+    )
   }
 
   func testAssignmentSyncPreservesOriginalLowerBoundForUnchangedCategory() async throws {
