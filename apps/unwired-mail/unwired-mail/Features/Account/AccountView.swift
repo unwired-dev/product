@@ -192,7 +192,7 @@ private final class GmailMailActionViewModel {
 
 @MainActor
 @Observable
-private final class GmailInboxViewModel {
+final class GmailInboxViewModel {
   var errorMessage: String?
   var isAssigningCategory = false
   var isLoading = false
@@ -311,6 +311,9 @@ private final class GmailInboxViewModel {
         for: message,
         session: session
       )
+      guard currentProviderAccountIdentifier == message.providerAccountIdentifier else {
+        return
+      }
       let messages = threads.flatMap(\.messages).map { existingMessage in
         existingMessage.stableProviderMessageId == overriddenMessage.stableProviderMessageId
           ? overriddenMessage : existingMessage

@@ -128,6 +128,54 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(store.savedMessages, [overridden])
   }
 
+  @MainActor
+  func testInboxViewModelIgnoresOverrideResultAfterProviderAccountChanges() async {
+    let originalMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+    let switchedConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let switchedMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Other <other@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: switchedConnection.providerAccountIdentifier,
+      providerInternalDateMilliseconds: 20,
+      providerMessageId: "message-002",
+      providerThreadId: "thread-002",
+      replyTo: nil,
+      snippet: "Other snippet",
+      stableProviderMessageId: "gmail:gmail-user-002:message-002",
+      subject: "Other subject",
+      rfcMessageId: nil
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: originalMessage,
+        switchedConnection.providerAccountIdentifier: switchedMessage,
+      ]
+    )
+    let viewModel = GmailInboxViewModel(service: service, session: session)
+    await viewModel.loadAfterConnectionChange(connection: connection)
+
+    let overrideTask = Task {
+      await viewModel.overrideCategory("system:invoices", for: originalMessage)
+    }
+    await viewModel.loadAfterConnectionChange(connection: switchedConnection)
+    await overrideTask.value
+
+    XCTAssertEqual(viewModel.threads, GmailInboxThread.group([switchedMessage]))
+  }
+
   func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
     let fixture = try makeSyncFixture()
     let switchedConnection = GmailProviderConnectionStatus(
@@ -737,6 +785,60 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       stableProviderMessageId: "gmail:gmail-user-001:\(messageId)",
       subject: "Subject",
       rfcMessageId: nil
+    )
+  }
+}
+
+private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
+  let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
+
+  func loadInbox(
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    result(for: connection)
+  }
+
+  func syncInbox(
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    result(for: connection)
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    try await Task.sleep(nanoseconds: 50_000_000)
+    return GmailMessageMetadata(
+      categoryId: categoryId,
+      from: message.from,
+      isHistorical: message.isHistorical,
+      providerAccountIdentifier: message.providerAccountIdentifier,
+      providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
+      providerMessageId: message.providerMessageId,
+      providerThreadId: message.providerThreadId,
+      replyTo: message.replyTo,
+      snippet: message.snippet,
+      stableProviderMessageId: message.stableProviderMessageId,
+      subject: message.subject,
+      rfcMessageId: message.rfcMessageId
+    )
+  }
+
+  private func result(for connection: GmailProviderConnectionStatus) -> GmailMetadataSyncResult {
+    guard
+      let message = messagesByProviderAccountIdentifier[
+        connection.providerAccountIdentifier
+      ]
+    else {
+      return GmailMetadataSyncResult(messages: [], threads: [])
+    }
+    return GmailMetadataSyncResult(
+      messages: [message],
+      threads: GmailInboxThread.group([message])
     )
   }
 }

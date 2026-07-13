@@ -251,6 +251,7 @@ extension MessageCategorizationServiceTests {
             categoryId: "system:invoices",
             senderAddresses: ["sender@example.com"]
           ),
+          overrideTimestamp: 1_781_300_000_000,
           source: .userOverride,
           stableProviderMessageId: "gmail:account:message-001"
         )
@@ -625,6 +626,50 @@ extension MessageCategorizationServiceTests {
 
     XCTAssertEqual(staleResult, newestOverride)
     XCTAssertEqual(synced, newestOverride)
+  }
+
+  func testAssignmentSyncOrdersOverridesSeparatelyFromClampedLearningBoundary() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:invoices",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        overrideTimestamp: 100,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    let newestOverride = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        overrideTimestamp: 150,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    XCTAssertEqual(newestOverride.categoryId, "system:flights")
+    XCTAssertEqual(newestOverride.overrideTimestamp, 150)
+    XCTAssertEqual(newestOverride.learningSignal?.appliesAfterTimestamp, 200)
   }
 
   func testAssignmentSyncPreservesOriginalLowerBoundForUnchangedCategory() async throws {

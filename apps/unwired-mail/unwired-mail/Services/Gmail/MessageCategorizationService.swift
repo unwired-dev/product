@@ -187,17 +187,20 @@ struct RuleBasedClassificationEngine: ClassificationEngine {
 struct MessageCategoryAssignment: Codable, Equatable {
   let categoryId: String
   let learningSignal: FutureLearningSignal?
+  let overrideTimestamp: Int64?
   let source: MessageCategoryAssignmentSource
   let stableProviderMessageId: String
 
   init(
     categoryId: String,
     learningSignal: FutureLearningSignal? = nil,
+    overrideTimestamp: Int64? = nil,
     source: MessageCategoryAssignmentSource = .system,
     stableProviderMessageId: String
   ) {
     self.categoryId = categoryId
     self.learningSignal = learningSignal
+    self.overrideTimestamp = overrideTimestamp
     self.source = source
     self.stableProviderMessageId = stableProviderMessageId
   }
@@ -205,6 +208,7 @@ struct MessageCategoryAssignment: Codable, Equatable {
   private enum CodingKeys: String, CodingKey {
     case categoryId
     case learningSignal
+    case overrideTimestamp
     case source
     case stableProviderMessageId
   }
@@ -216,6 +220,7 @@ struct MessageCategoryAssignment: Codable, Equatable {
       FutureLearningSignal.self,
       forKey: .learningSignal
     )
+    overrideTimestamp = try container.decodeIfPresent(Int64.self, forKey: .overrideTimestamp)
     source =
       try container.decodeIfPresent(
         MessageCategoryAssignmentSource.self,
@@ -481,8 +486,7 @@ extension MessageCategoryAssignmentSyncService {
           stableProviderMessageId: assignment.stableProviderMessageId
         )
         if existingAssignment.source == .userOverride,
-          (existingAssignment.learningSignal?.appliesAfterTimestamp ?? .min)
-            >= (assignment.learningSignal?.appliesAfterTimestamp ?? .min)
+          isExistingUserOverrideAtLeastAsNew(existingAssignment, as: assignment)
         {
           return existingAssignment
         }
@@ -508,6 +512,23 @@ extension MessageCategoryAssignmentSyncService {
       storedPayload = writtenPayload
     }
     throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
+  }
+
+  private func isExistingUserOverrideAtLeastAsNew(
+    _ existingAssignment: MessageCategoryAssignment,
+    as assignment: MessageCategoryAssignment
+  ) -> Bool {
+    switch (existingAssignment.overrideTimestamp, assignment.overrideTimestamp) {
+    case (let existingTimestamp?, let assignmentTimestamp?):
+      return existingTimestamp >= assignmentTimestamp
+    case (nil, _?):
+      return false
+    case (_?, nil):
+      return true
+    case (nil, nil):
+      return (existingAssignment.learningSignal?.appliesAfterTimestamp ?? .min)
+        >= (assignment.learningSignal?.appliesAfterTimestamp ?? .min)
+    }
   }
 
   private func saveLearningSignal(
@@ -775,6 +796,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
+    let overrideTimestamp = currentTimeMilliseconds()
     let senderAddresses = MessageSenderAddressParser.addresses(
       in: [message.from].compactMap { $0 }
     )
@@ -783,12 +805,13 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
         categoryId: categoryId,
         learningSignal: FutureLearningSignal(
           appliesAfterTimestamp: max(
-            currentTimeMilliseconds(),
+            overrideTimestamp,
             message.providerInternalDateMilliseconds
           ),
           categoryId: categoryId,
           senderAddresses: senderAddresses
         ),
+        overrideTimestamp: overrideTimestamp,
         source: .userOverride,
         stableProviderMessageId: message.stableProviderMessageId
       ),
