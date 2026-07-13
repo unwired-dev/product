@@ -678,6 +678,45 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(syncedAssignment, firstUserAssignment)
   }
 
+  func testAssignmentSyncStopsRetryingPersistentCategoryAssignmentConflicts() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentDevice = categoryAssignmentSync(
+      keyStore: keyStore,
+      transport: concurrentTransport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await concurrentDevice.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category:")
+    }
+    transport.repeatsConditionalConflictPayload = true
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+
+    do {
+      _ = try await delayedDevice.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: "system:invoices",
+          overrideTimestamp: 200,
+          source: .userOverride,
+          stableProviderMessageId: stableProviderMessageId
+        ),
+        session: session
+      )
+      XCTFail("Expected conditional write retries to be bounded")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+    }
+  }
+
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
