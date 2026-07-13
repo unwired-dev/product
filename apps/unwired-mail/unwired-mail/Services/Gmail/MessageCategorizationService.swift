@@ -490,6 +490,7 @@ extension MessageCategoryAssignmentSyncService {
       identityToken: session.identityToken,
       payloadIdentifier: identifier
     )
+    var foundConcurrentWrite = false
     for attempt in 1...Self.maximumConditionalWriteAttempts {
       if let storedPayload {
         let existingAssignment = try decryptedAssignment(
@@ -498,9 +499,11 @@ extension MessageCategoryAssignmentSyncService {
           material: material,
           stableProviderMessageId: assignment.stableProviderMessageId
         )
-        if existingAssignment.source == .userOverride,
-          isExistingUserOverrideAtLeastAsNew(existingAssignment, as: assignment)
-        {
+        if categoryConflictRuleKeepsExisting(
+          existingAssignment,
+          over: assignment,
+          afterConcurrentWrite: foundConcurrentWrite
+        ) {
           return existingAssignment
         }
       }
@@ -521,16 +524,31 @@ extension MessageCategoryAssignmentSyncService {
       if writtenPayload.encryptedPayload == encryptedPayload {
         return storedAssignment
       }
+      foundConcurrentWrite = true
       guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
       storedPayload = writtenPayload
     }
     throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
 
-  private func isExistingUserOverrideAtLeastAsNew(
+  private func categoryConflictRuleKeepsExisting(
     _ existingAssignment: MessageCategoryAssignment,
-    as assignment: MessageCategoryAssignment
+    over assignment: MessageCategoryAssignment,
+    afterConcurrentWrite: Bool
   ) -> Bool {
+    switch (existingAssignment.source, assignment.source) {
+    case (.userOverride, .system):
+      return true
+    case (.system, .userOverride):
+      return false
+    case (.system, .system):
+      return true
+    case (.userOverride, .userOverride):
+      if afterConcurrentWrite {
+        return true
+      }
+    }
+
     switch (existingAssignment.overrideTimestamp, assignment.overrideTimestamp) {
     case (let existingTimestamp?, let assignmentTimestamp?):
       return existingTimestamp >= assignmentTimestamp
