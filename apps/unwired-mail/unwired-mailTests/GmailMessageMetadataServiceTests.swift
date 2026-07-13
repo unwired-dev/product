@@ -103,6 +103,31 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       result.threads[1].messages.map(\.providerMessageId), ["message-002", "message-001"])
   }
 
+  func testOverrideCategoryPersistsUpdatedMessageMetadata() async throws {
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+    let store = RecordingGmailMessageMetadataStore()
+    store.messages = [message]
+    let categorizer = RecordingGmailMessageCategorizer()
+    let service = GmailMessageMetadataService(
+      categorizer: categorizer,
+      store: store,
+      tokenStore: RecordingGmailProviderTokenStore()
+    )
+
+    let overridden = try await service.overrideCategory(
+      "system:invoices",
+      for: message,
+      session: session
+    )
+
+    XCTAssertEqual(overridden.categoryId, "system:invoices")
+    XCTAssertEqual(store.savedMessages, [overridden])
+  }
+
   func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
     let fixture = try makeSyncFixture()
     let switchedConnection = GmailProviderConnectionStatus(
@@ -760,6 +785,27 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
         rfcMessageId: message.rfcMessageId
       )
     }
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    GmailMessageMetadata(
+      categoryId: categoryId,
+      from: message.from,
+      isHistorical: message.isHistorical,
+      providerAccountIdentifier: message.providerAccountIdentifier,
+      providerInternalDateMilliseconds: message.providerInternalDateMilliseconds,
+      providerMessageId: message.providerMessageId,
+      providerThreadId: message.providerThreadId,
+      replyTo: message.replyTo,
+      snippet: message.snippet,
+      stableProviderMessageId: message.stableProviderMessageId,
+      subject: message.subject,
+      rfcMessageId: message.rfcMessageId
+    )
   }
 }
 

@@ -79,6 +79,9 @@ struct AccountView: View {
         GmailProviderConnectionPanel(viewModel: gmailViewModel)
 
         GmailInboxPanel(
+          categoryChoices: MessageCategoryChoice.available(
+            customCategory: categoryViewModel.category
+          ),
           connection: gmailViewModel.connection,
           isConnectionBusy: gmailViewModel.isEditingDisabled,
           mailActionViewModel: mailActionViewModel,
@@ -191,6 +194,7 @@ private final class GmailMailActionViewModel {
 @Observable
 private final class GmailInboxViewModel {
   var errorMessage: String?
+  var isAssigningCategory = false
   var isLoading = false
   var isSyncing = false
   var threads: [GmailInboxThread] = []
@@ -294,6 +298,29 @@ private final class GmailInboxViewModel {
       return false
     }
     return await sync(connection: connection)
+  }
+
+  func overrideCategory(_ categoryId: String, for message: GmailMessageMetadata) async {
+    guard !isAssigningCategory else { return }
+    isAssigningCategory = true
+    defer { isAssigningCategory = false }
+
+    do {
+      let overriddenMessage = try await service.overrideCategory(
+        categoryId,
+        for: message,
+        session: session
+      )
+      let messages = threads.flatMap(\.messages).map { existingMessage in
+        existingMessage.stableProviderMessageId == overriddenMessage.stableProviderMessageId
+          ? overriddenMessage : existingMessage
+      }
+      threads = GmailInboxThread.group(messages)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 }
 
@@ -643,7 +670,26 @@ private struct GmailProviderConnectionPanel: View {
   }
 }
 
+private struct MessageCategoryChoice: Identifiable {
+  let id: String
+  let name: String
+
+  static func available(customCategory: CustomCategory?) -> [MessageCategoryChoice] {
+    var choices = [
+      MessageCategoryChoice(id: "system:promotions", name: "Promotions"),
+      MessageCategoryChoice(id: "system:invites", name: "Invites"),
+      MessageCategoryChoice(id: "system:invoices", name: "Invoices"),
+      MessageCategoryChoice(id: "system:flights", name: "Flights"),
+    ]
+    if let customCategory {
+      choices.append(MessageCategoryChoice(id: customCategory.id, name: customCategory.name))
+    }
+    return choices
+  }
+}
+
 private struct GmailInboxPanel: View {
+  let categoryChoices: [MessageCategoryChoice]
   let connection: GmailProviderConnectionStatus?
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
@@ -744,8 +790,10 @@ private struct GmailInboxPanel: View {
             ForEach(viewModel.threads) { thread in
               GmailInboxThreadRow(
                 connection: connection,
+                categoryChoices: categoryChoices,
                 isDisabled: mailActionViewModel.isPerformingAction
                   || viewModel.isRefreshDisabled
+                  || viewModel.isAssigningCategory
                   || isConnectionBusy,
                 mailActionViewModel: mailActionViewModel,
                 refreshInbox: {
@@ -758,6 +806,9 @@ private struct GmailInboxPanel: View {
                   recipient = message.replyTo ?? message.from ?? ""
                   subject = message.subject == "(No subject)" ? "" : "Re: \(message.subject)"
                   composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
+                },
+                setCategory: { categoryId, message in
+                  await viewModel.overrideCategory(categoryId, for: message)
                 },
                 thread: thread,
                 forward: { message in
@@ -784,14 +835,27 @@ private struct GmailInboxPanel: View {
                 }
               )
               ForEach(thread.messages.dropFirst()) { message in
-                Button {
-                  selectedMessage = message
-                } label: {
-                  Text(message.subject)
-                    .font(.footnote)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                HStack {
+                  Button {
+                    selectedMessage = message
+                  } label: {
+                    Text(message.subject)
+                      .font(.footnote)
+                      .frame(maxWidth: .infinity, alignment: .leading)
+                  }
+                  .buttonStyle(.plain)
+                  MessageCategoryMenu(
+                    categoryChoices: categoryChoices,
+                    currentCategoryId: message.categoryId,
+                    isDisabled: mailActionViewModel.isPerformingAction
+                      || viewModel.isRefreshDisabled
+                      || viewModel.isAssigningCategory
+                      || isConnectionBusy,
+                    setCategory: { categoryId in
+                      await viewModel.overrideCategory(categoryId, for: message)
+                    }
+                  )
                 }
-                .buttonStyle(.plain)
               }
               Divider()
             }
@@ -996,10 +1060,12 @@ private struct GmailComposePanel: View {
 
 private struct GmailInboxThreadRow: View {
   let connection: GmailProviderConnectionStatus
+  let categoryChoices: [MessageCategoryChoice]
   let isDisabled: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let refreshInbox: () async -> Void
   let reply: (GmailMessageMetadata) -> Void
+  let setCategory: (String, GmailMessageMetadata) async -> Void
   let thread: GmailInboxThread
   let forward: (GmailMessageMetadata) async -> Void
   let open: (GmailMessageMetadata) -> Void
@@ -1040,6 +1106,19 @@ private struct GmailInboxThreadRow: View {
 
       Menu("Actions") {
         Button("Open Message") { open(thread.latestMessage) }
+        Menu("Set Category") {
+          ForEach(categoryChoices) { choice in
+            Button {
+              Task { await setCategory(choice.id, thread.latestMessage) }
+            } label: {
+              if choice.id == thread.latestMessage.categoryId {
+                Label(choice.name, systemImage: "checkmark")
+              } else {
+                Text(choice.name)
+              }
+            }
+          }
+        }
         Divider()
         Button("Reply") { reply(thread.latestMessage) }
           .disabled(thread.latestMessage.rfcMessageId == nil)
@@ -1059,7 +1138,10 @@ private struct GmailInboxThreadRow: View {
   }
 
   private var categoryState: String {
-    thread.messages.allSatisfy { $0.categoryId == nil } ? "Uncategorized" : "Categorized"
+    guard let categoryId = thread.latestMessage.categoryId else {
+      return "Uncategorized"
+    }
+    return categoryChoices.first { $0.id == categoryId }?.name ?? "Categorized"
   }
 
   private func perform(_ action: GmailProviderMailAction) {
@@ -1073,6 +1155,33 @@ private struct GmailInboxThreadRow: View {
         await refreshInbox()
       }
     }
+  }
+}
+
+private struct MessageCategoryMenu: View {
+  let categoryChoices: [MessageCategoryChoice]
+  let currentCategoryId: String?
+  let isDisabled: Bool
+  let setCategory: (String) async -> Void
+
+  var body: some View {
+    Menu {
+      ForEach(categoryChoices) { choice in
+        Button {
+          Task { await setCategory(choice.id) }
+        } label: {
+          if choice.id == currentCategoryId {
+            Label(choice.name, systemImage: "checkmark")
+          } else {
+            Text(choice.name)
+          }
+        }
+      }
+    } label: {
+      Label("Set Category", systemImage: "tag")
+        .labelStyle(.iconOnly)
+    }
+    .disabled(isDisabled)
   }
 }
 

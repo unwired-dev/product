@@ -25,6 +25,9 @@ protocol ProductSyncPayloadTransport {
     identityToken: String,
     payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload]
+  func listEncryptedProductSyncPayloads(
+    identityToken: String
+  ) async throws -> [EncryptedProductSyncPayload]
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
