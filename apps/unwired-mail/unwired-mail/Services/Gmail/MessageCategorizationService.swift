@@ -73,6 +73,12 @@ struct FutureLearningSignal: Codable, Equatable {
   let senderAddresses: [String]
 }
 
+private struct FutureLearningSignalIndex: Codable {
+  static let payloadIdentifier = "message-category-learning-signals"
+
+  let signals: [FutureLearningSignal]
+}
+
 enum MessageCategoryAssignmentSource: String, Codable {
   case system
   case userOverride
@@ -116,14 +122,23 @@ struct RuleBasedClassificationEngine: ClassificationEngine {
         in: [input.minimized.from].compactMap { $0 }
       )
     )
-    if let learnedCategory = categories.first(where: { category in
-      category.learningSignals.contains { signal in
-        input.minimized.providerInternalDateMilliseconds
-          > signal.appliesAfterTimestamp
-          && !senderAddresses.isDisjoint(with: signal.senderAddresses)
+    let learnedCategory =
+      categories
+      .flatMap { category in
+        category.learningSignals.map { signal in
+          (categoryId: category.id, signal: signal)
+        }
       }
-    }) {
-      return .assigned(categoryId: learnedCategory.id)
+      .filter { candidate in
+        input.minimized.providerInternalDateMilliseconds
+          > candidate.signal.appliesAfterTimestamp
+          && !senderAddresses.isDisjoint(with: candidate.signal.senderAddresses)
+      }
+      .max { left, right in
+        left.signal.appliesAfterTimestamp < right.signal.appliesAfterTimestamp
+      }
+    if let learnedCategory {
+      return .assigned(categoryId: learnedCategory.categoryId)
     }
 
     let minimizedTokens = ClassificationTokenizer.tokens(
@@ -352,31 +367,23 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   func loadFutureLearningSignals(
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    let payloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken
-    ).filter { $0.payloadIdentifier.hasPrefix("message-category:") }
-    guard !payloads.isEmpty else { return [] }
+    guard
+      let payload = try await transport.getEncryptedProductSyncPayload(
+        identityToken: session.identityToken,
+        payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier
+      )
+    else {
+      return []
+    }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
     }
-
-    var signals: [FutureLearningSignal] = []
-    for payload in payloads {
-      do {
-        let assignment = try decryptedAssignment(
-          from: payload,
-          identifier: payload.payloadIdentifier,
-          material: material
-        )
-        if assignment.source == .userOverride, let signal = assignment.learningSignal {
-          signals.append(signal)
-        }
-      } catch {
-        try Task.checkCancellation()
-      }
-    }
-    return signals
+    let plaintext = try material.decryptPayload(
+      payload.encryptedPayload,
+      associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
+    )
+    return try decoder.decode(FutureLearningSignalIndex.self, from: plaintext).signals
   }
 
   func saveAssignment(
@@ -434,11 +441,39 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       encryptedPayload: encryptedPayload,
       trustedDeviceId: session.trustedDeviceId
     )
-    return try decryptedAssignment(
+    let storedAssignment = try decryptedAssignment(
       from: storedPayload,
       identifier: identifier,
       material: material,
       stableProviderMessageId: assignment.stableProviderMessageId
+    )
+    if let signal = storedAssignment.learningSignal, !signal.senderAddresses.isEmpty {
+      try await saveLearningSignal(signal, material: material, session: session)
+    }
+    return storedAssignment
+  }
+
+  private func saveLearningSignal(
+    _ signal: FutureLearningSignal,
+    material: ProductSyncKeyMaterial,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var signals = try await loadFutureLearningSignals(session: session)
+    let senderAddresses = Set(signal.senderAddresses)
+    signals.removeAll { existingSignal in
+      !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+    }
+    signals.append(signal)
+    let plaintext = try encoder.encode(FutureLearningSignalIndex(signals: signals))
+    let encryptedPayload = try material.encryptPayload(
+      plaintext,
+      associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
+    )
+    _ = try await transport.putEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: session.trustedDeviceId
     )
   }
 
@@ -727,21 +762,62 @@ private enum ClassificationTokenizer {
 
 private enum MessageSenderAddressParser {
   static func addresses(in values: [String]) -> [String] {
-    Array(
-      Set(
-        values.flatMap { value in
-          value.lowercased().split { character in
-            character.isWhitespace || "<>,;\"()".contains(character)
-          }
+    Array(Set(values.compactMap(address(in:)))).sorted()
+  }
+
+  private static func address(in value: String) -> String? {
+    var angleStart: String.Index?
+    var bareValue = ""
+    var commentDepth = 0
+    var isEscaped = false
+    var isQuoted = false
+    var index = value.startIndex
+    while index < value.endIndex {
+      let character = value[index]
+      let nextIndex = value.index(after: index)
+      var isCommentBoundary = false
+      if isEscaped {
+        isEscaped = false
+      } else if character == "\\" && isQuoted {
+        isEscaped = true
+      } else if character == "\"" && commentDepth == 0 {
+        isQuoted.toggle()
+      } else if !isQuoted {
+        if character == "(" {
+          commentDepth += 1
+          isCommentBoundary = true
+        } else if character == ")", commentDepth > 0 {
+          commentDepth -= 1
+          isCommentBoundary = true
+        } else if commentDepth == 0, character == "<" {
+          angleStart = nextIndex
+        } else if commentDepth == 0, character == ">", let angleStart {
+          return normalizedMailbox(String(value[angleStart..<index]))
         }
-        .map(String.init)
-        .map { $0.hasPrefix("mailto:") ? String($0.dropFirst(7)) : $0 }
-        .filter { address in
-          let parts = address.split(separator: "@", omittingEmptySubsequences: false)
-          return parts.count == 2 && parts[1].contains(".")
-        }
-      )
-    ).sorted()
+      }
+      if commentDepth == 0, !isCommentBoundary {
+        bareValue.append(character)
+      }
+      index = nextIndex
+    }
+    return normalizedMailbox(bareValue)
+  }
+
+  private static func normalizedMailbox(_ value: String) -> String? {
+    var address = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    if address.hasPrefix("mailto:") {
+      address.removeFirst(7)
+    }
+    let parts = address.split(separator: "@", omittingEmptySubsequences: false)
+    guard
+      parts.count == 2,
+      !parts[0].isEmpty,
+      parts[1].contains("."),
+      !address.contains(where: { $0.isWhitespace || "<>,;()".contains($0) })
+    else {
+      return nil
+    }
+    return address
   }
 }
 

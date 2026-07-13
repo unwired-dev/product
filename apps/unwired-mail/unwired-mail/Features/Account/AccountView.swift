@@ -744,6 +744,7 @@ private struct GmailInboxPanel: View {
           .buttonStyle(.bordered)
           .disabled(
             viewModel.isRefreshDisabled
+              || viewModel.isAssigningCategory
               || mailActionViewModel.isPerformingAction
               || isConnectionBusy
           )
