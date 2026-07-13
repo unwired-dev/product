@@ -254,6 +254,7 @@ protocol MessageCategoryAssignmentSyncing {
 
   /// Loads only encrypted User Override learning signals from Product Sync.
   func loadFutureLearningSignals(
+    senderAddresses: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal]
 
@@ -290,6 +291,7 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
 final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSyncing {
   private static let conditionalWriteRetryDelayNanoseconds: UInt64 = 10_000_000
   private static let maximumConditionalWriteAttempts = 3
+  private static let payloadReadBatchSize = 4_000
 
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
@@ -369,16 +371,26 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   }
 
   func loadFutureLearningSignals(
+    senderAddresses: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
-    let payloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: FutureLearningSignalPayload.identifierPrefix
-    )
-    guard !payloads.isEmpty else { return [] }
+    guard !senderAddresses.isEmpty else { return [] }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
+    }
+    let identifiers = Array(
+      Set(senderAddresses.map { learningSignalPayloadIdentifier(for: $0, material: material) })
+    )
+    var payloads: [EncryptedProductSyncPayload] = []
+    for startIndex in stride(from: 0, to: identifiers.count, by: Self.payloadReadBatchSize) {
+      let endIndex = min(startIndex + Self.payloadReadBatchSize, identifiers.count)
+      payloads.append(
+        contentsOf: try await transport.getEncryptedProductSyncPayloads(
+          identityToken: session.identityToken,
+          payloadIdentifiers: Array(identifiers[startIndex..<endIndex])
+        )
+      )
     }
     return try payloads.map { payload in
       try decryptedLearningSignal(from: payload, material: material)
@@ -690,6 +702,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     var categories: [MessageClassificationCategory]?
     var categorizedMessages: [GmailMessageMetadata] = []
     let assignments = try await prefetchedAssignments(messages: messages, session: session)
+    let signalSenders = learningSignalSenders(in: messages, excluding: assignments)
     for message in messages {
       if let assignment = assignments[message.stableProviderMessageId],
         message.categoryId == nil || assignment.source == .userOverride
@@ -708,7 +721,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
         }
 
         if categories == nil {
-          categories = try await classificationCategories(session: session)
+          categories = try await classificationCategories(
+            learningSignalSenderAddresses: signalSenders,
+            session: session
+          )
         }
         guard
           let categoryId = try await classifiedCategoryId(
@@ -736,6 +752,24 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     return categorizedMessages
   }
 
+  private func learningSignalSenders(
+    in messages: [GmailMessageMetadata],
+    excluding assignments: [String: MessageCategoryAssignment]
+  ) -> [String] {
+    MessageSenderAddressParser.addresses(
+      in: messages.compactMap { message in
+        guard
+          message.categoryId == nil,
+          !message.isHistorical,
+          assignments[message.stableProviderMessageId] == nil
+        else {
+          return nil
+        }
+        return message.from
+      }
+    )
+  }
+
   func overrideCategory(
     _ categoryId: String,
     for message: GmailMessageMetadata,
@@ -748,7 +782,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
       MessageCategoryAssignment(
         categoryId: categoryId,
         learningSignal: FutureLearningSignal(
-          appliesAfterTimestamp: currentTimeMilliseconds(),
+          appliesAfterTimestamp: max(
+            currentTimeMilliseconds(),
+            message.providerInternalDateMilliseconds
+          ),
           categoryId: categoryId,
           senderAddresses: senderAddresses
         ),
@@ -828,6 +865,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
   }
 
   private func classificationCategories(
+    learningSignalSenderAddresses: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
     let customCategory = try await categorySync.loadCategory(session: session)
@@ -840,7 +878,10 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     let categories =
       (customClassificationCategory.map { [$0] } ?? [])
       + MessageClassificationCategory.systemCategories
-    let learningSignals = try await assignmentSync.loadFutureLearningSignals(session: session)
+    let learningSignals = try await assignmentSync.loadFutureLearningSignals(
+      senderAddresses: learningSignalSenderAddresses,
+      session: session
+    )
     return categories.map { category in
       MessageClassificationCategory(
         id: category.id,
