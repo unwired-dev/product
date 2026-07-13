@@ -95,6 +95,31 @@ enum MessageCategoryAssignmentSource: String, Codable {
   case userOverride
 }
 
+struct GmailHistoricalCategorizationScope: Equatable {
+  let receivedAtOrAfterMilliseconds: Int64
+  let receivedBeforeMilliseconds: Int64
+
+  func contains(_ message: GmailMessageMetadata) -> Bool {
+    message.isHistorical
+      && message.providerInternalDateMilliseconds >= receivedAtOrAfterMilliseconds
+      && message.providerInternalDateMilliseconds < receivedBeforeMilliseconds
+  }
+}
+
+private enum GmailCategorizationMode {
+  case boundedHistorical(GmailHistoricalCategorizationScope)
+  case newMailOnly
+
+  func includes(_ message: GmailMessageMetadata) -> Bool {
+    switch self {
+    case .boundedHistorical(let scope):
+      return scope.contains(message)
+    case .newMailOnly:
+      return !message.isHistorical
+    }
+  }
+}
+
 /// Classifies message data locally without exposing mail or categories to the backend.
 ///
 /// Callers first provide `ClassificationInput` with `bodyText` set to `nil`. An engine
@@ -723,6 +748,13 @@ protocol GmailMessageCategorizing {
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata]
 
+  /// Categorizes only historical messages inside an explicit user-selected scope.
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope: GmailHistoricalCategorizationScope,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata]
+
   /// Applies and syncs a user-owned Message Category regardless of message age.
   func overrideCategory(
     _ categoryId: String,
@@ -754,73 +786,129 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     self.currentTimeMilliseconds = currentTimeMilliseconds
     self.engine = engine
   }
+}
 
+extension GmailMessageCategorizationService {
   func categorize(
     messages: [GmailMessageMetadata],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    try await categorize(messages: messages, mode: .newMailOnly, session: session)
+  }
+
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope: GmailHistoricalCategorizationScope,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    let scopedMessages = messages.filter(scope.contains)
+    let categorizedMessages = try await categorize(
+      messages: scopedMessages,
+      mode: .boundedHistorical(scope),
+      session: session
+    )
+    let categoriesByStableProviderMessageId = Dictionary(
+      uniqueKeysWithValues: categorizedMessages.compactMap { message in
+        message.categoryId.map { (message.stableProviderMessageId, $0) }
+      }
+    )
+    return messages.map { message in
+      guard
+        let categoryId = categoriesByStableProviderMessageId[message.stableProviderMessageId]
+      else {
+        return message
+      }
+      return message.assigningCategory(categoryId)
+    }
+  }
+
+  private func categorize(
+    messages: [GmailMessageMetadata],
+    mode: GmailCategorizationMode,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailMessageMetadata] {
     var categories: [MessageClassificationCategory]?
     var categorizedMessages: [GmailMessageMetadata] = []
     let assignments = try await prefetchedAssignments(messages: messages, session: session)
-    let signalSenders = learningSignalSenders(in: messages, excluding: assignments)
+    let signalSenders = learningSignalSenders(
+      in: messages,
+      excluding: assignments,
+      mode: mode
+    )
     for message in messages {
-      if let assignment = assignments[message.stableProviderMessageId],
-        message.categoryId == nil || assignment.source == .userOverride
-      {
-        categorizedMessages.append(message.assigningCategory(assignment.categoryId))
-        continue
-      }
-      guard message.categoryId == nil else {
+      let assignment = assignments[message.stableProviderMessageId]
+      guard mode.includes(message) || assignment != nil else {
         categorizedMessages.append(message)
         continue
       }
-      do {
-        guard !message.isHistorical else {
-          categorizedMessages.append(message)
-          continue
-        }
-
-        if categories == nil {
-          categories = try await classificationCategories(
-            learningSignalSenderAddresses: signalSenders,
-            session: session
-          )
-        }
-        guard
-          let categoryId = try await classifiedCategoryId(
-            for: message,
-            categories: categories ?? MessageClassificationCategory.systemCategories,
-            session: session
-          )
-        else {
-          categorizedMessages.append(message)
-          continue
-        }
-        let assignment = try await assignmentSync.saveAssignment(
-          MessageCategoryAssignment(
-            categoryId: categoryId,
-            stableProviderMessageId: message.stableProviderMessageId
-          ),
+      categorizedMessages.append(
+        try await categorizedMessage(
+          message,
+          assignment: assignment,
+          categories: &categories,
+          learningSignalSenders: signalSenders,
           session: session
         )
-        categorizedMessages.append(message.assigningCategory(assignment.categoryId))
-      } catch {
-        try Task.checkCancellation()
-        categorizedMessages.append(message)
-      }
+      )
     }
     return categorizedMessages
   }
 
+  private func categorizedMessage(
+    _ message: GmailMessageMetadata,
+    assignment: MessageCategoryAssignment?,
+    categories: inout [MessageClassificationCategory]?,
+    learningSignalSenders: [String],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    if let assignment,
+      message.categoryId == nil || assignment.source == .userOverride
+    {
+      return message.assigningCategory(assignment.categoryId)
+    }
+    guard message.categoryId == nil else {
+      return message
+    }
+    do {
+      if categories == nil {
+        categories = try await classificationCategories(
+          learningSignalSenderAddresses: learningSignalSenders,
+          session: session
+        )
+      }
+      guard
+        let categoryId = try await classifiedCategoryId(
+          for: message,
+          categories: categories ?? MessageClassificationCategory.systemCategories,
+          session: session
+        )
+      else {
+        return message
+      }
+      let savedAssignment = try await assignmentSync.saveAssignment(
+        MessageCategoryAssignment(
+          categoryId: categoryId,
+          stableProviderMessageId: message.stableProviderMessageId
+        ),
+        session: session
+      )
+      return message.assigningCategory(savedAssignment.categoryId)
+    } catch {
+      try Task.checkCancellation()
+      return message
+    }
+  }
+
   private func learningSignalSenders(
     in messages: [GmailMessageMetadata],
-    excluding assignments: [String: MessageCategoryAssignment]
+    excluding assignments: [String: MessageCategoryAssignment],
+    mode: GmailCategorizationMode
   ) -> [String] {
     MessageSenderAddressParser.addresses(
       in: messages.compactMap { message in
         guard
           message.categoryId == nil,
-          !message.isHistorical,
+          mode.includes(message),
           assignments[message.stableProviderMessageId] == nil
         else {
           return nil
@@ -829,7 +917,9 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
       }
     )
   }
+}
 
+extension GmailMessageCategorizationService {
   func overrideCategory(
     _ categoryId: String,
     for message: GmailMessageMetadata,

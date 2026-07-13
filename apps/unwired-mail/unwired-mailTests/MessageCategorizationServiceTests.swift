@@ -224,6 +224,104 @@ final class MessageCategorizationServiceTests: XCTestCase {
 }
 
 extension MessageCategorizationServiceTests {
+  func testHistoricalCategorizationOnlyClassifiesMessagesInSelectedDateRange() async throws {
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryId: "system:promotions")]
+    )
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+    let beforeScope = message(
+      isHistorical: true,
+      messageId: "message-001",
+      providerInternalDateMilliseconds: 100
+    )
+    let inScope = message(
+      isHistorical: true,
+      messageId: "message-002",
+      providerInternalDateMilliseconds: 200
+    )
+    let afterScope = message(
+      isHistorical: true,
+      messageId: "message-003",
+      providerInternalDateMilliseconds: 300
+    )
+    let current = message(
+      messageId: "message-004",
+      providerInternalDateMilliseconds: 200
+    )
+
+    let categorized = try await service.categorizeHistorical(
+      messages: [beforeScope, inScope, afterScope, current],
+      scope: GmailHistoricalCategorizationScope(
+        receivedAtOrAfterMilliseconds: 150,
+        receivedBeforeMilliseconds: 250
+      ),
+      session: session
+    )
+
+    XCTAssertEqual(categorized.map(\.categoryId), [nil, "system:promotions", nil, nil])
+    XCTAssertEqual(engine.inputs.map(\.minimized.providerInternalDateMilliseconds), [200])
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches, [[inScope.stableProviderMessageId]])
+    XCTAssertEqual(
+      assignmentSync.savedAssignments,
+      [
+        MessageCategoryAssignment(
+          categoryId: "system:promotions",
+          stableProviderMessageId: inScope.stableProviderMessageId
+        )
+      ]
+    )
+  }
+
+  func testHistoricalCategorizationPreservesExistingAndSyncedUserOverrideCategories()
+    async throws
+  {
+    let engine = RecordingClassificationEngine(decisions: [])
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let userOverridden = message(
+      isHistorical: true,
+      messageId: "message-002",
+      providerInternalDateMilliseconds: 200
+    )
+    assignmentSync.assignmentsByMessageId[userOverridden.stableProviderMessageId] =
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        source: .userOverride,
+        stableProviderMessageId: userOverridden.stableProviderMessageId
+      )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+    let assigned = message(
+      categoryId: "system:flights",
+      isHistorical: true,
+      providerInternalDateMilliseconds: 200
+    )
+
+    let categorized = try await service.categorizeHistorical(
+      messages: [assigned, userOverridden],
+      scope: GmailHistoricalCategorizationScope(
+        receivedAtOrAfterMilliseconds: 100,
+        receivedBeforeMilliseconds: 300
+      ),
+      session: session
+    )
+
+    XCTAssertEqual(categorized.map(\.categoryId), ["system:flights", "system:promotions"])
+    XCTAssertTrue(engine.inputs.isEmpty)
+    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+  }
+}
+
+extension MessageCategorizationServiceTests {
   func testUserCanOverrideHistoricalUncategorizedMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(

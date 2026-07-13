@@ -52,6 +52,12 @@ protocol GmailMessageMetadataPersisting {
 }
 
 protocol GmailMessageMetadataSyncing {
+  func categorizeHistorical(
+    scope: GmailHistoricalCategorizationScope,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult
+
   func loadInbox(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -242,6 +248,31 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     return GmailMetadataSyncResult(
       messages: messages,
       threads: GmailInboxThread.group(messages)
+    )
+  }
+
+  func categorizeHistorical(
+    scope: GmailHistoricalCategorizationScope,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    let messages = try store.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let categorizedMessages = try await categorizer.categorizeHistorical(
+      messages: messages,
+      scope: scope,
+      session: session
+    )
+    try store.saveMessages(
+      categorizedMessages,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    return GmailMetadataSyncResult(
+      messages: categorizedMessages,
+      threads: GmailInboxThread.group(categorizedMessages)
     )
   }
 
