@@ -631,6 +631,37 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(syncedAssignment, firstAssignment)
   }
 
+  func testSaveUserOverrideKeepsFirstSystemSourcedAssignmentAgainstCompetingSystemSource()
+    async throws
+  {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let transport = RecordingCategorySyncTransport()
+    let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let stableProviderMessageId = "gmail:account:message-001"
+    let firstAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      source: .system,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    _ = try await service.saveUserOverride(firstAssignment, session: session)
+
+    let result = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        source: .system,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let synced = try await service.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(result, firstAssignment)
+    XCTAssertEqual(synced, firstAssignment)
+  }
+
   func testFinalCompetingUserAssignmentResolvesWithoutExhaustingRetries() async throws {
     let keyStore = try preparedCategorySyncKeyStore()
     let systemTransport = RecordingCategorySyncTransport()
@@ -676,6 +707,36 @@ extension MessageCategorizationServiceTests {
 
     XCTAssertEqual(delayedResult, firstUserAssignment)
     XCTAssertEqual(syncedAssignment, firstUserAssignment)
+  }
+
+  func testSaveUserOverrideRejectsSystemSourcedAssignmentOverExistingUserOverride() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let transport = RecordingCategorySyncTransport()
+    let service = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let stableProviderMessageId = "gmail:account:message-001"
+    let userOverride = MessageCategoryAssignment(
+      categoryId: "system:invoices",
+      overrideTimestamp: 100,
+      source: .userOverride,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    _ = try await service.saveUserOverride(userOverride, session: session)
+
+    let result = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        source: .system,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let synced = try await service.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(result, userOverride)
+    XCTAssertEqual(synced, userOverride)
   }
 
   func testAssignmentSyncStopsRetryingPersistentCategoryAssignmentConflicts() async throws {
