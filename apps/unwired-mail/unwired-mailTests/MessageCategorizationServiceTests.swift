@@ -570,6 +570,34 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(signals, [concurrentSignal, localSignal])
   }
 
+  func testConditionalWriteRejectsStaleExpectationWhenPayloadIsMissing() async {
+    let transport = RecordingCategorySyncTransport()
+
+    do {
+      _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+        identityToken: "apple-token",
+        payloadIdentifier: "message-category-learning-signals",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "ciphertext",
+          keyVersion: 1,
+          nonceBase64: "nonce",
+          schemaVersion: 1,
+          tagBase64: "tag"
+        ),
+        trustedDeviceId: "trusted-device-001",
+        expectedUpdatedAt: 1
+      )
+      XCTFail("Expected a stale conditional write to fail")
+    } catch let error as URLError {
+      XCTAssertEqual(error.code, .badServerResponse)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
   func testAssignmentSyncRequiresExistingProductSyncKeyMaterial() async throws {
     let service = MessageCategoryAssignmentSyncService(
       keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
@@ -907,9 +935,11 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
       writes.append(conflictPayload)
       return conflictPayload
     }
-    if let existingPayload = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }),
-      existingPayload.updatedAt != expectedUpdatedAt
-    {
+    let existingPayload = writes.first { $0.payloadIdentifier == payloadIdentifier }
+    if existingPayload == nil, expectedUpdatedAt != nil {
+      throw URLError(.badServerResponse)
+    }
+    if let existingPayload, existingPayload.updatedAt != expectedUpdatedAt {
       return existingPayload
     }
     updatedAt += 1
