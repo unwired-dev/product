@@ -104,7 +104,7 @@ export const putEncryptedPayload = mutation({
   },
   handler: (ctx, args) =>
     writePayload(ctx, args, async (existingPayload) => {
-      const now = Date.now();
+      const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch(existingPayload._id, {
         encryptedPayload: args.encryptedPayload,
@@ -137,18 +137,75 @@ export const putEncryptedPayloadIfAbsent = mutation({
   returns: encryptedProductSyncPayloadValidator,
 });
 
-export const listEncryptedPayloads = query({
+export const putEncryptedPayloadIfUnchanged = mutation({
   args: {
-    paginationOpts: v.optional(paginationOptsValidator),
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    expectedUpdatedAt: v.optional(v.number()),
+    payloadIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const { productAccountId } = await requireProductAccount(ctx);
+    await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+    const existingPayload = await findPayload(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
+    if (existingPayload === null) {
+      if (args.expectedUpdatedAt !== undefined) {
+        throw new Error('Encrypted Product Sync payload changed');
+      }
+      return serializePayload(await insertPayload(ctx, args, productAccountId));
+    }
+    if (existingPayload.updatedAt !== args.expectedUpdatedAt) {
+      return serializePayload(existingPayload);
+    }
+
+    const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(existingPayload._id, {
+      encryptedPayload: args.encryptedPayload,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+      writtenAt: now,
+    });
+    return serializePayload({
+      ...existingPayload,
+      encryptedPayload: args.encryptedPayload,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+      writtenAt: now,
+    });
+  },
+  returns: encryptedProductSyncPayloadValidator,
+});
+
+export const listEncryptedPayloads = query({
+  args: {
+    paginationOpts: v.optional(paginationOptsValidator),
+    payloadIdentifierPrefix: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    const { payloadIdentifierPrefix } = args;
+    const payloadsQuery =
+      payloadIdentifierPrefix === undefined
+        ? ctx.db
+            .query('encryptedProductSyncPayloads')
+            .withIndex('by_productAccountId', (q) =>
+              q.eq('productAccountId', productAccountId),
+            )
+        : ctx.db
+            .query('encryptedProductSyncPayloads')
+            .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+              q
+                .eq('productAccountId', productAccountId)
+                .gte('payloadIdentifier', payloadIdentifierPrefix)
+                .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
+            );
     if (args.paginationOpts === undefined) {
-      const payloads = await ctx.db
-        .query('encryptedProductSyncPayloads')
-        .withIndex('by_productAccountId', (q) =>
-          q.eq('productAccountId', productAccountId),
-        )
+      const payloads = await payloadsQuery
         .order('asc')
         .take(encryptedProductSyncPayloadPageSize);
 
@@ -162,13 +219,7 @@ export const listEncryptedPayloads = query({
         encryptedProductSyncPayloadPageSize,
       ),
     };
-    const payloads = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId', (q) =>
-        q.eq('productAccountId', productAccountId),
-      )
-      .order('asc')
-      .paginate(paginationOpts);
+    const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
 
     return {
       continueCursor: payloads.continueCursor,

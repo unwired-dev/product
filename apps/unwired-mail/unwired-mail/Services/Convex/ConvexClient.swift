@@ -133,6 +133,25 @@ final class ConvexClient {
     )
   }
 
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:putEncryptedPayloadIfUnchanged",
+      args: PutEncryptedPayloadIfUnchangedArgs(
+        encryptedPayload: encryptedPayload,
+        expectedUpdatedAt: expectedUpdatedAt,
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func getEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String
@@ -156,7 +175,8 @@ final class ConvexClient {
   }
 
   func listEncryptedProductSyncPayloads(
-    identityToken: String
+    identityToken: String,
+    payloadIdentifierPrefix: String? = nil
   ) async throws -> [EncryptedProductSyncPayload] {
     var allPayloads: [EncryptedProductSyncPayload] = []
     var cursor: String?
@@ -169,7 +189,8 @@ final class ConvexClient {
           paginationOpts: ConvexPaginationOptions(
             cursor: cursor,
             numItems: 100
-          )
+          ),
+          payloadIdentifierPrefix: payloadIdentifierPrefix
         ),
         identityToken: identityToken
       )
@@ -345,6 +366,13 @@ private struct PutEncryptedProductSyncPayloadArgs: Encodable {
   let trustedDeviceId: String
 }
 
+private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let expectedUpdatedAt: Int64?
+  let payloadIdentifier: String
+  let trustedDeviceId: String
+}
+
 private struct GetEncryptedProductSyncPayloadArgs: Encodable {
   let payloadIdentifier: String
 }
@@ -359,6 +387,7 @@ private struct MarkProductSyncMaterialInitializedArgs: Encodable {
 
 private struct ListEncryptedProductSyncPayloadsArgs: Encodable {
   let paginationOpts: ConvexPaginationOptions
+  let payloadIdentifierPrefix: String?
 }
 
 private struct ConvexPaginationOptions: Encodable {

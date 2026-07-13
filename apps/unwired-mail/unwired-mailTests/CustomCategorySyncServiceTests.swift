@@ -127,11 +127,15 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
   private(set) var writeHistory: [EncryptedProductSyncPayload] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
 
-  func listEncryptedProductSyncPayloads(identityToken: String) async throws
+  func listEncryptedProductSyncPayloads(
+    identityToken: String,
+    payloadIdentifierPrefix: String?
+  ) async throws
     -> [EncryptedProductSyncPayload]
   {
     _ = identityToken
-    return writes
+    guard let payloadIdentifierPrefix else { return writes }
+    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
   }
 
   func getEncryptedProductSyncPayload(
@@ -179,6 +183,21 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
       return existingPayload
     }
     return try await putEncryptedProductSyncPayload(
+      identityToken: identityToken,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await putEncryptedProductSyncPayload(
       identityToken: identityToken,
       payloadIdentifier: payloadIdentifier,
       encryptedPayload: encryptedPayload,

@@ -17,6 +17,10 @@ struct CustomCategory: Codable, Equatable, Identifiable {
 }
 
 protocol ProductSyncPayloadTransport {
+  func listEncryptedProductSyncPayloads(
+    identityToken: String,
+    payloadIdentifierPrefix: String?
+  ) async throws -> [EncryptedProductSyncPayload]
   func getEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String
@@ -36,6 +40,13 @@ protocol ProductSyncPayloadTransport {
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId: String
+  ) async throws -> EncryptedProductSyncPayload
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload
 }
 

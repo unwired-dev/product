@@ -365,7 +365,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
     XCTAssertEqual(response.payloadIdentifier, "payload-001")
   }
 
-  func testListEncryptedProductSyncPayloadsSendsAuthenticatedQuery() async throws {
+  func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {
         "status": "success",
@@ -426,6 +426,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(
+          args["payloadIdentifierPrefix"] as? String,
+          "message-category-learning-signal:"
+        )
         let paginationOpts = try XCTUnwrap(args["paginationOpts"] as? [String: Any])
         XCTAssertEqual(paginationOpts["numItems"] as? Int, 100)
         if requestCount == 1 {
@@ -444,7 +448,8 @@ final class ConvexClientProductSyncTests: XCTestCase {
     )
 
     let response = try await client.listEncryptedProductSyncPayloads(
-      identityToken: "apple-token"
+      identityToken: "apple-token",
+      payloadIdentifierPrefix: "message-category-learning-signal:"
     )
 
     XCTAssertEqual(response.map(\.payloadIdentifier), ["payload-001", "payload-002"])

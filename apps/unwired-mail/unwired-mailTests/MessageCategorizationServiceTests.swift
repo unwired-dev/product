@@ -166,7 +166,10 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(categorized, [historical, assigned])
     XCTAssertTrue(engine.inputs.isEmpty)
     XCTAssertTrue(bodyReader.loadedMessageIds.isEmpty)
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches, [[historical.stableProviderMessageId]])
+    XCTAssertEqual(
+      assignmentSync.loadedAssignmentBatches,
+      [[historical.stableProviderMessageId, assigned.stableProviderMessageId]]
+    )
     XCTAssertTrue(assignmentSync.loadedMessageIds.isEmpty)
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
@@ -218,6 +221,273 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(categorized[0].categoryId, "system:flights")
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
+}
+
+extension MessageCategorizationServiceTests {
+  func testUserCanOverrideHistoricalUncategorizedMessage() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 1_781_300_000_000 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    let overridden = try await service.overrideCategory(
+      "system:invoices",
+      for: message(isHistorical: true),
+      session: session
+    )
+
+    XCTAssertEqual(overridden.categoryId, "system:invoices")
+    XCTAssertEqual(
+      assignmentSync.savedUserOverrides,
+      [
+        MessageCategoryAssignment(
+          categoryId: "system:invoices",
+          learningSignal: FutureLearningSignal(
+            appliesAfterTimestamp: 1_781_300_000_000,
+            categoryId: "system:invoices",
+            overrideTimestamp: 1_781_300_000_000,
+            senderAddresses: ["sender@example.com"]
+          ),
+          overrideTimestamp: 1_781_300_000_000,
+          source: .userOverride,
+          stableProviderMessageId: "gmail:account:message-001"
+        )
+      ]
+    )
+  }
+
+  func testFutureLearningSignalInfluencesOnlyMessagesReceivedAfterOverride() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 100 },
+      engine: RuleBasedClassificationEngine()
+    )
+    _ = try await service.overrideCategory(
+      "system:invoices",
+      for: message(
+        from: "Billing <updates@merchant.example>",
+        providerInternalDateMilliseconds: 100
+      ),
+      session: session
+    )
+    let priorMessage = message(
+      from: "Billing <updates@merchant.example>",
+      messageId: "message-002",
+      providerInternalDateMilliseconds: 90,
+      snippet: "Your earlier statement is ready",
+      subject: "Earlier account update"
+    )
+    let futureMessage = message(
+      from: "Billing <updates@merchant.example>",
+      messageId: "message-003",
+      providerInternalDateMilliseconds: 110,
+      snippet: "Your monthly statement is ready",
+      subject: "Account update"
+    )
+    let replyTargetMessage = message(
+      from: "Different sender <other@merchant.example>",
+      messageId: "message-004",
+      providerInternalDateMilliseconds: 115,
+      replyTo: "Billing <updates@merchant.example>"
+    )
+    let existingMessage = message(
+      categoryId: "system:flights",
+      from: "Billing <updates@merchant.example>",
+      messageId: "message-005",
+      providerInternalDateMilliseconds: 120
+    )
+
+    let categorized = try await service.categorize(
+      messages: [priorMessage, futureMessage, replyTargetMessage, existingMessage],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertEqual(categorized[1].categoryId, "system:invoices")
+    XCTAssertNil(categorized[2].categoryId)
+    XCTAssertEqual(categorized[3].categoryId, "system:flights")
+  }
+
+  func testNewestMatchingFutureLearningSignalWinsAcrossCategories() async throws {
+    let decision = try await RuleBasedClassificationEngine().classify(
+      input: ClassificationInput(
+        bodyText: nil,
+        minimized: MinimizedClassificationInput(
+          from: "Billing <updates@merchant.example>",
+          replyTo: nil,
+          snippet: "Account update",
+          subject: "Account update",
+          providerInternalDateMilliseconds: 300
+        )
+      ),
+      categories: [
+        MessageClassificationCategory(
+          id: "system:promotions",
+          keywords: [],
+          learningSignals: [
+            FutureLearningSignal(
+              appliesAfterTimestamp: 100,
+              categoryId: "system:promotions",
+              senderAddresses: ["updates@merchant.example"]
+            )
+          ]
+        ),
+        MessageClassificationCategory(
+          id: "system:flights",
+          keywords: [],
+          learningSignals: [
+            FutureLearningSignal(
+              appliesAfterTimestamp: 200,
+              categoryId: "system:flights",
+              senderAddresses: ["updates@merchant.example"]
+            )
+          ]
+        ),
+      ]
+    )
+
+    XCTAssertEqual(decision, .assigned(categoryId: "system:flights"))
+  }
+
+  func testUserOverrideLearnsOnlyActualFromMailbox() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 100 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    _ = try await service.overrideCategory(
+      "system:invoices",
+      for: message(from: "\"Alice <alice@example.com> via Shop\" <receipts@shop.example>"),
+      session: session
+    )
+
+    XCTAssertEqual(
+      assignmentSync.savedUserOverrides.first?.learningSignal?.senderAddresses,
+      ["receipts@shop.example"]
+    )
+  }
+
+  func testUserOverrideLearningStartsNoEarlierThanOverriddenMessage() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 100 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    _ = try await service.overrideCategory(
+      "system:invoices",
+      for: message(providerInternalDateMilliseconds: 200),
+      session: session
+    )
+
+    XCTAssertEqual(
+      assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp,
+      200
+    )
+  }
+
+  func testUserOverrideLearningUsesActionTimeWhenLaterThanMessage() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 200 },
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    _ = try await service.overrideCategory(
+      "system:invoices",
+      for: message(providerInternalDateMilliseconds: 100),
+      session: session
+    )
+
+    XCTAssertEqual(
+      assignmentSync.savedUserOverrides.first?.learningSignal?.appliesAfterTimestamp,
+      200
+    )
+  }
+
+  func testSyncedUserOverrideReplacesExistingSystemCategory() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.assignmentsByMessageId["gmail:account:message-001"] =
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 1_781_300_000_000,
+          categoryId: "system:invoices",
+          senderAddresses: ["sender@example.com"]
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-001"
+      )
+    let engine = RecordingClassificationEngine(decisions: [])
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(categoryId: "system:flights")],
+      session: session
+    )
+
+    XCTAssertEqual(categorized[0].categoryId, "system:invoices")
+    XCTAssertTrue(engine.inputs.isEmpty)
+  }
+
+  func testSystemAssignmentCannotOverwriteSyncedUserOverride() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let syncService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let userOverride = MessageCategoryAssignment(
+      categoryId: "system:invoices",
+      learningSignal: FutureLearningSignal(
+        appliesAfterTimestamp: 1_781_300_000_000,
+        categoryId: "system:invoices",
+        senderAddresses: ["sender@example.com"]
+      ),
+      source: .userOverride,
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    _ = try await syncService.saveUserOverride(userOverride, session: session)
+
+    let systemResult = try await syncService.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        stableProviderMessageId: userOverride.stableProviderMessageId
+      ),
+      session: session
+    )
+    let synced = try await syncService.loadAssignment(
+      stableProviderMessageId: userOverride.stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(systemResult, userOverride)
+    XCTAssertEqual(synced, userOverride)
+    XCTAssertFalse(transport.writes[0].encryptedPayload.ciphertextBase64.contains("userOverride"))
+  }
 
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
@@ -246,6 +516,474 @@ final class MessageCategorizationServiceTests: XCTestCase {
     XCTAssertEqual(loadedAssignment, assignment)
   }
 
+  func testAssignmentSyncStoresOneBoundedEncryptedSignalPayloadPerSender() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let newestSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:flights",
+      senderAddresses: ["updates@merchant.example"]
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: newestSignal.categoryId,
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: newestSignal.appliesAfterTimestamp,
+          categoryId: newestSignal.categoryId,
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-001"
+      ),
+      session: session
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 100,
+          categoryId: "system:promotions",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-002"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: newestSignal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [newestSignal])
+    XCTAssertEqual(
+      transport.writes.filter {
+        $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+      }.count,
+      1
+    )
+  }
+
+  func testAssignmentSyncLoadsOnlyRequestedLearningSignals() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let requestedSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:invoices",
+      senderAddresses: ["requested@example.com"]
+    )
+    let unrelatedSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:promotions",
+      senderAddresses: ["unrelated@example.com"]
+    )
+    for (index, signal) in [requestedSignal, unrelatedSignal].enumerated() {
+      _ = try await service.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: signal.categoryId,
+          learningSignal: signal,
+          source: .userOverride,
+          stableProviderMessageId: "gmail:account:message-\(index)"
+        ),
+        session: session
+      )
+    }
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: requestedSignal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [requestedSignal])
+    XCTAssertEqual(transport.loadedPayloadIdentifierBatches.map(\.count), [1])
+  }
+
+  func testAssignmentSyncPreservesNewestPerMessageOverride() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let newestOverride = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      learningSignal: FutureLearningSignal(
+        appliesAfterTimestamp: 200,
+        categoryId: "system:flights",
+        senderAddresses: ["updates@merchant.example"]
+      ),
+      source: .userOverride,
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    _ = try await service.saveUserOverride(newestOverride, session: session)
+
+    let staleResult = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 100,
+          categoryId: "system:promotions",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        source: .userOverride,
+        stableProviderMessageId: newestOverride.stableProviderMessageId
+      ),
+      session: session
+    )
+    let synced = try await service.loadAssignment(
+      stableProviderMessageId: newestOverride.stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(staleResult, newestOverride)
+    XCTAssertEqual(synced, newestOverride)
+  }
+
+  func testAssignmentSyncOrdersOverridesSeparatelyFromClampedLearningBoundary() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:invoices",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        overrideTimestamp: 100,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    let newestOverride = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          senderAddresses: ["updates@merchant.example"]
+        ),
+        overrideTimestamp: 150,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    XCTAssertEqual(newestOverride.categoryId, "system:flights")
+    XCTAssertEqual(newestOverride.overrideTimestamp, 150)
+    XCTAssertEqual(newestOverride.learningSignal?.appliesAfterTimestamp, 200)
+  }
+
+  func testAssignmentSyncOrdersSenderSignalsByOverrideTimestamp() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: RecordingCategorySyncTransport()
+    )
+    let senderAddresses = ["updates@merchant.example"]
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 300,
+          categoryId: "system:invoices",
+          overrideTimestamp: 100,
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:later-message"
+      ),
+      session: session
+    )
+
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:flights",
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          overrideTimestamp: 150,
+          senderAddresses: senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:earlier-message"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(
+      signals,
+      [
+        FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: "system:flights",
+          overrideTimestamp: 150,
+          senderAddresses: senderAddresses
+        )
+      ]
+    )
+  }
+
+  func testAssignmentSyncPreservesOriginalLowerBoundForUnchangedCategory() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingCategorySyncTransport()
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let originalSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:invoices",
+      senderAddresses: ["updates@merchant.example"]
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: originalSignal.categoryId,
+        learningSignal: originalSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-001"
+      ),
+      session: session
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: originalSignal.categoryId,
+        learningSignal: FutureLearningSignal(
+          appliesAfterTimestamp: 200,
+          categoryId: originalSignal.categoryId,
+          senderAddresses: originalSignal.senderAddresses
+        ),
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:message-002"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: originalSignal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [originalSignal])
+  }
+
+  func testAssignmentSyncPreservesEarlierSameCategorySignalAfterConcurrentUpdate() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: concurrentTransport
+    )
+    let laterSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:invoices",
+      senderAddresses: ["updates@merchant.example"]
+    )
+    _ = try await concurrentService.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: laterSignal.categoryId,
+        learningSignal: laterSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:later-message"
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+    }
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let earlierSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: laterSignal.categoryId,
+      senderAddresses: laterSignal.senderAddresses
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: earlierSignal.categoryId,
+        learningSignal: earlierSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:earlier-message"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: earlierSignal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [earlierSignal])
+  }
+
+  func testAssignmentSyncStopsRetryingPersistentConditionalWriteConflicts() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: concurrentTransport
+    )
+    let concurrentSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:promotions",
+      senderAddresses: ["offers@merchant.example"]
+    )
+    _ = try await concurrentService.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: concurrentSignal.categoryId,
+        learningSignal: concurrentSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:concurrent-message"
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+    }
+    transport.repeatsConditionalConflictPayload = true
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: "system:flights",
+          learningSignal: FutureLearningSignal(
+            appliesAfterTimestamp: 200,
+            categoryId: "system:flights",
+            senderAddresses: concurrentSignal.senderAddresses
+          ),
+          source: .userOverride,
+          stableProviderMessageId: "gmail:account:local-message"
+        ),
+        session: session
+      )
+      XCTFail("Expected conditional write retries to be bounded")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+    }
+  }
+
+  func testAssignmentSyncRetriesConcurrentLearningSignalUpdate() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: concurrentTransport
+    )
+    let concurrentSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:promotions",
+      senderAddresses: ["offers@merchant.example"]
+    )
+    _ = try await concurrentService.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: concurrentSignal.categoryId,
+        learningSignal: concurrentSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:concurrent-message"
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category-learning-signal:")
+    }
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let localSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:flights",
+      senderAddresses: concurrentSignal.senderAddresses
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: localSignal.categoryId,
+        learningSignal: localSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:local-message"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(
+      senderAddresses: localSignal.senderAddresses,
+      session: session
+    )
+
+    XCTAssertEqual(signals, [localSignal])
+  }
+
+  func testConditionalWriteRejectsStaleExpectationWhenPayloadIsMissing() async {
+    let transport = RecordingCategorySyncTransport()
+
+    do {
+      _ = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+        identityToken: "apple-token",
+        payloadIdentifier: "message-category-learning-signals",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "ciphertext",
+          keyVersion: 1,
+          nonceBase64: "nonce",
+          schemaVersion: 1,
+          tagBase64: "tag"
+        ),
+        trustedDeviceId: "trusted-device-001",
+        expectedUpdatedAt: 1
+      )
+      XCTFail("Expected a stale conditional write to fail")
+    } catch let error as URLError {
+      XCTAssertEqual(error.code, .badServerResponse)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
   func testAssignmentSyncRequiresExistingProductSyncKeyMaterial() async throws {
     let service = MessageCategoryAssignmentSyncService(
       keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
@@ -268,21 +1006,26 @@ final class MessageCategorizationServiceTests: XCTestCase {
 
   private func message(
     categoryId: String? = nil,
+    from: String? = "Sender <sender@example.com>",
     isHistorical: Bool = false,
-    messageId: String = "message-001"
+    messageId: String = "message-001",
+    providerInternalDateMilliseconds: Int64 = 1_781_300_000_000,
+    replyTo: String? = nil,
+    snippet: String = "Message snippet",
+    subject: String = "Message subject"
   ) -> GmailMessageMetadata {
     GmailMessageMetadata(
       categoryId: categoryId,
-      from: "Sender <sender@example.com>",
+      from: from,
       isHistorical: isHistorical,
       providerAccountIdentifier: "account",
-      providerInternalDateMilliseconds: 1_781_300_000_000,
+      providerInternalDateMilliseconds: providerInternalDateMilliseconds,
       providerMessageId: messageId,
       providerThreadId: "thread-001",
-      replyTo: nil,
-      snippet: "Message snippet",
+      replyTo: replyTo,
+      snippet: snippet,
       stableProviderMessageId: "gmail:account:\(messageId)",
-      subject: "Message subject",
+      subject: subject,
       rfcMessageId: nil
     )
   }
@@ -328,11 +1071,11 @@ extension MessageCategorizationServiceTests {
       categorySync: StubCustomCategorySync(),
       engine: FailingClassificationEngine()
     )
-    let messages = (0...8_192).map { message(messageId: "message-\($0)") }
+    let messages = (0...4_000).map { message(messageId: "message-\($0)") }
 
     _ = try await service.categorize(messages: messages, session: session)
 
-    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [8_192, 1])
+    XCTAssertEqual(assignmentSync.loadedAssignmentBatches.map(\.count), [4_000, 1])
   }
 
   func testCategorizationContinuesWhenAssignmentPrefetchFails() async throws {
@@ -351,6 +1094,58 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertNil(categorized[0].categoryId)
+  }
+
+  func testCategorizationStopsWhenLearningSignalsFailToLoad() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.shouldFailLearningSignalLoad = true
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryId: "system:promotions")]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message()],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertTrue(engine.inputs.isEmpty)
+    XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+  }
+
+  func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [.uncategorized])
+    )
+
+    _ = try await service.categorize(
+      messages: [
+        message(from: "Current <current@example.com>"),
+        message(
+          categoryId: "system:invoices",
+          from: "Categorized <categorized@example.com>",
+          messageId: "message-002"
+        ),
+        message(
+          from: "Historical <historical@example.com>",
+          isHistorical: true,
+          messageId: "message-003"
+        ),
+      ],
+      session: session
+    )
+
+    XCTAssertEqual(assignmentSync.loadedLearningSignalSenderAddresses, ["current@example.com"])
   }
 }
 
@@ -400,9 +1195,12 @@ private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
 private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssignmentSyncing {
   var assignmentsByMessageId: [String: MessageCategoryAssignment] = [:]
   var shouldFailBatchLoad = false
+  var shouldFailLearningSignalLoad = false
   private(set) var loadedAssignmentBatches: [[String]] = []
+  private(set) var loadedLearningSignalSenderAddresses: [String] = []
   private(set) var loadedMessageIds: [String] = []
   private(set) var savedAssignments: [MessageCategoryAssignment] = []
+  private(set) var savedUserOverrides: [MessageCategoryAssignment] = []
 
   func loadAssignments(
     stableProviderMessageIds: [String],
@@ -423,11 +1221,36 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     return assignmentsByMessageId[stableProviderMessageId]
   }
 
+  func loadFutureLearningSignals(
+    senderAddresses: [String],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [FutureLearningSignal] {
+    loadedLearningSignalSenderAddresses = senderAddresses
+    if shouldFailLearningSignalLoad {
+      throw URLError(.cannotConnectToHost)
+    }
+    return assignmentsByMessageId.values.compactMap { assignment in
+      guard assignment.source == .userOverride, let signal = assignment.learningSignal else {
+        return nil
+      }
+      return Set(signal.senderAddresses).isDisjoint(with: Set(senderAddresses)) ? nil : signal
+    }
+  }
+
   func saveAssignment(
     _ assignment: MessageCategoryAssignment,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
     savedAssignments.append(assignment)
+    assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
+    return assignment
+  }
+
+  func saveUserOverride(
+    _ assignment: MessageCategoryAssignment,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MessageCategoryAssignment {
+    savedUserOverrides.append(assignment)
     assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
     return assignment
   }
@@ -449,7 +1272,11 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 }
 
 private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
+  var conditionalConflictPayload: EncryptedProductSyncPayload?
+  var repeatsConditionalConflictPayload = false
+  private(set) var loadedPayloadIdentifierBatches: [[String]] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
+  private var updatedAt: Int64 = 1_781_300_000_000
 
   func corruptLastPayload() {
     let payload = writes.removeLast()
@@ -476,17 +1303,20 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     writes.first { $0.payloadIdentifier == payloadIdentifier }
   }
 
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix: String?
+  ) async throws -> [EncryptedProductSyncPayload] {
+    guard let payloadIdentifierPrefix else { return writes }
+    return writes.filter { $0.payloadIdentifier.hasPrefix(payloadIdentifierPrefix) }
+  }
+
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
     payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
-  }
-
-  func listEncryptedProductSyncPayloads(
-    identityToken _: String
-  ) async throws -> [EncryptedProductSyncPayload] {
-    writes
+    loadedPayloadIdentifierBatches.append(payloadIdentifiers)
+    return writes.filter { payloadIdentifiers.contains($0.payloadIdentifier) }
   }
 
   func putEncryptedProductSyncPayload(
@@ -495,10 +1325,11 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload {
+    updatedAt += 1
     let payload = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,
       payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_300_000_000
+      updatedAt: updatedAt
     )
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
     writes.append(payload)
@@ -519,6 +1350,41 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
       payloadIdentifier: payloadIdentifier,
       updatedAt: 1_781_300_000_000
     )
+    writes.append(payload)
+    return payload
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    if let conflictPayload = conditionalConflictPayload,
+      conflictPayload.payloadIdentifier == payloadIdentifier
+    {
+      if !repeatsConditionalConflictPayload {
+        conditionalConflictPayload = nil
+      }
+      writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
+      writes.append(conflictPayload)
+      return conflictPayload
+    }
+    let existingPayload = writes.first { $0.payloadIdentifier == payloadIdentifier }
+    if existingPayload == nil, expectedUpdatedAt != nil {
+      throw URLError(.badServerResponse)
+    }
+    if let existingPayload, existingPayload.updatedAt != expectedUpdatedAt {
+      return existingPayload
+    }
+    updatedAt += 1
+    let payload = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: updatedAt
+    )
+    writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
     writes.append(payload)
     return payload
   }

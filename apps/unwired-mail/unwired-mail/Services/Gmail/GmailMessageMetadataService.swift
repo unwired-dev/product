@@ -61,6 +61,12 @@ protocol GmailMessageMetadataSyncing {
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata
 }
 
 enum GmailProviderMailAction: Equatable {
@@ -296,6 +302,38 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       messages: fetchedMessages,
       threads: GmailInboxThread.group(fetchedMessages)
     )
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    let overriddenMessage = try await categorizer.overrideCategory(
+      categoryId,
+      for: message,
+      session: session
+    )
+    var didReplaceMessage = false
+    var messages = try store.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    ).map { storedMessage in
+      guard storedMessage.stableProviderMessageId == message.stableProviderMessageId else {
+        return storedMessage
+      }
+      didReplaceMessage = true
+      return overriddenMessage
+    }
+    if !didReplaceMessage {
+      messages.append(overriddenMessage)
+    }
+    try store.saveMessages(
+      messages,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
+    return overriddenMessage
   }
 
   func perform(
