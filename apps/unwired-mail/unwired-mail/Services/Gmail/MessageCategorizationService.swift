@@ -273,11 +273,14 @@ protocol MessageCategoryAssignmentSyncing {
 }
 
 enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
+  case conditionalWriteRetryLimitExceeded
   case invalidStableProviderMessageIdentity
   case missingProductSyncKeyMaterial
 
   var errorDescription: String? {
     switch self {
+    case .conditionalWriteRetryLimitExceeded:
+      return "Message Category sync remained busy after several retries."
     case .invalidStableProviderMessageIdentity:
       return "The synced Message Category did not match this Gmail message."
     case .missingProductSyncKeyMaterial:
@@ -287,6 +290,9 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
 }
 
 final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSyncing {
+  private static let conditionalWriteRetryDelayNanoseconds: UInt64 = 10_000_000
+  private static let maximumConditionalWriteAttempts = 3
+
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -467,8 +473,7 @@ extension MessageCategoryAssignmentSyncService {
       identityToken: session.identityToken,
       payloadIdentifier: identifier
     )
-    var storedAssignment: MessageCategoryAssignment
-    while true {
+    for attempt in 1...Self.maximumConditionalWriteAttempts {
       if let storedPayload {
         let existingAssignment = try decryptedAssignment(
           from: storedPayload,
@@ -480,8 +485,7 @@ extension MessageCategoryAssignmentSyncService {
           (existingAssignment.learningSignal?.appliesAfterTimestamp ?? .min)
             >= (assignment.learningSignal?.appliesAfterTimestamp ?? .min)
         {
-          storedAssignment = existingAssignment
-          break
+          return existingAssignment
         }
       }
 
@@ -492,19 +496,19 @@ extension MessageCategoryAssignmentSyncService {
         trustedDeviceId: session.trustedDeviceId,
         expectedUpdatedAt: storedPayload?.updatedAt
       )
-      storedAssignment = try decryptedAssignment(
+      let storedAssignment = try decryptedAssignment(
         from: writtenPayload,
         identifier: identifier,
         material: material,
         stableProviderMessageId: assignment.stableProviderMessageId
       )
       if writtenPayload.encryptedPayload == encryptedPayload {
-        break
+        return storedAssignment
       }
-      try Task.checkCancellation()
+      guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
       storedPayload = writtenPayload
     }
-    return storedAssignment
+    throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
   }
 
   private func saveLearningSignal(
@@ -513,7 +517,7 @@ extension MessageCategoryAssignmentSyncService {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var index = try await loadFutureLearningSignalIndex(session: session)
-    while true {
+    for attempt in 1...Self.maximumConditionalWriteAttempts {
       guard let signals = learningSignalsBySaving(signal, in: index.signals) else {
         return
       }
@@ -533,7 +537,7 @@ extension MessageCategoryAssignmentSyncService {
       if storedPayload.encryptedPayload == encryptedPayload {
         return
       }
-      try Task.checkCancellation()
+      guard try await waitBeforeConditionalWriteRetry(afterAttempt: attempt) else { break }
       let storedPlaintext = try material.decryptPayload(
         storedPayload.encryptedPayload,
         associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
@@ -543,6 +547,14 @@ extension MessageCategoryAssignmentSyncService {
         try decoder.decode(FutureLearningSignalIndex.self, from: storedPlaintext).signals
       )
     }
+    throw MessageCategoryAssignmentSyncError.conditionalWriteRetryLimitExceeded
+  }
+
+  private func waitBeforeConditionalWriteRetry(afterAttempt attempt: Int) async throws -> Bool {
+    try Task.checkCancellation()
+    guard attempt < Self.maximumConditionalWriteAttempts else { return false }
+    try await Task.sleep(nanoseconds: Self.conditionalWriteRetryDelayNanoseconds)
+    return true
   }
 
   private func decryptedAssignment(
@@ -829,19 +841,22 @@ private func learningSignalsBySaving(
   let senderAddresses = Set(signal.senderAddresses)
   if existingSignals.contains(where: { existingSignal in
     !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+      && existingSignal.categoryId != signal.categoryId
       && existingSignal.appliesAfterTimestamp >= signal.appliesAfterTimestamp
   }) {
     return nil
   }
 
-  let appliesAfterTimestamp =
+  let appliesAfterTimestamp = min(
+    signal.appliesAfterTimestamp,
     existingSignals
-    .filter { existingSignal in
-      existingSignal.categoryId == signal.categoryId
-        && !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
-    }
-    .map(\.appliesAfterTimestamp)
-    .min() ?? signal.appliesAfterTimestamp
+      .filter { existingSignal in
+        existingSignal.categoryId == signal.categoryId
+          && !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+      }
+      .map(\.appliesAfterTimestamp)
+      .min() ?? signal.appliesAfterTimestamp
+  )
   var signals = existingSignals
   signals.removeAll { existingSignal in
     !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)

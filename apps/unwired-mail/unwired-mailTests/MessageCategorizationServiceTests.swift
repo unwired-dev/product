@@ -602,6 +602,110 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(signals, [originalSignal])
   }
 
+  func testAssignmentSyncPreservesEarlierSameCategorySignalAfterConcurrentUpdate() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: concurrentTransport
+    )
+    let laterSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 200,
+      categoryId: "system:invoices",
+      senderAddresses: ["updates@merchant.example"]
+    )
+    _ = try await concurrentService.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: laterSignal.categoryId,
+        learningSignal: laterSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:later-message"
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier == "message-category-learning-signals"
+    }
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let earlierSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: laterSignal.categoryId,
+      senderAddresses: laterSignal.senderAddresses
+    )
+    _ = try await service.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: earlierSignal.categoryId,
+        learningSignal: earlierSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:earlier-message"
+      ),
+      session: session
+    )
+
+    let signals = try await service.loadFutureLearningSignals(session: session)
+
+    XCTAssertEqual(signals, [earlierSignal])
+  }
+
+  func testAssignmentSyncStopsRetryingPersistentConditionalWriteConflicts() async throws {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentService = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: concurrentTransport
+    )
+    let concurrentSignal = FutureLearningSignal(
+      appliesAfterTimestamp: 100,
+      categoryId: "system:promotions",
+      senderAddresses: ["offers@merchant.example"]
+    )
+    _ = try await concurrentService.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: concurrentSignal.categoryId,
+        learningSignal: concurrentSignal,
+        source: .userOverride,
+        stableProviderMessageId: "gmail:account:concurrent-message"
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier == "message-category-learning-signals"
+    }
+    transport.repeatsConditionalConflictPayload = true
+    let service = MessageCategoryAssignmentSyncService(
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: "system:flights",
+          learningSignal: FutureLearningSignal(
+            appliesAfterTimestamp: 200,
+            categoryId: "system:flights",
+            senderAddresses: ["travel@merchant.example"]
+          ),
+          source: .userOverride,
+          stableProviderMessageId: "gmail:account:local-message"
+        ),
+        session: session
+      )
+      XCTFail("Expected conditional write retries to be bounded")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+    }
+  }
+
   func testAssignmentSyncRetriesConcurrentLearningSignalUpdate() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -935,6 +1039,7 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 
 private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
   var conditionalConflictPayload: EncryptedProductSyncPayload?
+  var repeatsConditionalConflictPayload = false
   private(set) var writes: [EncryptedProductSyncPayload] = []
   private var updatedAt: Int64 = 1_781_300_000_000
 
@@ -1015,7 +1120,9 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     if let conflictPayload = conditionalConflictPayload,
       conflictPayload.payloadIdentifier == payloadIdentifier
     {
-      conditionalConflictPayload = nil
+      if !repeatsConditionalConflictPayload {
+        conditionalConflictPayload = nil
+      }
       writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
       writes.append(conflictPayload)
       return conflictPayload
