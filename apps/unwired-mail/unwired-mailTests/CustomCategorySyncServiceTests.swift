@@ -185,4 +185,19 @@ private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
       trustedDeviceId: trustedDeviceId
     )
   }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await putEncryptedProductSyncPayload(
+      identityToken: identityToken,
+      payloadIdentifier: payloadIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
 }

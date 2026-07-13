@@ -367,13 +367,19 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
   func loadFutureLearningSignals(
     session: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
+    try await loadFutureLearningSignalIndex(session: session).signals
+  }
+
+  private func loadFutureLearningSignalIndex(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> (payload: EncryptedProductSyncPayload?, signals: [FutureLearningSignal]) {
     guard
       let payload = try await transport.getEncryptedProductSyncPayload(
         identityToken: session.identityToken,
         payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier
       )
     else {
-      return []
+      return (nil, [])
     }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
@@ -383,7 +389,7 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
       payload.encryptedPayload,
       associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
     )
-    return try decoder.decode(FutureLearningSignalIndex.self, from: plaintext).signals
+    return (payload, try decoder.decode(FutureLearningSignalIndex.self, from: plaintext).signals)
   }
 
   func saveAssignment(
@@ -458,23 +464,46 @@ final class MessageCategoryAssignmentSyncService: MessageCategoryAssignmentSynci
     material: ProductSyncKeyMaterial,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    var signals = try await loadFutureLearningSignals(session: session)
-    let senderAddresses = Set(signal.senderAddresses)
-    signals.removeAll { existingSignal in
-      !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+    var index = try await loadFutureLearningSignalIndex(session: session)
+    while true {
+      let senderAddresses = Set(signal.senderAddresses)
+      if index.signals.contains(where: { existingSignal in
+        !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+          && existingSignal.appliesAfterTimestamp >= signal.appliesAfterTimestamp
+      }) {
+        return
+      }
+
+      var signals = index.signals
+      signals.removeAll { existingSignal in
+        !senderAddresses.isDisjoint(with: existingSignal.senderAddresses)
+      }
+      signals.append(signal)
+      let plaintext = try encoder.encode(FutureLearningSignalIndex(signals: signals))
+      let encryptedPayload = try material.encryptPayload(
+        plaintext,
+        associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
+      )
+      let storedPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+        identityToken: session.identityToken,
+        payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier,
+        encryptedPayload: encryptedPayload,
+        trustedDeviceId: session.trustedDeviceId,
+        expectedUpdatedAt: index.payload?.updatedAt
+      )
+      if storedPayload.encryptedPayload == encryptedPayload {
+        return
+      }
+      try Task.checkCancellation()
+      let storedPlaintext = try material.decryptPayload(
+        storedPayload.encryptedPayload,
+        associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
+      )
+      index = (
+        storedPayload,
+        try decoder.decode(FutureLearningSignalIndex.self, from: storedPlaintext).signals
+      )
     }
-    signals.append(signal)
-    let plaintext = try encoder.encode(FutureLearningSignalIndex(signals: signals))
-    let encryptedPayload = try material.encryptPayload(
-      plaintext,
-      associatedData: Data(FutureLearningSignalIndex.payloadIdentifier.utf8)
-    )
-    _ = try await transport.putEncryptedProductSyncPayload(
-      identityToken: session.identityToken,
-      payloadIdentifier: FutureLearningSignalIndex.payloadIdentifier,
-      encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
-    )
   }
 
   private func decryptedAssignment(
@@ -726,13 +755,7 @@ struct GmailMessageCategorizationService: GmailMessageCategorizing {
     let categories =
       (customClassificationCategory.map { [$0] } ?? [])
       + MessageClassificationCategory.systemCategories
-    let learningSignals: [FutureLearningSignal]
-    do {
-      learningSignals = try await assignmentSync.loadFutureLearningSignals(session: session)
-    } catch {
-      try Task.checkCancellation()
-      learningSignals = []
-    }
+    let learningSignals = try await assignmentSync.loadFutureLearningSignals(session: session)
     return categories.map { category in
       MessageClassificationCategory(
         id: category.id,

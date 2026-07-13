@@ -133,6 +133,25 @@ final class ConvexClient {
     )
   }
 
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:putEncryptedPayloadIfUnchanged",
+      args: PutEncryptedPayloadIfUnchangedArgs(
+        encryptedPayload: encryptedPayload,
+        expectedUpdatedAt: expectedUpdatedAt,
+        payloadIdentifier: payloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func getEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String
@@ -341,6 +360,13 @@ private struct GetGmailProviderConnectionArgs: Encodable {
 
 private struct PutEncryptedProductSyncPayloadArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
+  let payloadIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let expectedUpdatedAt: Int64?
   let payloadIdentifier: String
   let trustedDeviceId: String
 }

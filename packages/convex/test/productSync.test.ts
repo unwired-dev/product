@@ -152,6 +152,56 @@ describe('productSync encrypted payloads', () => {
     );
   });
 
+  it('updates an encrypted payload only when its version is unchanged', async () => {
+    expect.assertions(3);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const first = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'message-category-learning-signals',
+    );
+    const concurrent = await asUser.mutation(
+      api.productSync.putEncryptedPayload,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'Y29uY3VycmVudA',
+        },
+        payloadIdentifier: 'message-category-learning-signals',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const staleAttempt = await asUser.mutation(
+      api.productSync.putEncryptedPayloadIfUnchanged,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'c3RhbGU',
+        },
+        expectedUpdatedAt: first.updatedAt,
+        payloadIdentifier: 'message-category-learning-signals',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const updated = await asUser.mutation(
+      api.productSync.putEncryptedPayloadIfUnchanged,
+      {
+        encryptedPayload: {
+          ...encryptedPayload,
+          ciphertextBase64: 'bWVyZ2Vk',
+        },
+        expectedUpdatedAt: concurrent.updatedAt,
+        payloadIdentifier: 'message-category-learning-signals',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(concurrent.updatedAt).toBeGreaterThan(first.updatedAt);
+    expect(staleAttempt).toStrictEqual(concurrent);
+    expect(updated.encryptedPayload.ciphertextBase64).toBe('bWVyZ2Vk');
+  });
+
   it('paginates encrypted payload listing past the first page', async () => {
     expect.assertions(4);
 

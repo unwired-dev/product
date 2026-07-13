@@ -104,7 +104,7 @@ export const putEncryptedPayload = mutation({
   },
   handler: (ctx, args) =>
     writePayload(ctx, args, async (existingPayload) => {
-      const now = Date.now();
+      const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch(existingPayload._id, {
         encryptedPayload: args.encryptedPayload,
@@ -134,6 +134,50 @@ export const putEncryptedPayloadIfAbsent = mutation({
     writePayload(ctx, args, async (existingPayload) =>
       serializePayload(existingPayload),
     ),
+  returns: encryptedProductSyncPayloadValidator,
+});
+
+export const putEncryptedPayloadIfUnchanged = mutation({
+  args: {
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    expectedUpdatedAt: v.optional(v.number()),
+    payloadIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+    const existingPayload = await findPayload(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
+    if (existingPayload === null) {
+      if (args.expectedUpdatedAt !== undefined) {
+        throw new Error('Encrypted Product Sync payload changed');
+      }
+      return serializePayload(await insertPayload(ctx, args, productAccountId));
+    }
+    if (existingPayload.updatedAt !== args.expectedUpdatedAt) {
+      return serializePayload(existingPayload);
+    }
+
+    const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(existingPayload._id, {
+      encryptedPayload: args.encryptedPayload,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+      writtenAt: now,
+    });
+    return serializePayload({
+      ...existingPayload,
+      encryptedPayload: args.encryptedPayload,
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: now,
+      writtenAt: now,
+    });
+  },
   returns: encryptedProductSyncPayloadValidator,
 });
 

@@ -37,6 +37,13 @@ protocol ProductSyncPayloadTransport {
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload
 }
 
 protocol CustomCategorySyncing {
