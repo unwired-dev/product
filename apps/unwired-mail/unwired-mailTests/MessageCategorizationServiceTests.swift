@@ -489,6 +489,234 @@ extension MessageCategorizationServiceTests {
     XCTAssertFalse(transport.writes[0].encryptedPayload.ciphertextBase64.contains("userOverride"))
   }
 
+  func testDelayedSystemAssignmentsKeepFirstAssignment() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let transport = RecordingCategorySyncTransport()
+    let firstDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let firstAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+
+    _ = try await firstDevice.saveAssignment(firstAssignment, session: session)
+    let delayedResult = try await delayedDevice.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        stableProviderMessageId: firstAssignment.stableProviderMessageId
+      ),
+      session: session
+    )
+    let syncedAssignment = try await delayedDevice.loadAssignment(
+      stableProviderMessageId: firstAssignment.stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(delayedResult, firstAssignment)
+    XCTAssertEqual(syncedAssignment, firstAssignment)
+  }
+
+  func testDelayedUserAssignmentBeatsConcurrentSystemAssignment() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentDevice = categoryAssignmentSync(
+      keyStore: keyStore,
+      transport: concurrentTransport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await concurrentDevice.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category:")
+    }
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let userAssignment = MessageCategoryAssignment(
+      categoryId: "system:invoices",
+      learningSignal: FutureLearningSignal(
+        appliesAfterTimestamp: 200,
+        categoryId: "system:invoices",
+        overrideTimestamp: 200,
+        senderAddresses: ["sender@example.com"]
+      ),
+      overrideTimestamp: 200,
+      source: .userOverride,
+      stableProviderMessageId: stableProviderMessageId
+    )
+
+    let delayedResult = try await delayedDevice.saveUserOverride(userAssignment, session: session)
+    let syncedAssignment = try await delayedDevice.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(delayedResult, userAssignment)
+    XCTAssertEqual(syncedAssignment, userAssignment)
+  }
+
+  func testDelayedCompetingUserAssignmentsKeepFirstAssignment() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentDevice = categoryAssignmentSync(
+      keyStore: keyStore,
+      transport: concurrentTransport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    let firstAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      overrideTimestamp: 100,
+      source: .userOverride,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    _ = try await concurrentDevice.saveUserOverride(firstAssignment, session: session)
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category:")
+    }
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let delayedResult = try await delayedDevice.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        overrideTimestamp: 200,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let syncedAssignment = try await delayedDevice.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(delayedResult, firstAssignment)
+    XCTAssertEqual(syncedAssignment, firstAssignment)
+  }
+
+  func testCompetingUserAssignmentsWithSameTimestampKeepFirstAssignment() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let transport = RecordingCategorySyncTransport()
+    let firstDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let stableProviderMessageId = "gmail:account:message-001"
+    let firstAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      overrideTimestamp: 100,
+      source: .userOverride,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    _ = try await firstDevice.saveUserOverride(firstAssignment, session: session)
+
+    let delayedResult = try await delayedDevice.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        overrideTimestamp: 100,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let syncedAssignment = try await delayedDevice.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(delayedResult, firstAssignment)
+    XCTAssertEqual(syncedAssignment, firstAssignment)
+  }
+
+  func testFinalCompetingUserAssignmentResolvesWithoutExhaustingRetries() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let systemTransport = RecordingCategorySyncTransport()
+    let systemDevice = categoryAssignmentSync(keyStore: keyStore, transport: systemTransport)
+    let userTransport = RecordingCategorySyncTransport()
+    let userDevice = categoryAssignmentSync(keyStore: keyStore, transport: userTransport)
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await systemDevice.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let firstUserAssignment = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      overrideTimestamp: 100,
+      source: .userOverride,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    _ = try await userDevice.saveUserOverride(firstUserAssignment, session: session)
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayloads = [
+      systemTransport.writes[0],
+      systemTransport.writes[0],
+      userTransport.writes[0],
+    ]
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+    let delayedResult = try await delayedDevice.saveUserOverride(
+      MessageCategoryAssignment(
+        categoryId: "system:invoices",
+        overrideTimestamp: 200,
+        source: .userOverride,
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+    let syncedAssignment = try await delayedDevice.loadAssignment(
+      stableProviderMessageId: stableProviderMessageId,
+      session: session
+    )
+
+    XCTAssertEqual(delayedResult, firstUserAssignment)
+    XCTAssertEqual(syncedAssignment, firstUserAssignment)
+  }
+
+  func testAssignmentSyncStopsRetryingPersistentCategoryAssignmentConflicts() async throws {
+    let keyStore = try preparedCategorySyncKeyStore()
+    let concurrentTransport = RecordingCategorySyncTransport()
+    let concurrentDevice = categoryAssignmentSync(
+      keyStore: keyStore,
+      transport: concurrentTransport
+    )
+    let stableProviderMessageId = "gmail:account:message-001"
+    _ = try await concurrentDevice.saveAssignment(
+      MessageCategoryAssignment(
+        categoryId: "system:promotions",
+        stableProviderMessageId: stableProviderMessageId
+      ),
+      session: session
+    )
+
+    let transport = RecordingCategorySyncTransport()
+    transport.conditionalConflictPayload = concurrentTransport.writes.first {
+      $0.payloadIdentifier.hasPrefix("message-category:")
+    }
+    transport.repeatsConditionalConflictPayload = true
+    let delayedDevice = categoryAssignmentSync(keyStore: keyStore, transport: transport)
+
+    do {
+      _ = try await delayedDevice.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: "system:invoices",
+          overrideTimestamp: 200,
+          source: .userOverride,
+          stableProviderMessageId: stableProviderMessageId
+        ),
+        session: session
+      )
+      XCTFail("Expected conditional write retries to be bounded")
+    } catch let error as MessageCategoryAssignmentSyncError {
+      XCTAssertEqual(error, .conditionalWriteRetryLimitExceeded)
+    }
+  }
+
   func testAssignmentSyncEncryptsCategoryByStableProviderMessageIdentity() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -1029,6 +1257,19 @@ extension MessageCategorizationServiceTests {
       rfcMessageId: nil
     )
   }
+
+  private func preparedCategorySyncKeyStore() throws -> InMemoryProductSyncKeyMaterialStore {
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    return keyStore
+  }
+
+  private func categoryAssignmentSync(
+    keyStore: InMemoryProductSyncKeyMaterialStore,
+    transport: RecordingCategorySyncTransport
+  ) -> MessageCategoryAssignmentSyncService {
+    MessageCategoryAssignmentSyncService(keyMaterialStore: keyStore, transport: transport)
+  }
 }
 
 extension MessageCategorizationServiceTests {
@@ -1273,6 +1514,7 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 
 private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport {
   var conditionalConflictPayload: EncryptedProductSyncPayload?
+  var conditionalConflictPayloads: [EncryptedProductSyncPayload] = []
   var repeatsConditionalConflictPayload = false
   private(set) var loadedPayloadIdentifierBatches: [[String]] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
@@ -1361,6 +1603,12 @@ private final class RecordingCategorySyncTransport: ProductSyncPayloadTransport 
     trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
+    if !conditionalConflictPayloads.isEmpty {
+      let conflictPayload = conditionalConflictPayloads.removeFirst()
+      writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
+      writes.append(conflictPayload)
+      return conflictPayload
+    }
     if let conflictPayload = conditionalConflictPayload,
       conflictPayload.payloadIdentifier == payloadIdentifier
     {
