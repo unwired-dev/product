@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 #if canImport(UIKit)
   import UIKit
 #endif
@@ -19,6 +21,14 @@ protocol GmailPushWatchPersisting {
     _ status: GmailPushWatchStatus,
     productAccountId: String,
     providerAccountIdentifier: String
+  ) throws
+}
+
+protocol GmailPushConnectionPersisting {
+  func load(productAccountId: String) throws -> GmailProviderConnectionStatus?
+  func save(
+    _ connection: GmailProviderConnectionStatus,
+    productAccountId: String
   ) throws
 }
 
@@ -69,10 +79,40 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
   }
 }
 
+struct UserDefaultsGmailPushConnectionStore: GmailPushConnectionPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
+    guard let data = defaults.data(forKey: key(productAccountId)) else {
+      return nil
+    }
+    return try JSONDecoder().decode(GmailProviderConnectionStatus.self, from: data)
+  }
+
+  func save(
+    _ connection: GmailProviderConnectionStatus,
+    productAccountId: String
+  ) throws {
+    defaults.set(
+      try JSONEncoder().encode(connection),
+      forKey: key(productAccountId)
+    )
+  }
+
+  private func key(_ productAccountId: String) -> String {
+    "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))"
+  }
+}
+
 struct GmailPushWatchService: GmailPushWatchRegistering {
   private static let renewalLeadTimeMilliseconds: Int64 = 86_400_000
 
   private let gmailBaseURL: URL
+  private let connectionStore: GmailPushConnectionPersisting
   private let nowMilliseconds: () -> Int64
   private let session: URLSession
   private let store: GmailPushWatchPersisting
@@ -80,6 +120,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
   private let topicName: String?
 
   init(
+    connectionStore: GmailPushConnectionPersisting = UserDefaultsGmailPushConnectionStore(),
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     nowMilliseconds: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
@@ -89,6 +130,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
     tokenRefresher: GmailProviderTokenRefreshing = GmailMessageMetadataService(),
     topicName: String? = GmailPushTopicConfiguration.value()
   ) {
+    self.connectionStore = connectionStore
     self.gmailBaseURL = gmailBaseURL
     self.nowMilliseconds = nowMilliseconds
     self.session = session
@@ -101,6 +143,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
     connection: GmailProviderConnectionStatus,
     session productSession: ProductAccountSessionSnapshot
   ) async throws -> GmailPushWatchStatus {
+    try connectionStore.save(connection, productAccountId: productSession.productAccountId)
     if let existing = try currentWatch(
       connection: connection,
       productSession: productSession
@@ -247,16 +290,16 @@ extension ConvexClient: DevicePushRegistrationTransport {}
 
 @MainActor
 struct GmailPushWakeupHandler {
-  private let connectionService: GmailProviderConnecting
+  private let connectionStore: GmailPushConnectionPersisting
   private let sessionStore: ProductAccountSessionPersisting
   private let syncService: GmailMessageMetadataSyncing
 
   init(
-    connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
+    connectionStore: GmailPushConnectionPersisting = UserDefaultsGmailPushConnectionStore(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
   ) {
-    self.connectionService = connectionService
+    self.connectionStore = connectionStore
     self.sessionStore = sessionStore
     self.syncService = syncService
   }
@@ -267,7 +310,11 @@ struct GmailPushWakeupHandler {
       let historyId = userInfo["historyId"] as? String,
       !historyId.isEmpty,
       let productSession = try sessionStore.load(),
-      let connection = try await connectionService.loadConnection(session: productSession)
+      let connection = try connectionStore.load(
+        productAccountId: productSession.productAccountId
+      ),
+      connection.provider == "gmail",
+      connection.trustedDeviceId == productSession.trustedDeviceId
     else {
       return false
     }
@@ -297,7 +344,6 @@ enum GmailPushTopicConfiguration {
 
 enum GmailPushRelayError: LocalizedError, Equatable {
   case invalidWatchResponse
-  case missingLocalGmailTokens
   case missingTopicName
   case watchRegistrationFailed
 
@@ -305,8 +351,6 @@ enum GmailPushRelayError: LocalizedError, Equatable {
     switch self {
     case .invalidWatchResponse:
       return "Gmail returned an invalid push watch response."
-    case .missingLocalGmailTokens:
-      return "This device has no local Gmail tokens for push watch renewal."
     case .missingTopicName:
       return "Gmail Pub/Sub topic is not configured."
     case .watchRegistrationFailed:

@@ -7,6 +7,8 @@ struct AccountView: View {
   let snapshot: ProductAccountSessionSnapshot
   private let gmailMessageBodyService: GmailMessageReading
 
+  @Environment(\.scenePhase) private var scenePhase
+
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
@@ -111,6 +113,12 @@ struct AccountView: View {
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
+      }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task {
+        await gmailViewModel.renewPushWatch()
       }
     }
   }
@@ -468,6 +476,21 @@ private final class GmailProviderConnectionViewModel {
       }
       accessToken = ""
       refreshToken = ""
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func renewPushWatch() async {
+    guard let connection else { return }
+
+    do {
+      _ = try await pushWatchService.registerOrRenew(
+        connection: connection,
+        session: session
+      )
       errorMessage = nil
     } catch is CancellationError {
     } catch {
