@@ -109,7 +109,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
-  func testCompleteConnectionClearsLocalCacheBeforeUpdateRegistration() async throws {
+  func testCompleteConnectionPreservesLocalCacheWhenUpdateRegistrationFails() async throws {
     let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
     let transport = RecordingGmailConnectionTransport()
@@ -148,8 +148,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       XCTFail("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(bodyReader.clearedSessions, [session])
-    XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
+    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
   }
 
   // swiftlint:disable:next function_body_length
@@ -181,6 +181,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       trustedDeviceId: "trusted-device-001",
       updatedAt: 1_781_210_000_000
     )
+    transport.onConnect = {
+      XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+      XCTAssertTrue(pushWatchStore.clearedKeys.isEmpty)
+      XCTAssertNil(pushWatchStopper.stoppedConnection)
+    }
     let service = GmailProviderConnectionService(
       pushWatchStopper: pushWatchStopper,
       pushWatchStore: pushWatchStore,
@@ -211,7 +216,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
-  func testCompleteConnectionDoesNotRotateRouteWhenMetadataCleanupFails() async throws {
+  func testCompleteConnectionReportsMetadataCleanupFailureAfterRouteUpdate() async throws {
     let metadataStore = RecordingGmailProviderMetadataStore()
     metadataStore.clearError = GmailProviderConnectionTestError.metadataCleanupFailed
     let pushWatchStore = RecordingPushWatchStore()
@@ -259,7 +264,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertTrue(pushWatchStore.clearedKeys.isEmpty)
-    XCTAssertTrue(transport.connectCalls.isEmpty)
+    XCTAssertEqual(transport.connectCalls.count, 1)
   }
 
   func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
@@ -309,8 +314,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       XCTFail("Unexpected error: \(error)")
     }
 
-    XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
-    XCTAssertTrue(transport.connectCalls.isEmpty)
+    XCTAssertEqual(
+      try tokenStore.load(productAccountId: session.productAccountId),
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+    )
+    XCTAssertEqual(transport.connectCalls.count, 1)
   }
 
   func testCompleteConnectionClearsLocalCacheWhenPriorLookupFails() async throws {
@@ -346,7 +354,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
-  func testCompleteConnectionDoesNotRestorePreviousTokensWhenCancelled() async throws {
+  func testCompleteConnectionRestoresPreviousTokensWhenCancelled() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
       GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
@@ -376,7 +384,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
       XCTFail("Expected cancellation")
     } catch is CancellationError {
-      XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+      XCTAssertEqual(
+        try tokenStore.load(productAccountId: session.productAccountId),
+        GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token")
+      )
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
@@ -1114,12 +1125,17 @@ private final class RecordingPushWatchStopper: GmailPushWatchStopping {
 
   func stop(
     connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    tokens: GmailProviderTokens?
   ) async throws {
     stoppedConnection = connection
     stoppedSession = session
-    tokensWereAvailable =
-      try tokenStore.load(productAccountId: session.productAccountId) != nil
+    if tokens != nil {
+      tokensWereAvailable = true
+    } else {
+      tokensWereAvailable =
+        try tokenStore.load(productAccountId: session.productAccountId) != nil
+    }
     if let stopError {
       throw stopError
     }

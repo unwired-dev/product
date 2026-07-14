@@ -378,6 +378,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)
     XCTAssertEqual(syncService.syncedConnection, connection)
     XCTAssertEqual(syncService.syncedSession, session)
+    XCTAssertEqual(syncService.sinceHistoryId, "123")
     XCTAssertEqual(
       watchStore.savedStatus,
       GmailPushWatchStatus(
@@ -708,6 +709,7 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
 private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataSyncing {
   var onSync: (() -> Void)?
   var shouldPersist: Bool?
+  var sinceHistoryId: String?
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
 
@@ -736,10 +738,12 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     syncedConnection = connection
     syncedSession = session
+    self.sinceHistoryId = sinceHistoryId
     onSync?()
     let canPersist = shouldPersist()
     self.shouldPersist = canPersist

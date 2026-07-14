@@ -89,8 +89,18 @@ protocol GmailPushWatchRegistering {
 protocol GmailPushWatchStopping {
   func stop(
     connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    tokens: GmailProviderTokens?
   ) async throws
+}
+
+extension GmailPushWatchStopping {
+  func stop(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await stop(connection: connection, session: session, tokens: nil)
+  }
 }
 
 protocol GmailPushVerificationTransport {
@@ -267,12 +277,18 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
 
   func stop(
     connection: GmailProviderConnectionStatus,
-    session productSession: ProductAccountSessionSnapshot
+    session productSession: ProductAccountSessionSnapshot,
+    tokens providedTokens: GmailProviderTokens?
   ) async throws {
-    let tokens = try await verifiedTokens(
-      connection: connection,
-      productSession: productSession
-    )
+    let tokens: GmailProviderTokens
+    if let providedTokens {
+      tokens = providedTokens
+    } else {
+      tokens = try await verifiedTokens(
+        connection: connection,
+        productSession: productSession
+      )
+    }
     var request = URLRequest(
       url: gmailBaseURL.appendingPathComponent("users/me/stop")
     )
@@ -560,6 +576,7 @@ struct GmailPushWakeupHandler {
       _ = try await syncService.syncRecentInbox(
         connection: connection,
         session: productSession,
+        sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
         shouldPersist: routeIsCurrent
       )
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
