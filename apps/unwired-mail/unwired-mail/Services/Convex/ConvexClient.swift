@@ -99,6 +99,17 @@ final class ConvexClient {
     )
   }
 
+  func shouldStopGmailPushWatch(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    try await performQuery(
+      path: "pushRelay:shouldStopGmailWatch",
+      args: ShouldStopGmailPushWatchArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
   func registerDevicePush(
     apnsEnvironment: String,
     apnsToken: String,
@@ -406,6 +417,10 @@ private struct GetGmailProviderConnectionArgs: Encodable {
 private struct RegisterDevicePushArgs: Encodable {
   let apnsEnvironment: String
   let apnsToken: String
+  let trustedDeviceId: String
+}
+
+private struct ShouldStopGmailPushWatchArgs: Encodable {
   let trustedDeviceId: String
 }
 

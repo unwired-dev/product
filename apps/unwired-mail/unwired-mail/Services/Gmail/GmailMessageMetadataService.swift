@@ -70,7 +70,8 @@ protocol GmailMessageMetadataSyncing {
 
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult
 
   func overrideCategory(
@@ -78,6 +79,19 @@ protocol GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+}
+
+extension GmailMessageMetadataSyncing {
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await syncRecentInbox(
+      connection: connection,
+      session: session,
+      shouldPersist: { true }
+    )
+  }
 }
 
 enum GmailProviderMailAction: Equatable {
@@ -291,29 +305,38 @@ struct GmailMessageMetadataService:
       connection: connection,
       maximumPages: nil,
       preservingUnlistedMessages: false,
-      session: session
+      session: session,
+      shouldPersist: nil
     )
   }
 
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     try await syncInbox(
       connection: connection,
       maximumPages: 1,
       preservingUnlistedMessages: true,
-      session: session
+      session: session,
+      shouldPersist: shouldPersist
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func syncInbox(
     connection: GmailProviderConnectionStatus,
     maximumPages: Int?,
     preservingUnlistedMessages: Bool,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: (() -> Bool)?
   ) async throws -> GmailMetadataSyncResult {
-    let tokens = try await refreshProviderTokens(connection: connection, session: session)
+    let tokens = try await tokensForSync(
+      connection: connection,
+      deferPersistence: shouldPersist != nil,
+      session: session
+    )
     let existingMessages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -355,6 +378,12 @@ struct GmailMessageMetadataService:
     }
 
     try Task.checkCancellation()
+    guard shouldPersist?() ?? true else {
+      throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
+    if shouldPersist != nil {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    }
     try store.saveMessages(
       fetchedMessages,
       productAccountId: session.productAccountId,
@@ -365,6 +394,23 @@ struct GmailMessageMetadataService:
       messages: fetchedMessages,
       threads: GmailInboxThread.group(fetchedMessages)
     )
+  }
+
+  private func tokensForSync(
+    connection: GmailProviderConnectionStatus,
+    deferPersistence: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      persist: !deferPersistence,
+      productAccountId: session.productAccountId
+    )
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    return tokens
   }
 
   func refreshProviderTokens(
@@ -793,6 +839,7 @@ struct GmailMessageMetadataService:
 
   private func refreshedTokens(
     _ tokens: GmailProviderTokens,
+    persist: Bool = true,
     productAccountId: String
   ) async throws -> GmailProviderTokens {
     guard let oauthClientId, !oauthClientId.isEmpty else {
@@ -824,7 +871,9 @@ struct GmailMessageMetadataService:
       accessToken: tokenResponse.accessToken,
       refreshToken: tokens.refreshToken
     )
-    try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    if persist {
+      try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    }
     return refreshedTokens
   }
 
@@ -889,6 +938,7 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case missingOAuthClientId
   case refreshedTokenAccountMismatch
   case refreshTokenRejected
+  case staleLocalConnection
 
   var errorDescription: String? {
     switch self {
@@ -908,6 +958,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Local Gmail tokens belong to a different Google account."
     case .refreshTokenRejected:
       return "Gmail did not refresh local mail access for this account."
+    case .staleLocalConnection:
+      return "The Gmail connection changed while mailbox sync was running."
     }
   }
 }

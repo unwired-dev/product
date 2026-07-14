@@ -389,6 +389,38 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testGmailWakeupDoesNotPersistAfterSessionChangesDuringSync() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.onSync = {
+      try? sessionStore.clear()
+    }
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(syncService.shouldPersist, false)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -632,6 +664,8 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
 }
 
 private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataSyncing {
+  var onSync: (() -> Void)?
+  var shouldPersist: Bool?
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
 
@@ -659,10 +693,17 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
 
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     syncedConnection = connection
     syncedSession = session
+    onSync?()
+    let canPersist = shouldPersist()
+    self.shouldPersist = canPersist
+    guard canPersist else {
+      throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
     return GmailMetadataSyncResult(messages: [], threads: [])
   }
 

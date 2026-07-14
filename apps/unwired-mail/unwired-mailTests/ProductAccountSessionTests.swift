@@ -116,6 +116,46 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [])
   }
 
+  func testSignOutPreservesSessionSavedDuringGmailCleanup() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: ProductAccountConnectResponse.preview.productAccountId,
+      trustedDeviceId: ProductAccountConnectResponse.preview.trustedDeviceId
+    )
+    try store.save(oldSnapshot)
+    let gmailCleanupGate = SignOutUnregistrationGate()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "new-token"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: SuspendingGmailProviderConnecting(
+        gate: gmailCleanupGate
+      ),
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let signOutTask = Task {
+      await session.signOut()
+    }
+    await gmailCleanupGate.waitUntilStarted()
+    await session.signInWithApple()
+    guard case .signedIn(let newSnapshot) = session.state else {
+      return XCTFail("Expected concurrent sign-in to complete")
+    }
+    await gmailCleanupGate.release()
+    await signOutTask.value
+
+    XCTAssertEqual(session.state, .signedIn(newSnapshot))
+    XCTAssertEqual(try store.load(), newSnapshot)
+  }
+
   func testSignOutClearsStoredSessionWhenGmailCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -780,6 +820,27 @@ private struct SuspendingDevicePushUnregisterer: DevicePushUnregistering {
 
   func unregister(session _: ProductAccountSessionSnapshot) async throws {
     await gate.waitForRelease()
+  }
+}
+
+private struct SuspendingGmailProviderConnecting: GmailProviderConnecting {
+  let gate: SignOutUnregistrationGate
+
+  func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {
+    await gate.waitForRelease()
+  }
+
+  func completeConnection(
+    verifiedAccount _: VerifiedGmailAccount,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus {
+    throw ConvexClientError.missingConvexURL
+  }
+
+  func loadConnection(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    nil
   }
 }
 

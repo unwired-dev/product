@@ -498,6 +498,7 @@ struct GmailPushWakeupHandler {
     self.watchStore = watchStore
   }
 
+  // swiftlint:disable:next function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == "gmail",
@@ -524,10 +525,35 @@ struct GmailPushWakeupHandler {
       return false
     }
 
-    _ = try await syncService.syncRecentInbox(
-      connection: connection,
-      session: productSession
-    )
+    let routeIsCurrent = {
+      guard
+        let currentSession = try? sessionStore.load(),
+        currentSession == productSession,
+        let currentConnection = try? connectionStore.load(
+          productAccountId: productSession.productAccountId
+        ),
+        currentConnection == connection,
+        let currentWatch = try? watchStore.load(
+          productAccountId: productSession.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ),
+        currentWatch == watchStatus
+      else {
+        return false
+      }
+      return true
+    }
+
+    do {
+      _ = try await syncService.syncRecentInbox(
+        connection: connection,
+        session: productSession,
+        shouldPersist: routeIsCurrent
+      )
+    } catch GmailMessageMetadataSyncError.staleLocalConnection {
+      return false
+    }
+    guard routeIsCurrent() else { return false }
     try watchStore.save(
       GmailPushWatchStatus(
         expirationMilliseconds: watchStatus.expirationMilliseconds,

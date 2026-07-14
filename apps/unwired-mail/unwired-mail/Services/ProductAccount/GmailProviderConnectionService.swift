@@ -70,6 +70,11 @@ protocol GmailProviderConnectionTransport {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> GmailProviderConnectionStatus?
+
+  func shouldStopGmailPushWatch(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> Bool
 }
 
 protocol GmailProviderConnecting {
@@ -190,6 +195,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     if shouldClearLocalCache {
       try clearLocalCache(session: session)
       if let previousConnection {
+        await stopPushWatchIfLastActiveRoute(
+          connection: previousConnection,
+          session: session
+        )
         try pushWatchStore.clear(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: previousConnection.providerAccountIdentifier
@@ -222,11 +231,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = error
     }
     if let connection {
-      do {
-        try await pushWatchStopper.stop(connection: connection, session: session)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
+      await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
     }
     do {
       try bodyReader.clearCachedMessageBodies(session: session)
@@ -278,6 +283,22 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     if let cleanupError {
       throw cleanupError
     }
+  }
+
+  private func stopPushWatchIfLastActiveRoute(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    guard
+      (try? await transport.shouldStopGmailPushWatch(
+        identityToken: session.identityToken,
+        trustedDeviceId: session.trustedDeviceId
+      )) == true
+    else {
+      return
+    }
+
+    try? await pushWatchStopper.stop(connection: connection, session: session)
   }
 
   private func registerConnection(

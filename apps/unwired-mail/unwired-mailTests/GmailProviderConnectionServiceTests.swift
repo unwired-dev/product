@@ -152,10 +152,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  // swiftlint:disable:next function_body_length
   func testCompleteConnectionClearsMetadataWhenProviderAccountChanges() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "old-access-token", refreshToken: "old-refresh-token"),
+      productAccountId: session.productAccountId
+    )
     let metadataStore = RecordingGmailProviderMetadataStore()
     let pushWatchStore = RecordingPushWatchStore()
+    let pushWatchStopper = RecordingPushWatchStopper(tokenStore: tokenStore)
     let transport = RecordingGmailConnectionTransport()
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -176,6 +182,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       updatedAt: 1_781_210_000_000
     )
     let service = GmailProviderConnectionService(
+      pushWatchStopper: pushWatchStopper,
       pushWatchStore: pushWatchStore,
       metadataStore: metadataStore,
       tokenStore: tokenStore,
@@ -195,6 +202,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(status.providerAccountIdentifier, "new-gmail-user")
+    XCTAssertEqual(pushWatchStopper.stoppedConnection, transport.status)
+    XCTAssertTrue(pushWatchStopper.tokensWereAvailable)
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(
       pushWatchStore.clearedKeys,
@@ -512,6 +521,49 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       pushWatchStore.clearedKeys,
       ["\(session.productAccountId):gmail-user-001"]
     )
+  }
+
+  func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    transport.shouldStopWatch = false
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    let pushWatchStopper = RecordingPushWatchStopper(tokenStore: tokenStore)
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStopper: pushWatchStopper,
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    try await service.clearLocalConnection(session: session)
+
+    XCTAssertNil(pushWatchStopper.stoppedConnection)
+    XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
+  }
+
+  func testClearLocalConnectionTreatsWatchStopFailureAsBestEffort() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let pushWatchStopper = RecordingPushWatchStopper(tokenStore: tokenStore)
+    pushWatchStopper.stopError = GmailProviderConnectionTestError.watchStopFailed
+    let pushConnectionStore = RecordingPushConnectionStore(
+      connection: RecordingGmailConnectionTransport().status
+    )
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStopper: pushWatchStopper,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    try await service.clearLocalConnection(session: session)
+
+    XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
   }
 
   func testClearLocalConnectionAttemptsMetadataCleanupWhenTokenCleanupFails() async throws {
@@ -893,6 +945,7 @@ private enum GmailProviderConnectionTestError: Error {
   case metadataCleanupFailed
   case registrationFailed
   case tokenCleanupFailed
+  case watchStopFailed
 }
 
 private struct FailingGmailMessageReader: GmailMessageReading {
@@ -962,6 +1015,8 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_000
   )
+  var shouldStopError: Error?
+  var shouldStopWatch = true
 
   func connectGmailProvider(
     identityToken: String,
@@ -996,6 +1051,16 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     }
 
     return status
+  }
+
+  func shouldStopGmailPushWatch(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> Bool {
+    if let shouldStopError {
+      throw shouldStopError
+    }
+    return shouldStopWatch
   }
 }
 
@@ -1041,6 +1106,7 @@ private final class RecordingPushWatchStopper: GmailPushWatchStopping {
   var stoppedConnection: GmailProviderConnectionStatus?
   var stoppedSession: ProductAccountSessionSnapshot?
   var tokensWereAvailable = false
+  var stopError: Error?
 
   init(tokenStore: GmailProviderTokenPersisting) {
     self.tokenStore = tokenStore
@@ -1054,6 +1120,9 @@ private final class RecordingPushWatchStopper: GmailPushWatchStopping {
     stoppedSession = session
     tokensWereAvailable =
       try tokenStore.load(productAccountId: session.productAccountId) != nil
+    if let stopError {
+      throw stopError
+    }
   }
 }
 

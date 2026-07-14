@@ -150,16 +150,19 @@ final class ProductAccountSession {
     }
     do {
       try sessionStore.clear()
+      var gmailCleanupError: Error?
       if let snapshot {
         do {
           try await gmailProviderConnectionService.clearLocalConnection(session: snapshot)
-          state = .signedOut
         } catch {
-          state = .failed(error.localizedDescription)
+          gmailCleanupError = error
         }
-      } else {
-        state = .signedOut
       }
+      guard
+        currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
+        (try? sessionStore.load()) == nil
+      else { return }
+      state = gmailCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
     } catch {
       state = .failed(error.localizedDescription)
     }

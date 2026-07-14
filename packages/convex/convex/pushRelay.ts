@@ -14,6 +14,7 @@ import {
   internalMutation,
   internalQuery,
   mutation,
+  query,
 } from './_generated/server.js';
 import { requireAuthenticatedTrustedDevice } from './productAccountAuth.js';
 
@@ -99,6 +100,39 @@ async function apnsRecipientForDevice(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
   };
+}
+
+async function hasOtherActiveGmailRoute(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    emailAddress: string;
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<boolean> {
+  const connections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_provider_and_emailAddress', (q) =>
+      q.eq('provider', 'gmail').eq('emailAddress', request.emailAddress),
+    )
+    .take(100);
+
+  for (const connection of connections) {
+    if (
+      connection.productAccountId === request.productAccountId &&
+      connection.trustedDeviceId !== request.trustedDeviceId
+    ) {
+      const device = await ctx.db.get(connection.trustedDeviceId);
+      if (
+        device?.apnsEnvironment !== undefined &&
+        device.apnsToken !== undefined
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function gmailConnectionsForDevice(
@@ -352,6 +386,29 @@ export const unregisterDevice = mutation({
     return { registered: false };
   },
   returns: devicePushRegistrationResponseValidator,
+});
+
+export const shouldStopGmailWatch = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const connection = await requireGmailConnection(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    return !(await hasOtherActiveGmailRoute(ctx, {
+      emailAddress: connection.emailAddress,
+      productAccountId: account.productAccountId,
+      trustedDeviceId: args.trustedDeviceId,
+    }));
+  },
+  returns: v.boolean(),
 });
 
 export const verifyGmailWatch = mutation({

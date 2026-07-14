@@ -93,6 +93,51 @@ const appleIdentity = {
 };
 
 describe('gmail push relay', () => {
+  it('stops a mailbox watch only after its last active device route', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    for (const trustedDeviceId of [
+      firstDevice.trustedDeviceId,
+      secondDevice.trustedDeviceId,
+    ]) {
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId,
+      });
+    }
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'second-apns-token',
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      }),
+      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+    ).resolves.toBe(false);
+    await asUser.mutation(api.pushRelay.unregisterDevice, {
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it('registers APNs routing data for an owned trusted device', async () => {
     expect.assertions(3);
 

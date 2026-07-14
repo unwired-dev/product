@@ -472,6 +472,28 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
   }
 
+  func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
+    let fixture = try makeSyncFixture()
+    let originalTokens = try XCTUnwrap(
+      fixture.tokenStore.load(productAccountId: session.productAccountId)
+    )
+
+    do {
+      _ = try await fixture.service.syncRecentInbox(
+        connection: connection,
+        session: session,
+        shouldPersist: { false }
+      )
+      XCTFail("Expected stale local connection")
+    } catch GmailMessageMetadataSyncError.staleLocalConnection {
+      XCTAssertEqual(
+        try fixture.tokenStore.load(productAccountId: session.productAccountId),
+        originalTokens
+      )
+      XCTAssertTrue(fixture.store.savedMessages.isEmpty)
+    }
+  }
+
   func testProviderActionsRequireGmailWriteScope() async throws {
     let fixture = try makeMailActionFixture(
       tokenScopes: "https://www.googleapis.com/auth/gmail.readonly"
@@ -948,7 +970,8 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
 
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
-    session _: ProductAccountSessionSnapshot
+    session _: ProductAccountSessionSnapshot,
+    shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     result(for: connection)
   }
