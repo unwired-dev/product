@@ -56,6 +56,7 @@ export default defineSchema({
     providerAccountIdentifier: v.string(),
     pushVerificationHistoryId: v.optional(v.string()),
     pushVerificationRequestedAt: v.optional(v.number()),
+    pushVerifiedHistoryId: v.optional(v.string()),
     pushVerifiedAt: v.optional(v.number()),
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),

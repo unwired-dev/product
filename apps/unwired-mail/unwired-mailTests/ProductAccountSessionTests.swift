@@ -234,7 +234,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
   }
 
-  func testSignInClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
+  func testSignInCompletesAccountSwitchWhenPushUnregistrationFails() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "old-token",
@@ -242,6 +242,7 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: "oldTrustedDeviceId"
     )
     try store.save(oldSnapshot)
+    pushUnregisterer.error = ProductAccountSessionTestError.pushUnregistrationFailed
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(

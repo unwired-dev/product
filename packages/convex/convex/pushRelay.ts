@@ -39,6 +39,20 @@ type ApnsRecipient = Readonly<{
 
 const gmailPushVerificationSignalLifetimeMs = 10 * 60 * 1000;
 
+function gmailHistoryIdAtOrAfter(
+  candidateHistoryId: string,
+  requestedHistoryId: string,
+): boolean {
+  if (candidateHistoryId === requestedHistoryId) {
+    return true;
+  }
+  try {
+    return BigInt(candidateHistoryId) >= BigInt(requestedHistoryId);
+  } catch {
+    return false;
+  }
+}
+
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   emailAddress: string,
@@ -149,27 +163,33 @@ export const verifyGmailWatch = mutation({
     if (connection === null) {
       throw new Error('Gmail connection required');
     }
+    if (connection.pushVerifiedHistoryId === args.historyId) {
+      return { verified: true };
+    }
 
-    const signal = await ctx.db
+    const signals = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_emailAddress_and_historyId', (q) =>
-        q
-          .eq('emailAddress', connection.emailAddress)
-          .eq('historyId', args.historyId),
+      .withIndex('by_emailAddress', (q) =>
+        q.eq('emailAddress', connection.emailAddress),
       )
-      .unique();
+      .take(100);
     const now = Date.now();
-    const verified =
-      signal !== null &&
-      signal.historyId === args.historyId &&
-      now - signal.receivedAt <= gmailPushVerificationSignalLifetimeMs;
+    const signal = signals.find(
+      (candidate) =>
+        now - candidate.receivedAt <= gmailPushVerificationSignalLifetimeMs &&
+        gmailHistoryIdAtOrAfter(candidate.historyId, args.historyId),
+    );
+    const verified = signal !== undefined;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(connection._id, {
       pushVerificationHistoryId: verified ? undefined : args.historyId,
       pushVerificationRequestedAt: verified ? undefined : now,
+      pushVerifiedHistoryId: verified
+        ? args.historyId
+        : connection.pushVerifiedHistoryId,
       pushVerifiedAt: verified ? now : connection.pushVerifiedAt,
     });
-    if (verified && signal !== null) {
+    if (verified && signal !== undefined) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(signal._id);
     }
@@ -232,7 +252,11 @@ export const enqueueGmailWakeups = internalMutation({
       .take(100);
     for (const connection of pendingConnections) {
       if (
-        connection.pushVerificationHistoryId === args.historyId &&
+        connection.pushVerificationHistoryId !== undefined &&
+        gmailHistoryIdAtOrAfter(
+          args.historyId,
+          connection.pushVerificationHistoryId,
+        ) &&
         connection.pushVerificationRequestedAt !== undefined &&
         now - connection.pushVerificationRequestedAt <=
           gmailPushVerificationSignalLifetimeMs
@@ -241,6 +265,7 @@ export const enqueueGmailWakeups = internalMutation({
         await ctx.db.patch(connection._id, {
           pushVerificationHistoryId: undefined,
           pushVerificationRequestedAt: undefined,
+          pushVerifiedHistoryId: connection.pushVerificationHistoryId,
           pushVerifiedAt: now,
         });
       }

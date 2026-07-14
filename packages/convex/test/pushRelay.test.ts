@@ -213,7 +213,7 @@ describe('gmail push relay', () => {
   });
 
   it('keeps multiple Gmail verification signals until the matching device verifies', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -241,6 +241,48 @@ describe('gmail push relay', () => {
     await expect(
       asUser.mutation(api.pushRelay.verifyGmailWatch, {
         historyId: 'history-first',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: 'history-first',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+  });
+
+  it('verifies a Gmail watch from a later notification history id', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: false });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: '101',
+    });
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ verified: true });

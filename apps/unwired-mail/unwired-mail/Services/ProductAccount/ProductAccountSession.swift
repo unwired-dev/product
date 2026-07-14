@@ -119,7 +119,7 @@ final class ProductAccountSession {
         trustedDeviceId: response.trustedDeviceId
       )
       let previousSnapshot = try? sessionStore.load()
-      try await unregisterDeviceIfProductAccountChanged(
+      await unregisterDeviceIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
       )
@@ -179,7 +179,7 @@ final class ProductAccountSession {
     _ existingSnapshot: ProductAccountSessionSnapshot,
     with snapshot: ProductAccountSessionSnapshot
   ) async throws {
-    try await unregisterDeviceIfProductAccountChanged(
+    await unregisterDeviceIfProductAccountChanged(
       from: existingSnapshot,
       to: snapshot
     )
@@ -207,7 +207,7 @@ final class ProductAccountSession {
   private func unregisterDeviceIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
-  ) async throws {
+  ) async {
     guard
       let existingSnapshot,
       existingSnapshot.productAccountId != snapshot.productAccountId
@@ -215,7 +215,7 @@ final class ProductAccountSession {
       return
     }
 
-    try await devicePushUnregistrationService.unregister(session: existingSnapshot)
+    try? await devicePushUnregistrationService.unregister(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {

@@ -226,6 +226,9 @@ export const connectGmailProvider = mutation({
       pushVerificationRequestedAt: routingIdentityChanged
         ? undefined
         : existingConnection.pushVerificationRequestedAt,
+      pushVerifiedHistoryId: routingIdentityChanged
+        ? undefined
+        : existingConnection.pushVerifiedHistoryId,
       pushVerifiedAt: routingIdentityChanged
         ? undefined
         : existingConnection.pushVerifiedAt,
