@@ -322,6 +322,9 @@ final class GmailInboxViewModel {
       errorMessage = nil
     } catch is CancellationError {
     } catch {
+      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
+        return
+      }
       errorMessage = error.localizedDescription
     }
   }
