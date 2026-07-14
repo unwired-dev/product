@@ -19,6 +19,7 @@ struct AccountView: View {
     gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
+    gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
     gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService()
@@ -35,6 +36,7 @@ struct AccountView: View {
     _gmailViewModel = State(
       initialValue: GmailProviderConnectionViewModel(
         credentialVerifier: gmailCredentialVerifier,
+        pushWatchService: gmailPushWatchService,
         service: gmailConnectionService,
         isSessionCurrent: { session.isCurrent($0) },
         session: snapshot
@@ -102,6 +104,9 @@ struct AccountView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
+      #if canImport(UIKit)
+        requestDevicePushRegistration()
+      #endif
       await categoryViewModel.load()
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
@@ -370,16 +375,19 @@ private final class GmailProviderConnectionViewModel {
 
   private let credentialVerifier: GmailProviderCredentialVerifying
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let pushWatchService: GmailPushWatchRegistering
   private let service: GmailProviderConnecting
   private let session: ProductAccountSessionSnapshot
 
   init(
     credentialVerifier: GmailProviderCredentialVerifying,
+    pushWatchService: GmailPushWatchRegistering,
     service: GmailProviderConnecting,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     session: ProductAccountSessionSnapshot
   ) {
     self.credentialVerifier = credentialVerifier
+    self.pushWatchService = pushWatchService
     self.isSessionCurrent = isSessionCurrent
     self.service = service
     self.session = session
@@ -406,6 +414,12 @@ private final class GmailProviderConnectionViewModel {
 
     do {
       connection = try await service.loadConnection(session: session)
+      if let connection {
+        _ = try await pushWatchService.registerOrRenew(
+          connection: connection,
+          session: session
+        )
+      }
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
@@ -446,6 +460,12 @@ private final class GmailProviderConnectionViewModel {
         verifiedAccount: verifiedAccount,
         session: session
       )
+      if let connection {
+        _ = try await pushWatchService.registerOrRenew(
+          connection: connection,
+          session: session
+        )
+      }
       accessToken = ""
       refreshToken = ""
       errorMessage = nil

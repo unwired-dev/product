@@ -21,3 +21,8 @@ export {
   type EncryptedProductSyncPayloadBody,
   type EncryptedProductSyncPayloadPage,
 } from './productSync.ts';
+export {
+  devicePushRegistrationResponseFixture,
+  devicePushRegistrationResponseValidator,
+  type DevicePushRegistrationResponse,
+} from './pushRelay.ts';

@@ -1,6 +1,13 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalEnv": ["APPLE_BUNDLE_ID"],
+  "globalEnv": [
+    "APPLE_BUNDLE_ID",
+    "APNS_KEY_ID",
+    "APNS_PRIVATE_KEY",
+    "APNS_TEAM_ID",
+    "APNS_TOPIC",
+    "GMAIL_PUSH_VERIFICATION_TOKEN"
+  ],
   "tasks": {
     "lint": {
       "dependsOn": ["^lint"]

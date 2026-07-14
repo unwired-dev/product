@@ -1,0 +1,372 @@
+import Foundation
+
+#if canImport(UIKit)
+  import UIKit
+#endif
+
+struct GmailPushWatchStatus: Codable, Equatable {
+  let expirationMilliseconds: Int64
+  let historyId: String
+}
+
+protocol GmailPushWatchPersisting {
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailPushWatchStatus?
+
+  func save(
+    _ status: GmailPushWatchStatus,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+}
+
+protocol GmailPushWatchRegistering {
+  func registerOrRenew(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailPushWatchStatus
+}
+
+protocol GmailProviderTokenRefreshing {
+  func refreshProviderTokens(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens
+}
+
+struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailPushWatchStatus? {
+    guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier)) else {
+      return nil
+    }
+    return try JSONDecoder().decode(GmailPushWatchStatus.self, from: data)
+  }
+
+  func save(
+    _ status: GmailPushWatchStatus,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    defaults.set(
+      try JSONEncoder().encode(status),
+      forKey: key(productAccountId, providerAccountIdentifier)
+    )
+  }
+
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    "gmail-push-watch.\(gmailSafeFileComponent(productAccountId)).\(gmailSafeFileComponent(providerAccountIdentifier))"
+  }
+}
+
+struct GmailPushWatchService: GmailPushWatchRegistering {
+  private static let renewalLeadTimeMilliseconds: Int64 = 86_400_000
+
+  private let gmailBaseURL: URL
+  private let nowMilliseconds: () -> Int64
+  private let session: URLSession
+  private let store: GmailPushWatchPersisting
+  private let tokenRefresher: GmailProviderTokenRefreshing
+  private let topicName: String?
+
+  init(
+    gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
+    nowMilliseconds: @escaping () -> Int64 = {
+      Int64(Date().timeIntervalSince1970 * 1_000)
+    },
+    session: URLSession = .shared,
+    store: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
+    tokenRefresher: GmailProviderTokenRefreshing = GmailMessageMetadataService(),
+    topicName: String? = GmailPushTopicConfiguration.value()
+  ) {
+    self.gmailBaseURL = gmailBaseURL
+    self.nowMilliseconds = nowMilliseconds
+    self.session = session
+    self.store = store
+    self.tokenRefresher = tokenRefresher
+    self.topicName = topicName
+  }
+
+  func registerOrRenew(
+    connection: GmailProviderConnectionStatus,
+    session productSession: ProductAccountSessionSnapshot
+  ) async throws -> GmailPushWatchStatus {
+    if let existing = try currentWatch(
+      connection: connection,
+      productSession: productSession
+    ) {
+      return existing
+    }
+
+    let topicName = try requiredTopicName()
+    let tokens = try await verifiedTokens(
+      connection: connection,
+      productSession: productSession
+    )
+    let status = try await registerWatch(
+      accessToken: tokens.accessToken,
+      topicName: topicName
+    )
+    try store.save(
+      status,
+      productAccountId: productSession.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    return status
+  }
+
+  private func currentWatch(
+    connection: GmailProviderConnectionStatus,
+    productSession: ProductAccountSessionSnapshot
+  ) throws -> GmailPushWatchStatus? {
+    guard
+      let status = try store.load(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      status.expirationMilliseconds - nowMilliseconds()
+        > Self.renewalLeadTimeMilliseconds
+    else {
+      return nil
+    }
+    return status
+  }
+
+  private func requiredTopicName() throws -> String {
+    guard let topicName, !topicName.isEmpty else {
+      throw GmailPushRelayError.missingTopicName
+    }
+    return topicName
+  }
+
+  private func verifiedTokens(
+    connection: GmailProviderConnectionStatus,
+    productSession: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    try await tokenRefresher.refreshProviderTokens(
+      connection: connection,
+      session: productSession
+    )
+  }
+
+  private func registerWatch(
+    accessToken: String,
+    topicName: String
+  ) async throws -> GmailPushWatchStatus {
+    var request = URLRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/watch")
+    )
+    request.httpMethod = "POST"
+    request.setValue(
+      "Bearer \(accessToken)",
+      forHTTPHeaderField: "Authorization"
+    )
+    request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+    request.httpBody = try JSONEncoder().encode(
+      GmailWatchRequest(
+        labelFilterBehavior: "INCLUDE",
+        labelIds: ["INBOX"],
+        topicName: topicName
+      )
+    )
+
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailPushRelayError.watchRegistrationFailed
+    }
+
+    let watchResponse = try JSONDecoder().decode(GmailWatchResponse.self, from: data)
+    guard let expirationMilliseconds = Int64(watchResponse.expiration) else {
+      throw GmailPushRelayError.invalidWatchResponse
+    }
+    let status = GmailPushWatchStatus(
+      expirationMilliseconds: expirationMilliseconds,
+      historyId: watchResponse.historyId
+    )
+    return status
+  }
+}
+
+struct DevicePushRegistrationResponse: Decodable, Equatable {
+  let registered: Bool
+}
+
+protocol DevicePushRegistrationTransport {
+  func registerDevicePush(
+    apnsEnvironment: String,
+    apnsToken: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse
+}
+
+enum DevicePushEnvironment: String {
+  case production
+  case sandbox
+}
+
+struct DevicePushRegistrationService {
+  private let environment: DevicePushEnvironment
+  private let transport: DevicePushRegistrationTransport
+
+  init(
+    environment: DevicePushEnvironment,
+    transport: DevicePushRegistrationTransport = ConvexClient()
+  ) {
+    self.environment = environment
+    self.transport = transport
+  }
+
+  func register(
+    deviceToken: Data,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+    _ = try await transport.registerDevicePush(
+      apnsEnvironment: environment.rawValue,
+      apnsToken: token,
+      identityToken: session.identityToken,
+      trustedDeviceId: session.trustedDeviceId
+    )
+  }
+}
+
+extension ConvexClient: DevicePushRegistrationTransport {}
+
+@MainActor
+struct GmailPushWakeupHandler {
+  private let connectionService: GmailProviderConnecting
+  private let sessionStore: ProductAccountSessionPersisting
+  private let syncService: GmailMessageMetadataSyncing
+
+  init(
+    connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
+  ) {
+    self.connectionService = connectionService
+    self.sessionStore = sessionStore
+    self.syncService = syncService
+  }
+
+  func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
+    guard
+      userInfo["provider"] as? String == "gmail",
+      let historyId = userInfo["historyId"] as? String,
+      !historyId.isEmpty,
+      let productSession = try sessionStore.load(),
+      let connection = try await connectionService.loadConnection(session: productSession)
+    else {
+      return false
+    }
+
+    _ = try await syncService.syncInbox(
+      connection: connection,
+      session: productSession
+    )
+    return true
+  }
+}
+
+enum GmailPushTopicConfiguration {
+  static let infoDictionaryKey = "GmailPubSubTopic"
+
+  static func value(bundle: Bundle = .main) -> String? {
+    let value =
+      ProcessInfo.processInfo.environment["GMAIL_PUBSUB_TOPIC"]
+      ?? DotEnvFile.value(for: "GMAIL_PUBSUB_TOPIC")
+      ?? bundle.object(forInfoDictionaryKey: infoDictionaryKey) as? String
+    guard let value, !value.isEmpty, !value.contains("$(") else {
+      return nil
+    }
+    return value
+  }
+}
+
+enum GmailPushRelayError: LocalizedError, Equatable {
+  case invalidWatchResponse
+  case missingLocalGmailTokens
+  case missingTopicName
+  case watchRegistrationFailed
+
+  var errorDescription: String? {
+    switch self {
+    case .invalidWatchResponse:
+      return "Gmail returned an invalid push watch response."
+    case .missingLocalGmailTokens:
+      return "This device has no local Gmail tokens for push watch renewal."
+    case .missingTopicName:
+      return "Gmail Pub/Sub topic is not configured."
+    case .watchRegistrationFailed:
+      return "Gmail push watch registration failed."
+    }
+  }
+}
+
+private struct GmailWatchRequest: Encodable {
+  let labelFilterBehavior: String
+  let labelIds: [String]
+  let topicName: String
+}
+
+private struct GmailWatchResponse: Decodable {
+  let expiration: String
+  let historyId: String
+}
+
+#if canImport(UIKit)
+  @MainActor
+  final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
+    func application(
+      _: UIApplication,
+      didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
+    ) {
+      Task { @MainActor in
+        guard let session = try? ProductAccountSessionStore.load() else {
+          return
+        }
+        #if DEBUG
+          let environment = DevicePushEnvironment.sandbox
+        #else
+          let environment = DevicePushEnvironment.production
+        #endif
+        try? await DevicePushRegistrationService(environment: environment).register(
+          deviceToken: deviceToken,
+          session: session
+        )
+      }
+    }
+
+    func application(
+      _: UIApplication,
+      didReceiveRemoteNotification userInfo: [AnyHashable: Any],
+      fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
+    ) {
+      Task { @MainActor in
+        do {
+          let handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+          completionHandler(handled ? .newData : .noData)
+        } catch {
+          completionHandler(.failed)
+        }
+      }
+    }
+  }
+
+  @MainActor
+  func requestDevicePushRegistration() {
+    UIApplication.shared.registerForRemoteNotifications()
+  }
+#endif

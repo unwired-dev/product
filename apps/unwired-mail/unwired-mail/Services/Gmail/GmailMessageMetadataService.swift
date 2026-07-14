@@ -204,7 +204,9 @@ func gmailSafeFileComponent(_ value: String) -> String {
     }
 }
 
-struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMailActing {
+struct GmailMessageMetadataService:
+  GmailMessageMetadataSyncing, GmailProviderMailActing, GmailProviderTokenRefreshing
+{
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
   private let oauthClientId: String?
@@ -280,15 +282,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
-      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
-    }
-
-    let tokens = try await refreshedTokens(
-      storedTokens,
-      productAccountId: session.productAccountId
-    )
-    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    let tokens = try await refreshProviderTokens(connection: connection, session: session)
     let existingMessages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -333,6 +327,22 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       messages: fetchedMessages,
       threads: GmailInboxThread.group(fetchedMessages)
     )
+  }
+
+  func refreshProviderTokens(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      productAccountId: session.productAccountId
+    )
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    return tokens
   }
 
   func overrideCategory(

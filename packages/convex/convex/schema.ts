@@ -10,6 +10,10 @@ export default defineSchema({
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
   trustedDevices: defineTable({
+    apnsEnvironment: v.optional(
+      v.union(v.literal('production'), v.literal('sandbox')),
+    ),
+    apnsToken: v.optional(v.string()),
     deviceIdentifier: v.string(),
     lastSeenAt: v.number(),
     platform: v.string(),
@@ -53,6 +57,7 @@ export default defineSchema({
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),
   })
+    .index('by_provider_and_emailAddress', ['provider', 'emailAddress'])
     .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
     .index('by_productAccountId_and_provider_and_trustedDeviceId', [
       'productAccountId',

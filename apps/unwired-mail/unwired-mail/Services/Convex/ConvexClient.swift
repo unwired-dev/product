@@ -99,6 +99,23 @@ final class ConvexClient {
     )
   }
 
+  func registerDevicePush(
+    apnsEnvironment: String,
+    apnsToken: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    try await performMutation(
+      path: "pushRelay:registerDevice",
+      args: RegisterDevicePushArgs(
+        apnsEnvironment: apnsEnvironment,
+        apnsToken: apnsToken,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -357,6 +374,12 @@ private struct ConnectGmailProviderArgs: Encodable {
 }
 
 private struct GetGmailProviderConnectionArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct RegisterDevicePushArgs: Encodable {
+  let apnsEnvironment: String
+  let apnsToken: String
   let trustedDeviceId: String
 }
 

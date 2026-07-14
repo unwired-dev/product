@@ -1,0 +1,367 @@
+import XCTest
+
+@testable import unwired_mail
+
+@MainActor
+final class GmailPushRelayServiceTests: XCTestCase {
+  private let connection = GmailProviderConnectionStatus(
+    connectedAt: 1_781_200_000_000,
+    emailAddress: "user@example.com",
+    lastVerifiedAt: 1_781_200_000_000,
+    provider: "gmail",
+    providerAccountIdentifier: "gmail-user-001",
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_000
+  )
+  private let session = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user-001",
+    identityToken: "apple-token",
+    productAccountId: "product-account-001",
+    trustedDeviceId: "trusted-device-001"
+  )
+
+  func testTokenRefresherRenewsExpiredAccessTokenFromDeviceHeldRefreshToken() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "expired-access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let requestSession = ConvexClientTesting.makeSession { request in
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+      )!
+      if request.url?.path == "/token" {
+        return (response, Data(#"{"access_token":"refreshed-access-token"}"#.utf8))
+      }
+      return (
+        response,
+        Data(
+          #"""
+          {
+            "email": "user@example.com",
+            "scope": "https://www.googleapis.com/auth/gmail.readonly",
+            "sub": "gmail-user-001"
+          }
+          """#.utf8
+        )
+      )
+    }
+    let service = GmailMessageMetadataService(
+      oauthClientId: "gmail-client-id",
+      session: requestSession,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://example.test/token")!
+    )
+
+    let tokens = try await service.refreshProviderTokens(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      tokens,
+      GmailProviderTokens(accessToken: "refreshed-access-token", refreshToken: "refresh-token")
+    )
+    XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), tokens)
+  }
+
+  func testRegisterOrRenewWatchUsesDeviceHeldTokenAndStoresExpiration() async throws {
+    let tokenRefresher = RecordingGmailPushTokenRefresher(
+      tokens: GmailProviderTokens(
+        accessToken: "refreshed-access-token",
+        refreshToken: "refresh-token"
+      )
+    )
+    let watchStore = RecordingGmailPushWatchStore()
+    var recordedAuthorization: String?
+    var recordedBody: [String: Any]?
+    let requestSession = ConvexClientTesting.makeSession { request in
+      recordedAuthorization = request.value(forHTTPHeaderField: "Authorization")
+      recordedBody =
+        try JSONSerialization.jsonObject(with: Self.httpBodyData(for: request))
+        as? [String: Any]
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+      )!
+      let data = try JSONSerialization.data(withJSONObject: [
+        "expiration": "1781300000000",
+        "historyId": "history-123",
+      ])
+      return (response, data)
+    }
+    let service = GmailPushWatchService(
+      nowMilliseconds: { 1_781_200_000_000 },
+      session: requestSession,
+      store: watchStore,
+      tokenRefresher: tokenRefresher,
+      topicName: "projects/private-email/topics/gmail-push"
+    )
+
+    let status = try await service.registerOrRenew(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(recordedAuthorization, "Bearer refreshed-access-token")
+    XCTAssertEqual(
+      recordedBody?["topicName"] as? String, "projects/private-email/topics/gmail-push")
+    XCTAssertEqual(recordedBody?["labelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(recordedBody?["labelFilterBehavior"] as? String, "INCLUDE")
+    XCTAssertEqual(status.historyId, "history-123")
+    XCTAssertEqual(watchStore.savedStatus, status)
+    XCTAssertEqual(tokenRefresher.connection, connection)
+    XCTAssertEqual(tokenRefresher.session, session)
+  }
+
+  func testRegisterOrRenewWatchKeepsWatchWithMoreThanOneDayRemaining() async throws {
+    let existing = GmailPushWatchStatus(
+      expirationMilliseconds: 1_781_400_000_000,
+      historyId: "history-existing"
+    )
+    let watchStore = RecordingGmailPushWatchStore(status: existing)
+    let service = GmailPushWatchService(
+      nowMilliseconds: { 1_781_200_000_000 },
+      session: ConvexClientTesting.makeSession { request in
+        XCTFail("Unexpected request: \(String(describing: request.url))")
+        return (
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: 500,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data()
+        )
+      },
+      store: watchStore,
+      tokenRefresher: FailingGmailPushTokenRefresher(),
+      topicName: "projects/private-email/topics/gmail-push"
+    )
+
+    let status = try await service.registerOrRenew(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(status, existing)
+  }
+
+  func testRegisterDeviceSendsOnlyAPNsRoutingDataToBackend() async throws {
+    let transport = RecordingDevicePushRegistrationTransport()
+    let service = DevicePushRegistrationService(
+      environment: .sandbox,
+      transport: transport
+    )
+
+    try await service.register(
+      deviceToken: Data([0x01, 0xAB, 0xFF]),
+      session: session
+    )
+
+    XCTAssertEqual(
+      transport.call,
+      DevicePushRegistrationCall(
+        apnsEnvironment: "sandbox",
+        apnsToken: "01abff",
+        identityToken: session.identityToken,
+        trustedDeviceId: session.trustedDeviceId
+      )
+    )
+  }
+
+  func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let connectionService = RecordingPushGmailConnectionService(connection: connection)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    let handler = GmailPushWakeupHandler(
+      connectionService: connectionService,
+      sessionStore: sessionStore,
+      syncService: syncService
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "history-123",
+      "provider": "gmail",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(connectionService.loadedSession, session)
+    XCTAssertEqual(syncService.syncedConnection, connection)
+    XCTAssertEqual(syncService.syncedSession, session)
+  }
+
+  private static func httpBodyData(for request: URLRequest) -> Data {
+    if let body = request.httpBody {
+      return body
+    }
+
+    guard let stream = request.httpBodyStream else {
+      return Data()
+    }
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+    defer { buffer.deallocate() }
+    while stream.hasBytesAvailable {
+      let count = stream.read(buffer, maxLength: 1_024)
+      guard count > 0 else { break }
+      data.append(buffer, count: count)
+    }
+    return data
+  }
+}
+
+private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
+  var savedStatus: GmailPushWatchStatus?
+  private let status: GmailPushWatchStatus?
+
+  init(status: GmailPushWatchStatus? = nil) {
+    self.status = status
+  }
+
+  func load(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailPushWatchStatus? {
+    status
+  }
+
+  func save(
+    _ status: GmailPushWatchStatus,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    savedStatus = status
+  }
+}
+
+private final class RecordingGmailPushTokenRefresher: GmailProviderTokenRefreshing {
+  var connection: GmailProviderConnectionStatus?
+  var session: ProductAccountSessionSnapshot?
+  let tokens: GmailProviderTokens
+
+  init(tokens: GmailProviderTokens) {
+    self.tokens = tokens
+  }
+
+  func refreshProviderTokens(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    self.connection = connection
+    self.session = session
+    return tokens
+  }
+}
+
+private struct FailingGmailPushTokenRefresher: GmailProviderTokenRefreshing {
+  func refreshProviderTokens(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    XCTFail("Unexpected token refresh")
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+}
+
+private struct DevicePushRegistrationCall: Equatable {
+  let apnsEnvironment: String
+  let apnsToken: String
+  let identityToken: String
+  let trustedDeviceId: String
+}
+
+private final class RecordingDevicePushRegistrationTransport: DevicePushRegistrationTransport {
+  var call: DevicePushRegistrationCall?
+
+  func registerDevicePush(
+    apnsEnvironment: String,
+    apnsToken: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    call = DevicePushRegistrationCall(
+      apnsEnvironment: apnsEnvironment,
+      apnsToken: apnsToken,
+      identityToken: identityToken,
+      trustedDeviceId: trustedDeviceId
+    )
+    return DevicePushRegistrationResponse(registered: true)
+  }
+}
+
+private final class RecordingPushGmailConnectionService: GmailProviderConnecting {
+  let connection: GmailProviderConnectionStatus
+  var loadedSession: ProductAccountSessionSnapshot?
+
+  init(connection: GmailProviderConnectionStatus) {
+    self.connection = connection
+  }
+
+  func clearLocalConnection(session _: ProductAccountSessionSnapshot) throws {}
+
+  func completeConnection(
+    verifiedAccount _: VerifiedGmailAccount,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus {
+    connection
+  }
+
+  func loadConnection(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    loadedSession = session
+    return connection
+  }
+}
+
+private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataSyncing {
+  var syncedConnection: GmailProviderConnectionStatus?
+  var syncedSession: ProductAccountSessionSnapshot?
+
+  func categorizeHistorical(
+    scope _: GmailHistoricalCategorizationScope,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func loadInbox(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func syncInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    syncedConnection = connection
+    syncedSession = session
+    return GmailMetadataSyncResult(messages: [], threads: [])
+  }
+
+  func overrideCategory(
+    _: String,
+    for _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+}
+
+private enum GmailPushRelayTestError: Error {
+  case unexpectedCall
+}
