@@ -302,7 +302,7 @@ export const unregisterDevice = mutation({
       apnsToken: undefined,
       lastSeenAt: Date.now(),
     });
-    const connection = await ctx.db
+    const connections = await ctx.db
       .query('mailProviderConnections')
       .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
@@ -310,16 +310,18 @@ export const unregisterDevice = mutation({
           .eq('provider', 'gmail')
           .eq('trustedDeviceId', args.trustedDeviceId),
       )
-      .unique();
-    if (connection !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection._id, {
-        pushVerificationHistoryId: undefined,
-        pushVerificationRequestedAt: undefined,
-        pushVerifiedHistoryId: undefined,
-        pushVerifiedAt: undefined,
-      });
-    }
+      .collect();
+    await Promise.all(
+      connections.map((connection) =>
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        ctx.db.patch(connection._id, {
+          pushVerificationHistoryId: undefined,
+          pushVerificationRequestedAt: undefined,
+          pushVerifiedHistoryId: undefined,
+          pushVerifiedAt: undefined,
+        }),
+      ),
+    );
 
     return { registered: false };
   },

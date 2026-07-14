@@ -148,6 +148,22 @@ describe('gmail push relay', () => {
       emailAddress: 'matching@example.com',
       historyId: '100',
     });
+    await t.run(async (ctx) => {
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: Date.now(),
+        emailAddress: 'matching@example.com',
+        lastVerifiedAt: Date.now(),
+        productAccountId: connection.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'duplicate-gmail-user-001',
+        pushVerificationHistoryId: '100',
+        pushVerificationRequestedAt: Date.now(),
+        pushVerifiedHistoryId: '100',
+        pushVerifiedAt: Date.now(),
+        trustedDeviceId: connection.trustedDeviceId,
+        updatedAt: Date.now(),
+      });
+    });
     await asUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'production',
       apnsToken: 'first-apns-token',
