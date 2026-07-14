@@ -288,6 +288,51 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual({ verified: true });
   });
 
+  it('does not regress the verified Gmail history watermark', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: '200',
+    });
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '150',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: '120',
+    });
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '150',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+  });
+
   it('does not route client-asserted Gmail addresses without matching push proof', async () => {
     expect.assertions(2);
 

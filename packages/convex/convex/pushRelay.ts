@@ -180,13 +180,20 @@ export const verifyGmailWatch = mutation({
         gmailHistoryIdAtOrAfter(candidate.historyId, args.historyId),
     );
     const verified = signal !== undefined;
+    const verifiedHistoryId =
+      verified &&
+      (connection.pushVerifiedHistoryId === undefined ||
+        gmailHistoryIdAtOrAfter(
+          args.historyId,
+          connection.pushVerifiedHistoryId,
+        ))
+        ? args.historyId
+        : connection.pushVerifiedHistoryId;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(connection._id, {
       pushVerificationHistoryId: verified ? undefined : args.historyId,
       pushVerificationRequestedAt: verified ? undefined : now,
-      pushVerifiedHistoryId: verified
-        ? args.historyId
-        : connection.pushVerifiedHistoryId,
+      pushVerifiedHistoryId: verifiedHistoryId,
       pushVerifiedAt: verified ? now : connection.pushVerifiedAt,
     });
     if (verified && signal !== undefined) {
