@@ -203,6 +203,29 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(sessionStore.didClear)
   }
 
+  func testSignedInSignOutDoesNotRequireSessionReload() async {
+    let sessionStore = ControllableProductAccountSessionStore()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.signInWithApple()
+    sessionStore.loadError = ProductAccountSessionTestError.sessionLoadFailed
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertTrue(sessionStore.didClear)
+  }
+
   func testSignOutClearsSessionWhenBackendPushUnregistrationFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",

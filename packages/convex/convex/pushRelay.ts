@@ -59,8 +59,11 @@ async function gmailRecipients(
 ): Promise<ApnsRecipient[]> {
   const connections = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_provider_and_emailAddress', (q) =>
-      q.eq('provider', 'gmail').eq('emailAddress', emailAddress),
+    .withIndex('by_provider_and_emailAddress_and_pushVerifiedAt', (q) =>
+      q
+        .eq('provider', 'gmail')
+        .eq('emailAddress', emailAddress)
+        .gt('pushVerifiedAt', undefined),
     )
     .take(100);
   const recipients: ApnsRecipient[] = [];
@@ -172,6 +175,7 @@ export const verifyGmailWatch = mutation({
       .withIndex('by_emailAddress', (q) =>
         q.eq('emailAddress', connection.emailAddress),
       )
+      .order('desc')
       .take(100);
     const now = Date.now();
     const signal = signals.find(
@@ -196,11 +200,6 @@ export const verifyGmailWatch = mutation({
       pushVerifiedHistoryId: verifiedHistoryId,
       pushVerifiedAt: verified ? now : connection.pushVerifiedAt,
     });
-    if (verified && signal !== undefined) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(signal._id);
-    }
-
     return { verified };
   },
   returns: gmailPushVerificationResponseValidator,

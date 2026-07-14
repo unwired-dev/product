@@ -252,6 +252,163 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual({ verified: true });
   });
 
+  it('keeps a Gmail verification signal available for another device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const firstUser = t.withIdentity(appleIdentity);
+    const secondUser = t.withIdentity({
+      ...appleIdentity,
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const firstConnection = await firstUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    const secondConnection = await secondUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      },
+    );
+    await firstUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: firstConnection.trustedDeviceId,
+    });
+    await secondUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: secondConnection.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: 'history-shared',
+    });
+
+    await expect(
+      firstUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: 'history-shared',
+        trustedDeviceId: firstConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+    await expect(
+      secondUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: 'history-shared',
+        trustedDeviceId: secondConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+  });
+
+  it('searches the newest Gmail verification signals first', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'busy@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 100; index += 1) {
+        await ctx.db.insert('gmailPushVerificationSignals', {
+          emailAddress: 'busy@example.com',
+          historyId: String(index),
+          receivedAt: Date.now(),
+        });
+      }
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'busy@example.com',
+      historyId: '200',
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '150',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+  });
+
+  it('applies the Gmail recipient cap after filtering unverified rows', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const verifiedDeviceId = await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        tokenIdentifier: 'verified-account',
+      });
+      for (let index = 0; index < 100; index += 1) {
+        const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `unverified-device-${index}`,
+          lastSeenAt: Date.now(),
+          platform: 'ios',
+          productAccountId,
+          registeredAt: Date.now(),
+        });
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: Date.now(),
+          emailAddress: 'crowded@example.com',
+          lastVerifiedAt: Date.now(),
+          productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `unverified-${index}`,
+          trustedDeviceId,
+          updatedAt: Date.now(),
+        });
+      }
+      const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+        apnsEnvironment: 'production',
+        apnsToken: 'verified-token',
+        deviceIdentifier: 'verified-device',
+        lastSeenAt: Date.now(),
+        platform: 'ios',
+        productAccountId,
+        registeredAt: Date.now(),
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: Date.now(),
+        emailAddress: 'crowded@example.com',
+        lastVerifiedAt: Date.now(),
+        productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'verified',
+        pushVerifiedAt: Date.now(),
+        trustedDeviceId,
+        updatedAt: Date.now(),
+      });
+      return trustedDeviceId;
+    });
+
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'crowded@example.com',
+      }),
+    ).resolves.toStrictEqual([
+      {
+        apnsEnvironment: 'production',
+        apnsToken: 'verified-token',
+        trustedDeviceId: verifiedDeviceId,
+      },
+    ]);
+  });
+
   it('verifies a Gmail watch from a later notification history id', async () => {
     expect.assertions(2);
 
