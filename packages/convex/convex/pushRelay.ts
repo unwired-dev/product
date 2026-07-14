@@ -127,7 +127,10 @@ async function hasOtherActiveGmailRoute(
     );
 
   for await (const connection of connections) {
-    if (connection.trustedDeviceId !== request.trustedDeviceId) {
+    if (
+      connection.pushVerifiedAt !== undefined &&
+      connection.trustedDeviceId !== request.trustedDeviceId
+    ) {
       const device = await ctx.db.get(connection.trustedDeviceId);
       if (hasActiveApnsRoute(device)) {
         return true;

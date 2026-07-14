@@ -94,7 +94,7 @@ const appleIdentity = {
 
 describe('gmail push relay', () => {
   it('stops a mailbox watch only after its last active device route', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -120,6 +120,20 @@ describe('gmail push relay', () => {
       apnsEnvironment: 'production',
       apnsToken: 'second-apns-token',
       trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const connection = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_provider_and_emailAddress', (q) =>
+          q.eq('provider', 'gmail').eq('emailAddress', 'matching@example.com'),
+        )
+        .filter((q) =>
+          q.eq(q.field('trustedDeviceId'), secondDevice.trustedDeviceId),
+        )
+        .unique();
+      expect(connection).not.toBeNull();
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection!._id, { pushVerifiedAt: Date.now() });
     });
 
     await expect(
@@ -188,8 +202,43 @@ describe('gmail push relay', () => {
     ).resolves.toBe(false);
   });
 
-  it('checks account routes before applying the connection cap', async () => {
+  it('stops a mailbox watch when the only other route is unverified', async () => {
     expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    for (const trustedDeviceId of [
+      firstDevice.trustedDeviceId,
+      secondDevice.trustedDeviceId,
+    ]) {
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId,
+      });
+    }
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'second-apns-token',
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      }),
+    ).resolves.toBe(true);
+  });
+
+  it('checks account routes before applying the connection cap', async () => {
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
     await t.run(async (ctx) => {
@@ -241,6 +290,21 @@ describe('gmail push relay', () => {
       apnsEnvironment: 'production',
       apnsToken: 'second-apns-token',
       trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+
+    await t.run(async (ctx) => {
+      const connection = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_provider_and_emailAddress', (q) =>
+          q.eq('provider', 'gmail').eq('emailAddress', 'shared@example.com'),
+        )
+        .filter((q) =>
+          q.eq(q.field('trustedDeviceId'), secondDevice.trustedDeviceId),
+        )
+        .unique();
+      expect(connection).not.toBeNull();
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection!._id, { pushVerifiedAt: Date.now() });
     });
 
     await expect(
