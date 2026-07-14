@@ -25,12 +25,14 @@ const apnsEnvironmentValidator = v.union(
 const apnsRecipientValidator = v.object({
   apnsEnvironment: apnsEnvironmentValidator,
   apnsToken: v.string(),
+  routeId: v.string(),
   trustedDeviceId: v.id('trustedDevices'),
 });
 
 type ApnsRecipient = Readonly<{
   apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
   apnsToken: string;
+  routeId: string;
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
@@ -69,6 +71,8 @@ async function gmailRecipients(
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const recipient = await apnsRecipientForDevice(
       ctx,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      connection._id,
       connection.trustedDeviceId,
     );
     if (recipient !== null) {
@@ -81,6 +85,7 @@ async function gmailRecipients(
 
 async function apnsRecipientForDevice(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeId: Id<'mailProviderConnections'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<ApnsRecipient | null> {
   const device = await ctx.db.get(trustedDeviceId);
@@ -90,6 +95,7 @@ async function apnsRecipientForDevice(
   return {
     apnsEnvironment: device.apnsEnvironment,
     apnsToken: device.apnsToken,
+    routeId,
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
   };
@@ -266,6 +272,33 @@ async function scheduleGmailWakeups(
   });
 }
 
+async function clearGmailPushProofs(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const connections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', trustedDeviceId),
+    )
+    .collect();
+  await Promise.all(
+    connections.map((connection) =>
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      ctx.db.patch(connection._id, {
+        pushVerificationHistoryId: undefined,
+        pushVerificationRequestedAt: undefined,
+        pushVerifiedHistoryId: undefined,
+        pushVerifiedAt: undefined,
+      }),
+    ),
+  );
+}
+
 export const registerDevice = mutation({
   args: {
     apnsEnvironment: apnsEnvironmentValidator,
@@ -303,25 +336,10 @@ export const unregisterDevice = mutation({
       apnsToken: undefined,
       lastSeenAt: Date.now(),
     });
-    const connections = await ctx.db
-      .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId),
-      )
-      .collect();
-    await Promise.all(
-      connections.map((connection) =>
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        ctx.db.patch(connection._id, {
-          pushVerificationHistoryId: undefined,
-          pushVerificationRequestedAt: undefined,
-          pushVerifiedHistoryId: undefined,
-          pushVerifiedAt: undefined,
-        }),
-      ),
+    await clearGmailPushProofs(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
     );
 
     return { registered: false };
@@ -348,8 +366,10 @@ export const verifyGmailWatch = mutation({
       account.productAccountId,
       args.trustedDeviceId,
     );
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    const routeId = connection._id;
     if (connection.pushVerifiedHistoryId === args.historyId) {
-      return { verified: true };
+      return { routeId, verified: true };
     }
 
     const signals = await ctx.db
@@ -374,7 +394,7 @@ export const verifyGmailWatch = mutation({
         verified,
       }),
     );
-    return { verified };
+    return { routeId, verified };
   },
   returns: gmailPushVerificationResponseValidator,
 });
@@ -424,6 +444,11 @@ export const clearStaleDevice = internalMutation({
         apnsEnvironment: undefined,
         apnsToken: undefined,
       });
+      await clearGmailPushProofs(
+        ctx,
+        device.productAccountId,
+        args.trustedDeviceId,
+      );
     }
     return null;
   },

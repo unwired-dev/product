@@ -122,6 +122,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(recordedBody?["labelIds"] as? [String], ["INBOX"])
     XCTAssertEqual(recordedBody?["labelFilterBehavior"] as? String, "include")
     XCTAssertEqual(status.historyId, "history-123")
+    XCTAssertEqual(status.routeId, "route-001")
     XCTAssertEqual(watchStore.savedStatus, status)
     XCTAssertEqual(tokenRefresher.connection, connection)
     XCTAssertEqual(tokenRefresher.session, session)
@@ -198,7 +199,14 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(status, existing)
+    XCTAssertEqual(
+      status,
+      GmailPushWatchStatus(
+        expirationMilliseconds: existing.expirationMilliseconds,
+        historyId: existing.historyId,
+        routeId: "route-001"
+      )
+    )
   }
 
   func testRegisterOrRenewWatchReplacesUnverifiedCachedWatch() async throws {
@@ -290,7 +298,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
-        historyId: "123"
+        historyId: "123",
+        routeId: "route-001"
       )
     )
     let handler = GmailPushWakeupHandler(
@@ -303,6 +312,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let handled = try await handler.handle(userInfo: [
       "historyId": "124",
       "provider": "gmail",
+      "routeId": "route-001",
     ])
 
     XCTAssertTrue(handled)
@@ -313,9 +323,38 @@ final class GmailPushRelayServiceTests: XCTestCase {
       watchStore.savedStatus,
       GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
-        historyId: "124"
+        historyId: "123",
+        latestSyncedHistoryId: "124",
+        routeId: "route-001"
       )
     )
+  }
+
+  func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "current-route"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "stale-route",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(syncService.syncedConnection)
   }
 
   func testGmailWakeupIgnoresHistoryAtOrBeforeStoredWatermark() async throws {
@@ -329,7 +368,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       watchStore: RecordingGmailPushWatchStore(
         status: GmailPushWatchStatus(
           expirationMilliseconds: 1_781_400_000_000,
-          historyId: "124"
+          historyId: "100",
+          latestSyncedHistoryId: "124",
+          routeId: "route-001"
         )
       )
     )
@@ -338,6 +379,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       let handled = try await handler.handle(userInfo: [
         "historyId": historyId,
         "provider": "gmail",
+        "routeId": "route-001",
       ])
       XCTAssertFalse(handled)
     }
@@ -431,9 +473,11 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
 private final class RecordingGmailPushVerificationTransport: GmailPushVerificationTransport {
   var historyId: String?
   var session: ProductAccountSessionSnapshot?
+  private let routeId: String
   private let verified: Bool
 
-  init(verified: Bool = true) {
+  init(verified: Bool = true, routeId: String = "route-001") {
+    self.routeId = routeId
     self.verified = verified
   }
 
@@ -449,7 +493,7 @@ private final class RecordingGmailPushVerificationTransport: GmailPushVerificati
       productAccountId: "product-account-001",
       trustedDeviceId: trustedDeviceId
     )
-    return GmailPushVerificationResponse(verified: verified)
+    return GmailPushVerificationResponse(routeId: routeId, verified: verified)
   }
 }
 

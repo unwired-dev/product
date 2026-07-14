@@ -10,6 +10,20 @@ import Foundation
 struct GmailPushWatchStatus: Codable, Equatable {
   let expirationMilliseconds: Int64
   let historyId: String
+  let latestSyncedHistoryId: String?
+  let routeId: String?
+
+  init(
+    expirationMilliseconds: Int64,
+    historyId: String,
+    latestSyncedHistoryId: String? = nil,
+    routeId: String? = nil
+  ) {
+    self.expirationMilliseconds = expirationMilliseconds
+    self.historyId = historyId
+    self.latestSyncedHistoryId = latestSyncedHistoryId
+    self.routeId = routeId
+  }
 }
 
 private func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
@@ -199,8 +213,15 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       connection: connection,
       productSession: productSession
     ) {
-      if try await verifyWatch(existing, productSession: productSession) {
-        return existing
+      let verification = try await verifyWatch(existing, productSession: productSession)
+      let verifiedStatus = statusWithRoute(existing, routeId: verification.routeId)
+      try store.save(
+        verifiedStatus,
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      if verification.verified {
+        return verifiedStatus
       }
     }
 
@@ -218,20 +239,37 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    _ = try await verifyWatch(status, productSession: productSession)
-    return status
+    let verification = try await verifyWatch(status, productSession: productSession)
+    let verifiedStatus = statusWithRoute(status, routeId: verification.routeId)
+    try store.save(
+      verifiedStatus,
+      productAccountId: productSession.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    return verifiedStatus
   }
 
   private func verifyWatch(
     _ status: GmailPushWatchStatus,
     productSession: ProductAccountSessionSnapshot
-  ) async throws -> Bool {
-    let response = try await verificationTransport.verifyGmailPushWatch(
+  ) async throws -> GmailPushVerificationResponse {
+    try await verificationTransport.verifyGmailPushWatch(
       historyId: status.historyId,
       identityToken: productSession.identityToken,
       trustedDeviceId: productSession.trustedDeviceId
     )
-    return response.verified
+  }
+
+  private func statusWithRoute(
+    _ status: GmailPushWatchStatus,
+    routeId: String
+  ) -> GmailPushWatchStatus {
+    GmailPushWatchStatus(
+      expirationMilliseconds: status.expirationMilliseconds,
+      historyId: status.historyId,
+      latestSyncedHistoryId: status.latestSyncedHistoryId,
+      routeId: routeId
+    )
   }
 
   private func currentWatch(
@@ -313,6 +351,7 @@ struct DevicePushRegistrationResponse: Decodable, Equatable {
 }
 
 struct GmailPushVerificationResponse: Decodable, Equatable {
+  let routeId: String
   let verified: Bool
 }
 
@@ -407,6 +446,8 @@ struct GmailPushWakeupHandler {
       userInfo["provider"] as? String == "gmail",
       let historyId = userInfo["historyId"] as? String,
       !historyId.isEmpty,
+      let routeId = userInfo["routeId"] as? String,
+      !routeId.isEmpty,
       let productSession = try sessionStore.load(),
       let connection = try connectionStore.load(
         productAccountId: productSession.productAccountId
@@ -417,7 +458,11 @@ struct GmailPushWakeupHandler {
         productAccountId: productSession.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       ),
-      gmailHistoryIdIsNewer(historyId, than: watchStatus.historyId)
+      watchStatus.routeId == routeId,
+      gmailHistoryIdIsNewer(
+        historyId,
+        than: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId
+      )
     else {
       return false
     }
@@ -429,7 +474,9 @@ struct GmailPushWakeupHandler {
     try watchStore.save(
       GmailPushWatchStatus(
         expirationMilliseconds: watchStatus.expirationMilliseconds,
-        historyId: historyId
+        historyId: watchStatus.historyId,
+        latestSyncedHistoryId: historyId,
+        routeId: watchStatus.routeId
       ),
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier

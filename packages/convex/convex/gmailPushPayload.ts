@@ -45,14 +45,19 @@ export function decodeGmailPushEnvelope(
   };
 }
 
-export function gmailWakeupPayload(historyId: string): Readonly<{
+export function gmailWakeupPayload(
+  historyId: string,
+  routeId: string,
+): Readonly<{
   aps: Readonly<{ 'content-available': 1 }>;
   historyId: string;
   provider: 'gmail';
+  routeId: string;
 }> {
   return {
     aps: { 'content-available': 1 },
     historyId,
     provider: 'gmail',
+    routeId,
   };
 }

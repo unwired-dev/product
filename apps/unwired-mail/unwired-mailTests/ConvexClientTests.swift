@@ -275,9 +275,10 @@ final class ConvexClientTests: XCTestCase {
   }
 
   func testVerifyGmailPushWatchSendsHistoryProofWithoutProviderTokens() async throws {
-    let fixtureEnvelope = #"{"status":"success","value":{"verified":true}}"#.data(
-      using: .utf8
-    )!
+    let fixtureEnvelope =
+      #"{"status":"success","value":{"routeId":"route-001","verified":true}}"#.data(
+        using: .utf8
+      )!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
@@ -304,6 +305,7 @@ final class ConvexClientTests: XCTestCase {
     )
 
     XCTAssertTrue(response.verified)
+    XCTAssertEqual(response.routeId, "route-001")
   }
 
   private static func requestBody(from request: URLRequest) throws -> Data {

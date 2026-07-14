@@ -248,7 +248,7 @@ describe('gmail push relay', () => {
         historyId: 'history-123',
         trustedDeviceId: firstConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: false });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
     await expect(
       t.mutation(internal.pushRelay.enqueueGmailWakeups, {
         emailAddress: 'matching@example.com',
@@ -272,6 +272,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'matching-apns-token',
+        routeId: expect.any(String),
         trustedDeviceId: firstConnection.trustedDeviceId,
       },
     ]);
@@ -311,13 +312,13 @@ describe('gmail push relay', () => {
         historyId: 'history-first',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
       asUser.mutation(api.pushRelay.verifyGmailWatch, {
         historyId: 'history-first',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
   it('keeps a Gmail verification signal available for another device', async () => {
@@ -364,13 +365,13 @@ describe('gmail push relay', () => {
         historyId: 'history-shared',
         trustedDeviceId: firstConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
       secondUser.mutation(api.pushRelay.verifyGmailWatch, {
         historyId: 'history-shared',
         trustedDeviceId: secondConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
   it('searches the newest Gmail verification signals first', async () => {
@@ -409,7 +410,7 @@ describe('gmail push relay', () => {
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
   it('applies the Gmail recipient cap after filtering unverified rows', async () => {
@@ -472,6 +473,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'verified-token',
+        routeId: expect.any(String),
         trustedDeviceId: verifiedDeviceId,
       },
     ]);
@@ -547,6 +549,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'pending-token',
+        routeId: expect.any(String),
         trustedDeviceId: pendingDeviceId,
       },
     ]);
@@ -625,6 +628,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'newest-pending-token',
+        routeId: expect.any(String),
         trustedDeviceId: pendingDeviceId,
       },
     ]);
@@ -653,7 +657,7 @@ describe('gmail push relay', () => {
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: false });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
     await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
       emailAddress: 'matching@example.com',
       historyId: '101',
@@ -663,7 +667,7 @@ describe('gmail push relay', () => {
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
   it('does not regress the verified Gmail history watermark', async () => {
@@ -692,7 +696,7 @@ describe('gmail push relay', () => {
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
       emailAddress: 'matching@example.com',
       historyId: '120',
@@ -702,13 +706,13 @@ describe('gmail push relay', () => {
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
       asUser.mutation(api.pushRelay.verifyGmailWatch, {
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ verified: true });
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
   it('does not route client-asserted Gmail addresses without matching push proof', async () => {
@@ -757,12 +761,13 @@ describe('gmail push relay', () => {
   it('creates a content-free background wakeup payload', () => {
     expect.assertions(2);
 
-    const payload = gmailWakeupPayload('history-123');
+    const payload = gmailWakeupPayload('history-123', 'route-001');
 
     expect(payload).toStrictEqual({
       aps: { 'content-available': 1 },
       historyId: 'history-123',
       provider: 'gmail',
+      routeId: 'route-001',
     });
     expect(JSON.stringify(payload)).not.toMatch(
       /email|subject|snippet|body|category|classification|accessToken|refreshToken/iu,
@@ -882,6 +887,19 @@ describe('gmail push relay', () => {
         deviceIdentifier: 'bad-device',
         platform: 'ios',
       });
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'bad-device@example.com',
+        providerAccountIdentifier: 'bad-device-gmail',
+        trustedDeviceId: badDevice.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: badDevice.trustedDeviceId,
+      });
+      await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        emailAddress: 'bad-device@example.com',
+        historyId: '100',
+      });
       await asUser.mutation(api.pushRelay.registerDevice, {
         apnsEnvironment: 'production',
         apnsToken: 'bad-device-token',
@@ -893,6 +911,7 @@ describe('gmail push relay', () => {
           {
             apnsEnvironment: 'sandbox',
             apnsToken: 'device-token',
+            routeId: 'good-route',
             trustedDeviceId: goodDevice.trustedDeviceId,
           },
         ],
@@ -917,6 +936,7 @@ describe('gmail push relay', () => {
         aps: { 'content-available': 1 },
         historyId: 'history-123',
         provider: 'gmail',
+        routeId: 'good-route',
       });
 
       apnsMock.responseBody = '{"reason":"BadDeviceToken"}';
@@ -928,11 +948,13 @@ describe('gmail push relay', () => {
             {
               apnsEnvironment: 'production',
               apnsToken: 'bad-device-token',
+              routeId: 'bad-route',
               trustedDeviceId: badDevice.trustedDeviceId,
             },
             {
               apnsEnvironment: 'production',
               apnsToken: 'good-device-token',
+              routeId: 'good-route',
               trustedDeviceId: goodDevice.trustedDeviceId,
             },
           ],
@@ -941,11 +963,21 @@ describe('gmail push relay', () => {
       const prunedDevice = await t.run(async (ctx) =>
         ctx.db.get(badDevice.trustedDeviceId),
       );
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'replacement-device-token',
+        trustedDeviceId: badDevice.trustedDeviceId,
+      });
+      const remainingRecipients = await t.query(
+        internal.pushRelay.resolveGmailRecipients,
+        { emailAddress: 'bad-device@example.com' },
+      );
       expect({
         badAuthority: apnsMock.requests[1]?.authority,
         connections: apnsMock.connections,
         goodPath: apnsMock.requests[2]?.headers[':path'],
         prunedToken: prunedDevice?.apnsToken,
+        remainingRecipients,
         sessionErrorListeners: apnsMock.sessions.map((session) =>
           session.listenerCount('error'),
         ),
@@ -957,6 +989,7 @@ describe('gmail push relay', () => {
         ],
         goodPath: '/3/device/good-device-token',
         prunedToken: undefined,
+        remainingRecipients: [],
         sessionErrorListeners: [1, 1],
       });
     } finally {
@@ -997,6 +1030,7 @@ describe('gmail push relay', () => {
           {
             apnsEnvironment: 'production',
             apnsToken: 'stalled-device-token',
+            routeId: 'stalled-route',
             trustedDeviceId: device.trustedDeviceId,
           },
         ],

@@ -7,6 +7,7 @@ export const devicePushRegistrationResponseValidator = v.object({
 });
 
 export const gmailPushVerificationResponseValidator = v.object({
+  routeId: v.string(),
   verified: v.boolean(),
 });
 
@@ -25,5 +26,6 @@ export const devicePushRegistrationResponseFixture: DevicePushRegistrationRespon
 
 export const gmailPushVerificationResponseFixture: GmailPushVerificationResponse =
   {
+    routeId: 'gmailPushRouteFixtureId',
     verified: true,
   };

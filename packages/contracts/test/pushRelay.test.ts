@@ -16,6 +16,7 @@ describe('device push registration response contract', () => {
     expect.assertions(1);
 
     expect(gmailPushVerificationResponseFixture).toStrictEqual({
+      routeId: 'gmailPushRouteFixtureId',
       verified: true,
     });
   });

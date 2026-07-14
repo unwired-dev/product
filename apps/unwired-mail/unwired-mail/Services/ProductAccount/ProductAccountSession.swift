@@ -180,12 +180,17 @@ final class ProductAccountSession {
     _ existingSnapshot: ProductAccountSessionSnapshot,
     with snapshot: ProductAccountSessionSnapshot
   ) async throws {
-    await unregisterDeviceIfProductAccountChanged(
-      from: existingSnapshot,
-      to: snapshot
-    )
     try sessionStore.save(snapshot)
-    try clearLocalGmailConnectionIfProductAccountChanged(
+    do {
+      try clearLocalGmailConnectionIfProductAccountChanged(
+        from: existingSnapshot,
+        to: snapshot
+      )
+    } catch {
+      try? sessionStore.save(existingSnapshot)
+      throw error
+    }
+    await unregisterDeviceIfProductAccountChanged(
       from: existingSnapshot,
       to: snapshot
     )

@@ -256,6 +256,7 @@ export const deliverGmailWakeups = internalAction({
       v.object({
         apnsEnvironment: apnsEnvironmentValidator,
         apnsToken: v.string(),
+        routeId: v.string(),
         trustedDeviceId: v.id('trustedDevices'),
       }),
     ),
@@ -263,7 +264,6 @@ export const deliverGmailWakeups = internalAction({
   handler: async (ctx, args) => {
     const configuration = apnsConfiguration();
     const authorization = providerToken(configuration);
-    const payload = JSON.stringify(gmailWakeupPayload(args.historyId));
     const clients = new Map<
       ApnsDelivery['apnsEnvironment'],
       ClientHttp2Session
@@ -291,7 +291,9 @@ export const deliverGmailWakeups = internalAction({
             apnsToken: recipient.apnsToken,
             authorization,
             configuration,
-            payload,
+            payload: JSON.stringify(
+              gmailWakeupPayload(args.historyId, recipient.routeId),
+            ),
           },
           clientFor(recipient.apnsEnvironment),
         ),
