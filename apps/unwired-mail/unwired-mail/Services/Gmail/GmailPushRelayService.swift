@@ -3,6 +3,7 @@ import Foundation
 // swiftlint:disable file_length
 
 #if canImport(UIKit)
+  import OSLog
   import UIKit
 #endif
 
@@ -12,6 +13,11 @@ struct GmailPushWatchStatus: Codable, Equatable {
 }
 
 protocol GmailPushWatchPersisting {
+  func clear(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -62,6 +68,13 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
     self.defaults = defaults
   }
 
+  func clear(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
+  }
+
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -88,19 +101,18 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
   }
 }
 
-struct UserDefaultsGmailPushConnectionStore: GmailPushConnectionPersisting {
-  private let defaults: UserDefaults
-
-  init(defaults: UserDefaults = .standard) {
-    self.defaults = defaults
-  }
+struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
+  private let service = "private-email.gmail-push-connection"
 
   func clear(productAccountId: String) throws {
-    defaults.removeObject(forKey: key(productAccountId))
+    try KeychainStore.delete(service: service, account: key(productAccountId))
   }
 
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
-    guard let data = defaults.data(forKey: key(productAccountId)) else {
+    guard
+      let json = try KeychainStore.readString(service: service, account: key(productAccountId)),
+      let data = json.data(using: .utf8)
+    else {
       return nil
     }
     return try JSONDecoder().decode(GmailProviderConnectionStatus.self, from: data)
@@ -110,9 +122,15 @@ struct UserDefaultsGmailPushConnectionStore: GmailPushConnectionPersisting {
     _ connection: GmailProviderConnectionStatus,
     productAccountId: String
   ) throws {
-    defaults.set(
-      try JSONEncoder().encode(connection),
-      forKey: key(productAccountId)
+    let data = try JSONEncoder().encode(connection)
+    guard let json = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
+    try KeychainStore.writeString(
+      json,
+      service: service,
+      account: key(productAccountId),
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
 
@@ -134,7 +152,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
   private let verificationTransport: GmailPushVerificationTransport
 
   init(
-    connectionStore: GmailPushConnectionPersisting = UserDefaultsGmailPushConnectionStore(),
+    connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     nowMilliseconds: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
@@ -164,8 +182,9 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       connection: connection,
       productSession: productSession
     ) {
-      try await verifyWatch(existing, productSession: productSession)
-      return existing
+      if try await verifyWatch(existing, productSession: productSession) {
+        return existing
+      }
     }
 
     let topicName = try requiredTopicName()
@@ -182,19 +201,20 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    try await verifyWatch(status, productSession: productSession)
+    _ = try await verifyWatch(status, productSession: productSession)
     return status
   }
 
   private func verifyWatch(
     _ status: GmailPushWatchStatus,
     productSession: ProductAccountSessionSnapshot
-  ) async throws {
-    _ = try await verificationTransport.verifyGmailPushWatch(
+  ) async throws -> Bool {
+    let response = try await verificationTransport.verifyGmailPushWatch(
       historyId: status.historyId,
       identityToken: productSession.identityToken,
       trustedDeviceId: productSession.trustedDeviceId
     )
+    return response.verified
   }
 
   private func currentWatch(
@@ -246,7 +266,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
     request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     request.httpBody = try JSONEncoder().encode(
       GmailWatchRequest(
-        labelFilterBehavior: "INCLUDE",
+        labelFilterBehavior: "include",
         labelIds: ["INBOX"],
         topicName: topicName
       )
@@ -353,7 +373,7 @@ struct GmailPushWakeupHandler {
   private let syncService: GmailMessageMetadataSyncing
 
   init(
-    connectionStore: GmailPushConnectionPersisting = UserDefaultsGmailPushConnectionStore(),
+    connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
   ) {
@@ -429,6 +449,11 @@ private struct GmailWatchResponse: Decodable {
 }
 
 #if canImport(UIKit)
+  private let pushRegistrationLogger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail",
+    category: "push-registration"
+  )
+
   @MainActor
   final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
     func application(
@@ -444,10 +469,16 @@ private struct GmailWatchResponse: Decodable {
         #else
           let environment = DevicePushEnvironment.production
         #endif
-        try? await DevicePushRegistrationService(environment: environment).register(
-          deviceToken: deviceToken,
-          session: session
-        )
+        do {
+          try await DevicePushRegistrationService(environment: environment).register(
+            deviceToken: deviceToken,
+            session: session
+          )
+        } catch {
+          pushRegistrationLogger.error(
+            "APNs device-token registration failed: \(error.localizedDescription, privacy: .public)"
+          )
+        }
       }
     }
 

@@ -6,6 +6,16 @@ import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 
 const http = httpRouter();
 
+function decodeRequestEnvelope(
+  envelope: unknown,
+): ReturnType<typeof decodeGmailPushEnvelope> | null {
+  try {
+    return decodeGmailPushEnvelope(envelope ?? {});
+  } catch {
+    return null;
+  }
+}
+
 http.route({
   path: '/gmail/push',
   method: 'POST',
@@ -21,14 +31,14 @@ http.route({
       return new Response('Unauthorized', { status: 401 });
     }
 
-    try {
-      const envelope: unknown = await request.json();
-      const metadata = decodeGmailPushEnvelope(envelope ?? {});
-      await ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, metadata);
-      return new Response(null, { status: 204 });
-    } catch {
+    const envelope: unknown = await request.json().catch(() => null);
+    const metadata = decodeRequestEnvelope(envelope);
+    if (metadata === null) {
       return new Response('Invalid Gmail push', { status: 400 });
     }
+
+    await ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, metadata);
+    return new Response(null, { status: 204 });
   }),
 });
 

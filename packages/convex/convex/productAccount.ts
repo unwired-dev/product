@@ -213,7 +213,7 @@ export const connectGmailProvider = mutation({
     const routingIdentityChanged =
       providerAccountChanged ||
       existingConnection.emailAddress !== args.emailAddress;
-    const updatedAt = providerAccountChanged
+    const updatedAt = routingIdentityChanged
       ? now
       : existingConnection.updatedAt;
 

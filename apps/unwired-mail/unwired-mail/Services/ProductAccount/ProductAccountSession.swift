@@ -143,10 +143,10 @@ final class ProductAccountSession {
 
   func signOut() async {
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+    if let snapshot {
+      try? await devicePushUnregistrationService.unregister(session: snapshot)
+    }
     do {
-      if let snapshot {
-        try await devicePushUnregistrationService.unregister(session: snapshot)
-      }
       try sessionStore.clear()
       if let snapshot {
         do {

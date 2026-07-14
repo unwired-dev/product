@@ -18,6 +18,7 @@ type ObservedApnsRequest = Readonly<{
 }>;
 
 const apnsMock = vi.hoisted(() => ({
+  connections: [] as string[],
   requests: [] as ObservedApnsRequest[],
   responseBody: '',
   status: 200,
@@ -29,38 +30,44 @@ vi.mock('node:http2', async () => {
   const { EventEmitter } = await import('node:events');
 
   return {
-    connect: (authority: URL | string) => ({
-      close() {
-        return undefined;
-      },
-      request: (headers: Record<string, unknown>) => {
-        // oxlint-disable-next-line unicorn/prefer-event-target -- node:events.once requires EventEmitter semantics.
-        const request = Object.assign(new EventEmitter(), {
-          async *[Symbol.asyncIterator]() {
-            if (apnsMock.responseBody.length > 0) {
-              yield apnsMock.responseBody;
-            }
-          },
-          end(payload: string) {
-            apnsMock.requests.push({
-              authority: String(authority),
-              headers,
-              payload,
-            });
-            queueMicrotask(() => {
-              const token = String(headers[':path']).split('/').at(-1) ?? '';
-              request.emit('response', {
-                ':status': apnsMock.statusByToken[token] ?? apnsMock.status,
+    connect: (authority: URL | string) => {
+      apnsMock.connections.push(String(authority));
+      return {
+        close() {
+          return undefined;
+        },
+        request: (headers: Record<string, unknown>) => {
+          // oxlint-disable-next-line unicorn/prefer-event-target -- node:events.once requires EventEmitter semantics.
+          const request = Object.assign(new EventEmitter(), {
+            async *[Symbol.asyncIterator]() {
+              if (apnsMock.responseBody.length > 0) {
+                yield apnsMock.responseBody;
+              }
+            },
+            end(payload: string) {
+              apnsMock.requests.push({
+                authority: String(authority),
+                headers,
+                payload,
               });
-            });
-          },
-          setEncoding(_encoding: string) {
-            return undefined;
-          },
-        });
-        return request;
-      },
-    }),
+              queueMicrotask(() => {
+                const token = String(headers[':path']).split('/').at(-1) ?? '';
+                request.emit('response', {
+                  ':status': apnsMock.statusByToken[token] ?? apnsMock.status,
+                });
+              });
+            },
+            close() {
+              return undefined;
+            },
+            setEncoding(_encoding: string) {
+              return undefined;
+            },
+          });
+          return request;
+        },
+      };
+    },
   };
 });
 
@@ -199,6 +206,40 @@ describe('gmail push relay', () => {
     );
   });
 
+  it('keeps multiple Gmail verification signals until the matching device verifies', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: 'history-first',
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: 'history-second',
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: 'history-first',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: true });
+  });
+
   it('does not route client-asserted Gmail addresses without matching push proof', async () => {
     expect.assertions(2);
 
@@ -286,6 +327,23 @@ describe('gmail push relay', () => {
     });
   });
 
+  it('preserves UTF-8 Gmail addresses from Pub/Sub', () => {
+    expect.assertions(1);
+
+    const metadata = JSON.stringify({
+      emailAddress: 'josé@example.com',
+      historyId: 'history-utf8',
+    });
+    const encodedData = Buffer.from(metadata, 'utf8').toString('base64url');
+
+    expect(
+      decodeGmailPushEnvelope({ message: { data: encodedData } }),
+    ).toStrictEqual({
+      emailAddress: 'josé@example.com',
+      historyId: 'history-utf8',
+    });
+  });
+
   it('authenticates and validates the Gmail Pub/Sub HTTP ingress', async () => {
     expect.assertions(4);
 
@@ -326,6 +384,7 @@ describe('gmail push relay', () => {
   it('sends content-free background requests to the selected APNs environment', async () => {
     expect.assertions(5);
 
+    apnsMock.connections.length = 0;
     apnsMock.requests.length = 0;
     apnsMock.responseBody = '';
     apnsMock.status = 200;
@@ -410,10 +469,15 @@ describe('gmail push relay', () => {
       );
       expect({
         badAuthority: apnsMock.requests[1]?.authority,
+        connections: apnsMock.connections,
         goodPath: apnsMock.requests[2]?.headers[':path'],
         prunedToken: prunedDevice?.apnsToken,
       }).toStrictEqual({
         badAuthority: 'https://api.push.apple.com',
+        connections: [
+          'https://api.sandbox.push.apple.com',
+          'https://api.push.apple.com',
+        ],
         goodPath: '/3/device/good-device-token',
         prunedToken: undefined,
       });

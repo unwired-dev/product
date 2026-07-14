@@ -24,5 +24,8 @@ export {
 export {
   devicePushRegistrationResponseFixture,
   devicePushRegistrationResponseValidator,
+  gmailPushVerificationResponseFixture,
+  gmailPushVerificationResponseValidator,
   type DevicePushRegistrationResponse,
+  type GmailPushVerificationResponse,
 } from './pushRelay.ts';

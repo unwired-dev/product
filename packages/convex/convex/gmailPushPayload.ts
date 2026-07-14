@@ -21,7 +21,14 @@ export function decodeGmailPushEnvelope(
     .replaceAll('-', '+')
     .replaceAll('_', '/')
     .padEnd(Math.ceil(envelope.message.data.length / 4) * 4, '=');
-  const decoded: unknown = JSON.parse(atob(base64));
+  const decoded: unknown = JSON.parse(
+    new TextDecoder().decode(
+      Uint8Array.from(
+        atob(base64),
+        (character) => character.codePointAt(0) ?? 0,
+      ),
+    ),
+  );
   if (
     !isRecord(decoded) ||
     typeof decoded.emailAddress !== 'string' ||

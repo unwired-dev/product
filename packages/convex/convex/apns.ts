@@ -1,5 +1,7 @@
 'use node';
 
+import type { ClientHttp2Session } from 'node:http2';
+
 import { createPrivateKey, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { connect } from 'node:http2';
@@ -14,6 +16,8 @@ const apnsEnvironmentValidator = v.union(
   v.literal('production'),
   v.literal('sandbox'),
 );
+
+const apnsRequestTimeoutMs = 10_000;
 
 type ApnsConfiguration = Readonly<{
   keyId: string;
@@ -80,13 +84,14 @@ function providerToken(configuration: ApnsConfiguration): string {
   return `${unsignedToken}.${signature}`;
 }
 
-async function sendWakeup(delivery: ApnsDelivery): Promise<void> {
-  const authority =
-    delivery.apnsEnvironment === 'production'
-      ? 'https://api.push.apple.com'
-      : 'https://api.sandbox.push.apple.com';
-  const client = connect(authority);
-
+async function sendWakeup(
+  delivery: ApnsDelivery,
+  client: ClientHttp2Session, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 sessions issue mutable request streams.
+): Promise<void> {
+  const timeoutController = new AbortController();
+  const timeout = setTimeout(() => {
+    timeoutController.abort();
+  }, apnsRequestTimeoutMs);
   try {
     let responseBody = '';
     const request = client.request({
@@ -101,7 +106,20 @@ async function sendWakeup(delivery: ApnsDelivery): Promise<void> {
 
     request.setEncoding('utf8');
     request.end(delivery.payload);
-    const responseArguments: unknown = await once(request, 'response');
+    const responseArguments: unknown = await (async () => {
+      try {
+        const response: unknown = await once(request, 'response', {
+          signal: timeoutController.signal,
+        });
+        return response;
+      } catch (error) {
+        if (timeoutController.signal.aborted) {
+          request.close();
+          throw new Error('APNs request timed out', { cause: error });
+        }
+        throw error;
+      }
+    })();
     if (!Array.isArray(responseArguments) || responseArguments.length === 0) {
       throw new TypeError('APNs response headers required');
     }
@@ -119,8 +137,14 @@ async function sendWakeup(delivery: ApnsDelivery): Promise<void> {
       throw new ApnsRequestError(status, responseBody);
     }
   } finally {
-    client.close();
+    clearTimeout(timeout);
   }
+}
+
+function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
+  return environment === 'production'
+    ? 'https://api.push.apple.com'
+    : 'https://api.sandbox.push.apple.com';
 }
 
 export const deliverGmailWakeups = internalAction({
@@ -138,18 +162,40 @@ export const deliverGmailWakeups = internalAction({
     const configuration = apnsConfiguration();
     const authorization = providerToken(configuration);
     const payload = JSON.stringify(gmailWakeupPayload(args.historyId));
+    const clients = new Map<
+      ApnsDelivery['apnsEnvironment'],
+      ClientHttp2Session
+    >();
+    const clientFor = (
+      environment: ApnsDelivery['apnsEnvironment'],
+    ): ClientHttp2Session => {
+      const existing = clients.get(environment);
+      if (existing !== undefined) {
+        return existing;
+      }
+      const client = connect(apnsAuthority(environment));
+      clients.set(environment, client);
+      return client;
+    };
 
     const results = await Promise.allSettled(
       args.recipients.map(async (recipient) =>
-        sendWakeup({
-          apnsEnvironment: recipient.apnsEnvironment,
-          apnsToken: recipient.apnsToken,
-          authorization,
-          configuration,
-          payload,
-        }),
+        sendWakeup(
+          {
+            apnsEnvironment: recipient.apnsEnvironment,
+            apnsToken: recipient.apnsToken,
+            authorization,
+            configuration,
+            payload,
+          },
+          clientFor(recipient.apnsEnvironment),
+        ),
       ),
-    );
+    ).finally(() => {
+      for (const client of clients.values()) {
+        client.close();
+      }
+    });
 
     await Promise.all(
       results.map(async (result, index) => {

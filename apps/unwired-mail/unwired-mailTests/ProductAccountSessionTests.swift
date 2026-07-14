@@ -161,7 +161,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(sessionStore.didClear)
   }
 
-  func testSignOutKeepsSessionWhenBackendPushUnregistrationFails() async throws {
+  func testSignOutClearsSessionWhenBackendPushUnregistrationFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -187,12 +187,9 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionTestError.pushUnregistrationFailed.localizedDescription)
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
   }
 
   func testSignInClearsPreviousGmailTokensWhenProductAccountChanges() async throws {

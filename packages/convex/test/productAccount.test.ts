@@ -276,7 +276,9 @@ describe('productAccount Gmail provider connection', () => {
     expect(secondStatus.lastVerifiedAt).toBeGreaterThanOrEqual(
       firstStatus.lastVerifiedAt,
     );
-    expect(secondStatus.updatedAt).toBe(firstStatus.updatedAt);
+    expect(secondStatus.updatedAt).toBeGreaterThanOrEqual(
+      firstStatus.updatedAt,
+    );
   });
 
   it('resets Gmail connection update time when the provider account changes', async () => {

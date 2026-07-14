@@ -120,7 +120,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(
       recordedBody?["topicName"] as? String, "projects/private-email/topics/gmail-push")
     XCTAssertEqual(recordedBody?["labelIds"] as? [String], ["INBOX"])
-    XCTAssertEqual(recordedBody?["labelFilterBehavior"] as? String, "INCLUDE")
+    XCTAssertEqual(recordedBody?["labelFilterBehavior"] as? String, "include")
     XCTAssertEqual(status.historyId, "history-123")
     XCTAssertEqual(watchStore.savedStatus, status)
     XCTAssertEqual(tokenRefresher.connection, connection)
@@ -201,6 +201,42 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(status, existing)
   }
 
+  func testRegisterOrRenewWatchReplacesUnverifiedCachedWatch() async throws {
+    let existing = GmailPushWatchStatus(
+      expirationMilliseconds: 1_781_400_000_000,
+      historyId: "history-existing"
+    )
+    let requestSession = ConvexClientTesting.makeSession { request in
+      XCTAssertEqual(request.url?.path, "/gmail/v1/users/me/watch")
+      return (
+        HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(#"{"expiration":"1781900000000","historyId":"history-renewed"}"#.utf8)
+      )
+    }
+    let service = GmailPushWatchService(
+      nowMilliseconds: { 1_781_200_000_000 },
+      session: requestSession,
+      store: RecordingGmailPushWatchStore(status: existing),
+      tokenRefresher: RecordingGmailPushTokenRefresher(
+        tokens: GmailProviderTokens(
+          accessToken: "fresh-access-token",
+          refreshToken: "refresh-token"
+        )
+      ),
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: RecordingGmailPushVerificationTransport(verified: false)
+    )
+
+    let status = try await service.registerOrRenew(connection: connection, session: session)
+
+    XCTAssertEqual(status.historyId, "history-renewed")
+  }
+
   func testRegisterDeviceSendsOnlyAPNsRoutingDataToBackend() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let service = DevicePushRegistrationService(
@@ -233,16 +269,17 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(transport.unregisteredSession, session)
   }
 
-  func testPushConnectionStoreClearsCachedAccountMetadata() throws {
-    let suiteName = "GmailPushRelayServiceTests.\(UUID().uuidString)"
-    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
-    defer { defaults.removePersistentDomain(forName: suiteName) }
-    let store = UserDefaultsGmailPushConnectionStore(defaults: defaults)
-    try store.save(connection, productAccountId: session.productAccountId)
+  func testPushConnectionStoreKeepsAccountMetadataInKeychain() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let store = KeychainGmailPushConnectionStore()
+    defer { try? store.clear(productAccountId: productAccountId) }
+    try store.save(connection, productAccountId: productAccountId)
 
-    try store.clear(productAccountId: session.productAccountId)
+    XCTAssertEqual(try store.load(productAccountId: productAccountId), connection)
 
-    XCTAssertNil(try store.load(productAccountId: session.productAccountId))
+    try store.clear(productAccountId: productAccountId)
+
+    XCTAssertNil(try store.load(productAccountId: productAccountId))
   }
 
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
@@ -291,11 +328,19 @@ final class GmailPushRelayServiceTests: XCTestCase {
 }
 
 private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
+  var clearedProductAccountId: String?
   var savedStatus: GmailPushWatchStatus?
   private let status: GmailPushWatchStatus?
 
   init(status: GmailPushWatchStatus? = nil) {
     self.status = status
+  }
+
+  func clear(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    clearedProductAccountId = productAccountId
   }
 
   func load(
@@ -346,6 +391,11 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
 private final class RecordingGmailPushVerificationTransport: GmailPushVerificationTransport {
   var historyId: String?
   var session: ProductAccountSessionSnapshot?
+  private let verified: Bool
+
+  init(verified: Bool = true) {
+    self.verified = verified
+  }
 
   func verifyGmailPushWatch(
     historyId: String,
@@ -359,7 +409,7 @@ private final class RecordingGmailPushVerificationTransport: GmailPushVerificati
       productAccountId: "product-account-001",
       trustedDeviceId: trustedDeviceId
     )
-    return GmailPushVerificationResponse(verified: true)
+    return GmailPushVerificationResponse(verified: verified)
   }
 }
 

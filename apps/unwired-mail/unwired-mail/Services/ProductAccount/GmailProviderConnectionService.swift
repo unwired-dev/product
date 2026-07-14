@@ -142,6 +142,7 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let bodyReader: GmailMessageReading
   private let pushConnectionStore: GmailPushConnectionPersisting
+  private let pushWatchStore: GmailPushWatchPersisting
   private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
@@ -149,13 +150,15 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   init(
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     pushConnectionStore: GmailPushConnectionPersisting =
-      UserDefaultsGmailPushConnectionStore(),
+      KeychainGmailPushConnectionStore(),
+    pushWatchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
     metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
     self.bodyReader = bodyReader
     self.pushConnectionStore = pushConnectionStore
+    self.pushWatchStore = pushWatchStore
     self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
@@ -200,6 +203,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
 
     if shouldClearLocalCache, let previousConnection {
       do {
+        try pushWatchStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: previousConnection.providerAccountIdentifier
+        )
         try clearLocalCache(session: session)
       } catch {
         try? await restoreConnection(previousConnection, session: session)
@@ -214,6 +221,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) throws {
     var cleanupError: Error?
+    var connection: GmailProviderConnectionStatus?
+    do {
+      connection = try pushConnectionStore.load(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = error
+    }
     do {
       try bodyReader.clearCachedMessageBodies(session: session)
     } catch {
@@ -228,6 +241,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       try metadataStore.clearMessages(productAccountId: session.productAccountId)
     } catch {
       cleanupError = cleanupError ?? error
+    }
+    if let connection {
+      do {
+        try pushWatchStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
     }
     do {
       try pushConnectionStore.clear(productAccountId: session.productAccountId)

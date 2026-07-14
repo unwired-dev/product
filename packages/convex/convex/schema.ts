@@ -76,5 +76,7 @@ export default defineSchema({
     emailAddress: v.string(),
     historyId: v.string(),
     receivedAt: v.number(),
-  }).index('by_emailAddress', ['emailAddress']),
+  })
+    .index('by_emailAddress', ['emailAddress'])
+    .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId']),
 });

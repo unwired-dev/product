@@ -253,6 +253,9 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
         )
@@ -278,6 +281,9 @@ final class ConvexClientTests: XCTestCase {
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
         )

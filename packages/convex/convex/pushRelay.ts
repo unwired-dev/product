@@ -1,3 +1,5 @@
+import type { Infer } from 'convex/values';
+
 import {
   devicePushRegistrationResponseValidator,
   gmailPushVerificationResponseValidator,
@@ -30,7 +32,7 @@ const apnsRecipientValidator = v.object({
 });
 
 type ApnsRecipient = Readonly<{
-  apnsEnvironment: 'production' | 'sandbox';
+  apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
   apnsToken: string;
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
@@ -150,8 +152,10 @@ export const verifyGmailWatch = mutation({
 
     const signal = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_emailAddress', (q) =>
-        q.eq('emailAddress', connection.emailAddress),
+      .withIndex('by_emailAddress_and_historyId', (q) =>
+        q
+          .eq('emailAddress', connection.emailAddress)
+          .eq('historyId', args.historyId),
       )
       .unique();
     const now = Date.now();
@@ -165,6 +169,10 @@ export const verifyGmailWatch = mutation({
       pushVerificationRequestedAt: verified ? undefined : now,
       pushVerifiedAt: verified ? now : connection.pushVerifiedAt,
     });
+    if (verified && signal !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(signal._id);
+    }
 
     return { verified };
   },
@@ -186,8 +194,8 @@ export const enqueueGmailWakeups = internalMutation({
     const now = Date.now();
     const existingSignal = await ctx.db
       .query('gmailPushVerificationSignals')
-      .withIndex('by_emailAddress', (q) =>
-        q.eq('emailAddress', args.emailAddress),
+      .withIndex('by_emailAddress_and_historyId', (q) =>
+        q.eq('emailAddress', args.emailAddress).eq('historyId', args.historyId),
       )
       .unique();
     await (existingSignal === null
@@ -198,9 +206,23 @@ export const enqueueGmailWakeups = internalMutation({
         })
       : // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         ctx.db.patch(existingSignal._id, {
-          historyId: args.historyId,
           receivedAt: now,
         }));
+
+    const staleSignals = await ctx.db
+      .query('gmailPushVerificationSignals')
+      .withIndex('by_emailAddress', (q) =>
+        q.eq('emailAddress', args.emailAddress),
+      )
+      .take(100);
+    await Promise.all(
+      staleSignals.map(async (signal) => {
+        if (now - signal.receivedAt > gmailPushVerificationSignalLifetimeMs) {
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          await ctx.db.delete(signal._id);
+        }
+      }),
+    );
 
     const pendingConnections = await ctx.db
       .query('mailProviderConnections')
