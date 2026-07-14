@@ -54,6 +54,9 @@ export default defineSchema({
     productAccountId: v.id('productAccounts'),
     provider: v.literal('gmail'),
     providerAccountIdentifier: v.string(),
+    pushVerificationHistoryId: v.optional(v.string()),
+    pushVerificationRequestedAt: v.optional(v.number()),
+    pushVerifiedAt: v.optional(v.number()),
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),
   })
@@ -68,4 +71,10 @@ export default defineSchema({
       'productAccountId',
       'providerAccountIdentifier',
     ]),
+
+  gmailPushVerificationSignals: defineTable({
+    emailAddress: v.string(),
+    historyId: v.string(),
+    receivedAt: v.number(),
+  }).index('by_emailAddress', ['emailAddress']),
 });

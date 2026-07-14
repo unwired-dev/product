@@ -21,6 +21,7 @@ const apnsMock = vi.hoisted(() => ({
   requests: [] as ObservedApnsRequest[],
   responseBody: '',
   status: 200,
+  statusByToken: {} as Record<string, number>,
 }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- A partial HTTP/2 transport fake intentionally cannot satisfy the full Node module type.
@@ -47,7 +48,10 @@ vi.mock('node:http2', async () => {
               payload,
             });
             queueMicrotask(() => {
-              request.emit('response', { ':status': apnsMock.status });
+              const token = String(headers[':path']).split('/').at(-1) ?? '';
+              request.emit('response', {
+                ':status': apnsMock.statusByToken[token] ?? apnsMock.status,
+              });
             });
           },
           setEncoding(_encoding: string) {
@@ -70,7 +74,7 @@ const appleIdentity = {
 
 describe('gmail push relay', () => {
   it('registers APNs routing data for an owned trusted device', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -86,6 +90,11 @@ describe('gmail push relay', () => {
     });
 
     expect(result).toStrictEqual({ registered: true });
+    await expect(
+      asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: connection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
     const otherUser = t.withIdentity({
       ...appleIdentity,
       subject: 'apple-user-002',
@@ -105,7 +114,7 @@ describe('gmail push relay', () => {
   });
 
   it('associates minimal Gmail metadata only with matching connected devices', async () => {
-    expect.assertions(2);
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const firstUser = t.withIdentity(appleIdentity);
@@ -139,11 +148,6 @@ describe('gmail push relay', () => {
       providerAccountIdentifier: 'gmail-user-002',
       trustedDeviceId: secondConnection.trustedDeviceId,
     });
-    await firstUser.mutation(api.pushRelay.registerDevice, {
-      apnsEnvironment: 'production',
-      apnsToken: 'matching-apns-token',
-      trustedDeviceId: firstConnection.trustedDeviceId,
-    });
     await secondUser.mutation(api.pushRelay.registerDevice, {
       apnsEnvironment: 'production',
       apnsToken: 'other-apns-token',
@@ -157,15 +161,85 @@ describe('gmail push relay', () => {
       },
     );
 
-    expect(recipients).toStrictEqual([
+    expect(recipients).toStrictEqual([]);
+    await expect(
+      firstUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: 'history-123',
+        trustedDeviceId: firstConnection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ verified: false });
+    await expect(
+      t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        emailAddress: 'matching@example.com',
+        historyId: 'history-123',
+      }),
+    ).resolves.toStrictEqual({ recipientCount: 0 });
+    await firstUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'matching-apns-token',
+      trustedDeviceId: firstConnection.trustedDeviceId,
+    });
+
+    const verifiedRecipients = await t.query(
+      internal.pushRelay.resolveGmailRecipients,
+      {
+        emailAddress: 'matching@example.com',
+      },
+    );
+
+    expect(verifiedRecipients).toStrictEqual([
       {
         apnsEnvironment: 'production',
         apnsToken: 'matching-apns-token',
+        trustedDeviceId: firstConnection.trustedDeviceId,
       },
     ]);
-    expect(JSON.stringify(recipients)).not.toMatch(
+    expect(JSON.stringify(verifiedRecipients)).not.toMatch(
       /accessToken|refreshToken|messageBody|category|classification/iu,
     );
+  });
+
+  it('does not route client-asserted Gmail addresses without matching push proof', async () => {
+    expect.assertions(2);
+
+    const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_784_000_000_000);
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'victim@example.com',
+      providerAccountIdentifier: 'client-asserted-id',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'attacker-device-token',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      historyId: 'victim-history-id',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    nowSpy.mockReturnValue(1_784_000_600_001);
+
+    await expect(
+      t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        emailAddress: 'victim@example.com',
+        historyId: 'victim-history-id',
+      }),
+    ).resolves.toStrictEqual({ recipientCount: 0 });
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'victim@example.com',
+      }),
+    ).resolves.toStrictEqual([]);
+    nowSpy.mockRestore();
   });
 
   it('creates a content-free background wakeup payload', () => {
@@ -255,6 +329,7 @@ describe('gmail push relay', () => {
     apnsMock.requests.length = 0;
     apnsMock.responseBody = '';
     apnsMock.status = 200;
+    apnsMock.statusByToken = {};
     vi.stubEnv('APNS_KEY_ID', 'key-id');
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
@@ -265,12 +340,27 @@ describe('gmail push relay', () => {
     vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
     try {
       const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const goodDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'good-device',
+        platform: 'ios',
+      });
+      const badDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'bad-device',
+        platform: 'ios',
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'bad-device-token',
+        trustedDeviceId: badDevice.trustedDeviceId,
+      });
       await t.action(internal.apns.deliverGmailWakeups, {
         historyId: 'history-123',
         recipients: [
           {
             apnsEnvironment: 'sandbox',
             apnsToken: 'device-token',
+            trustedDeviceId: goodDevice.trustedDeviceId,
           },
         ],
       });
@@ -297,7 +387,7 @@ describe('gmail push relay', () => {
       });
 
       apnsMock.responseBody = '{"reason":"BadDeviceToken"}';
-      apnsMock.status = 410;
+      apnsMock.statusByToken = { 'bad-device-token': 410 };
       await expect(
         t.action(internal.apns.deliverGmailWakeups, {
           historyId: 'history-124',
@@ -305,13 +395,28 @@ describe('gmail push relay', () => {
             {
               apnsEnvironment: 'production',
               apnsToken: 'bad-device-token',
+              trustedDeviceId: badDevice.trustedDeviceId,
+            },
+            {
+              apnsEnvironment: 'production',
+              apnsToken: 'good-device-token',
+              trustedDeviceId: goodDevice.trustedDeviceId,
             },
           ],
         }),
-      ).rejects.toThrow('APNs request failed (410)');
-      expect(apnsMock.requests[1]?.authority).toBe(
-        'https://api.push.apple.com',
+      ).resolves.toBeNull();
+      const prunedDevice = await t.run(async (ctx) =>
+        ctx.db.get(badDevice.trustedDeviceId),
       );
+      expect({
+        badAuthority: apnsMock.requests[1]?.authority,
+        goodPath: apnsMock.requests[2]?.headers[':path'],
+        prunedToken: prunedDevice?.apnsToken,
+      }).toStrictEqual({
+        badAuthority: 'https://api.push.apple.com',
+        goodPath: '/3/device/good-device-token',
+        prunedToken: undefined,
+      });
     } finally {
       vi.unstubAllEnvs();
     }

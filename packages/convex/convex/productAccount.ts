@@ -210,6 +210,9 @@ export const connectGmailProvider = mutation({
     const providerAccountChanged =
       existingConnection.providerAccountIdentifier !==
       args.providerAccountIdentifier;
+    const routingIdentityChanged =
+      providerAccountChanged ||
+      existingConnection.emailAddress !== args.emailAddress;
     const updatedAt = providerAccountChanged
       ? now
       : existingConnection.updatedAt;
@@ -217,6 +220,15 @@ export const connectGmailProvider = mutation({
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(existingConnection._id, {
       ...connection,
+      pushVerificationHistoryId: routingIdentityChanged
+        ? undefined
+        : existingConnection.pushVerificationHistoryId,
+      pushVerificationRequestedAt: routingIdentityChanged
+        ? undefined
+        : existingConnection.pushVerificationRequestedAt,
+      pushVerifiedAt: routingIdentityChanged
+        ? undefined
+        : existingConnection.pushVerifiedAt,
       updatedAt,
     });
 

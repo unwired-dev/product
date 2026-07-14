@@ -2,7 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 @MainActor
 final class GmailPushRelayServiceTests: XCTestCase {
@@ -71,6 +71,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), tokens)
   }
 
+  // swiftlint:disable:next function_body_length
   func testRegisterOrRenewWatchUsesDeviceHeldTokenAndStoresExpiration() async throws {
     let connectionStore = RecordingGmailPushConnectionStore()
     let tokenRefresher = RecordingGmailPushTokenRefresher(
@@ -80,6 +81,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       )
     )
     let watchStore = RecordingGmailPushWatchStore()
+    let verificationTransport = RecordingGmailPushVerificationTransport()
     var recordedAuthorization: String?
     var recordedBody: [String: Any]?
     let requestSession = ConvexClientTesting.makeSession { request in
@@ -105,7 +107,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: requestSession,
       store: watchStore,
       tokenRefresher: tokenRefresher,
-      topicName: "projects/private-email/topics/gmail-push"
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: verificationTransport
     )
 
     let status = try await service.registerOrRenew(
@@ -124,6 +127,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(tokenRefresher.session, session)
     XCTAssertEqual(connectionStore.savedConnection, connection)
     XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
+    XCTAssertEqual(verificationTransport.historyId, "history-123")
+    XCTAssertEqual(verificationTransport.session, session)
   }
 
   func testRegisterOrRenewWatchRenewsWatchWithLessThanOneDayRemaining() async throws {
@@ -153,7 +158,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       session: requestSession,
       store: RecordingGmailPushWatchStore(status: expiring),
       tokenRefresher: tokenRefresher,
-      topicName: "projects/private-email/topics/gmail-push"
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: RecordingGmailPushVerificationTransport()
     )
 
     let status = try await service.registerOrRenew(connection: connection, session: session)
@@ -183,7 +189,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       },
       store: watchStore,
       tokenRefresher: FailingGmailPushTokenRefresher(),
-      topicName: "projects/private-email/topics/gmail-push"
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: RecordingGmailPushVerificationTransport()
     )
 
     let status = try await service.registerOrRenew(
@@ -215,6 +222,27 @@ final class GmailPushRelayServiceTests: XCTestCase {
         trustedDeviceId: session.trustedDeviceId
       )
     )
+  }
+
+  func testUnregisterDeviceClearsBackendRoutingForSignedOutSession() async throws {
+    let transport = RecordingDevicePushRegistrationTransport()
+    let service = DevicePushUnregistrationService(transport: transport)
+
+    try await service.unregister(session: session)
+
+    XCTAssertEqual(transport.unregisteredSession, session)
+  }
+
+  func testPushConnectionStoreClearsCachedAccountMetadata() throws {
+    let suiteName = "GmailPushRelayServiceTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = UserDefaultsGmailPushConnectionStore(defaults: defaults)
+    try store.save(connection, productAccountId: session.productAccountId)
+
+    try store.clear(productAccountId: session.productAccountId)
+
+    XCTAssertNil(try store.load(productAccountId: session.productAccountId))
   }
 
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
@@ -287,6 +315,7 @@ private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
 }
 
 private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersisting {
+  var clearedProductAccountId: String?
   var loadedProductAccountId: String?
   var productAccountId: String?
   var savedConnection: GmailProviderConnectionStatus?
@@ -294,6 +323,10 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
 
   init(connection: GmailProviderConnectionStatus? = nil) {
     self.connection = connection
+  }
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountId = productAccountId
   }
 
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
@@ -307,6 +340,26 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
   ) throws {
     savedConnection = connection
     self.productAccountId = productAccountId
+  }
+}
+
+private final class RecordingGmailPushVerificationTransport: GmailPushVerificationTransport {
+  var historyId: String?
+  var session: ProductAccountSessionSnapshot?
+
+  func verifyGmailPushWatch(
+    historyId: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> GmailPushVerificationResponse {
+    self.historyId = historyId
+    session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: identityToken,
+      productAccountId: "product-account-001",
+      trustedDeviceId: trustedDeviceId
+    )
+    return GmailPushVerificationResponse(verified: true)
   }
 }
 
@@ -348,6 +401,7 @@ private struct DevicePushRegistrationCall: Equatable {
 
 private final class RecordingDevicePushRegistrationTransport: DevicePushRegistrationTransport {
   var call: DevicePushRegistrationCall?
+  var unregisteredSession: ProductAccountSessionSnapshot?
 
   func registerDevicePush(
     apnsEnvironment: String,
@@ -362,6 +416,19 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
       trustedDeviceId: trustedDeviceId
     )
     return DevicePushRegistrationResponse(registered: true)
+  }
+
+  func unregisterDevicePush(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    unregisteredSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: identityToken,
+      productAccountId: "product-account-001",
+      trustedDeviceId: trustedDeviceId
+    )
+    return DevicePushRegistrationResponse(registered: false)
   }
 }
 

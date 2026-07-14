@@ -116,6 +116,32 @@ final class ConvexClient {
     )
   }
 
+  func unregisterDevicePush(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    try await performMutation(
+      path: "pushRelay:unregisterDevice",
+      args: UnregisterDevicePushArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func verifyGmailPushWatch(
+    historyId: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> GmailPushVerificationResponse {
+    try await performMutation(
+      path: "pushRelay:verifyGmailWatch",
+      args: VerifyGmailPushWatchArgs(
+        historyId: historyId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -380,6 +406,15 @@ private struct GetGmailProviderConnectionArgs: Encodable {
 private struct RegisterDevicePushArgs: Encodable {
   let apnsEnvironment: String
   let apnsToken: String
+  let trustedDeviceId: String
+}
+
+private struct UnregisterDevicePushArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct VerifyGmailPushWatchArgs: Encodable {
+  let historyId: String
   let trustedDeviceId: String
 }
 

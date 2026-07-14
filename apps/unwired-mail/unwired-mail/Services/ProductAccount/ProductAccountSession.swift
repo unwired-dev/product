@@ -14,6 +14,7 @@ final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
   private let appleSignInService: AppleSignInPerforming
+  private let devicePushUnregistrationService: DevicePushUnregistering
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let gmailProviderConnectionService: GmailProviderConnecting
@@ -22,6 +23,8 @@ final class ProductAccountSession {
 
   init(
     appleSignInService: AppleSignInPerforming,
+    devicePushUnregistrationService: DevicePushUnregistering =
+      DevicePushUnregistrationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     gmailProviderConnectionService: GmailProviderConnecting =
@@ -31,6 +34,7 @@ final class ProductAccountSession {
       KeychainProductSyncKeyMaterialStore()
   ) {
     self.appleSignInService = appleSignInService
+    self.devicePushUnregistrationService = devicePushUnregistrationService
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.gmailProviderConnectionService = gmailProviderConnectionService
@@ -65,10 +69,9 @@ final class ProductAccountSession {
         productAccountId: response.productAccountId,
         trustedDeviceId: response.trustedDeviceId
       )
-      try sessionStore.save(refreshedSnapshot)
-      try clearLocalGmailConnectionIfProductAccountChanged(
-        from: snapshot,
-        to: refreshedSnapshot
+      try await replaceSessionAfterBootstrap(
+        snapshot,
+        with: refreshedSnapshot
       )
       state = .signedIn(refreshedSnapshot)
     } catch let error as AppleSignInError {
@@ -116,6 +119,10 @@ final class ProductAccountSession {
         trustedDeviceId: response.trustedDeviceId
       )
       let previousSnapshot = try? sessionStore.load()
+      try await unregisterDeviceIfProductAccountChanged(
+        from: previousSnapshot,
+        to: snapshot
+      )
       try sessionStore.save(snapshot)
       do {
         try clearLocalGmailConnectionIfProductAccountChanged(
@@ -134,9 +141,12 @@ final class ProductAccountSession {
     }
   }
 
-  func signOut() {
+  func signOut() async {
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     do {
+      if let snapshot {
+        try await devicePushUnregistrationService.unregister(session: snapshot)
+      }
       try sessionStore.clear()
       if let snapshot {
         do {
@@ -164,6 +174,21 @@ final class ProductAccountSession {
       || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
   }
 
+  private func replaceSessionAfterBootstrap(
+    _ existingSnapshot: ProductAccountSessionSnapshot,
+    with snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    try await unregisterDeviceIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
+    try sessionStore.save(snapshot)
+    try clearLocalGmailConnectionIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
+  }
+
   private func clearLocalGmailConnectionIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
@@ -176,6 +201,20 @@ final class ProductAccountSession {
     }
 
     try gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+  }
+
+  private func unregisterDeviceIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try await devicePushUnregistrationService.unregister(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {

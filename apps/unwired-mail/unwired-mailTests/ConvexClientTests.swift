@@ -246,6 +246,60 @@ final class ConvexClientTests: XCTestCase {
     XCTAssertEqual(response?.emailAddress, "user@example.com")
   }
 
+  func testUnregisterDevicePushSendsAuthenticatedMutation() async throws {
+    let fixtureEnvelope = #"{"status":"success","value":{"registered":false}}"#.data(
+      using: .utf8
+    )!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:unregisterDevice")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.unregisterDevicePush(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertFalse(response.registered)
+  }
+
+  func testVerifyGmailPushWatchSendsHistoryProofWithoutProviderTokens() async throws {
+    let fixtureEnvelope = #"{"status":"success","value":{"verified":true}}"#.data(
+      using: .utf8
+    )!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:verifyGmailWatch")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["historyId"] as? String, "history-123")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        XCTAssertNil(args["accessToken"])
+        XCTAssertNil(args["refreshToken"])
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.verifyGmailPushWatch(
+      historyId: "history-123",
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertTrue(response.verified)
+  }
+
   private static func requestBody(from request: URLRequest) throws -> Data {
     if let body = request.httpBody {
       return body

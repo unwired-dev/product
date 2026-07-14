@@ -97,7 +97,9 @@ struct AccountView: View {
         SmokeView(service: ConvexBackendHealthService())
 
         Button("Sign Out", role: .destructive) {
-          session.signOut()
+          Task {
+            await session.signOut()
+          }
         }
         .buttonStyle(.bordered)
       }
@@ -379,6 +381,7 @@ private final class GmailProviderConnectionViewModel {
   var isConnecting = false
   var isLoading = false
   var providerAccountIdentifier = ""
+  var pushStatusMessage: String?
   var refreshToken = ""
 
   private let credentialVerifier: GmailProviderCredentialVerifying
@@ -422,13 +425,10 @@ private final class GmailProviderConnectionViewModel {
 
     do {
       connection = try await service.loadConnection(session: session)
-      if let connection {
-        _ = try await pushWatchService.registerOrRenew(
-          connection: connection,
-          session: session
-        )
-      }
       errorMessage = nil
+      if let connection {
+        await refreshPushWatch(connection: connection)
+      }
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -468,15 +468,12 @@ private final class GmailProviderConnectionViewModel {
         verifiedAccount: verifiedAccount,
         session: session
       )
-      if let connection {
-        _ = try await pushWatchService.registerOrRenew(
-          connection: connection,
-          session: session
-        )
-      }
       accessToken = ""
       refreshToken = ""
       errorMessage = nil
+      if let connection {
+        await refreshPushWatch(connection: connection)
+      }
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
@@ -486,15 +483,20 @@ private final class GmailProviderConnectionViewModel {
   func renewPushWatch() async {
     guard let connection else { return }
 
+    await refreshPushWatch(connection: connection)
+  }
+
+  private func refreshPushWatch(connection: GmailProviderConnectionStatus) async {
     do {
       _ = try await pushWatchService.registerOrRenew(
         connection: connection,
         session: session
       )
-      errorMessage = nil
+      pushStatusMessage = nil
     } catch is CancellationError {
     } catch {
-      errorMessage = error.localizedDescription
+      pushStatusMessage =
+        "Gmail is connected, but push wakeups are unavailable: \(error.localizedDescription)"
     }
   }
 }
@@ -661,6 +663,7 @@ private struct CustomCategoryPanel: View {
           .foregroundStyle(.red)
           .font(.footnote)
       }
+
     }
   }
 }
@@ -736,6 +739,12 @@ private struct GmailProviderConnectionPanel: View {
       if let errorMessage = viewModel.errorMessage {
         Text(errorMessage)
           .foregroundStyle(.red)
+          .font(.footnote)
+      }
+
+      if let pushStatusMessage = viewModel.pushStatusMessage {
+        Text(pushStatusMessage)
+          .foregroundStyle(.orange)
           .font(.footnote)
       }
     }

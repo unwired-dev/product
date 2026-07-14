@@ -141,17 +141,21 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let bodyReader: GmailMessageReading
+  private let pushConnectionStore: GmailPushConnectionPersisting
   private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
 
   init(
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
+    pushConnectionStore: GmailPushConnectionPersisting =
+      UserDefaultsGmailPushConnectionStore(),
     metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
     self.bodyReader = bodyReader
+    self.pushConnectionStore = pushConnectionStore
     self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
@@ -222,6 +226,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     do {
       try metadataStore.clearMessages(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    do {
+      try pushConnectionStore.clear(productAccountId: session.productAccountId)
     } catch {
       cleanupError = cleanupError ?? error
     }

@@ -43,7 +43,7 @@ Gmail provider connection also requires `GMAIL_OAUTH_CLIENT_ID` so the device ca
 
 ### Gmail push relay
 
-Gmail push keeps provider OAuth tokens on trusted devices. A device calls Gmail `users.watch` with its local credential, Gmail publishes only the mailbox email address and history ID to Pub/Sub, Convex maps that Minimal Push Metadata to APNs device registrations, and the receiving device fetches mailbox changes with its own Gmail token. The APNs payload contains only `provider: gmail` and the Gmail history ID; it contains no message content, categories, classifications, notification rules, or provider credentials.
+Gmail push keeps provider OAuth tokens on trusted devices. A device calls Gmail `users.watch` with its local credential and submits the returned history ID as a routing proof. Convex enables routing only after that proof matches Minimal Push Metadata received from the authenticated Pub/Sub endpoint, then sends APNs wakeups to the verified Product Account devices. The receiving device fetches mailbox changes with its own Gmail token. The APNs payload contains only `provider: gmail` and the Gmail history ID; it contains no message content, categories, classifications, notification rules, or provider credentials. Signing out or switching Product Accounts unregisters the device's APNs route and clears cached push-account metadata.
 
 Configure the Google and Apple infrastructure before enabling the path:
 

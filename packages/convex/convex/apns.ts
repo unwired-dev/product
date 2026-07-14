@@ -6,6 +6,7 @@ import { connect } from 'node:http2';
 
 import { v } from 'convex/values';
 
+import { internal } from './_generated/api.js';
 import { internalAction } from './_generated/server.js';
 import { gmailWakeupPayload } from './gmailPushPayload.js';
 
@@ -28,6 +29,16 @@ type ApnsDelivery = Readonly<{
   configuration: ApnsConfiguration;
   payload: string;
 }>;
+
+class ApnsRequestError extends Error {
+  public readonly status: number;
+
+  public constructor(status: number, responseBody: string) {
+    super(`APNs request failed (${status}): ${responseBody}`);
+    this.name = 'ApnsRequestError';
+    this.status = status;
+  }
+}
 
 function requiredEnvironmentValue(name: string): string {
   // oxlint-disable-next-line node/no-process-env -- Convex actions read deployment env at runtime.
@@ -105,7 +116,7 @@ async function sendWakeup(delivery: ApnsDelivery): Promise<void> {
     const rawStatus: unknown = Reflect.get(rawHeaders, ':status');
     const status = typeof rawStatus === 'number' ? rawStatus : 0;
     if (status !== 200) {
-      throw new Error(`APNs request failed (${status}): ${responseBody}`);
+      throw new ApnsRequestError(status, responseBody);
     }
   } finally {
     client.close();
@@ -119,15 +130,16 @@ export const deliverGmailWakeups = internalAction({
       v.object({
         apnsEnvironment: apnsEnvironmentValidator,
         apnsToken: v.string(),
+        trustedDeviceId: v.id('trustedDevices'),
       }),
     ),
   },
-  handler: async (_ctx, args) => {
+  handler: async (ctx, args) => {
     const configuration = apnsConfiguration();
     const authorization = providerToken(configuration);
     const payload = JSON.stringify(gmailWakeupPayload(args.historyId));
 
-    await Promise.all(
+    const results = await Promise.allSettled(
       args.recipients.map(async (recipient) =>
         sendWakeup({
           apnsEnvironment: recipient.apnsEnvironment,
@@ -137,6 +149,26 @@ export const deliverGmailWakeups = internalAction({
           payload,
         }),
       ),
+    );
+
+    await Promise.all(
+      results.map(async (result, index) => {
+        if (result.status === 'fulfilled') {
+          return;
+        }
+        console.error('APNs wakeup delivery failed', result.reason);
+        const recipient = args.recipients[index];
+        if (
+          recipient !== undefined &&
+          result.reason instanceof ApnsRequestError &&
+          result.reason.status === 410
+        ) {
+          await ctx.runMutation(internal.pushRelay.clearStaleDevice, {
+            apnsToken: recipient.apnsToken,
+            trustedDeviceId: recipient.trustedDeviceId,
+          });
+        }
+      }),
     );
 
     return null;

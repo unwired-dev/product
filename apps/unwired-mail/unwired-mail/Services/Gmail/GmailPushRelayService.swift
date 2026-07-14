@@ -25,6 +25,7 @@ protocol GmailPushWatchPersisting {
 }
 
 protocol GmailPushConnectionPersisting {
+  func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus?
   func save(
     _ connection: GmailProviderConnectionStatus,
@@ -37,6 +38,14 @@ protocol GmailPushWatchRegistering {
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailPushWatchStatus
+}
+
+protocol GmailPushVerificationTransport {
+  func verifyGmailPushWatch(
+    historyId: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> GmailPushVerificationResponse
 }
 
 protocol GmailProviderTokenRefreshing {
@@ -86,6 +95,10 @@ struct UserDefaultsGmailPushConnectionStore: GmailPushConnectionPersisting {
     self.defaults = defaults
   }
 
+  func clear(productAccountId: String) throws {
+    defaults.removeObject(forKey: key(productAccountId))
+  }
+
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
     guard let data = defaults.data(forKey: key(productAccountId)) else {
       return nil
@@ -118,6 +131,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
   private let store: GmailPushWatchPersisting
   private let tokenRefresher: GmailProviderTokenRefreshing
   private let topicName: String?
+  private let verificationTransport: GmailPushVerificationTransport
 
   init(
     connectionStore: GmailPushConnectionPersisting = UserDefaultsGmailPushConnectionStore(),
@@ -128,7 +142,8 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
     session: URLSession = .shared,
     store: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
     tokenRefresher: GmailProviderTokenRefreshing = GmailMessageMetadataService(),
-    topicName: String? = GmailPushTopicConfiguration.value()
+    topicName: String? = GmailPushTopicConfiguration.value(),
+    verificationTransport: GmailPushVerificationTransport = ConvexClient()
   ) {
     self.connectionStore = connectionStore
     self.gmailBaseURL = gmailBaseURL
@@ -137,6 +152,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
     self.store = store
     self.tokenRefresher = tokenRefresher
     self.topicName = topicName
+    self.verificationTransport = verificationTransport
   }
 
   func registerOrRenew(
@@ -148,6 +164,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       connection: connection,
       productSession: productSession
     ) {
+      try await verifyWatch(existing, productSession: productSession)
       return existing
     }
 
@@ -165,7 +182,19 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
+    try await verifyWatch(status, productSession: productSession)
     return status
+  }
+
+  private func verifyWatch(
+    _ status: GmailPushWatchStatus,
+    productSession: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = try await verificationTransport.verifyGmailPushWatch(
+      historyId: status.historyId,
+      identityToken: productSession.identityToken,
+      trustedDeviceId: productSession.trustedDeviceId
+    )
   }
 
   private func currentWatch(
@@ -246,6 +275,10 @@ struct DevicePushRegistrationResponse: Decodable, Equatable {
   let registered: Bool
 }
 
+struct GmailPushVerificationResponse: Decodable, Equatable {
+  let verified: Bool
+}
+
 protocol DevicePushRegistrationTransport {
   func registerDevicePush(
     apnsEnvironment: String,
@@ -253,6 +286,15 @@ protocol DevicePushRegistrationTransport {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> DevicePushRegistrationResponse
+
+  func unregisterDevicePush(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse
+}
+
+protocol DevicePushUnregistering {
+  func unregister(session: ProductAccountSessionSnapshot) async throws
 }
 
 enum DevicePushEnvironment: String {
@@ -287,6 +329,22 @@ struct DevicePushRegistrationService {
 }
 
 extension ConvexClient: DevicePushRegistrationTransport {}
+extension ConvexClient: GmailPushVerificationTransport {}
+
+struct DevicePushUnregistrationService: DevicePushUnregistering {
+  private let transport: DevicePushRegistrationTransport
+
+  init(transport: DevicePushRegistrationTransport = ConvexClient()) {
+    self.transport = transport
+  }
+
+  func unregister(session: ProductAccountSessionSnapshot) async throws {
+    _ = try await transport.unregisterDevicePush(
+      identityToken: session.identityToken,
+      trustedDeviceId: session.trustedDeviceId
+    )
+  }
+}
 
 @MainActor
 struct GmailPushWakeupHandler {
