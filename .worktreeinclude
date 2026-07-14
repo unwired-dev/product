@@ -1,0 +1,2 @@
+.env.local
+packages/convex/.env.local
