@@ -57,18 +57,17 @@ async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   emailAddress: string,
 ): Promise<ApnsRecipient[]> {
-  const connections = await ctx.db
+  const connections = ctx.db
     .query('mailProviderConnections')
     .withIndex('by_provider_and_emailAddress_and_pushVerifiedAt', (q) =>
       q
         .eq('provider', 'gmail')
         .eq('emailAddress', emailAddress)
         .gt('pushVerifiedAt', undefined),
-    )
-    .take(100);
+    );
   const recipients: ApnsRecipient[] = [];
 
-  for (const connection of connections) {
+  for await (const connection of connections) {
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const recipient = await apnsRecipientForDevice(
       ctx,
@@ -78,6 +77,9 @@ async function gmailRecipients(
     );
     if (recipient !== null) {
       recipients.push(recipient);
+      if (recipients.length === 100) {
+        break;
+      }
     }
   }
 
@@ -115,17 +117,13 @@ async function hasOtherActiveGmailRoute(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
     emailAddress: string;
-    productAccountId: Id<'productAccounts'>;
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<boolean> {
   const connections = ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
-      q
-        .eq('productAccountId', request.productAccountId)
-        .eq('provider', 'gmail')
-        .eq('emailAddress', request.emailAddress),
+    .withIndex('by_provider_and_emailAddress_and_pushVerifiedAt', (q) =>
+      q.eq('provider', 'gmail').eq('emailAddress', request.emailAddress),
     );
 
   for await (const connection of connections) {
@@ -400,7 +398,6 @@ export const shouldStopGmailWatch = query({
     );
     return !(await hasOtherActiveGmailRoute(ctx, {
       emailAddress: connection.emailAddress,
-      productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,
     }));
   },

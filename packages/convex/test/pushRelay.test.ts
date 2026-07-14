@@ -138,6 +138,56 @@ describe('gmail push relay', () => {
     ).resolves.toBe(true);
   });
 
+  it('keeps a mailbox watch when another account has an active verified route', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connection = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'shared@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: connection.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        tokenIdentifier: 'other-account',
+      });
+      const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+        apnsEnvironment: 'production',
+        apnsToken: 'other-token',
+        deviceIdentifier: 'other-device',
+        lastSeenAt: Date.now(),
+        platform: 'ios',
+        productAccountId,
+        registeredAt: Date.now(),
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: Date.now(),
+        emailAddress: 'shared@example.com',
+        lastVerifiedAt: Date.now(),
+        productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'other-gmail-user',
+        pushVerifiedAt: Date.now(),
+        trustedDeviceId,
+        updatedAt: Date.now(),
+      });
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: connection.trustedDeviceId,
+      }),
+      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+    ).resolves.toBe(false);
+  });
+
   it('checks account routes before applying the connection cap', async () => {
     expect.assertions(1);
 
@@ -547,7 +597,7 @@ describe('gmail push relay', () => {
     await expect(t.run((ctx) => ctx.db.get(signalId))).resolves.toBeNull();
   });
 
-  it('applies the Gmail recipient cap after filtering unverified rows', async () => {
+  it('applies the Gmail recipient cap after filtering inactive routes', async () => {
     expect.assertions(1);
 
     const t = convexTest(schema, modules);
@@ -559,7 +609,7 @@ describe('gmail push relay', () => {
       });
       for (let index = 0; index < 100; index += 1) {
         const trustedDeviceId = await ctx.db.insert('trustedDevices', {
-          deviceIdentifier: `unverified-device-${index}`,
+          deviceIdentifier: `inactive-device-${index}`,
           lastSeenAt: Date.now(),
           platform: 'ios',
           productAccountId,
@@ -571,7 +621,8 @@ describe('gmail push relay', () => {
           lastVerifiedAt: Date.now(),
           productAccountId,
           provider: 'gmail',
-          providerAccountIdentifier: `unverified-${index}`,
+          providerAccountIdentifier: `inactive-${index}`,
+          pushVerifiedAt: Date.now(),
           trustedDeviceId,
           updatedAt: Date.now(),
         });
