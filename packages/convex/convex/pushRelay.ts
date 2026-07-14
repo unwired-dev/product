@@ -102,6 +102,14 @@ async function apnsRecipientForDevice(
   };
 }
 
+function hasActiveApnsRoute(
+  device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): boolean {
+  return (
+    device?.apnsEnvironment !== undefined && device.apnsToken !== undefined
+  );
+}
+
 async function hasOtherActiveGmailRoute(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -123,10 +131,7 @@ async function hasOtherActiveGmailRoute(
   for await (const connection of connections) {
     if (connection.trustedDeviceId !== request.trustedDeviceId) {
       const device = await ctx.db.get(connection.trustedDeviceId);
-      if (
-        device?.apnsEnvironment !== undefined &&
-        device.apnsToken !== undefined
-      ) {
+      if (hasActiveApnsRoute(device)) {
         return true;
       }
     }
