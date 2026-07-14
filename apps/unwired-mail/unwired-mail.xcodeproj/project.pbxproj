@@ -460,7 +460,7 @@
 				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 3P44B7QUTF;
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -491,7 +491,7 @@
 				CODE_SIGN_ENTITLEMENTS = "unwired-mail/unwired-mail.entitlements";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = "";
+				DEVELOPMENT_TEAM = 3P44B7QUTF;
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
