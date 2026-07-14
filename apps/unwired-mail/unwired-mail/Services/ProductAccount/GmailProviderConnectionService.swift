@@ -75,7 +75,7 @@ protocol GmailProviderConnectionTransport {
 protocol GmailProviderConnecting {
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
-  ) throws
+  ) async throws
 
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
@@ -142,6 +142,7 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let bodyReader: GmailMessageReading
   private let pushConnectionStore: GmailPushConnectionPersisting
+  private let pushWatchStopper: GmailPushWatchStopping
   private let pushWatchStore: GmailPushWatchPersisting
   private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
@@ -151,6 +152,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     pushConnectionStore: GmailPushConnectionPersisting =
       KeychainGmailPushConnectionStore(),
+    pushWatchStopper: GmailPushWatchStopping = GmailPushWatchService(),
     pushWatchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
     metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
@@ -158,6 +160,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   ) {
     self.bodyReader = bodyReader
     self.pushConnectionStore = pushConnectionStore
+    self.pushWatchStopper = pushWatchStopper
     self.pushWatchStore = pushWatchStore
     self.metadataStore = metadataStore
     self.tokenStore = tokenStore
@@ -184,8 +187,14 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       previousConnection.map {
         $0.providerAccountIdentifier != verifiedAccount.providerAccountIdentifier
       } ?? (previousTokens != nil)
-    if shouldClearLocalCache, previousConnection == nil {
+    if shouldClearLocalCache {
       try clearLocalCache(session: session)
+      if let previousConnection {
+        try pushWatchStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: previousConnection.providerAccountIdentifier
+        )
+      }
     }
 
     try Task.checkCancellation()
@@ -195,31 +204,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       productAccountId: session.productAccountId
     )
 
-    let connection = try await registerConnection(
+    return try await registerConnection(
       verifiedAccount: verifiedAccount,
       session: session,
       previousTokens: previousTokens
     )
-
-    if shouldClearLocalCache, let previousConnection {
-      do {
-        try clearLocalCache(session: session)
-        try pushWatchStore.clear(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: previousConnection.providerAccountIdentifier
-        )
-      } catch {
-        try? await restoreConnection(previousConnection, session: session)
-        try? restoreTokens(previousTokens, session: session)
-        throw error
-      }
-    }
-    return connection
   }
 
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     var cleanupError: Error?
     var connection: GmailProviderConnectionStatus?
     do {
@@ -227,10 +221,17 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = error
     }
+    if let connection {
+      do {
+        try await pushWatchStopper.stop(connection: connection, session: session)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+    }
     do {
       try bodyReader.clearCachedMessageBodies(session: session)
     } catch {
-      cleanupError = error
+      cleanupError = cleanupError ?? error
     }
     do {
       try tokenStore.clear(productAccountId: session.productAccountId)
@@ -303,29 +304,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
       throw error
     }
-  }
-
-  private func restoreTokens(
-    _ tokens: GmailProviderTokens?,
-    session: ProductAccountSessionSnapshot
-  ) throws {
-    if let tokens {
-      try tokenStore.save(tokens, productAccountId: session.productAccountId)
-    } else {
-      try tokenStore.clear(productAccountId: session.productAccountId)
-    }
-  }
-
-  private func restoreConnection(
-    _ connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    _ = try await transport.connectGmailProvider(
-      identityToken: session.identityToken,
-      trustedDeviceId: session.trustedDeviceId,
-      emailAddress: connection.emailAddress,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
   }
 
   func loadConnection(

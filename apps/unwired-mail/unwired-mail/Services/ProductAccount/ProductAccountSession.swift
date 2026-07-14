@@ -80,7 +80,7 @@ final class ProductAccountSession {
         do {
           try sessionStore.clear()
           do {
-            try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+            try await gmailProviderConnectionService.clearLocalConnection(session: snapshot)
             state = .signedOut
           } catch {
             state = .failed(error.localizedDescription)
@@ -121,7 +121,7 @@ final class ProductAccountSession {
       let previousSnapshot = try? sessionStore.load()
       try sessionStore.save(snapshot)
       do {
-        try clearLocalGmailConnectionIfProductAccountChanged(
+        try await clearLocalGmailConnectionIfProductAccountChanged(
           from: previousSnapshot,
           to: snapshot
         )
@@ -152,7 +152,7 @@ final class ProductAccountSession {
       try sessionStore.clear()
       if let snapshot {
         do {
-          try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+          try await gmailProviderConnectionService.clearLocalConnection(session: snapshot)
           state = .signedOut
         } catch {
           state = .failed(error.localizedDescription)
@@ -182,7 +182,7 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.save(snapshot)
     do {
-      try clearLocalGmailConnectionIfProductAccountChanged(
+      try await clearLocalGmailConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
@@ -199,7 +199,7 @@ final class ProductAccountSession {
   private func clearLocalGmailConnectionIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     guard
       let existingSnapshot,
       existingSnapshot.productAccountId != snapshot.productAccountId
@@ -207,7 +207,7 @@ final class ProductAccountSession {
       return
     }
 
-    try gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+    try await gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
   }
 
   private func unregisterDeviceIfProductAccountChanged(

@@ -708,7 +708,7 @@ private final class RecordingGmailProviderConnecting: GmailProviderConnecting {
 
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     clearedSession = session
     clearedSessions.append(session)
     if let clearError {

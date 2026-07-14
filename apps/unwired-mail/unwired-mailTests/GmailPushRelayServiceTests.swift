@@ -245,6 +245,43 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(status.historyId, "history-renewed")
   }
 
+  func testStopWatchUsesDeviceHeldToken() async throws {
+    let tokenRefresher = RecordingGmailPushTokenRefresher(
+      tokens: GmailProviderTokens(
+        accessToken: "refreshed-access-token",
+        refreshToken: "refresh-token"
+      )
+    )
+    var recordedRequest: URLRequest?
+    let requestSession = ConvexClientTesting.makeSession { request in
+      recordedRequest = request
+      return (
+        HTTPURLResponse(
+          url: request.url!,
+          statusCode: 204,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data()
+      )
+    }
+    let service = GmailPushWatchService(
+      session: requestSession,
+      tokenRefresher: tokenRefresher
+    )
+
+    try await service.stop(connection: connection, session: session)
+
+    XCTAssertEqual(recordedRequest?.url?.path, "/gmail/v1/users/me/stop")
+    XCTAssertEqual(recordedRequest?.httpMethod, "POST")
+    XCTAssertEqual(
+      recordedRequest?.value(forHTTPHeaderField: "Authorization"),
+      "Bearer refreshed-access-token"
+    )
+    XCTAssertEqual(tokenRefresher.connection, connection)
+    XCTAssertEqual(tokenRefresher.session, session)
+  }
+
   func testRegisterDeviceSendsOnlyAPNsRoutingDataToBackend() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let service = DevicePushRegistrationService(

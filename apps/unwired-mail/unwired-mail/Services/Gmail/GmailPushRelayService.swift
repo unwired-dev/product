@@ -77,6 +77,13 @@ protocol GmailPushWatchRegistering {
   ) async throws -> GmailPushWatchStatus
 }
 
+protocol GmailPushWatchStopping {
+  func stop(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
 protocol GmailPushVerificationTransport {
   func verifyGmailPushWatch(
     historyId: String,
@@ -170,7 +177,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   }
 }
 
-struct GmailPushWatchService: GmailPushWatchRegistering {
+struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping {
   private static let renewalLeadTimeMilliseconds: Int64 = 86_400_000
 
   private let gmailBaseURL: URL
@@ -247,6 +254,31 @@ struct GmailPushWatchService: GmailPushWatchRegistering {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     return verifiedStatus
+  }
+
+  func stop(
+    connection: GmailProviderConnectionStatus,
+    session productSession: ProductAccountSessionSnapshot
+  ) async throws {
+    let tokens = try await verifiedTokens(
+      connection: connection,
+      productSession: productSession
+    )
+    var request = URLRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/stop")
+    )
+    request.httpMethod = "POST"
+    request.setValue(
+      "Bearer \(tokens.accessToken)",
+      forHTTPHeaderField: "Authorization"
+    )
+
+    let (_, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailPushRelayError.watchStopFailed
+    }
   }
 
   private func verifyWatch(
@@ -529,6 +561,7 @@ enum GmailPushRelayError: LocalizedError, Equatable {
   case invalidWatchResponse
   case missingTopicName
   case watchRegistrationFailed
+  case watchStopFailed
 
   var errorDescription: String? {
     switch self {
@@ -538,6 +571,8 @@ enum GmailPushRelayError: LocalizedError, Equatable {
       return "Gmail Pub/Sub topic is not configured."
     case .watchRegistrationFailed:
       return "Gmail push watch registration failed."
+    case .watchStopFailed:
+      return "Gmail push watch could not be stopped."
     }
   }
 }
