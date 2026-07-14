@@ -77,6 +77,7 @@ final class ProductAccountSession {
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:
+        try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
           try sessionStore.clear()
           do {

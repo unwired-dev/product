@@ -138,6 +138,69 @@ describe('gmail push relay', () => {
     ).resolves.toBe(true);
   });
 
+  it('checks account routes before applying the connection cap', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    await t.run(async (ctx) => {
+      const otherProductAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        tokenIdentifier: 'other-account',
+      });
+      for (let index = 0; index < 100; index += 1) {
+        const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `other-device-${index}`,
+          lastSeenAt: Date.now(),
+          platform: 'ios',
+          productAccountId: otherProductAccountId,
+          registeredAt: Date.now(),
+        });
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: Date.now(),
+          emailAddress: 'shared@example.com',
+          lastVerifiedAt: Date.now(),
+          productAccountId: otherProductAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `other-gmail-${index}`,
+          trustedDeviceId,
+          updatedAt: Date.now(),
+        });
+      }
+    });
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    for (const trustedDeviceId of [
+      firstDevice.trustedDeviceId,
+      secondDevice.trustedDeviceId,
+    ]) {
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'shared@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId,
+      });
+    }
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'second-apns-token',
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      }),
+      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+    ).resolves.toBe(false);
+  });
+
   it('registers APNs routing data for an owned trusted device', async () => {
     expect.assertions(3);
 
@@ -456,6 +519,32 @@ describe('gmail push relay', () => {
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
+  });
+
+  it('expires verification signals without another Gmail push', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const signalId = await t.run((ctx) =>
+      ctx.db.insert('gmailPushVerificationSignals', {
+        emailAddress: 'quiet@example.com',
+        historyId: '100',
+        receivedAt: 100,
+      }),
+    );
+    await t.run((ctx) => ctx.db.patch(signalId, { receivedAt: 200 }));
+
+    await t.mutation(internal.pushRelay.expireGmailVerificationSignal, {
+      receivedAt: 100,
+      signalId,
+    });
+    await expect(t.run((ctx) => ctx.db.get(signalId))).resolves.not.toBeNull();
+
+    await t.mutation(internal.pushRelay.expireGmailVerificationSignal, {
+      receivedAt: 200,
+      signalId,
+    });
+    await expect(t.run((ctx) => ctx.db.get(signalId))).resolves.toBeNull();
   });
 
   it('applies the Gmail recipient cap after filtering unverified rows', async () => {

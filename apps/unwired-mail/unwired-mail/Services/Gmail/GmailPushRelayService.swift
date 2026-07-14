@@ -43,6 +43,15 @@ private func gmailHistoryIdIsNewer(_ candidate: String, than current: String) ->
   return comparableCurrent < comparableCandidate
 }
 
+private func gmailPushWatchIsSameRoute(
+  _ candidate: GmailPushWatchStatus,
+  as expected: GmailPushWatchStatus
+) -> Bool {
+  candidate.expirationMilliseconds == expected.expirationMilliseconds
+    && candidate.historyId == expected.historyId
+    && candidate.routeId == expected.routeId
+}
+
 protocol GmailPushWatchPersisting {
   func clear(
     productAccountId: String,
@@ -525,7 +534,7 @@ struct GmailPushWakeupHandler {
       return false
     }
 
-    let routeIsCurrent = {
+    let currentWatchForRoute: () -> GmailPushWatchStatus? = {
       guard
         let currentSession = try? sessionStore.load(),
         currentSession == productSession,
@@ -537,11 +546,14 @@ struct GmailPushWakeupHandler {
           productAccountId: productSession.productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         ),
-        currentWatch == watchStatus
+        gmailPushWatchIsSameRoute(currentWatch, as: watchStatus)
       else {
-        return false
+        return nil
       }
-      return true
+      return currentWatch
+    }
+    let routeIsCurrent = {
+      currentWatchForRoute() != nil
     }
 
     do {
@@ -553,13 +565,17 @@ struct GmailPushWakeupHandler {
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
     }
-    guard routeIsCurrent() else { return false }
+    guard let currentWatch = currentWatchForRoute() else { return false }
+    let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
+    let nextWatermark =
+      gmailHistoryIdIsNewer(historyId, than: currentWatermark)
+      ? historyId : currentWatermark
     try watchStore.save(
       GmailPushWatchStatus(
-        expirationMilliseconds: watchStatus.expirationMilliseconds,
-        historyId: watchStatus.historyId,
-        latestSyncedHistoryId: historyId,
-        routeId: watchStatus.routeId
+        expirationMilliseconds: currentWatch.expirationMilliseconds,
+        historyId: currentWatch.historyId,
+        latestSyncedHistoryId: nextWatermark,
+        routeId: currentWatch.routeId
       ),
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier

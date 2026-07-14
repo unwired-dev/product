@@ -441,6 +441,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: RevokedAppleSignInService(),
+      devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       gmailProviderConnectionService: gmailConnectionService,
@@ -452,6 +453,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
+    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }
 
   func testBootstrapClearsStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {

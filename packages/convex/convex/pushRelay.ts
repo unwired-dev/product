@@ -111,27 +111,27 @@ async function hasOtherActiveGmailRoute(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<boolean> {
-  const connections = await ctx.db
+  const connections = ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_provider_and_emailAddress', (q) =>
-      q.eq('provider', 'gmail').eq('emailAddress', request.emailAddress),
-    )
-    .take(100);
+    .withIndex('by_productAccountId_and_provider_and_emailAddress', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('emailAddress', request.emailAddress),
+    );
 
-  const otherConnections = connections.filter(
-    (connection) =>
-      connection.productAccountId === request.productAccountId &&
-      connection.trustedDeviceId !== request.trustedDeviceId,
-  );
-  const devices = await Promise.all(
-    otherConnections.map((connection) =>
-      ctx.db.get(connection.trustedDeviceId),
-    ),
-  );
-  return devices.some(
-    (device) =>
-      device?.apnsEnvironment !== undefined && device.apnsToken !== undefined,
-  );
+  for await (const connection of connections) {
+    if (connection.trustedDeviceId !== request.trustedDeviceId) {
+      const device = await ctx.db.get(connection.trustedDeviceId);
+      if (
+        device?.apnsEnvironment !== undefined &&
+        device.apnsToken !== undefined
+      ) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 function gmailConnectionsForDevice(
@@ -224,33 +224,25 @@ async function recordGmailVerificationSignal(
         .eq('historyId', signal.historyId),
     )
     .unique();
-  if (existingSignal === null) {
-    await ctx.db.insert('gmailPushVerificationSignals', {
-      emailAddress: signal.emailAddress,
-      historyId: signal.historyId,
+  const signalId =
+    existingSignal === null
+      ? await ctx.db.insert('gmailPushVerificationSignals', {
+          emailAddress: signal.emailAddress,
+          historyId: signal.historyId,
+          receivedAt: signal.now,
+        })
+      : existingSignal._id; // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+  if (existingSignal !== null) {
+    await ctx.db.patch(signalId, { receivedAt: signal.now });
+  }
+  await ctx.scheduler.runAfter(
+    gmailPushVerificationSignalLifetimeMs,
+    internal.pushRelay.expireGmailVerificationSignal,
+    {
       receivedAt: signal.now,
-    });
-    return;
-  }
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingSignal._id, { receivedAt: signal.now });
-}
-
-async function deleteStaleVerificationSignals(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  emailAddress: string,
-  now: number,
-): Promise<void> {
-  const signals = await ctx.db
-    .query('gmailPushVerificationSignals')
-    .withIndex('by_emailAddress', (q) => q.eq('emailAddress', emailAddress))
-    .take(100);
-  for (const signal of signals) {
-    if (now - signal.receivedAt > gmailPushVerificationSignalLifetimeMs) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(signal._id);
-    }
-  }
+      signalId,
+    },
+  );
 }
 
 function pendingVerificationMatches(
@@ -480,7 +472,6 @@ export const enqueueGmailWakeups = internalMutation({
       historyId: args.historyId,
       now,
     });
-    await deleteStaleVerificationSignals(ctx, args.emailAddress, now);
     await verifyPendingGmailConnections(ctx, {
       emailAddress: args.emailAddress,
       historyId: args.historyId,
@@ -493,6 +484,21 @@ export const enqueueGmailWakeups = internalMutation({
     return { recipientCount: recipients.length };
   },
   returns: v.object({ recipientCount: v.number() }),
+});
+
+export const expireGmailVerificationSignal = internalMutation({
+  args: {
+    receivedAt: v.number(),
+    signalId: v.id('gmailPushVerificationSignals'),
+  },
+  handler: async (ctx, args) => {
+    const signal = await ctx.db.get(args.signalId);
+    if (signal?.receivedAt === args.receivedAt) {
+      await ctx.db.delete(args.signalId);
+    }
+    return null;
+  },
+  returns: v.null(),
 });
 
 export const clearStaleDevice = internalMutation({

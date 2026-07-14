@@ -421,6 +421,47 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testConcurrentGmailWakeupPreservesTheNewestRouteWatermark() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.onSync = {
+      try? watchStore.save(
+        GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          latestSyncedHistoryId: "126",
+          routeId: "route-001"
+        ),
+        productAccountId: self.session.productAccountId,
+        providerAccountIdentifier: self.connection.providerAccountIdentifier
+      )
+    }
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "125",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(syncService.shouldPersist, true)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
+  }
+
   func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -503,7 +544,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
 private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
   var clearedProductAccountId: String?
   var savedStatus: GmailPushWatchStatus?
-  private let status: GmailPushWatchStatus?
+  private var status: GmailPushWatchStatus?
 
   init(status: GmailPushWatchStatus? = nil) {
     self.status = status
@@ -529,6 +570,7 @@ private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
     providerAccountIdentifier _: String
   ) throws {
     savedStatus = status
+    self.status = status
   }
 }
 
