@@ -109,6 +109,49 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testCompleteConnectionPreservesLocalCacheWhenUpdateRegistrationFails() async throws {
+    let bodyReader = RecordingGmailMessageReader()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let transport = RecordingGmailConnectionTransport()
+    transport.status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "old@example.com",
+      lastVerifiedAt: 1_781_200_000_000,
+      provider: "gmail",
+      providerAccountIdentifier: "old-gmail-user",
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1_781_200_000_000
+    )
+    transport.connectError = GmailProviderConnectionTestError.registrationFailed
+    let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
+      metadataStore: metadataStore,
+      tokenStore: InMemoryGmailProviderTokenStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: "new@example.com",
+          providerAccountIdentifier: "new-gmail-user",
+          tokens: GmailProviderTokens(
+            accessToken: "new-access-token",
+            refreshToken: "new-refresh-token"
+          )
+        ),
+        session: session
+      )
+      XCTFail("Expected backend registration failure")
+    } catch GmailProviderConnectionTestError.registrationFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
+    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+  }
+
   func testCompleteConnectionClearsMetadataWhenProviderAccountChanges() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -207,7 +250,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertTrue(pushWatchStore.clearedKeys.isEmpty)
-    XCTAssertTrue(transport.connectCalls.isEmpty)
+    XCTAssertEqual(
+      transport.connectCalls.map(\.providerAccountIdentifier),
+      ["new-gmail-user", "old-gmail-user"]
+    )
   }
 
   func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
@@ -258,7 +304,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
-    XCTAssertTrue(transport.connectCalls.isEmpty)
+    XCTAssertEqual(
+      transport.connectCalls.map(\.providerAccountIdentifier),
+      ["new-gmail-user", "old-gmail-user"]
+    )
   }
 
   func testCompleteConnectionClearsLocalCacheWhenPriorLookupFails() async throws {

@@ -184,7 +184,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       previousConnection.map {
         $0.providerAccountIdentifier != verifiedAccount.providerAccountIdentifier
       } ?? (previousTokens != nil)
-    if shouldClearLocalCache {
+    if shouldClearLocalCache, previousConnection == nil {
       try clearLocalCache(session: session)
     }
 
@@ -202,10 +202,17 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     )
 
     if shouldClearLocalCache, let previousConnection {
-      try pushWatchStore.clear(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: previousConnection.providerAccountIdentifier
-      )
+      do {
+        try clearLocalCache(session: session)
+        try pushWatchStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: previousConnection.providerAccountIdentifier
+        )
+      } catch {
+        try? await restoreConnection(previousConnection, session: session)
+        try? restoreTokens(previousTokens, session: session)
+        throw error
+      }
     }
     return connection
   }
@@ -296,6 +303,29 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
       throw error
     }
+  }
+
+  private func restoreTokens(
+    _ tokens: GmailProviderTokens?,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    if let tokens {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    } else {
+      try tokenStore.clear(productAccountId: session.productAccountId)
+    }
+  }
+
+  private func restoreConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = try await transport.connectGmailProvider(
+      identityToken: session.identityToken,
+      trustedDeviceId: session.trustedDeviceId,
+      emailAddress: connection.emailAddress,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
   }
 
   func loadConnection(
