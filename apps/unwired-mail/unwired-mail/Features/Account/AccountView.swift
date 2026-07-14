@@ -195,6 +195,7 @@ private final class GmailMailActionViewModel {
 final class GmailInboxViewModel {
   var errorMessage: String?
   var isAssigningCategory = false
+  var isCategorizingHistorical = false
   var isLoading = false
   var isSyncing = false
   var threads: [GmailInboxThread] = []
@@ -212,7 +213,7 @@ final class GmailInboxViewModel {
   }
 
   var isRefreshDisabled: Bool {
-    isLoading || isSyncing
+    isCategorizingHistorical || isLoading || isSyncing
   }
 
   var messageCount: Int {
@@ -298,6 +299,34 @@ final class GmailInboxViewModel {
       return false
     }
     return await sync(connection: connection)
+  }
+
+  func categorizeHistorical(
+    scope: GmailHistoricalCategorizationScope,
+    connection: GmailProviderConnectionStatus
+  ) async {
+    guard !isCategorizingHistorical else { return }
+    isCategorizingHistorical = true
+    defer { isCategorizingHistorical = false }
+
+    do {
+      let result = try await service.categorizeHistorical(
+        scope: scope,
+        connection: connection,
+        session: session
+      )
+      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
+        return
+      }
+      threads = result.threads
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else {
+        return
+      }
+      errorMessage = error.localizedDescription
+    }
   }
 
   func overrideCategory(_ categoryId: String, for message: GmailMessageMetadata) async {
@@ -785,6 +814,22 @@ private struct GmailInboxPanel: View {
           }
         )
 
+        HistoricalCategorizationPanel(
+          isDisabled: viewModel.isRefreshDisabled
+            || viewModel.isAssigningCategory
+            || mailActionViewModel.isPerformingAction
+            || isConnectionBusy,
+          isWorking: viewModel.isCategorizingHistorical,
+          categorize: { scope in
+            Task {
+              await viewModel.categorizeHistorical(
+                scope: scope,
+                connection: connection
+              )
+            }
+          }
+        )
+
         if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
           Text("No local inbox metadata yet.")
             .font(.subheadline)
@@ -918,6 +963,61 @@ private struct GmailInboxPanel: View {
     }
 
     return "\(viewModel.threads.count) threads, \(viewModel.messageCount) messages"
+  }
+}
+
+private struct HistoricalCategorizationPanel: View {
+  let isDisabled: Bool
+  let isWorking: Bool
+  let categorize: (GmailHistoricalCategorizationScope) -> Void
+  @State private var endDate = Date()
+  @State private var startDate =
+    Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Categorize old emails")
+        .font(.subheadline.bold())
+      Text(
+        "Old email stays Uncategorized by default. Choose a received-date range to process only "
+          + "those historical messages."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+
+      HStack {
+        DatePicker("From", selection: $startDate, displayedComponents: .date)
+        DatePicker("Through", selection: $endDate, displayedComponents: .date)
+      }
+
+      Button("Categorize Selected Old Emails") {
+        categorize(scope)
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(
+        !GmailHistoricalCategorizationScope.isValidDateRange(
+          startDate: startDate,
+          endDate: endDate,
+          calendar: .current
+        ) || isDisabled
+      )
+
+      if isWorking {
+        ProgressView("Categorizing selected old emails...")
+      }
+    }
+  }
+
+  private var scope: GmailHistoricalCategorizationScope {
+    let calendar = Calendar.current
+    let receivedAtOrAfterDate = calendar.startOfDay(for: startDate)
+    let selectedEndDate = calendar.startOfDay(for: endDate)
+    let receivedBeforeDate =
+      calendar.date(byAdding: .day, value: 1, to: selectedEndDate) ?? selectedEndDate
+    return GmailHistoricalCategorizationScope(
+      receivedAtOrAfterMilliseconds: Int64(receivedAtOrAfterDate.timeIntervalSince1970 * 1_000),
+      receivedBeforeMilliseconds: Int64(receivedBeforeDate.timeIntervalSince1970 * 1_000)
+    )
   }
 }
 

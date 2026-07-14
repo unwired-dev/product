@@ -128,6 +128,46 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(store.savedMessages, [overridden])
   }
 
+  func testHistoricalCategorizationPersistsOnlyMessagesInSelectedDateRange() async throws {
+    let beforeScope = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 100
+    )
+    let inScope = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 200
+    )
+    let afterScope = metadata(
+      messageId: "message-003",
+      threadId: "thread-003",
+      internalDateMilliseconds: 300
+    )
+    let store = RecordingGmailMessageMetadataStore()
+    store.messages = [beforeScope, inScope, afterScope]
+    let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
+    let service = GmailMessageMetadataService(
+      categorizer: categorizer,
+      store: store,
+      tokenStore: RecordingGmailProviderTokenStore()
+    )
+    let scope = GmailHistoricalCategorizationScope(
+      receivedAtOrAfterMilliseconds: 150,
+      receivedBeforeMilliseconds: 250
+    )
+
+    let result = try await service.categorizeHistorical(
+      scope: scope,
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(categorizer.receivedHistoricalScope, scope)
+    XCTAssertEqual(result.messages.map(\.categoryId), [nil, "system:promotions", nil])
+    XCTAssertEqual(store.savedMessages, result.messages)
+  }
+
   @MainActor
   func testInboxViewModelIgnoresOverrideResultAfterProviderAccountChanges() async {
     let originalMessage = metadata(
@@ -176,6 +216,38 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await overrideTask.value
 
     XCTAssertEqual(viewModel.threads, GmailInboxThread.group([switchedMessage]))
+  }
+
+  @MainActor
+  func testInboxViewModelIgnoresHistoricalCategorizationErrorAfterProviderAccountChanges() async {
+    let switchedConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let viewModel = GmailInboxViewModel(service: service, session: session)
+    await viewModel.loadAfterConnectionChange(connection: connection)
+
+    let categorizationTask = Task {
+      await viewModel.categorizeHistorical(
+        scope: GmailHistoricalCategorizationScope(
+          receivedAtOrAfterMilliseconds: 0,
+          receivedBeforeMilliseconds: 100
+        ),
+        connection: connection
+      )
+    }
+    await service.waitUntilHistoricalCategorizationStarts()
+    await viewModel.loadAfterConnectionChange(connection: switchedConnection)
+    await service.releaseHistoricalCategorization()
+    await categorizationTask.value
+
+    XCTAssertNil(viewModel.errorMessage)
   }
 
   func testSyncInboxUsesLatestConnectionUpdateAsFirstSyncHistoricalCutoff() async throws {
@@ -823,7 +895,17 @@ private actor OverrideGate {
 
 private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
+  private let historicalCategorizationGate = OverrideGate()
   private let overrideGate = OverrideGate()
+
+  func categorizeHistorical(
+    scope _: GmailHistoricalCategorizationScope,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    await historicalCategorizationGate.waitForRelease()
+    throw MailboxSwitchingError.historicalCategorizationFailed
+  }
 
   func loadInbox(
     connection: GmailProviderConnectionStatus,
@@ -856,6 +938,14 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     await overrideGate.release()
   }
 
+  func waitUntilHistoricalCategorizationStarts() async {
+    await historicalCategorizationGate.waitUntilStarted()
+  }
+
+  func releaseHistoricalCategorization() async {
+    await historicalCategorizationGate.release()
+  }
+
   private func result(for connection: GmailProviderConnectionStatus) -> GmailMetadataSyncResult {
     guard
       let message = messagesByProviderAccountIdentifier[
@@ -869,6 +959,10 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
       threads: GmailInboxThread.group([message])
     )
   }
+}
+
+private enum MailboxSwitchingError: Error {
+  case historicalCategorizationFailed
 }
 
 private struct GmailMessageMetadataSyncFixture {
@@ -885,6 +979,7 @@ private final class GmailMetadataRequestRecorder {
 
 private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
   private let categoryId: String?
+  private(set) var receivedHistoricalScope: GmailHistoricalCategorizationScope?
   private(set) var receivedMessages: [GmailMessageMetadata] = []
 
   init(categoryId: String? = nil) {
@@ -900,6 +995,21 @@ private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
       return messages
     }
     return messages.map { $0.assigningCategory(categoryId) }
+  }
+
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope: GmailHistoricalCategorizationScope,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    receivedHistoricalScope = scope
+    receivedMessages = messages
+    guard let categoryId else {
+      return messages
+    }
+    return messages.map { message in
+      scope.contains(message) ? message.assigningCategory(categoryId) : message
+    }
   }
 
   func overrideCategory(
