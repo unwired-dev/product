@@ -74,6 +74,48 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testSignOutPreservesSessionSavedByConcurrentSignIn() async throws {
+    let oldSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "old-token",
+      productAccountId: ProductAccountConnectResponse.preview.productAccountId,
+      trustedDeviceId: ProductAccountConnectResponse.preview.trustedDeviceId
+    )
+    try store.save(oldSnapshot)
+    let unregistrationGate = SignOutUnregistrationGate()
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "new-token"
+        )
+      ),
+      devicePushUnregistrationService: SuspendingDevicePushUnregisterer(
+        gate: unregistrationGate
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      gmailProviderConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let signOutTask = Task {
+      await session.signOut()
+    }
+    await unregistrationGate.waitUntilStarted()
+    await session.signInWithApple()
+    guard case .signedIn(let newSnapshot) = session.state else {
+      return XCTFail("Expected concurrent sign-in to complete")
+    }
+    await unregistrationGate.release()
+    await signOutTask.value
+
+    XCTAssertEqual(session.state, .signedIn(newSnapshot))
+    XCTAssertEqual(try store.load(), newSnapshot)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+  }
+
   func testSignOutClearsStoredSessionWhenGmailCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -638,6 +680,44 @@ private final class RecordingDevicePushUnregisterer: DevicePushUnregistering {
     if let error {
       throw error
     }
+  }
+}
+
+private actor SignOutUnregistrationGate {
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+}
+
+private struct SuspendingDevicePushUnregisterer: DevicePushUnregistering {
+  let gate: SignOutUnregistrationGate
+
+  func unregister(session _: ProductAccountSessionSnapshot) async throws {
+    await gate.waitForRelease()
   }
 }
 

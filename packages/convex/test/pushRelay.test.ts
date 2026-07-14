@@ -21,6 +21,9 @@ const apnsMock = vi.hoisted(() => ({
   connections: [] as string[],
   requests: [] as ObservedApnsRequest[],
   responseBody: '',
+  sessions: [] as Array<{
+    listenerCount: (eventName: string | symbol) => number;
+  }>,
   status: 200,
   statusByToken: {} as Record<string, number>,
 }));
@@ -32,7 +35,8 @@ vi.mock('node:http2', async () => {
   return {
     connect: (authority: URL | string) => {
       apnsMock.connections.push(String(authority));
-      return {
+      // oxlint-disable-next-line unicorn/prefer-event-target -- the production client is an EventEmitter.
+      const session = Object.assign(new EventEmitter(), {
         close() {
           return undefined;
         },
@@ -66,7 +70,9 @@ vi.mock('node:http2', async () => {
           });
           return request;
         },
-      };
+      });
+      apnsMock.sessions.push(session);
+      return session;
     },
   };
 });
@@ -387,6 +393,7 @@ describe('gmail push relay', () => {
     apnsMock.connections.length = 0;
     apnsMock.requests.length = 0;
     apnsMock.responseBody = '';
+    apnsMock.sessions.length = 0;
     apnsMock.status = 200;
     apnsMock.statusByToken = {};
     vi.stubEnv('APNS_KEY_ID', 'key-id');
@@ -472,6 +479,9 @@ describe('gmail push relay', () => {
         connections: apnsMock.connections,
         goodPath: apnsMock.requests[2]?.headers[':path'],
         prunedToken: prunedDevice?.apnsToken,
+        sessionErrorListeners: apnsMock.sessions.map((session) =>
+          session.listenerCount('error'),
+        ),
       }).toStrictEqual({
         badAuthority: 'https://api.push.apple.com',
         connections: [
@@ -480,6 +490,7 @@ describe('gmail push relay', () => {
         ],
         goodPath: '/3/device/good-device-token',
         prunedToken: undefined,
+        sessionErrorListeners: [1, 1],
       });
     } finally {
       vi.unstubAllEnvs();

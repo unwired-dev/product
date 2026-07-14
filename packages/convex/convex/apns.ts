@@ -174,6 +174,9 @@ export const deliverGmailWakeups = internalAction({
         return existing;
       }
       const client = connect(apnsAuthority(environment));
+      client.on('error', (error) => {
+        console.error('APNs HTTP/2 session failed', error);
+      });
       clients.set(environment, client);
       return client;
     };

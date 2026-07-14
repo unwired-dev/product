@@ -145,6 +145,7 @@ final class ProductAccountSession {
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
+      guard (try? sessionStore.load()) == snapshot else { return }
     }
     do {
       try sessionStore.clear()
