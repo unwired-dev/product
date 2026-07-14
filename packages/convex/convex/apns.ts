@@ -1,12 +1,15 @@
 'use node';
 
-import type { ClientHttp2Session } from 'node:http2';
+import type { ClientHttp2Session, ClientHttp2Stream } from 'node:http2';
 
 import { createPrivateKey, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { connect } from 'node:http2';
 
 import { v } from 'convex/values';
+
+import type { Id } from './_generated/dataModel.js';
+import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
 import { internalAction } from './_generated/server.js';
@@ -93,52 +96,135 @@ async function sendWakeup(
     timeoutController.abort();
   }, apnsRequestTimeoutMs);
   try {
-    let responseBody = '';
-    const request = client.request({
-      ':method': 'POST',
-      ':path': `/3/device/${delivery.apnsToken}`,
-      authorization: `bearer ${delivery.authorization}`,
-      'apns-priority': '5',
-      'apns-push-type': 'background',
-      'apns-topic': delivery.configuration.topic,
-      'content-type': 'application/json',
-    });
-
-    request.setEncoding('utf8');
-    request.end(delivery.payload);
-    const responseArguments: unknown = await (async () => {
-      try {
-        const response: unknown = await once(request, 'response', {
-          signal: timeoutController.signal,
-        });
-        return response;
-      } catch (error) {
-        if (timeoutController.signal.aborted) {
-          request.close();
-          throw new Error('APNs request timed out', { cause: error });
-        }
-        throw error;
-      }
-    })();
-    if (!Array.isArray(responseArguments) || responseArguments.length === 0) {
-      throw new TypeError('APNs response headers required');
-    }
-    // oxlint-disable-next-line eslint/prefer-destructuring -- Event arguments are validated from unknown below.
-    const rawHeaders: unknown = responseArguments[0];
-    if (typeof rawHeaders !== 'object' || rawHeaders === null) {
-      throw new TypeError('Invalid APNs response headers');
-    }
-    for await (const chunk of request) {
-      responseBody += String(chunk);
-    }
-    const rawStatus: unknown = Reflect.get(rawHeaders, ':status');
-    const status = typeof rawStatus === 'number' ? rawStatus : 0;
+    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+    const request = apnsRequest(client, delivery);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+    const rawHeaders = await apnsResponseHeaders(
+      request,
+      timeoutController.signal,
+    );
+    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+    const responseBody = await apnsResponseBody(request);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+    const status = apnsResponseStatus(rawHeaders);
     if (status !== 200) {
       throw new ApnsRequestError(status, responseBody);
     }
   } finally {
     clearTimeout(timeout);
   }
+}
+
+function apnsRequest(
+  client: ClientHttp2Session, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 sessions issue mutable request streams.
+  delivery: ApnsDelivery,
+): ClientHttp2Stream {
+  const request = client.request({
+    ':method': 'POST',
+    ':path': `/3/device/${delivery.apnsToken}`,
+    authorization: `bearer ${delivery.authorization}`,
+    'apns-priority': '5',
+    'apns-push-type': 'background',
+    'apns-topic': delivery.configuration.topic,
+    'content-type': 'application/json',
+  });
+  request.setEncoding('utf8');
+  request.end(delivery.payload);
+  return request;
+}
+
+async function apnsResponseArguments(
+  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
+  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
+): Promise<unknown> {
+  try {
+    const response: unknown = await once(request, 'response', { signal });
+    return response;
+  } catch (error) {
+    if (signal.aborted) {
+      request.close();
+      throw new Error('APNs request timed out', { cause: error });
+    }
+    throw error;
+  }
+}
+
+function firstApnsResponseArgument(responseArguments: unknown): unknown {
+  if (!Array.isArray(responseArguments)) {
+    throw new TypeError('APNs response headers required');
+  }
+  const headers: unknown[] = responseArguments;
+  const [rawHeaders] = headers;
+  if (rawHeaders === undefined) {
+    throw new TypeError('APNs response headers required');
+  }
+  return rawHeaders;
+}
+
+function validateApnsResponseHeaders(rawHeaders: unknown): object {
+  if (typeof rawHeaders !== 'object' || rawHeaders === null) {
+    throw new TypeError('Invalid APNs response headers');
+  }
+  return rawHeaders;
+}
+
+async function apnsResponseHeaders(
+  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
+  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
+): Promise<object> {
+  const responseArguments = await apnsResponseArguments(request, signal);
+  return validateApnsResponseHeaders(
+    firstApnsResponseArgument(responseArguments),
+  );
+}
+
+async function apnsResponseBody(
+  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are async iterables.
+): Promise<string> {
+  let responseBody = '';
+  for await (const chunk of request) {
+    responseBody += String(chunk);
+  }
+  return responseBody;
+}
+
+function apnsResponseStatus(headers: object): number {
+  const rawStatus: unknown = Reflect.get(headers, ':status');
+  return typeof rawStatus === 'number' ? rawStatus : 0;
+}
+
+function isStaleTokenFailure(
+  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+): result is PromiseRejectedResult {
+  return (
+    result.status === 'rejected' &&
+    result.reason instanceof ApnsRequestError &&
+    result.reason.status === 410
+  );
+}
+
+async function handleDeliveryResult(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
+  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+  recipient: // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Recipient data is treated as immutable input.
+    | Readonly<{
+        apnsEnvironment: 'production' | 'sandbox';
+        apnsToken: string;
+        trustedDeviceId: Id<'trustedDevices'>;
+      }>
+    | undefined,
+): Promise<void> {
+  if (result.status === 'fulfilled') {
+    return;
+  }
+  console.error('APNs wakeup delivery failed', result.reason);
+  if (recipient === undefined || !isStaleTokenFailure(result)) {
+    return;
+  }
+  await ctx.runMutation(internal.pushRelay.clearStaleDevice, {
+    apnsToken: recipient.apnsToken,
+    trustedDeviceId: recipient.trustedDeviceId,
+  });
 }
 
 function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
@@ -201,23 +287,9 @@ export const deliverGmailWakeups = internalAction({
     });
 
     await Promise.all(
-      results.map(async (result, index) => {
-        if (result.status === 'fulfilled') {
-          return;
-        }
-        console.error('APNs wakeup delivery failed', result.reason);
-        const recipient = args.recipients[index];
-        if (
-          recipient !== undefined &&
-          result.reason instanceof ApnsRequestError &&
-          result.reason.status === 410
-        ) {
-          await ctx.runMutation(internal.pushRelay.clearStaleDevice, {
-            apnsToken: recipient.apnsToken,
-            trustedDeviceId: recipient.trustedDeviceId,
-          });
-        }
-      }),
+      results.map(async (result, index) =>
+        handleDeliveryResult(ctx, result, args.recipients[index]),
+      ),
     );
 
     return null;

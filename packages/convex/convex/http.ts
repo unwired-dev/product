@@ -16,18 +16,24 @@ function decodeRequestEnvelope(
   }
 }
 
+function hasValidVerificationToken(
+  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+): boolean {
+  // oxlint-disable-next-line node/no-process-env -- Convex HTTP actions read deployment env at runtime.
+  const verificationToken = process.env.GMAIL_PUSH_VERIFICATION_TOKEN;
+  const requestToken = new URL(request.url).searchParams.get('token');
+  return (
+    verificationToken !== undefined &&
+    verificationToken.length > 0 &&
+    requestToken === verificationToken
+  );
+}
+
 http.route({
   path: '/gmail/push',
   method: 'POST',
   handler: httpAction(async (ctx, request) => {
-    // oxlint-disable-next-line node/no-process-env -- Convex HTTP actions read deployment env at runtime.
-    const verificationToken = process.env.GMAIL_PUSH_VERIFICATION_TOKEN;
-    const requestToken = new URL(request.url).searchParams.get('token');
-    if (
-      verificationToken === undefined ||
-      verificationToken.length === 0 ||
-      requestToken !== verificationToken
-    ) {
+    if (!hasValidVerificationToken(request)) {
       return new Response('Unauthorized', { status: 401 });
     }
 

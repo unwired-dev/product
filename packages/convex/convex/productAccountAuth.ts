@@ -44,3 +44,12 @@ export async function requireTrustedDevice(
     throw new Error('Trusted device required');
   }
 }
+
+export async function requireAuthenticatedTrustedDevice(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<AuthenticatedProductAccount> {
+  const account = await requireProductAccount(ctx);
+  await requireTrustedDevice(ctx, account.productAccountId, trustedDeviceId);
+  return account;
+}
