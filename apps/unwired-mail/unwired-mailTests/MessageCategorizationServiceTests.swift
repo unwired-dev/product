@@ -319,6 +319,27 @@ extension MessageCategorizationServiceTests {
     XCTAssertTrue(engine.inputs.isEmpty)
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
+
+  func testHistoricalCategorizationDateRangeIgnoresTimeComponents() {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone(secondsFromGMT: 0) ?? .current
+    let selectedDay = Date(timeIntervalSince1970: 0)
+
+    XCTAssertTrue(
+      GmailHistoricalCategorizationScope.isValidDateRange(
+        startDate: selectedDay.addingTimeInterval(82_800),
+        endDate: selectedDay.addingTimeInterval(3_600),
+        calendar: calendar
+      )
+    )
+    XCTAssertFalse(
+      GmailHistoricalCategorizationScope.isValidDateRange(
+        startDate: selectedDay.addingTimeInterval(86_400),
+        endDate: selectedDay,
+        calendar: calendar
+      )
+    )
+  }
 }
 
 extension MessageCategorizationServiceTests {

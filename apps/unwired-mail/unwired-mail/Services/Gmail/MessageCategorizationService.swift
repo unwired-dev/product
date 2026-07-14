@@ -99,6 +99,14 @@ struct GmailHistoricalCategorizationScope: Equatable {
   let receivedAtOrAfterMilliseconds: Int64
   let receivedBeforeMilliseconds: Int64
 
+  static func isValidDateRange(
+    startDate: Date,
+    endDate: Date,
+    calendar: Calendar
+  ) -> Bool {
+    calendar.startOfDay(for: startDate) <= calendar.startOfDay(for: endDate)
+  }
+
   func contains(_ message: GmailMessageMetadata) -> Bool {
     message.isHistorical
       && message.providerInternalDateMilliseconds >= receivedAtOrAfterMilliseconds

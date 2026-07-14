@@ -994,7 +994,13 @@ private struct HistoricalCategorizationPanel: View {
         categorize(scope)
       }
       .buttonStyle(.borderedProminent)
-      .disabled(startDate > endDate || isDisabled)
+      .disabled(
+        !GmailHistoricalCategorizationScope.isValidDateRange(
+          startDate: startDate,
+          endDate: endDate,
+          calendar: .current
+        ) || isDisabled
+      )
 
       if isWorking {
         ProgressView("Categorizing selected old emails...")
