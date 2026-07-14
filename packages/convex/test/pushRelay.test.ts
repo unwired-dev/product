@@ -126,6 +126,51 @@ describe('gmail push relay', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('requires fresh Gmail push proof after device unregistration', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connection = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: connection.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      historyId: '100',
+      trustedDeviceId: connection.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: '100',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'first-apns-token',
+      trustedDeviceId: connection.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: connection.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'second-apns-token',
+      trustedDeviceId: connection.trustedDeviceId,
+    });
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'matching@example.com',
+      }),
+    ).resolves.toStrictEqual([]);
+  });
+
   it('associates minimal Gmail metadata only with matching connected devices', async () => {
     expect.assertions(5);
 
@@ -405,6 +450,81 @@ describe('gmail push relay', () => {
         apnsEnvironment: 'production',
         apnsToken: 'verified-token',
         trustedDeviceId: verifiedDeviceId,
+      },
+    ]);
+  });
+
+  it('filters pending Gmail watch proofs before applying the cap', async () => {
+    expect.assertions(1);
+
+    const now = Date.now();
+    const t = convexTest(schema, modules);
+    const pendingDeviceId = await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: now,
+        lastSeenAt: now,
+        tokenIdentifier: 'pending-account',
+      });
+      for (let index = 0; index < 100; index += 1) {
+        const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `non-pending-device-${index}`,
+          lastSeenAt: now,
+          platform: 'ios',
+          productAccountId,
+          registeredAt: now,
+        });
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          emailAddress: 'crowded-pending@example.com',
+          lastVerifiedAt: now,
+          productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `non-pending-${index}`,
+          trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+      const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+        deviceIdentifier: 'pending-device',
+        lastSeenAt: now,
+        platform: 'ios',
+        productAccountId,
+        registeredAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'crowded-pending@example.com',
+        lastVerifiedAt: now,
+        productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'pending',
+        pushVerificationHistoryId: '100',
+        pushVerificationRequestedAt: now,
+        trustedDeviceId,
+        updatedAt: now,
+      });
+      return trustedDeviceId;
+    });
+
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'crowded-pending@example.com',
+      historyId: '101',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(pendingDeviceId, {
+        apnsEnvironment: 'production',
+        apnsToken: 'pending-token',
+      });
+    });
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'crowded-pending@example.com',
+      }),
+    ).resolves.toStrictEqual([
+      {
+        apnsEnvironment: 'production',
+        apnsToken: 'pending-token',
+        trustedDeviceId: pendingDeviceId,
       },
     ]);
   });

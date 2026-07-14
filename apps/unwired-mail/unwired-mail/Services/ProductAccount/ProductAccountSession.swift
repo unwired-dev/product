@@ -119,10 +119,6 @@ final class ProductAccountSession {
         trustedDeviceId: response.trustedDeviceId
       )
       let previousSnapshot = try? sessionStore.load()
-      await unregisterDeviceIfProductAccountChanged(
-        from: previousSnapshot,
-        to: snapshot
-      )
       try sessionStore.save(snapshot)
       do {
         try clearLocalGmailConnectionIfProductAccountChanged(
@@ -135,6 +131,10 @@ final class ProductAccountSession {
         }
         throw error
       }
+      await unregisterDeviceIfProductAccountChanged(
+        from: previousSnapshot,
+        to: snapshot
+      )
       state = .signedIn(snapshot)
     } catch {
       state = .failed(error.localizedDescription)
@@ -145,11 +145,8 @@ final class ProductAccountSession {
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
-      if let currentSnapshot = currentSignedInSnapshot() {
-        guard currentSnapshot == snapshot else { return }
-      } else {
-        guard (try? sessionStore.load()) == snapshot else { return }
-      }
+      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+      guard refreshedSnapshot == snapshot else { return }
     }
     do {
       try sessionStore.clear()

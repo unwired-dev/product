@@ -67,6 +67,11 @@ export default defineSchema({
       'emailAddress',
       'pushVerifiedAt',
     ])
+    .index('by_provider_and_emailAddress_and_pushVerificationRequestedAt', [
+      'provider',
+      'emailAddress',
+      'pushVerificationRequestedAt',
+    ])
     .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
     .index('by_productAccountId_and_provider_and_trustedDeviceId', [
       'productAccountId',

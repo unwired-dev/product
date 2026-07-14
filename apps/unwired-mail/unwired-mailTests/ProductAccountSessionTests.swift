@@ -290,6 +290,7 @@ final class ProductAccountSessionTests: XCTestCase {
       snapshot.productAccountId, ProductAccountConnectResponse.preview.productAccountId)
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertEqual(pushUnregisterer.sessions, [oldSnapshot])
   }
 
   func testSignInKeepsPreviousGmailTokensWhenNewSessionSaveFails() async throws {
@@ -323,6 +324,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try sessionStore.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+    XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
   func testSignInRestoresPreviousSessionWhenBodyCacheCleanupFails() async throws {
@@ -356,6 +358,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
   func testBootstrapPreservesSessionOnTransientBackendFailure() async throws {

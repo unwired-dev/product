@@ -132,6 +132,24 @@ export const unregisterDevice = mutation({
       apnsToken: undefined,
       lastSeenAt: Date.now(),
     });
+    const connection = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .unique();
+    if (connection !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection._id, {
+        pushVerificationHistoryId: undefined,
+        pushVerificationRequestedAt: undefined,
+        pushVerifiedHistoryId: undefined,
+        pushVerifiedAt: undefined,
+      });
+    }
 
     return { registered: false };
   },
@@ -252,8 +270,13 @@ export const enqueueGmailWakeups = internalMutation({
 
     const pendingConnections = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_provider_and_emailAddress', (q) =>
-        q.eq('provider', 'gmail').eq('emailAddress', args.emailAddress),
+      .withIndex(
+        'by_provider_and_emailAddress_and_pushVerificationRequestedAt',
+        (q) =>
+          q
+            .eq('provider', 'gmail')
+            .eq('emailAddress', args.emailAddress)
+            .gt('pushVerificationRequestedAt', undefined),
       )
       .take(100);
     for (const connection of pendingConnections) {
