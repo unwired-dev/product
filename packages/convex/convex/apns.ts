@@ -104,7 +104,10 @@ async function sendWakeup(
       timeoutController.signal,
     );
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
-    const responseBody = await apnsResponseBody(request);
+    const responseBody = await apnsResponseBody(
+      request,
+      timeoutController.signal,
+    );
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
     const status = apnsResponseStatus(rawHeaders);
     if (status !== 200) {
@@ -179,13 +182,26 @@ async function apnsResponseHeaders(
 }
 
 async function apnsResponseBody(
-  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are async iterables.
+  request: ClientHttp2Stream, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- HTTP/2 streams are mutable event emitters.
+  signal: AbortSignal, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- AbortSignal is observed but not mutated.
 ): Promise<string> {
   let responseBody = '';
-  for await (const chunk of request) {
+  const onData = (chunk: unknown): void => {
     responseBody += String(chunk);
+  };
+  request.on('data', onData);
+  try {
+    await once(request, 'end', { signal });
+    return responseBody;
+  } catch (error) {
+    if (signal.aborted) {
+      request.close();
+      throw new Error('APNs request timed out', { cause: error });
+    }
+    throw error;
+  } finally {
+    request.off('data', onData);
   }
-  return responseBody;
 }
 
 function apnsResponseStatus(headers: object): number {

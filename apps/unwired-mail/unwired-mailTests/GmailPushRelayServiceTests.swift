@@ -287,14 +287,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try sessionStore.save(session)
     let connectionStore = RecordingGmailPushConnectionStore(connection: connection)
     let syncService = RecordingPushGmailMetadataSyncService()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123"
+      )
+    )
     let handler = GmailPushWakeupHandler(
       connectionStore: connectionStore,
       sessionStore: sessionStore,
-      syncService: syncService
+      syncService: syncService,
+      watchStore: watchStore
     )
 
     let handled = try await handler.handle(userInfo: [
-      "historyId": "history-123",
+      "historyId": "124",
       "provider": "gmail",
     ])
 
@@ -302,6 +309,39 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)
     XCTAssertEqual(syncService.syncedConnection, connection)
     XCTAssertEqual(syncService.syncedSession, session)
+    XCTAssertEqual(
+      watchStore.savedStatus,
+      GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "124"
+      )
+    )
+  }
+
+  func testGmailWakeupIgnoresHistoryAtOrBeforeStoredWatermark() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "124"
+        )
+      )
+    )
+
+    for historyId in ["124", "123"] {
+      let handled = try await handler.handle(userInfo: [
+        "historyId": historyId,
+        "provider": "gmail",
+      ])
+      XCTAssertFalse(handled)
+    }
+    XCTAssertNil(syncService.syncedConnection)
   }
 
   private static func httpBodyData(for request: URLRequest) -> Data {
@@ -502,6 +542,13 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   }
 
   func syncInbox(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {

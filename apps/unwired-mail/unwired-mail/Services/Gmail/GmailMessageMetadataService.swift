@@ -68,6 +68,11 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
 
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult
+
   func overrideCategory(
     _ categoryId: String,
     for message: GmailMessageMetadata,
@@ -282,6 +287,32 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
+    try await syncInbox(
+      connection: connection,
+      maximumPages: nil,
+      preservingUnlistedMessages: false,
+      session: session
+    )
+  }
+
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await syncInbox(
+      connection: connection,
+      maximumPages: 1,
+      preservingUnlistedMessages: true,
+      session: session
+    )
+  }
+
+  private func syncInbox(
+    connection: GmailProviderConnectionStatus,
+    maximumPages: Int?,
+    preservingUnlistedMessages: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
     let tokens = try await refreshProviderTokens(connection: connection, session: session)
     let existingMessages = try store.loadMessages(
       productAccountId: session.productAccountId,
@@ -294,19 +325,16 @@ struct GmailMessageMetadataService:
       connection: connection,
       hasLocalMetadata: !existingMessages.isEmpty
     )
-    let listedMessages = try await listInboxMessages(accessToken: tokens.accessToken)
-    var fetchedMessages: [GmailMessageMetadata] = []
-    for listedMessage in listedMessages {
-      fetchedMessages.append(
-        try await fetchMessageMetadata(
-          accessToken: tokens.accessToken,
-          categorizationBoundary: categorizationBoundary,
-          connection: connection,
-          providerMessageId: listedMessage.id
-        )
-      )
-    }
-    try Task.checkCancellation()
+    let listedMessages = try await listInboxMessages(
+      accessToken: tokens.accessToken,
+      maximumPages: maximumPages
+    )
+    var fetchedMessages = try await fetchListedMessageMetadata(
+      accessToken: tokens.accessToken,
+      categorizationBoundary: categorizationBoundary,
+      connection: connection,
+      listedMessages: listedMessages
+    )
     fetchedMessages = sortedMessages(
       fetchedMessages,
       preservingExistingStateFrom: existingMessagesByStableId
@@ -315,6 +343,16 @@ struct GmailMessageMetadataService:
       messages: fetchedMessages,
       session: session
     )
+    if preservingUnlistedMessages {
+      let fetchedStableIds = Set(fetchedMessages.map(\.stableProviderMessageId))
+      let unlistedMessages = existingMessages.filter {
+        !fetchedStableIds.contains($0.stableProviderMessageId)
+      }
+      fetchedMessages = sortedMessages(
+        fetchedMessages + unlistedMessages,
+        preservingExistingStateFrom: existingMessagesByStableId
+      )
+    }
 
     try Task.checkCancellation()
     try store.saveMessages(
@@ -496,10 +534,12 @@ struct GmailMessageMetadataService:
   }
 
   private func listInboxMessages(
-    accessToken: String
+    accessToken: String,
+    maximumPages: Int?
   ) async throws -> [GmailListedMessage] {
     var listedMessages: [GmailListedMessage] = []
     var nextPageToken: String?
+    var pageCount = 0
 
     repeat {
       var components = URLComponents(
@@ -525,10 +565,31 @@ struct GmailMessageMetadataService:
       )
       listedMessages.append(contentsOf: response.messages ?? [])
       nextPageToken = response.nextPageToken
+      pageCount += 1
       try Task.checkCancellation()
-    } while nextPageToken != nil
+    } while nextPageToken != nil && (maximumPages.map { pageCount < $0 } ?? true)
 
     return listedMessages
+  }
+
+  private func fetchListedMessageMetadata(
+    accessToken: String,
+    categorizationBoundary: Date,
+    connection: GmailProviderConnectionStatus,
+    listedMessages: [GmailListedMessage]
+  ) async throws -> [GmailMessageMetadata] {
+    var messages: [GmailMessageMetadata] = []
+    for listedMessage in listedMessages {
+      messages.append(
+        try await fetchMessageMetadata(
+          accessToken: accessToken,
+          categorizationBoundary: categorizationBoundary,
+          connection: connection,
+          providerMessageId: listedMessage.id
+        )
+      )
+    }
+    return messages
   }
 
   private func fetchMessageMetadata(

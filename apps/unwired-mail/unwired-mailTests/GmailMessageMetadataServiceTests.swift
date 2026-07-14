@@ -447,6 +447,31 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncRecentInboxReadsOnePageAndPreservesUnlistedMessages() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+    let unlistedMessage = metadata(
+      messageId: "message-000",
+      threadId: "thread-000",
+      internalDateMilliseconds: 1
+    )
+    fixture.store.messages = [unlistedMessage]
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
+      ["labelIds=INBOX&maxResults=25"]
+    )
+    XCTAssertEqual(
+      result.messages.map(\.providerMessageId),
+      ["message-003", "message-002", "message-000"]
+    )
+    XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
   func testProviderActionsRequireGmailWriteScope() async throws {
     let fixture = try makeMailActionFixture(
       tokenScopes: "https://www.googleapis.com/auth/gmail.readonly"
@@ -915,6 +940,13 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
   }
 
   func syncInbox(
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    result(for: connection)
+  }
+
+  func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {

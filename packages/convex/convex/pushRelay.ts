@@ -235,6 +235,7 @@ async function verifyPendingGmailConnections(
           .eq('emailAddress', request.emailAddress)
           .gt('pushVerificationRequestedAt', undefined),
     )
+    .order('desc')
     .take(100);
   for (const connection of connections) {
     if (

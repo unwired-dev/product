@@ -18,6 +18,7 @@ type ObservedApnsRequest = Readonly<{
 }>;
 
 const apnsMock = vi.hoisted(() => ({
+  closedRequests: 0,
   connections: [] as string[],
   requests: [] as ObservedApnsRequest[],
   responseBody: '',
@@ -26,6 +27,7 @@ const apnsMock = vi.hoisted(() => ({
   }>,
   status: 200,
   statusByToken: {} as Record<string, number>,
+  stallResponseBody: false,
 }));
 
 // oxlint-disable-next-line vitest/prefer-import-in-mock -- A partial HTTP/2 transport fake intentionally cannot satisfy the full Node module type.
@@ -43,11 +45,6 @@ vi.mock('node:http2', async () => {
         request: (headers: Record<string, unknown>) => {
           // oxlint-disable-next-line unicorn/prefer-event-target -- node:events.once requires EventEmitter semantics.
           const request = Object.assign(new EventEmitter(), {
-            async *[Symbol.asyncIterator]() {
-              if (apnsMock.responseBody.length > 0) {
-                yield apnsMock.responseBody;
-              }
-            },
             end(payload: string) {
               apnsMock.requests.push({
                 authority: String(authority),
@@ -59,9 +56,19 @@ vi.mock('node:http2', async () => {
                 request.emit('response', {
                   ':status': apnsMock.statusByToken[token] ?? apnsMock.status,
                 });
+                setTimeout(() => {
+                  if (apnsMock.stallResponseBody) {
+                    return;
+                  }
+                  if (apnsMock.responseBody.length > 0) {
+                    request.emit('data', apnsMock.responseBody);
+                  }
+                  request.emit('end');
+                }, 0);
               });
             },
             close() {
+              apnsMock.closedRequests += 1;
               return undefined;
             },
             setEncoding(_encoding: string) {
@@ -545,6 +552,84 @@ describe('gmail push relay', () => {
     ]);
   });
 
+  it('checks the newest pending Gmail watch proofs before applying the cap', async () => {
+    expect.assertions(1);
+
+    const now = Date.now();
+    const t = convexTest(schema, modules);
+    const pendingDeviceId = await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: now,
+        lastSeenAt: now,
+        tokenIdentifier: 'newest-pending-account',
+      });
+      for (let index = 0; index < 100; index += 1) {
+        const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+          deviceIdentifier: `older-pending-device-${index}`,
+          lastSeenAt: now,
+          platform: 'ios',
+          productAccountId,
+          registeredAt: now,
+        });
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          emailAddress: 'many-pending@example.com',
+          lastVerifiedAt: now,
+          productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `older-pending-${index}`,
+          pushVerificationHistoryId: `${300 + index}`,
+          pushVerificationRequestedAt: now - 100 + index,
+          trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+      const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+        deviceIdentifier: 'newest-pending-device',
+        lastSeenAt: now,
+        platform: 'ios',
+        productAccountId,
+        registeredAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'many-pending@example.com',
+        lastVerifiedAt: now,
+        productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'newest-pending',
+        pushVerificationHistoryId: '200',
+        pushVerificationRequestedAt: now,
+        trustedDeviceId,
+        updatedAt: now,
+      });
+      return trustedDeviceId;
+    });
+
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'many-pending@example.com',
+      historyId: '200',
+    });
+    await t.run(async (ctx) => {
+      await ctx.db.patch(pendingDeviceId, {
+        apnsEnvironment: 'production',
+        apnsToken: 'newest-pending-token',
+      });
+    });
+
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'many-pending@example.com',
+      }),
+    ).resolves.toStrictEqual([
+      {
+        apnsEnvironment: 'production',
+        apnsToken: 'newest-pending-token',
+        trustedDeviceId: pendingDeviceId,
+      },
+    ]);
+  });
+
   it('verifies a Gmail watch from a later notification history id', async () => {
     expect.assertions(2);
 
@@ -770,12 +855,14 @@ describe('gmail push relay', () => {
   it('sends content-free background requests to the selected APNs environment', async () => {
     expect.assertions(5);
 
+    apnsMock.closedRequests = 0;
     apnsMock.connections.length = 0;
     apnsMock.requests.length = 0;
     apnsMock.responseBody = '';
     apnsMock.sessions.length = 0;
     apnsMock.status = 200;
     apnsMock.statusByToken = {};
+    apnsMock.stallResponseBody = false;
     vi.stubEnv('APNS_KEY_ID', 'key-id');
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
@@ -874,6 +961,56 @@ describe('gmail push relay', () => {
       });
     } finally {
       vi.unstubAllEnvs();
+    }
+  });
+
+  it('times out stalled APNs response bodies', async () => {
+    expect.assertions(3);
+
+    vi.useFakeTimers();
+    apnsMock.closedRequests = 0;
+    apnsMock.connections.length = 0;
+    apnsMock.requests.length = 0;
+    apnsMock.responseBody = '';
+    apnsMock.sessions.length = 0;
+    apnsMock.status = 200;
+    apnsMock.statusByToken = {};
+    apnsMock.stallResponseBody = true;
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'stalled-device',
+        platform: 'ios',
+      });
+      const delivery = t.action(internal.apns.deliverGmailWakeups, {
+        historyId: 'history-125',
+        recipients: [
+          {
+            apnsEnvironment: 'production',
+            apnsToken: 'stalled-device-token',
+            trustedDeviceId: device.trustedDeviceId,
+          },
+        ],
+      });
+
+      await vi.advanceTimersByTimeAsync(0);
+      expect(apnsMock.requests).toHaveLength(1);
+      await vi.advanceTimersByTimeAsync(10_000);
+      await expect(delivery).resolves.toBeNull();
+      expect(apnsMock.closedRequests).toBe(1);
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+      apnsMock.stallResponseBody = false;
     }
   });
 });

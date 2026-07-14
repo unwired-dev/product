@@ -52,7 +52,7 @@ Configure the Google and Apple infrastructure before enabling the path:
 3. Create a Pub/Sub push subscription whose endpoint is `https://<deployment>.convex.site/gmail/push?token=<GMAIL_PUSH_VERIFICATION_TOKEN>`. Set the same high-entropy `GMAIL_PUSH_VERIFICATION_TOKEN` in the Convex deployment.
 4. Enable Push Notifications and the Remote notifications background mode for App ID `dev.unwired.mail` (or the selected bundle ID), and configure `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, and `APNS_TOPIC` in the Convex deployment. `APNS_PRIVATE_KEY` is the Apple `.p8` contents; when an environment manager requires one line, encode line breaks as `\n`.
 
-The client renews a Gmail watch when less than one day remains, matching Gmail's daily-renewal recommendation. Background APNs delivery is best effort, so foreground/manual inbox sync remains available when the system delays or drops a wakeup.
+The client renews a Gmail watch when less than one day remains, matching Gmail's daily-renewal recommendation. Each accepted background wake refreshes only the newest Gmail inbox page and advances the local history watermark; foreground/manual sync performs full pagination and reconciliation. Background APNs delivery is best effort, so foreground/manual inbox sync remains available when the system delays or drops a wakeup.
 
 Open and run the Apple app:
 

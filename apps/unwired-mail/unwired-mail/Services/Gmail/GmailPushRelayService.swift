@@ -12,6 +12,23 @@ struct GmailPushWatchStatus: Codable, Equatable {
   let historyId: String
 }
 
+private func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
+  guard
+    candidate.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
+    current.unicodeScalars.allSatisfy({ (48...57).contains($0.value) })
+  else {
+    return false
+  }
+  let normalizedCandidate = String(candidate.drop(while: { $0 == "0" }))
+  let normalizedCurrent = String(current.drop(while: { $0 == "0" }))
+  let comparableCandidate = normalizedCandidate.isEmpty ? "0" : normalizedCandidate
+  let comparableCurrent = normalizedCurrent.isEmpty ? "0" : normalizedCurrent
+  if comparableCandidate.count != comparableCurrent.count {
+    return comparableCandidate.count > comparableCurrent.count
+  }
+  return comparableCurrent < comparableCandidate
+}
+
 protocol GmailPushWatchPersisting {
   func clear(
     productAccountId: String,
@@ -371,15 +388,18 @@ struct GmailPushWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
   private let sessionStore: ProductAccountSessionPersisting
   private let syncService: GmailMessageMetadataSyncing
+  private let watchStore: GmailPushWatchPersisting
 
   init(
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
-    syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService()
+    syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.connectionStore = connectionStore
     self.sessionStore = sessionStore
     self.syncService = syncService
+    self.watchStore = watchStore
   }
 
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
@@ -392,14 +412,27 @@ struct GmailPushWakeupHandler {
         productAccountId: productSession.productAccountId
       ),
       connection.provider == "gmail",
-      connection.trustedDeviceId == productSession.trustedDeviceId
+      connection.trustedDeviceId == productSession.trustedDeviceId,
+      let watchStatus = try watchStore.load(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      gmailHistoryIdIsNewer(historyId, than: watchStatus.historyId)
     else {
       return false
     }
 
-    _ = try await syncService.syncInbox(
+    _ = try await syncService.syncRecentInbox(
       connection: connection,
       session: productSession
+    )
+    try watchStore.save(
+      GmailPushWatchStatus(
+        expirationMilliseconds: watchStatus.expirationMilliseconds,
+        historyId: historyId
+      ),
+      productAccountId: productSession.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
     )
     return true
   }
