@@ -101,20 +101,31 @@ async function apnsRecipientForDevice(
   };
 }
 
-async function requireGmailConnection(
+function gmailConnectionsForDevice(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
-): Promise<Doc<'mailProviderConnections'>> {
-  const connection = await ctx.db
+) {
+  return ctx.db
     .query('mailProviderConnections')
     .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
       q
         .eq('productAccountId', productAccountId)
         .eq('provider', 'gmail')
         .eq('trustedDeviceId', trustedDeviceId),
-    )
-    .unique();
+    );
+}
+
+async function requireGmailConnection(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<Doc<'mailProviderConnections'>> {
+  const connection = await gmailConnectionsForDevice(
+    ctx,
+    productAccountId,
+    trustedDeviceId,
+  ).unique();
   if (connection === null) {
     throw new Error('Gmail connection required');
   }
@@ -277,15 +288,11 @@ async function clearGmailPushProofs(
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
-  const connections = await ctx.db
-    .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('provider', 'gmail')
-        .eq('trustedDeviceId', trustedDeviceId),
-    )
-    .collect();
+  const connections = await gmailConnectionsForDevice(
+    ctx,
+    productAccountId,
+    trustedDeviceId,
+  ).collect();
   await Promise.all(
     connections.map((connection) =>
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
