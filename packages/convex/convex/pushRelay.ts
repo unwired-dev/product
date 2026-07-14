@@ -118,21 +118,20 @@ async function hasOtherActiveGmailRoute(
     )
     .take(100);
 
-  for (const connection of connections) {
-    if (
+  const otherConnections = connections.filter(
+    (connection) =>
       connection.productAccountId === request.productAccountId &&
-      connection.trustedDeviceId !== request.trustedDeviceId
-    ) {
-      const device = await ctx.db.get(connection.trustedDeviceId);
-      if (
-        device?.apnsEnvironment !== undefined &&
-        device.apnsToken !== undefined
-      ) {
-        return true;
-      }
-    }
-  }
-  return false;
+      connection.trustedDeviceId !== request.trustedDeviceId,
+  );
+  const devices = await Promise.all(
+    otherConnections.map((connection) =>
+      ctx.db.get(connection.trustedDeviceId),
+    ),
+  );
+  return devices.some(
+    (device) =>
+      device?.apnsEnvironment !== undefined && device.apnsToken !== undefined,
+  );
 }
 
 function gmailConnectionsForDevice(
