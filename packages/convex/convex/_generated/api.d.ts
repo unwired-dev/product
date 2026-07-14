@@ -12,6 +12,7 @@ import type * as apns from "../apns.js";
 import type * as health from "../health.js";
 import type * as pushRelay from "../pushRelay.js";
 import type * as productAccount from "../productAccount.js";
+import type * as productAccountAuth from "../productAccountAuth.js";
 import type * as productSync from "../productSync.js";
 
 import type {
@@ -25,6 +26,7 @@ declare const fullApi: ApiFromModules<{
   health: typeof health;
   pushRelay: typeof pushRelay;
   productAccount: typeof productAccount;
+  productAccountAuth: typeof productAccountAuth;
   productSync: typeof productSync;
 }>;
 
