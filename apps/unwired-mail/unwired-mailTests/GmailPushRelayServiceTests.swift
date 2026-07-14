@@ -268,6 +268,28 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testDevicePushRegistrationRetriesRememberedTokenAfterFailure() async throws {
+    let transport = RecordingDevicePushRegistrationTransport()
+    let retrier = DevicePushRegistrationRetrier(
+      environment: .sandbox,
+      transport: transport
+    )
+    retrier.remember(deviceToken: Data([0x01, 0xAB, 0xFF]))
+    transport.registerError = GmailPushRelayTestError.unexpectedCall
+
+    do {
+      try await retrier.retry(session: session)
+      XCTFail("Expected registration failure")
+    } catch GmailPushRelayTestError.unexpectedCall {
+    }
+
+    transport.registerError = nil
+    try await retrier.retry(session: session)
+
+    XCTAssertEqual(transport.calls.count, 2)
+    XCTAssertEqual(transport.calls.last?.apnsToken, "01abff")
+  }
+
   func testUnregisterDeviceClearsBackendRoutingForSignedOutSession() async throws {
     let transport = RecordingDevicePushRegistrationTransport()
     let service = DevicePushUnregistrationService(transport: transport)
@@ -534,7 +556,9 @@ private struct DevicePushRegistrationCall: Equatable {
 }
 
 private final class RecordingDevicePushRegistrationTransport: DevicePushRegistrationTransport {
-  var call: DevicePushRegistrationCall?
+  var call: DevicePushRegistrationCall? { calls.last }
+  var calls: [DevicePushRegistrationCall] = []
+  var registerError: Error?
   var unregisteredSession: ProductAccountSessionSnapshot?
 
   func registerDevicePush(
@@ -543,12 +567,16 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> DevicePushRegistrationResponse {
-    call = DevicePushRegistrationCall(
-      apnsEnvironment: apnsEnvironment,
-      apnsToken: apnsToken,
-      identityToken: identityToken,
-      trustedDeviceId: trustedDeviceId
-    )
+    calls.append(
+      DevicePushRegistrationCall(
+        apnsEnvironment: apnsEnvironment,
+        apnsToken: apnsToken,
+        identityToken: identityToken,
+        trustedDeviceId: trustedDeviceId
+      ))
+    if let registerError {
+      throw registerError
+    }
     return DevicePushRegistrationResponse(registered: true)
   }
 

@@ -314,6 +314,38 @@ describe('productAccount Gmail provider connection', () => {
     );
   });
 
+  it('rotates the Gmail push route when the routing identity changes', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'user@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    const firstRoute = await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      historyId: '1',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'other@example.com',
+      providerAccountIdentifier: 'gmail-user-002',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    const secondRoute = await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      historyId: '2',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+
+    expect(secondRoute.routeId).not.toBe(firstRoute.routeId);
+  });
+
   it('keeps Gmail connection metadata separate per trusted device', async () => {
     expect.assertions(4);
 

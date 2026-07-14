@@ -162,6 +162,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
   func testCompleteConnectionRollsBackWhenMetadataCleanupFails() async throws {
     let metadataStore = RecordingGmailProviderMetadataStore()
     metadataStore.clearError = GmailProviderConnectionTestError.metadataCleanupFailed
+    let pushWatchStore = RecordingPushWatchStore()
     let transport = RecordingGmailConnectionTransport()
     transport.status = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -182,6 +183,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       updatedAt: 1_781_210_000_000
     )
     let service = GmailProviderConnectionService(
+      pushWatchStore: pushWatchStore,
       metadataStore: metadataStore,
       tokenStore: InMemoryGmailProviderTokenStore(),
       transport: transport
@@ -204,6 +206,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
+    XCTAssertTrue(pushWatchStore.clearedKeys.isEmpty)
+    XCTAssertTrue(transport.connectCalls.isEmpty)
   }
 
   func testCompleteConnectionThrowsWhenBodyCacheCleanupFails() async throws {
@@ -254,10 +258,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), previousTokens)
-    XCTAssertEqual(
-      transport.connectCalls.map(\.providerAccountIdentifier),
-      ["new-gmail-user", "old-gmail-user"]
-    )
+    XCTAssertTrue(transport.connectCalls.isEmpty)
   }
 
   func testCompleteConnectionClearsLocalCacheWhenPriorLookupFails() async throws {

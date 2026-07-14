@@ -404,6 +404,31 @@ struct DevicePushRegistrationService {
   }
 }
 
+@MainActor
+final class DevicePushRegistrationRetrier {
+  private var deviceToken: Data?
+  private let registrationService: DevicePushRegistrationService
+
+  init(
+    environment: DevicePushEnvironment,
+    transport: DevicePushRegistrationTransport = ConvexClient()
+  ) {
+    registrationService = DevicePushRegistrationService(
+      environment: environment,
+      transport: transport
+    )
+  }
+
+  func remember(deviceToken: Data) {
+    self.deviceToken = deviceToken
+  }
+
+  func retry(session: ProductAccountSessionSnapshot) async throws {
+    guard let deviceToken else { return }
+    try await registrationService.register(deviceToken: deviceToken, session: session)
+  }
+}
+
 extension ConvexClient: DevicePushRegistrationTransport {}
 extension ConvexClient: GmailPushVerificationTransport {}
 
@@ -536,24 +561,36 @@ private struct GmailWatchResponse: Decodable {
 
   @MainActor
   final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
+    private let registrationRetrier: DevicePushRegistrationRetrier
+
+    override init() {
+      #if DEBUG
+        registrationRetrier = DevicePushRegistrationRetrier(environment: .sandbox)
+      #else
+        registrationRetrier = DevicePushRegistrationRetrier(environment: .production)
+      #endif
+      super.init()
+    }
+
     func application(
       _: UIApplication,
       didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
+      registrationRetrier.remember(deviceToken: deviceToken)
+      retryDevicePushRegistration()
+    }
+
+    func applicationDidBecomeActive(_: UIApplication) {
+      retryDevicePushRegistration()
+    }
+
+    private func retryDevicePushRegistration() {
       Task { @MainActor in
         guard let session = try? ProductAccountSessionStore.load() else {
           return
         }
-        #if DEBUG
-          let environment = DevicePushEnvironment.sandbox
-        #else
-          let environment = DevicePushEnvironment.production
-        #endif
         do {
-          try await DevicePushRegistrationService(environment: environment).register(
-            deviceToken: deviceToken,
-            session: session
-          )
+          try await registrationRetrier.retry(session: session)
         } catch {
           pushRegistrationLogger.error(
             "APNs device-token registration failed: \(error.localizedDescription, privacy: .public)"

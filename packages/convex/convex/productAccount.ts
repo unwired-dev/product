@@ -76,26 +76,6 @@ function gmailRoutingIdentityChanged(
   );
 }
 
-function gmailPushProofPatch(
-  existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  routingIdentityChanged: boolean,
-) {
-  if (routingIdentityChanged) {
-    return {
-      pushVerificationHistoryId: undefined,
-      pushVerificationRequestedAt: undefined,
-      pushVerifiedHistoryId: undefined,
-      pushVerifiedAt: undefined,
-    };
-  }
-  return {
-    pushVerificationHistoryId: existingConnection.pushVerificationHistoryId,
-    pushVerificationRequestedAt: existingConnection.pushVerificationRequestedAt,
-    pushVerifiedHistoryId: existingConnection.pushVerifiedHistoryId,
-    pushVerifiedAt: existingConnection.pushVerifiedAt,
-  };
-}
-
 async function updateGmailConnection(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
@@ -105,19 +85,29 @@ async function updateGmailConnection(
     existingConnection,
     connection,
   );
-  const updatedAt = routingIdentityChanged
-    ? connection.updatedAt
-    : existingConnection.updatedAt;
+  if (routingIdentityChanged) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(existingConnection._id);
+    await ctx.db.insert('mailProviderConnections', {
+      ...connection,
+      connectedAt: existingConnection.connectedAt,
+      productAccountId: existingConnection.productAccountId,
+    });
+    return {
+      connectedAt: existingConnection.connectedAt,
+      ...connection,
+    };
+  }
+
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.patch(existingConnection._id, {
     ...connection,
-    ...gmailPushProofPatch(existingConnection, routingIdentityChanged),
-    updatedAt,
+    updatedAt: existingConnection.updatedAt,
   });
   return {
     connectedAt: existingConnection.connectedAt,
     ...connection,
-    updatedAt,
+    updatedAt: existingConnection.updatedAt,
   };
 }
 
