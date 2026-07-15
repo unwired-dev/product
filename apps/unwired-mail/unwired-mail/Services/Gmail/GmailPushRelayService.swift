@@ -235,6 +235,10 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
     session productSession: ProductAccountSessionSnapshot
   ) async throws -> GmailPushWatchStatus {
     try connectionStore.save(connection, productAccountId: productSession.productAccountId)
+    let previousWatch = try store.load(
+      productAccountId: productSession.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     let existing = try currentWatch(
       connection: connection,
       productSession: productSession
@@ -264,7 +268,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
     let status = GmailPushWatchStatus(
       expirationMilliseconds: registeredStatus.expirationMilliseconds,
       historyId: registeredStatus.historyId,
-      latestSyncedHistoryId: existing?.latestSyncedHistoryId ?? existing?.historyId
+      latestSyncedHistoryId: previousWatch?.latestSyncedHistoryId ?? previousWatch?.historyId
     )
     try store.save(
       status,
