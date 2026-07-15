@@ -494,6 +494,43 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(notificationDelivery.messages.isEmpty)
   }
 
+  func testGmailWakeupStopsNotificationsWhenBackgroundTimeExpiresDuringDelivery() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [
+      pushMessage(categoryId: "system:flights"),
+      pushMessage(categoryId: "system:flights"),
+    ]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      hasProcessingTimeRemaining: { notificationDelivery.messages.isEmpty },
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.messages.count, 1)
+  }
+
   func testUserNotificationServiceRequestsVisibleNotificationAuthorization() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)

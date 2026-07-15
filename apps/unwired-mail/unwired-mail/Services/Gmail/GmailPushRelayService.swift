@@ -607,10 +607,6 @@ struct GmailPushWakeupHandler {
         ).messages.map(\.stableProviderMessageId)
       )
     }
-    let notificationRules = try await failClosed {
-      try await notificationRuleSync.loadRules(session: productSession).rules
-    }
-
     let syncResult: GmailMetadataSyncResult
     do {
       syncResult = try await syncService.syncRecentInbox(
@@ -623,6 +619,9 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard currentWatchForRoute() != nil else { return false }
+    let notificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession).rules
+    }
     try await deliverCategoryAwareNotifications(
       for: syncResult.messages,
       excluding: existingMessageIds,
@@ -651,12 +650,13 @@ struct GmailPushWakeupHandler {
     excluding existingMessageIds: Set<String>?,
     rules: NotificationRules?
   ) async throws {
-    guard let existingMessageIds, let rules, hasProcessingTimeRemaining() else { return }
+    guard let existingMessageIds, let rules else { return }
     for message in messages
     where !message.isHistorical
       && !existingMessageIds.contains(message.stableProviderMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
+      guard hasProcessingTimeRemaining() else { return }
       do {
         try await notificationDelivery.deliver(message: message)
       } catch is CancellationError {

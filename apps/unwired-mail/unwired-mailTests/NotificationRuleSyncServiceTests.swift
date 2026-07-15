@@ -139,6 +139,25 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     )
     XCTAssertEqual(transport.expectedUpdatedAts, [nil, 1_781_200_000_000])
   }
+
+  func testViewModelPreservesRulesWhenAvailableCategoriesAreUnknown() async throws {
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+    let rules = NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
+    _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(granted: true),
+      service: service,
+      session: session
+    )
+
+    await viewModel.load()
+
+    XCTAssertEqual(viewModel.enabledCategoryIds, Set(rules.categoryIds))
+  }
 }
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {

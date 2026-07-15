@@ -130,9 +130,11 @@ struct AccountView: View {
       #endif
       await categoryViewModel.load()
       await notificationRuleViewModel.load(
-        categoryIds: Set(
-          MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
-        )
+        categoryIds: categoryViewModel.hasLoadedCategory
+          ? Set(
+            MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
+          )
+          : nil
       )
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
@@ -188,7 +190,7 @@ final class NotificationRuleViewModel {
     enabledCategoryIds.formIntersection(categoryIds)
   }
 
-  func load(categoryIds: Set<String> = []) async {
+  func load(categoryIds: Set<String>? = nil) async {
     isSyncing = true
     defer { isSyncing = false }
 
@@ -196,7 +198,9 @@ final class NotificationRuleViewModel {
       let snapshot = try await service.loadRules(session: session)
       enabledCategoryIds = Set(snapshot.rules.categoryIds)
       rulesUpdatedAt = snapshot.updatedAt
-      prune(categoryIds: categoryIds)
+      if let categoryIds {
+        prune(categoryIds: categoryIds)
+      }
       hasLoadedRules = true
       errorMessage = nil
     } catch {
@@ -626,7 +630,7 @@ private final class CustomCategoryViewModel {
   var isSyncing = false
   var name = ""
 
-  private var hasLoadedCategory = false
+  var hasLoadedCategory = false
   private let service: CustomCategorySyncing
   private let session: ProductAccountSessionSnapshot
 
