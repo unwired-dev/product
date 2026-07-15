@@ -263,7 +263,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
 
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
-    XCTAssertTrue(pushWatchStore.clearedKeys.isEmpty)
+    XCTAssertEqual(
+      pushWatchStore.clearedKeys,
+      ["\(session.productAccountId):old-gmail-user"]
+    )
     XCTAssertEqual(transport.connectCalls.count, 1)
   }
 
