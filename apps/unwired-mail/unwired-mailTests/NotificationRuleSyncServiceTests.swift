@@ -158,6 +158,30 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
     XCTAssertEqual(viewModel.enabledCategoryIds, Set(rules.categoryIds))
   }
+
+  func testSaveRejectsStaleExpectedUpdatedAt() async throws {
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:invoices"]),
+        expectedUpdatedAt: 0,
+        session: session
+      )
+      XCTFail("Expected concurrent modification")
+    } catch let error as NotificationRuleSyncError {
+      XCTAssertEqual(error, .concurrentModification)
+    }
+  }
 }
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
@@ -241,6 +265,11 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
     expectedUpdatedAts.append(expectedUpdatedAt)
+    if let existing = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }),
+      existing.updatedAt != expectedUpdatedAt
+    {
+      return existing
+    }
     return try await putEncryptedProductSyncPayload(
       identityToken: identityToken,
       payloadIdentifier: payloadIdentifier,

@@ -809,7 +809,7 @@ private struct NotificationRulePanel: View {
 
         Button {
           Task {
-            await viewModel.load()
+            await viewModel.load(categoryIds: Set(categoryChoices.map(\.id)))
           }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
