@@ -21,6 +21,7 @@ export default defineSchema({
     registeredAt: v.number(),
   })
     .index('by_productAccountId', ['productAccountId'])
+    .index('by_apnsToken', ['apnsToken'])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',

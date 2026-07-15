@@ -355,6 +355,60 @@ describe('gmail push relay', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('clears a reused APNs token from the previous device route', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const firstUser = t.withIdentity(appleIdentity);
+    const firstConnection = await firstUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    const secondUser = t.withIdentity({
+      ...appleIdentity,
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const secondConnection = await secondUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      },
+    );
+
+    await firstUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'shared-apns-token',
+      trustedDeviceId: firstConnection.trustedDeviceId,
+    });
+    await secondUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'shared-apns-token',
+      trustedDeviceId: secondConnection.trustedDeviceId,
+    });
+
+    await expect(
+      t.run((ctx) => ctx.db.get(firstConnection.trustedDeviceId)),
+    ).resolves.toStrictEqual(
+      expect.not.objectContaining({
+        apnsEnvironment: expect.anything(),
+        apnsToken: expect.anything(),
+      }),
+    );
+    await expect(
+      t.run((ctx) => ctx.db.get(secondConnection.trustedDeviceId)),
+    ).resolves.toStrictEqual(
+      expect.objectContaining({
+        apnsEnvironment: 'production',
+        apnsToken: 'shared-apns-token',
+      }),
+    );
+  });
+
   it('requires fresh Gmail push proof after device unregistration', async () => {
     expect.assertions(2);
 

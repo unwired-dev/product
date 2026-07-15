@@ -291,7 +291,7 @@ async function verifyPendingGmailConnections(
           .gt('pushVerificationRequestedAt', undefined),
     )
     .order('desc')
-    .take(100);
+    .collect();
   for (const connection of connections) {
     if (
       pendingVerificationMatches(connection, request.historyId, request.now)
@@ -344,6 +344,35 @@ async function clearGmailPushProofs(
   );
 }
 
+async function clearReusedApnsToken(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+  apnsToken: string,
+): Promise<void> {
+  const devices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_apnsToken', (q) => q.eq('apnsToken', apnsToken))
+    .collect();
+  await Promise.all(
+    devices
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      .filter((device) => device._id !== trustedDeviceId)
+      .map(async (device) => {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(device._id, {
+          apnsEnvironment: undefined,
+          apnsToken: undefined,
+        });
+        await clearGmailPushProofs(
+          ctx,
+          device.productAccountId,
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          device._id,
+        );
+      }),
+  );
+}
+
 export const registerDevice = mutation({
   args: {
     apnsEnvironment: apnsEnvironmentValidator,
@@ -356,6 +385,7 @@ export const registerDevice = mutation({
     }
 
     await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
+    await clearReusedApnsToken(ctx, args.trustedDeviceId, args.apnsToken);
     await ctx.db.patch(args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
