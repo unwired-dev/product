@@ -656,7 +656,7 @@ struct GmailMessageMetadataService:
       try Task.checkCancellation()
     } while nextPageToken != nil
       && (maximumPages.map { pageCount < $0 } ?? true)
-      && !(requiredMessageIds?.isSubset(of: Set(listedMessages.map(\.id))) ?? true)
+      && (requiredMessageIds.map { !$0.isSubset(of: Set(listedMessages.map(\.id))) } ?? true)
 
     return listedMessages
   }
