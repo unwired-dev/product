@@ -135,7 +135,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
   func testRegisterOrRenewWatchRenewsWatchWithLessThanOneDayRemaining() async throws {
     let expiring = GmailPushWatchStatus(
       expirationMilliseconds: 1_781_250_000_000,
-      historyId: "history-expiring"
+      historyId: "history-expiring",
+      latestSyncedHistoryId: "history-synced"
     )
     let tokenRefresher = RecordingGmailPushTokenRefresher(
       tokens: GmailProviderTokens(accessToken: "fresh-access-token", refreshToken: "refresh-token")
@@ -166,6 +167,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let status = try await service.registerOrRenew(connection: connection, session: session)
 
     XCTAssertEqual(status.historyId, "history-renewed")
+    XCTAssertEqual(status.latestSyncedHistoryId, "history-synced")
   }
 
   func testRegisterOrRenewWatchKeepsWatchWithMoreThanOneDayRemaining() async throws {
