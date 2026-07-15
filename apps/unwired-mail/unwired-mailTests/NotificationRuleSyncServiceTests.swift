@@ -191,6 +191,26 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.enabledCategoryIds, Set(rules.categoryIds))
   }
 
+  func testViewModelTracksUnsavedRuleEdits() async throws {
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(granted: true),
+      service: NotificationRuleSyncService(
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        transport: RecordingRuleSyncTransport()
+      ),
+      session: session
+    )
+
+    await viewModel.load(categoryIds: ["system:flights"])
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+
+    viewModel.setEnabled(true, categoryId: "system:flights")
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
+
+    await viewModel.save()
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+  }
+
   func testSaveRejectsStaleExpectedUpdatedAt() async throws {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(

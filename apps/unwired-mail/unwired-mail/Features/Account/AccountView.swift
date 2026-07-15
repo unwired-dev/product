@@ -162,6 +162,7 @@ final class NotificationRuleViewModel {
   private let authorization: NotificationAuthorizationRequesting
   private var hasLoadedRules = false
   private var rulesUpdatedAt: Int64?
+  private var syncedCategoryIds: Set<String> = []
   private let service: NotificationRuleSyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -183,6 +184,10 @@ final class NotificationRuleViewModel {
     isSaving || isSyncing
   }
 
+  var hasUnsavedChanges: Bool {
+    enabledCategoryIds != syncedCategoryIds
+  }
+
   func isEnabled(categoryId: String) -> Bool {
     enabledCategoryIds.contains(categoryId)
   }
@@ -202,6 +207,7 @@ final class NotificationRuleViewModel {
       if let categoryIds {
         prune(categoryIds: categoryIds)
       }
+      syncedCategoryIds = enabledCategoryIds
       hasLoadedRules = true
       errorMessage = nil
     } catch {
@@ -221,6 +227,7 @@ final class NotificationRuleViewModel {
         session: session
       )
       enabledCategoryIds = Set(snapshot.rules.categoryIds)
+      syncedCategoryIds = enabledCategoryIds
       rulesUpdatedAt = snapshot.updatedAt
       if !snapshot.rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
         errorMessage =
@@ -819,7 +826,7 @@ private struct NotificationRulePanel: View {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
         .buttonStyle(.bordered)
-        .disabled(viewModel.isEditingDisabled)
+        .disabled(viewModel.isEditingDisabled || viewModel.hasUnsavedChanges)
       }
 
       ForEach(categoryChoices) { category in
