@@ -678,8 +678,7 @@ struct GmailMessageMetadataService:
         responseType: GmailListHistoryResponse.self
       )
       for record in response.history ?? [] {
-        for addition in record.messagesAdded ?? []
-        where addition.message.labelIds?.contains("INBOX") == true {
+        for addition in record.messagesAdded ?? [] {
           addedMessageIds.insert(addition.message.id)
           removedMessageIds.remove(addition.message.id)
         }

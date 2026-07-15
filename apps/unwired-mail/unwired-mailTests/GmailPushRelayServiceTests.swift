@@ -428,6 +428,41 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.messages, [message])
   }
 
+  func testGmailWakeupNotifiesForHistoryMessageAlreadyInLocalCache() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.existingMessages = [message]
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    _ = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertEqual(notificationDelivery.messages, [message])
+  }
+
   func testGmailWakeupDoesNotNotifyBeforeNewMessageIsCategorized() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
