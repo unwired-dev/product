@@ -608,7 +608,7 @@ struct GmailPushWakeupHandler {
       )
     }
     let notificationRules = try await failClosed {
-      try await notificationRuleSync.loadRules(session: productSession)
+      try await notificationRuleSync.loadRules(session: productSession).rules
     }
 
     let syncResult: GmailMetadataSyncResult

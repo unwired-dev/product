@@ -21,10 +21,11 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
     let savedRules = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights", "system:invoices"]),
+      expectedUpdatedAt: nil,
       session: session
     )
 
-    XCTAssertEqual(savedRules.categoryIds, ["system:flights", "system:invoices"])
+    XCTAssertEqual(savedRules.rules.categoryIds, ["system:flights", "system:invoices"])
     XCTAssertEqual(transport.writes.count, 1)
     XCTAssertEqual(transport.writes[0].payloadIdentifier, NotificationRules.primaryIdentifier)
     XCTAssertFalse(
@@ -40,11 +41,11 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(keyMaterialStore: store, transport: transport)
     let rules = NotificationRules(categoryIds: ["system:promotions"])
-    _ = try await service.saveRules(rules, session: session)
+    _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
 
     let loadedRules = try await service.loadRules(session: session)
 
-    XCTAssertEqual(loadedRules, rules)
+    XCTAssertEqual(loadedRules.rules, rules)
   }
 
   func testLoadWithoutSyncedRulesReturnsEmptyRulesWithoutCreatingKeyMaterial() async throws {
@@ -56,7 +57,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
     let loadedRules = try await service.loadRules(session: session)
 
-    XCTAssertEqual(loadedRules, NotificationRules(categoryIds: []))
+    XCTAssertEqual(loadedRules.rules, NotificationRules(categoryIds: []))
     XCTAssertNil(try store.load(productAccountId: session.productAccountId))
   }
 
@@ -68,6 +69,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     )
     _ = try await firstDevice.saveRules(
       NotificationRules(categoryIds: ["system:invites"]),
+      expectedUpdatedAt: nil,
       session: session
     )
     let freshDevice = NotificationRuleSyncService(
@@ -95,7 +97,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       service: service,
       session: session
     )
-    await viewModel.load()
+    await viewModel.load(categoryIds: ["system:flights"])
     viewModel.setEnabled(true, categoryId: "system:flights")
 
     await viewModel.save()
@@ -107,29 +109,35 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       "Rules were saved, but visible notifications are disabled in system settings."
     )
     let loadedRules = try await service.loadRules(session: session)
-    XCTAssertEqual(
-      loadedRules,
-      NotificationRules(categoryIds: ["system:flights"])
-    )
+    XCTAssertEqual(loadedRules.rules, NotificationRules(categoryIds: ["system:flights"]))
   }
 
   func testViewModelPrunesRulesForUnavailableCategories() async throws {
+    let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
-      transport: RecordingRuleSyncTransport()
+      transport: transport
+    )
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["custom-category-primary", "system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
     )
     let viewModel = NotificationRuleViewModel(
       authorization: StubNotificationAuthorization(granted: true),
       service: service,
       session: session
     )
-    await viewModel.load()
-    viewModel.setEnabled(true, categoryId: "custom-category-primary")
-    viewModel.setEnabled(true, categoryId: "system:flights")
-
-    viewModel.prune(categoryIds: ["system:flights"])
+    await viewModel.load(categoryIds: ["system:flights"])
+    await viewModel.save()
 
     XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
+    let savedRules = try await service.loadRules(session: session)
+    XCTAssertEqual(
+      savedRules.rules,
+      NotificationRules(categoryIds: ["system:flights"])
+    )
+    XCTAssertEqual(transport.expectedUpdatedAts, [nil, 1_781_200_000_000])
   }
 }
 
@@ -148,6 +156,7 @@ private final class StubNotificationAuthorization: NotificationAuthorizationRequ
 }
 
 private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
+  private(set) var expectedUpdatedAts: [Int64?] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
 
   func listEncryptedProductSyncPayloads(
@@ -181,7 +190,7 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     let payload = EncryptedProductSyncPayload(
       encryptedPayload: encryptedPayload,
       payloadIdentifier: payloadIdentifier,
-      updatedAt: 1_781_200_000_000
+      updatedAt: 1_781_200_000_000 + Int64(writes.count)
     )
     writes.removeAll { $0.payloadIdentifier == payloadIdentifier }
     writes.append(payload)
@@ -210,9 +219,10 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     payloadIdentifier: String,
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId: String,
-    expectedUpdatedAt _: Int64?
+    expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
-    try await putEncryptedProductSyncPayload(
+    expectedUpdatedAts.append(expectedUpdatedAt)
+    return try await putEncryptedProductSyncPayload(
       identityToken: identityToken,
       payloadIdentifier: payloadIdentifier,
       encryptedPayload: encryptedPayload,

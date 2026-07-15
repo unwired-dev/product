@@ -982,15 +982,18 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
 private struct StubNotificationRuleSync: NotificationRuleSyncing {
   let rules: NotificationRules
 
-  func loadRules(session _: ProductAccountSessionSnapshot) async throws -> NotificationRules {
-    rules
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
   }
 
   func saveRules(
     _ rules: NotificationRules,
+    expectedUpdatedAt _: Int64?,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> NotificationRules {
-    rules
+  ) async throws -> NotificationRuleSyncSnapshot {
+    NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
   }
 }
 

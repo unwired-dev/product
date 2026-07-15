@@ -129,7 +129,11 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       await categoryViewModel.load()
-      await notificationRuleViewModel.load()
+      await notificationRuleViewModel.load(
+        categoryIds: Set(
+          MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
+        )
+      )
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
@@ -154,6 +158,7 @@ final class NotificationRuleViewModel {
 
   private let authorization: NotificationAuthorizationRequesting
   private var hasLoadedRules = false
+  private var rulesUpdatedAt: Int64?
   private let service: NotificationRuleSyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -183,13 +188,15 @@ final class NotificationRuleViewModel {
     enabledCategoryIds.formIntersection(categoryIds)
   }
 
-  func load() async {
+  func load(categoryIds: Set<String> = []) async {
     isSyncing = true
     defer { isSyncing = false }
 
     do {
-      let rules = try await service.loadRules(session: session)
-      enabledCategoryIds = Set(rules.categoryIds)
+      let snapshot = try await service.loadRules(session: session)
+      enabledCategoryIds = Set(snapshot.rules.categoryIds)
+      rulesUpdatedAt = snapshot.updatedAt
+      prune(categoryIds: categoryIds)
       hasLoadedRules = true
       errorMessage = nil
     } catch {
@@ -203,12 +210,14 @@ final class NotificationRuleViewModel {
     defer { isSaving = false }
 
     do {
-      let rules = try await service.saveRules(
+      let snapshot = try await service.saveRules(
         NotificationRules(categoryIds: Array(enabledCategoryIds)),
+        expectedUpdatedAt: rulesUpdatedAt,
         session: session
       )
-      enabledCategoryIds = Set(rules.categoryIds)
-      if !rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
+      enabledCategoryIds = Set(snapshot.rules.categoryIds)
+      rulesUpdatedAt = snapshot.updatedAt
+      if !snapshot.rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
         errorMessage =
           "Rules were saved, but visible notifications are disabled in system settings."
       } else {

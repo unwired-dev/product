@@ -28,23 +28,31 @@ struct NotificationRules: Codable, Equatable {
   }
 }
 
+struct NotificationRuleSyncSnapshot: Equatable {
+  let rules: NotificationRules
+  let updatedAt: Int64?
+}
+
 /// Synchronizes Notification Rules as opaque encrypted user data.
 ///
 /// Example:
 /// ```swift
-/// let rules = try await NotificationRuleSyncService().loadRules(session: session)
-/// if rules.allows(categoryId: "system:flights") {
+/// let snapshot = try await NotificationRuleSyncService().loadRules(session: session)
+/// if snapshot.rules.allows(categoryId: "system:flights") {
 ///   // A trusted device may show a category-aware notification.
 /// }
 /// ```
 protocol NotificationRuleSyncing {
-  func loadRules(session: ProductAccountSessionSnapshot) async throws -> NotificationRules
+  func loadRules(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot
 
   @discardableResult
   func saveRules(
     _ rules: NotificationRules,
+    expectedUpdatedAt: Int64?,
     session: ProductAccountSessionSnapshot
-  ) async throws -> NotificationRules
+  ) async throws -> NotificationRuleSyncSnapshot
 }
 
 enum NotificationRuleSyncError: LocalizedError, Equatable {
@@ -72,9 +80,14 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     self.transport = transport
   }
 
-  func loadRules(session: ProductAccountSessionSnapshot) async throws -> NotificationRules {
+  func loadRules(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
     guard let syncedPayload = try await loadRemotePayload(session: session) else {
-      return NotificationRules(categoryIds: [])
+      return NotificationRuleSyncSnapshot(
+        rules: NotificationRules(categoryIds: []),
+        updatedAt: nil
+      )
     }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
@@ -84,24 +97,29 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       syncedPayload.encryptedPayload,
       associatedData: associatedData
     )
-    return try decoder.decode(NotificationRules.self, from: plaintext)
+    return NotificationRuleSyncSnapshot(
+      rules: try decoder.decode(NotificationRules.self, from: plaintext),
+      updatedAt: syncedPayload.updatedAt
+    )
   }
 
   @discardableResult
   func saveRules(
     _ rules: NotificationRules,
+    expectedUpdatedAt: Int64?,
     session: ProductAccountSessionSnapshot
-  ) async throws -> NotificationRules {
+  ) async throws -> NotificationRuleSyncSnapshot {
     let material = try await keyMaterialForWrite(session: session)
     let plaintext = try encoder.encode(rules)
     let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
-    _ = try await transport.putEncryptedProductSyncPayload(
+    let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
       identityToken: session.identityToken,
       payloadIdentifier: NotificationRules.primaryIdentifier,
       encryptedPayload: encryptedPayload,
-      trustedDeviceId: session.trustedDeviceId
+      trustedDeviceId: session.trustedDeviceId,
+      expectedUpdatedAt: expectedUpdatedAt
     )
-    return rules
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 
   private var associatedData: Data {
