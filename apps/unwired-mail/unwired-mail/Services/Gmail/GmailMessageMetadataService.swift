@@ -68,11 +68,32 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
 
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    shouldPersist: @escaping () -> Bool
+  ) async throws -> GmailMetadataSyncResult
+
   func overrideCategory(
     _ categoryId: String,
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+}
+
+extension GmailMessageMetadataSyncing {
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: nil,
+      shouldPersist: { true }
+    )
+  }
 }
 
 enum GmailProviderMailAction: Equatable {
@@ -204,7 +225,9 @@ func gmailSafeFileComponent(_ value: String) -> String {
     }
 }
 
-struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMailActing {
+struct GmailMessageMetadataService:
+  GmailMessageMetadataSyncing, GmailProviderMailActing, GmailProviderTokenRefreshing
+{
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
   private let oauthClientId: String?
@@ -280,15 +303,46 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
-      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
-    }
-
-    let tokens = try await refreshedTokens(
-      storedTokens,
-      productAccountId: session.productAccountId
+    try await syncInbox(
+      connection: connection,
+      maximumPages: nil,
+      preservingUnlistedMessages: false,
+      sinceHistoryId: nil,
+      session: session,
+      shouldPersist: nil
     )
-    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+  }
+
+  func syncRecentInbox(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    shouldPersist: @escaping () -> Bool
+  ) async throws -> GmailMetadataSyncResult {
+    try await syncInbox(
+      connection: connection,
+      maximumPages: 1,
+      preservingUnlistedMessages: true,
+      sinceHistoryId: sinceHistoryId,
+      session: session,
+      shouldPersist: shouldPersist
+    )
+  }
+
+  // swiftlint:disable:next function_body_length function_parameter_count
+  private func syncInbox(
+    connection: GmailProviderConnectionStatus,
+    maximumPages: Int?,
+    preservingUnlistedMessages: Bool,
+    sinceHistoryId: String?,
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: (() -> Bool)?
+  ) async throws -> GmailMetadataSyncResult {
+    let tokens = try await tokensForSync(
+      connection: connection,
+      deferPersistence: shouldPersist != nil,
+      session: session
+    )
     let existingMessages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -300,29 +354,56 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       connection: connection,
       hasLocalMetadata: !existingMessages.isEmpty
     )
-    let listedMessages = try await listInboxMessages(accessToken: tokens.accessToken)
-    var fetchedMessages: [GmailMessageMetadata] = []
-    for listedMessage in listedMessages {
-      fetchedMessages.append(
-        try await fetchMessageMetadata(
-          accessToken: tokens.accessToken,
-          categorizationBoundary: categorizationBoundary,
-          connection: connection,
-          providerMessageId: listedMessage.id
-        )
+    let removedInboxMessageIds: Set<String>
+    if let sinceHistoryId {
+      removedInboxMessageIds = try await fetchRemovedInboxMessageIds(
+        accessToken: tokens.accessToken,
+        sinceHistoryId: sinceHistoryId
       )
+    } else {
+      removedInboxMessageIds = []
     }
-    try Task.checkCancellation()
+    let listedMessages = try await listInboxMessages(
+      accessToken: tokens.accessToken,
+      maximumPages: maximumPages
+    )
+    var fetchedMessages = try await fetchListedMessageMetadata(
+      accessToken: tokens.accessToken,
+      categorizationBoundary: categorizationBoundary,
+      connection: connection,
+      listedMessages: listedMessages
+    )
     fetchedMessages = sortedMessages(
       fetchedMessages,
       preservingExistingStateFrom: existingMessagesByStableId
     )
+    try Task.checkCancellation()
+    guard shouldPersist?() ?? true else {
+      throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
     fetchedMessages = try await categorizer.categorize(
       messages: fetchedMessages,
       session: session
     )
+    if preservingUnlistedMessages {
+      let fetchedStableIds = Set(fetchedMessages.map(\.stableProviderMessageId))
+      let unlistedMessages = existingMessages.filter {
+        !fetchedStableIds.contains($0.stableProviderMessageId)
+          && !removedInboxMessageIds.contains($0.providerMessageId)
+      }
+      fetchedMessages = sortedMessages(
+        fetchedMessages + unlistedMessages,
+        preservingExistingStateFrom: existingMessagesByStableId
+      )
+    }
 
     try Task.checkCancellation()
+    guard shouldPersist?() ?? true else {
+      throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
+    if shouldPersist != nil {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    }
     try store.saveMessages(
       fetchedMessages,
       productAccountId: session.productAccountId,
@@ -333,6 +414,39 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       messages: fetchedMessages,
       threads: GmailInboxThread.group(fetchedMessages)
     )
+  }
+
+  private func tokensForSync(
+    connection: GmailProviderConnectionStatus,
+    deferPersistence: Bool,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      persist: !deferPersistence,
+      productAccountId: session.productAccountId
+    )
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    return tokens
+  }
+
+  func refreshProviderTokens(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderTokens {
+    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+      throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+    }
+
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      productAccountId: session.productAccountId
+    )
+    try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    return tokens
   }
 
   func overrideCategory(
@@ -486,10 +600,12 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
   }
 
   private func listInboxMessages(
-    accessToken: String
+    accessToken: String,
+    maximumPages: Int?
   ) async throws -> [GmailListedMessage] {
     var listedMessages: [GmailListedMessage] = []
     var nextPageToken: String?
+    var pageCount = 0
 
     repeat {
       var components = URLComponents(
@@ -515,10 +631,79 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       )
       listedMessages.append(contentsOf: response.messages ?? [])
       nextPageToken = response.nextPageToken
+      pageCount += 1
+      try Task.checkCancellation()
+    } while nextPageToken != nil && (maximumPages.map { pageCount < $0 } ?? true)
+
+    return listedMessages
+  }
+
+  private func fetchRemovedInboxMessageIds(
+    accessToken: String,
+    sinceHistoryId: String
+  ) async throws -> Set<String> {
+    var removedMessageIds: Set<String> = []
+    var nextPageToken: String?
+
+    repeat {
+      var components = URLComponents(
+        url: gmailBaseURL.appendingPathComponent("users/me/history"),
+        resolvingAgainstBaseURL: false
+      )
+      var queryItems = [URLQueryItem(name: "startHistoryId", value: sinceHistoryId)]
+      if let nextPageToken {
+        queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
+      }
+      components?.queryItems = queryItems
+      guard let url = components?.url else {
+        throw GmailMessageMetadataSyncError.invalidGmailRequest
+      }
+
+      let response = try await sendAuthorizedRequest(
+        url: url,
+        accessToken: accessToken,
+        responseType: GmailListHistoryResponse.self
+      )
+      for record in response.history ?? [] {
+        for addition in record.messagesAdded ?? []
+        where addition.message.labelIds?.contains("INBOX") == true {
+          removedMessageIds.remove(addition.message.id)
+        }
+        for addition in record.labelsAdded ?? [] where addition.labelIds.contains("INBOX") {
+          removedMessageIds.remove(addition.message.id)
+        }
+        for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
+          removedMessageIds.insert(removal.message.id)
+        }
+        for deletion in record.messagesDeleted ?? [] {
+          removedMessageIds.insert(deletion.message.id)
+        }
+      }
+      nextPageToken = response.nextPageToken
       try Task.checkCancellation()
     } while nextPageToken != nil
 
-    return listedMessages
+    return removedMessageIds
+  }
+
+  private func fetchListedMessageMetadata(
+    accessToken: String,
+    categorizationBoundary: Date,
+    connection: GmailProviderConnectionStatus,
+    listedMessages: [GmailListedMessage]
+  ) async throws -> [GmailMessageMetadata] {
+    var messages: [GmailMessageMetadata] = []
+    for listedMessage in listedMessages {
+      messages.append(
+        try await fetchMessageMetadata(
+          accessToken: accessToken,
+          categorizationBoundary: categorizationBoundary,
+          connection: connection,
+          providerMessageId: listedMessage.id
+        )
+      )
+    }
+    return messages
   }
 
   private func fetchMessageMetadata(
@@ -722,6 +907,7 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
 
   private func refreshedTokens(
     _ tokens: GmailProviderTokens,
+    persist: Bool = true,
     productAccountId: String
   ) async throws -> GmailProviderTokens {
     guard let oauthClientId, !oauthClientId.isEmpty else {
@@ -753,7 +939,9 @@ struct GmailMessageMetadataService: GmailMessageMetadataSyncing, GmailProviderMa
       accessToken: tokenResponse.accessToken,
       refreshToken: tokens.refreshToken
     )
-    try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    if persist {
+      try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    }
     return refreshedTokens
   }
 
@@ -818,6 +1006,7 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case missingOAuthClientId
   case refreshedTokenAccountMismatch
   case refreshTokenRejected
+  case staleLocalConnection
 
   var errorDescription: String? {
     switch self {
@@ -837,6 +1026,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Local Gmail tokens belong to a different Google account."
     case .refreshTokenRejected:
       return "Gmail did not refresh local mail access for this account."
+    case .staleLocalConnection:
+      return "The Gmail connection changed while mailbox sync was running."
     }
   }
 }
@@ -893,6 +1084,32 @@ extension GmailMessageMetadata {
 private struct GmailListMessagesResponse: Decodable {
   let messages: [GmailListedMessage]?
   let nextPageToken: String?
+}
+
+private struct GmailListHistoryResponse: Decodable {
+  let history: [GmailHistoryRecord]?
+  let nextPageToken: String?
+}
+
+private struct GmailHistoryRecord: Decodable {
+  let labelsAdded: [GmailHistoryLabelChange]?
+  let labelsRemoved: [GmailHistoryLabelChange]?
+  let messagesAdded: [GmailHistoryMessageChange]?
+  let messagesDeleted: [GmailHistoryMessageChange]?
+}
+
+private struct GmailHistoryLabelChange: Decodable {
+  let labelIds: [String]
+  let message: GmailHistoryMessage
+}
+
+private struct GmailHistoryMessageChange: Decodable {
+  let message: GmailHistoryMessage
+}
+
+private struct GmailHistoryMessage: Decodable {
+  let id: String
+  let labelIds: [String]?
 }
 
 private struct GmailListedMessage: Decodable {

@@ -5,11 +5,12 @@ import {
 } from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
 
-import type { Id } from './_generated/dataModel.js';
+import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
+  requireAuthenticatedTrustedDevice,
   requireProductAccount,
   requireTrustedDevice,
 } from './productAccountAuth.js';
@@ -19,6 +20,96 @@ type TrustedDeviceRegistration = Readonly<{
   now: number;
   platform: string;
 }>;
+
+type GmailConnectionDetails = Readonly<{
+  emailAddress: string;
+  lastVerifiedAt: number;
+  provider: 'gmail';
+  providerAccountIdentifier: string;
+  trustedDeviceId: Id<'trustedDevices'>;
+  updatedAt: number;
+}>;
+
+function gmailConnectionDetails(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  args: Readonly<{
+    emailAddress: string;
+    providerAccountIdentifier: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+  now: number,
+): GmailConnectionDetails {
+  return {
+    emailAddress: args.emailAddress,
+    lastVerifiedAt: now,
+    provider: 'gmail',
+    providerAccountIdentifier: args.providerAccountIdentifier,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: now,
+  };
+}
+
+async function createGmailConnection(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  connection: GmailConnectionDetails, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Connection details are treated as immutable input.
+): Promise<{ connectedAt: number } & GmailConnectionDetails> {
+  await ctx.db.insert('mailProviderConnections', {
+    ...connection,
+    connectedAt: connection.updatedAt,
+    productAccountId,
+  });
+  return {
+    connectedAt: connection.updatedAt,
+    ...connection,
+  };
+}
+
+function gmailRoutingIdentityChanged(
+  existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: GmailConnectionDetails, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Connection details are treated as immutable input.
+): boolean {
+  return (
+    existingConnection.providerAccountIdentifier !==
+      connection.providerAccountIdentifier ||
+    existingConnection.emailAddress !== connection.emailAddress
+  );
+}
+
+async function updateGmailConnection(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  existingConnection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: GmailConnectionDetails, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Connection details are treated as immutable input.
+): Promise<{ connectedAt: number } & GmailConnectionDetails> {
+  const routingIdentityChanged = gmailRoutingIdentityChanged(
+    existingConnection,
+    connection,
+  );
+  if (routingIdentityChanged) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(existingConnection._id);
+    await ctx.db.insert('mailProviderConnections', {
+      ...connection,
+      connectedAt: existingConnection.connectedAt,
+      productAccountId: existingConnection.productAccountId,
+    });
+    return {
+      connectedAt: existingConnection.connectedAt,
+      ...connection,
+    };
+  }
+
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(existingConnection._id, {
+    ...connection,
+    updatedAt: existingConnection.updatedAt,
+  });
+  return {
+    connectedAt: existingConnection.connectedAt,
+    ...connection,
+    updatedAt: existingConnection.updatedAt,
+  };
+}
 
 async function upsertProductAccount(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
@@ -141,10 +232,8 @@ export const markProductSyncMaterialInitialized = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireProductAccount(ctx);
-    await requireTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
-      account.productAccountId,
       args.trustedDeviceId,
     );
     await ctx.db.patch(account.productAccountId, {
@@ -166,10 +255,8 @@ export const connectGmailProvider = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireProductAccount(ctx);
-    await requireTrustedDevice(
+    const account = await requireAuthenticatedTrustedDevice(
       ctx,
-      account.productAccountId,
       args.trustedDeviceId,
     );
 
@@ -184,47 +271,12 @@ export const connectGmailProvider = mutation({
       )
       .unique();
 
-    const connection = {
-      emailAddress: args.emailAddress,
-      lastVerifiedAt: now,
-      provider: 'gmail' as const,
-      providerAccountIdentifier: args.providerAccountIdentifier,
-      trustedDeviceId: args.trustedDeviceId,
-      updatedAt: now,
-    };
+    const connection = gmailConnectionDetails(args, now);
 
     if (existingConnection === null) {
-      const connectedAt = now;
-      await ctx.db.insert('mailProviderConnections', {
-        ...connection,
-        connectedAt,
-        productAccountId: account.productAccountId,
-      });
-
-      return {
-        ...connection,
-        connectedAt,
-      };
+      return createGmailConnection(ctx, account.productAccountId, connection);
     }
-
-    const providerAccountChanged =
-      existingConnection.providerAccountIdentifier !==
-      args.providerAccountIdentifier;
-    const updatedAt = providerAccountChanged
-      ? now
-      : existingConnection.updatedAt;
-
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existingConnection._id, {
-      ...connection,
-      updatedAt,
-    });
-
-    return {
-      connectedAt: existingConnection.connectedAt,
-      ...connection,
-      updatedAt,
-    };
+    return updateGmailConnection(ctx, existingConnection, connection);
   },
   returns: gmailProviderConnectionStatusValidator,
 });

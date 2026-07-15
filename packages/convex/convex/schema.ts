@@ -10,6 +10,10 @@ export default defineSchema({
   }).index('by_tokenIdentifier', ['tokenIdentifier']),
 
   trustedDevices: defineTable({
+    apnsEnvironment: v.optional(
+      v.union(v.literal('production'), v.literal('sandbox')),
+    ),
+    apnsToken: v.optional(v.string()),
     deviceIdentifier: v.string(),
     lastSeenAt: v.number(),
     platform: v.string(),
@@ -17,6 +21,7 @@ export default defineSchema({
     registeredAt: v.number(),
   })
     .index('by_productAccountId', ['productAccountId'])
+    .index('by_apnsToken', ['apnsToken'])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
@@ -50,10 +55,30 @@ export default defineSchema({
     productAccountId: v.id('productAccounts'),
     provider: v.literal('gmail'),
     providerAccountIdentifier: v.string(),
+    pushVerificationHistoryId: v.optional(v.string()),
+    pushVerificationRequestedAt: v.optional(v.number()),
+    pushVerifiedHistoryId: v.optional(v.string()),
+    pushVerifiedAt: v.optional(v.number()),
     trustedDeviceId: v.id('trustedDevices'),
     updatedAt: v.number(),
   })
+    .index('by_provider_and_emailAddress', ['provider', 'emailAddress'])
+    .index('by_provider_and_emailAddress_and_pushVerifiedAt', [
+      'provider',
+      'emailAddress',
+      'pushVerifiedAt',
+    ])
+    .index('by_provider_and_emailAddress_and_pushVerificationRequestedAt', [
+      'provider',
+      'emailAddress',
+      'pushVerificationRequestedAt',
+    ])
     .index('by_productAccountId_and_provider', ['productAccountId', 'provider'])
+    .index('by_productAccountId_and_provider_and_emailAddress', [
+      'productAccountId',
+      'provider',
+      'emailAddress',
+    ])
     .index('by_productAccountId_and_provider_and_trustedDeviceId', [
       'productAccountId',
       'provider',
@@ -63,4 +88,12 @@ export default defineSchema({
       'productAccountId',
       'providerAccountIdentifier',
     ]),
+
+  gmailPushVerificationSignals: defineTable({
+    emailAddress: v.string(),
+    historyId: v.string(),
+    receivedAt: v.number(),
+  })
+    .index('by_emailAddress', ['emailAddress'])
+    .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId']),
 });

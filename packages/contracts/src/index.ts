@@ -21,3 +21,11 @@ export {
   type EncryptedProductSyncPayloadBody,
   type EncryptedProductSyncPayloadPage,
 } from './productSync.ts';
+export {
+  devicePushRegistrationResponseFixture,
+  devicePushRegistrationResponseValidator,
+  gmailPushVerificationResponseFixture,
+  gmailPushVerificationResponseValidator,
+  type DevicePushRegistrationResponse,
+  type GmailPushVerificationResponse,
+} from './pushRelay.ts';

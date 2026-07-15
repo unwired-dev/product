@@ -99,6 +99,60 @@ final class ConvexClient {
     )
   }
 
+  func shouldStopGmailPushWatch(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    try await performQuery(
+      path: "pushRelay:shouldStopGmailWatch",
+      args: ShouldStopGmailPushWatchArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func registerDevicePush(
+    apnsEnvironment: String,
+    apnsToken: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    try await performMutation(
+      path: "pushRelay:registerDevice",
+      args: RegisterDevicePushArgs(
+        apnsEnvironment: apnsEnvironment,
+        apnsToken: apnsToken,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func unregisterDevicePush(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> DevicePushRegistrationResponse {
+    try await performMutation(
+      path: "pushRelay:unregisterDevice",
+      args: UnregisterDevicePushArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func verifyGmailPushWatch(
+    historyId: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> GmailPushVerificationResponse {
+    try await performMutation(
+      path: "pushRelay:verifyGmailWatch",
+      args: VerifyGmailPushWatchArgs(
+        historyId: historyId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -357,6 +411,25 @@ private struct ConnectGmailProviderArgs: Encodable {
 }
 
 private struct GetGmailProviderConnectionArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct RegisterDevicePushArgs: Encodable {
+  let apnsEnvironment: String
+  let apnsToken: String
+  let trustedDeviceId: String
+}
+
+private struct ShouldStopGmailPushWatchArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct UnregisterDevicePushArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct VerifyGmailPushWatchArgs: Encodable {
+  let historyId: String
   let trustedDeviceId: String
 }
 

@@ -41,6 +41,19 @@ pnpm dev
 
 Gmail provider connection also requires `GMAIL_OAUTH_CLIENT_ID` so the device can validate pasted refresh tokens with Google before storing them locally. Use an Apple app environment value for local development, and set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting for release-style builds so the non-secret client id is bundled in Info.plist. Keep any OAuth client secrets out of the app.
 
+### Gmail push relay
+
+Gmail push keeps provider OAuth tokens on trusted devices. A device calls Gmail `users.watch` with its local credential and submits the returned history ID as a routing proof. Convex enables routing only after that proof matches Minimal Push Metadata received from the authenticated Pub/Sub endpoint, then sends APNs wakeups to the verified Product Account devices. The receiving device fetches mailbox changes with its own Gmail token. The APNs payload contains only `provider: gmail`, the Gmail history ID, and an opaque connection route ID; it contains no message content, account identifiers, categories, classifications, notification rules, or provider credentials. Signing out or switching Product Accounts unregisters the device's APNs route, asks Gmail to stop the active watch only when no other registered device route depends on that mailbox, and clears cached push-account metadata.
+
+Configure the Google and Apple infrastructure before enabling the path:
+
+1. Create a Pub/Sub topic in the same Google Cloud project as the Gmail OAuth client, and grant `gmail-api-push@system.gserviceaccount.com` permission to publish to it.
+2. Set `GMAIL_PUBSUB_TOPIC` for the Apple target to the fully qualified topic name, such as `projects/example/topics/gmail-push`. Local debug builds may set it in `apps/unwired-mail/.env.local`; release builds should set the target's `GMAIL_PUBSUB_TOPIC` build setting.
+3. Create a Pub/Sub push subscription whose endpoint is `https://<deployment>.convex.site/gmail/push?token=<GMAIL_PUSH_VERIFICATION_TOKEN>`. Set the same high-entropy `GMAIL_PUSH_VERIFICATION_TOKEN` in the Convex deployment.
+4. Enable Push Notifications and the Remote notifications background mode for App ID `dev.unwired.mail` (or the selected bundle ID), and configure `APNS_KEY_ID`, `APNS_TEAM_ID`, `APNS_PRIVATE_KEY`, and `APNS_TOPIC` in the Convex deployment. `APNS_PRIVATE_KEY` is the Apple `.p8` contents; when an environment manager requires one line, encode line breaks as `\n`.
+
+The client renews a Gmail watch when less than one day remains, matching Gmail's daily-renewal recommendation. Each accepted background wake refreshes only the newest Gmail inbox page and advances the local history watermark; foreground/manual sync performs full pagination and reconciliation. Background APNs delivery is best effort, so foreground/manual inbox sync remains available when the system delays or drops a wakeup.
+
 Open and run the Apple app:
 
 ```sh

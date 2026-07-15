@@ -7,6 +7,8 @@ struct AccountView: View {
   let snapshot: ProductAccountSessionSnapshot
   private let gmailMessageBodyService: GmailMessageReading
 
+  @Environment(\.scenePhase) private var scenePhase
+
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
@@ -19,6 +21,7 @@ struct AccountView: View {
     gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
+    gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
     gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService()
@@ -35,6 +38,7 @@ struct AccountView: View {
     _gmailViewModel = State(
       initialValue: GmailProviderConnectionViewModel(
         credentialVerifier: gmailCredentialVerifier,
+        pushWatchService: gmailPushWatchService,
         service: gmailConnectionService,
         isSessionCurrent: { session.isCurrent($0) },
         session: snapshot
@@ -93,7 +97,9 @@ struct AccountView: View {
         SmokeView(service: ConvexBackendHealthService())
 
         Button("Sign Out", role: .destructive) {
-          session.signOut()
+          Task {
+            await session.signOut()
+          }
         }
         .buttonStyle(.bordered)
       }
@@ -102,10 +108,19 @@ struct AccountView: View {
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .task {
+      #if canImport(UIKit)
+        requestDevicePushRegistration()
+      #endif
       await categoryViewModel.load()
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
+      }
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task {
+        await gmailViewModel.renewPushWatch()
       }
     }
   }
@@ -366,20 +381,24 @@ private final class GmailProviderConnectionViewModel {
   var isConnecting = false
   var isLoading = false
   var providerAccountIdentifier = ""
+  var pushStatusMessage: String?
   var refreshToken = ""
 
   private let credentialVerifier: GmailProviderCredentialVerifying
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let pushWatchService: GmailPushWatchRegistering
   private let service: GmailProviderConnecting
   private let session: ProductAccountSessionSnapshot
 
   init(
     credentialVerifier: GmailProviderCredentialVerifying,
+    pushWatchService: GmailPushWatchRegistering,
     service: GmailProviderConnecting,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     session: ProductAccountSessionSnapshot
   ) {
     self.credentialVerifier = credentialVerifier
+    self.pushWatchService = pushWatchService
     self.isSessionCurrent = isSessionCurrent
     self.service = service
     self.session = session
@@ -407,6 +426,9 @@ private final class GmailProviderConnectionViewModel {
     do {
       connection = try await service.loadConnection(session: session)
       errorMessage = nil
+      if let connection {
+        await refreshPushWatch(connection: connection)
+      }
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -449,9 +471,36 @@ private final class GmailProviderConnectionViewModel {
       accessToken = ""
       refreshToken = ""
       errorMessage = nil
+      if let connection {
+        await refreshPushWatch(connection: connection)
+      }
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
+    }
+  }
+
+  func renewPushWatch() async {
+    guard let connection else { return }
+
+    await refreshPushWatch(connection: connection)
+  }
+
+  private func refreshPushWatch(connection: GmailProviderConnectionStatus) async {
+    do {
+      try Task.checkCancellation()
+      guard isSessionCurrent(session), self.connection == connection else {
+        return
+      }
+      _ = try await pushWatchService.registerOrRenew(
+        connection: connection,
+        session: session
+      )
+      pushStatusMessage = nil
+    } catch is CancellationError {
+    } catch {
+      pushStatusMessage =
+        "Gmail is connected, but push wakeups are unavailable: \(error.localizedDescription)"
     }
   }
 }
@@ -618,6 +667,7 @@ private struct CustomCategoryPanel: View {
           .foregroundStyle(.red)
           .font(.footnote)
       }
+
     }
   }
 }
@@ -693,6 +743,12 @@ private struct GmailProviderConnectionPanel: View {
       if let errorMessage = viewModel.errorMessage {
         Text(errorMessage)
           .foregroundStyle(.red)
+          .font(.footnote)
+      }
+
+      if let pushStatusMessage = viewModel.pushStatusMessage {
+        Text(pushStatusMessage)
+          .foregroundStyle(.orange)
           .font(.footnote)
       }
     }

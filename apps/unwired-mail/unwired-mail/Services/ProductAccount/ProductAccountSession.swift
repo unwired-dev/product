@@ -14,6 +14,7 @@ final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
   private let appleSignInService: AppleSignInPerforming
+  private let devicePushUnregistrationService: DevicePushUnregistering
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let gmailProviderConnectionService: GmailProviderConnecting
@@ -22,6 +23,8 @@ final class ProductAccountSession {
 
   init(
     appleSignInService: AppleSignInPerforming,
+    devicePushUnregistrationService: DevicePushUnregistering =
+      DevicePushUnregistrationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     gmailProviderConnectionService: GmailProviderConnecting =
@@ -31,6 +34,7 @@ final class ProductAccountSession {
       KeychainProductSyncKeyMaterialStore()
   ) {
     self.appleSignInService = appleSignInService
+    self.devicePushUnregistrationService = devicePushUnregistrationService
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.gmailProviderConnectionService = gmailProviderConnectionService
@@ -65,19 +69,19 @@ final class ProductAccountSession {
         productAccountId: response.productAccountId,
         trustedDeviceId: response.trustedDeviceId
       )
-      try sessionStore.save(refreshedSnapshot)
-      try clearLocalGmailConnectionIfProductAccountChanged(
-        from: snapshot,
-        to: refreshedSnapshot
+      try await replaceSessionAfterBootstrap(
+        snapshot,
+        with: refreshedSnapshot
       )
       state = .signedIn(refreshedSnapshot)
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:
+        try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
           try sessionStore.clear()
           do {
-            try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
+            try await gmailProviderConnectionService.clearLocalConnection(session: snapshot)
             state = .signedOut
           } catch {
             state = .failed(error.localizedDescription)
@@ -118,7 +122,7 @@ final class ProductAccountSession {
       let previousSnapshot = try? sessionStore.load()
       try sessionStore.save(snapshot)
       do {
-        try clearLocalGmailConnectionIfProductAccountChanged(
+        try await clearLocalGmailConnectionIfProductAccountChanged(
           from: previousSnapshot,
           to: snapshot
         )
@@ -128,26 +132,38 @@ final class ProductAccountSession {
         }
         throw error
       }
+      await unregisterDeviceIfProductAccountChanged(
+        from: previousSnapshot,
+        to: snapshot
+      )
       state = .signedIn(snapshot)
     } catch {
       state = .failed(error.localizedDescription)
     }
   }
 
-  func signOut() {
+  func signOut() async {
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+    if let snapshot {
+      try? await devicePushUnregistrationService.unregister(session: snapshot)
+      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+      guard refreshedSnapshot == snapshot else { return }
+    }
     do {
       try sessionStore.clear()
+      var gmailCleanupError: Error?
       if let snapshot {
         do {
-          try gmailProviderConnectionService.clearLocalConnection(session: snapshot)
-          state = .signedOut
+          try await gmailProviderConnectionService.clearLocalConnection(session: snapshot)
         } catch {
-          state = .failed(error.localizedDescription)
+          gmailCleanupError = error
         }
-      } else {
-        state = .signedOut
       }
+      guard
+        currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
+        (try? sessionStore.load()) == nil
+      else { return }
+      state = gmailCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
     } catch {
       state = .failed(error.localizedDescription)
     }
@@ -164,10 +180,30 @@ final class ProductAccountSession {
       || (!response.productSyncMaterialInitialized && !response.deviceRegistered)
   }
 
+  private func replaceSessionAfterBootstrap(
+    _ existingSnapshot: ProductAccountSessionSnapshot,
+    with snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    try sessionStore.save(snapshot)
+    do {
+      try await clearLocalGmailConnectionIfProductAccountChanged(
+        from: existingSnapshot,
+        to: snapshot
+      )
+    } catch {
+      try? sessionStore.save(existingSnapshot)
+      throw error
+    }
+    await unregisterDeviceIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
+  }
+
   private func clearLocalGmailConnectionIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     guard
       let existingSnapshot,
       existingSnapshot.productAccountId != snapshot.productAccountId
@@ -175,7 +211,21 @@ final class ProductAccountSession {
       return
     }
 
-    try gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+    try await gmailProviderConnectionService.clearLocalConnection(session: existingSnapshot)
+  }
+
+  private func unregisterDeviceIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try? await devicePushUnregistrationService.unregister(session: existingSnapshot)
   }
 
   private func currentSignedInSnapshot() -> ProductAccountSessionSnapshot? {
