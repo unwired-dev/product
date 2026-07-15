@@ -399,6 +399,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let message = pushMessage(categoryId: "system:flights")
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
     let notificationDelivery = RecordingNotificationDelivery()
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
@@ -432,6 +433,41 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try sessionStore.save(session)
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.syncedMessages = [pushMessage(categoryId: nil)]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertTrue(notificationDelivery.messages.isEmpty)
+  }
+
+  func testGmailWakeupDoesNotNotifyForMessagesOutsideTheHistoryDelta() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = []
     let notificationDelivery = RecordingNotificationDelivery()
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
@@ -986,6 +1022,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   var shouldPersist: Bool?
   var sinceHistoryId: String?
   var syncedMessages: [GmailMessageMetadata] = []
+  var newMessageIds: Set<String>?
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
 
@@ -1026,7 +1063,11 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
     guard canPersist else {
       throw GmailMessageMetadataSyncError.staleLocalConnection
     }
-    return GmailMetadataSyncResult(messages: syncedMessages, threads: [])
+    return GmailMetadataSyncResult(
+      messages: syncedMessages,
+      newMessageIds: newMessageIds ?? Set(syncedMessages.map(\.providerMessageId)),
+      threads: []
+    )
   }
 
   func overrideCategory(

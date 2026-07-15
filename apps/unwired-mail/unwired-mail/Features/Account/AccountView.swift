@@ -209,7 +209,12 @@ final class NotificationRuleViewModel {
       }
       syncedCategoryIds = enabledCategoryIds
       hasLoadedRules = true
-      errorMessage = nil
+      if !snapshot.rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
+        errorMessage =
+          "Rules are enabled, but visible notifications are disabled in system settings."
+      } else {
+        errorMessage = nil
+      }
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -799,6 +804,7 @@ private struct NotificationRulePanel: View {
   let categoryChoices: [MessageCategoryChoice]
   let hasLoadedCategory: Bool
   @Bindable var viewModel: NotificationRuleViewModel
+  @State private var showsRefreshConfirmation = false
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -817,16 +823,16 @@ private struct NotificationRulePanel: View {
         Spacer()
 
         Button {
-          Task {
-            await viewModel.load(
-              categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
-            )
+          if viewModel.hasUnsavedChanges {
+            showsRefreshConfirmation = true
+          } else {
+            refresh()
           }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
         .buttonStyle(.bordered)
-        .disabled(viewModel.isEditingDisabled || viewModel.hasUnsavedChanges)
+        .disabled(viewModel.isEditingDisabled)
       }
 
       ForEach(categoryChoices) { category in
@@ -860,6 +866,23 @@ private struct NotificationRulePanel: View {
     }
     .onChange(of: Set(categoryChoices.map(\.id)), initial: true) { _, categoryIds in
       viewModel.prune(categoryIds: categoryIds)
+    }
+    .confirmationDialog(
+      "Discard unsaved notification rule changes?",
+      isPresented: $showsRefreshConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes and Refresh", role: .destructive) {
+        refresh()
+      }
+    }
+  }
+
+  private func refresh() {
+    Task {
+      await viewModel.load(
+        categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+      )
     }
   }
 }

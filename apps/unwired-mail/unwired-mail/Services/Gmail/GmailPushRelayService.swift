@@ -625,6 +625,7 @@ struct GmailPushWakeupHandler {
     try await deliverCategoryAwareNotifications(
       for: syncResult.messages,
       excluding: existingMessageIds,
+      including: syncResult.newMessageIds,
       rules: notificationRules,
       routeIsCurrent: routeIsCurrent
     )
@@ -649,13 +650,15 @@ struct GmailPushWakeupHandler {
   private func deliverCategoryAwareNotifications(
     for messages: [GmailMessageMetadata],
     excluding existingMessageIds: Set<String>?,
+    including newMessageIds: Set<String>?,
     rules: NotificationRules?,
     routeIsCurrent: () -> Bool
   ) async throws {
-    guard let existingMessageIds, let rules else { return }
+    guard let existingMessageIds, let newMessageIds, let rules else { return }
     for message in messages
     where !message.isHistorical
       && !existingMessageIds.contains(message.stableProviderMessageId)
+      && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
       guard routeIsCurrent(), hasProcessingTimeRemaining() else { return }

@@ -33,7 +33,18 @@ struct GmailInboxThread: Equatable, Identifiable {
 
 struct GmailMetadataSyncResult: Equatable {
   let messages: [GmailMessageMetadata]
+  let newMessageIds: Set<String>?
   let threads: [GmailInboxThread]
+
+  init(
+    messages: [GmailMessageMetadata],
+    newMessageIds: Set<String>? = nil,
+    threads: [GmailInboxThread]
+  ) {
+    self.messages = messages
+    self.newMessageIds = newMessageIds
+    self.threads = threads
+  }
 }
 
 protocol GmailMessageMetadataPersisting {
@@ -354,14 +365,14 @@ struct GmailMessageMetadataService:
       connection: connection,
       hasLocalMetadata: !existingMessages.isEmpty
     )
-    let removedInboxMessageIds: Set<String>
+    let inboxHistoryChanges: GmailInboxHistoryChanges?
     if let sinceHistoryId {
-      removedInboxMessageIds = try await fetchRemovedInboxMessageIds(
+      inboxHistoryChanges = try await fetchInboxHistoryChanges(
         accessToken: tokens.accessToken,
         sinceHistoryId: sinceHistoryId
       )
     } else {
-      removedInboxMessageIds = []
+      inboxHistoryChanges = nil
     }
     let listedMessages = try await listInboxMessages(
       accessToken: tokens.accessToken,
@@ -389,7 +400,7 @@ struct GmailMessageMetadataService:
       let fetchedStableIds = Set(fetchedMessages.map(\.stableProviderMessageId))
       let unlistedMessages = existingMessages.filter {
         !fetchedStableIds.contains($0.stableProviderMessageId)
-          && !removedInboxMessageIds.contains($0.providerMessageId)
+          && !(inboxHistoryChanges?.removedMessageIds.contains($0.providerMessageId) ?? false)
       }
       fetchedMessages = sortedMessages(
         fetchedMessages + unlistedMessages,
@@ -412,6 +423,7 @@ struct GmailMessageMetadataService:
 
     return GmailMetadataSyncResult(
       messages: fetchedMessages,
+      newMessageIds: inboxHistoryChanges?.addedMessageIds,
       threads: GmailInboxThread.group(fetchedMessages)
     )
   }
@@ -638,10 +650,11 @@ struct GmailMessageMetadataService:
     return listedMessages
   }
 
-  private func fetchRemovedInboxMessageIds(
+  private func fetchInboxHistoryChanges(
     accessToken: String,
     sinceHistoryId: String
-  ) async throws -> Set<String> {
+  ) async throws -> GmailInboxHistoryChanges {
+    var addedMessageIds: Set<String> = []
     var removedMessageIds: Set<String> = []
     var nextPageToken: String?
 
@@ -667,9 +680,11 @@ struct GmailMessageMetadataService:
       for record in response.history ?? [] {
         for addition in record.messagesAdded ?? []
         where addition.message.labelIds?.contains("INBOX") == true {
+          addedMessageIds.insert(addition.message.id)
           removedMessageIds.remove(addition.message.id)
         }
         for addition in record.labelsAdded ?? [] where addition.labelIds.contains("INBOX") {
+          addedMessageIds.insert(addition.message.id)
           removedMessageIds.remove(addition.message.id)
         }
         for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
@@ -683,7 +698,10 @@ struct GmailMessageMetadataService:
       try Task.checkCancellation()
     } while nextPageToken != nil
 
-    return removedMessageIds
+    return GmailInboxHistoryChanges(
+      addedMessageIds: addedMessageIds,
+      removedMessageIds: removedMessageIds
+    )
   }
 
   private func fetchListedMessageMetadata(
@@ -1089,6 +1107,11 @@ private struct GmailListMessagesResponse: Decodable {
 private struct GmailListHistoryResponse: Decodable {
   let history: [GmailHistoryRecord]?
   let nextPageToken: String?
+}
+
+private struct GmailInboxHistoryChanges {
+  let addedMessageIds: Set<String>
+  let removedMessageIds: Set<String>
 }
 
 private struct GmailHistoryRecord: Decodable {

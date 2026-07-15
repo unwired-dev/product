@@ -211,6 +211,33 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.hasUnsavedChanges)
   }
 
+  func testViewModelRequestsNotificationAuthorizationForLoadedRules() async throws {
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    let authorization = StubNotificationAuthorization(granted: false)
+    let viewModel = NotificationRuleViewModel(
+      authorization: authorization,
+      service: service,
+      session: session
+    )
+
+    await viewModel.load(categoryIds: ["system:flights"])
+
+    XCTAssertEqual(authorization.requestCount, 1)
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "Rules are enabled, but visible notifications are disabled in system settings."
+    )
+  }
+
   func testSaveRejectsStaleExpectedUpdatedAt() async throws {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
