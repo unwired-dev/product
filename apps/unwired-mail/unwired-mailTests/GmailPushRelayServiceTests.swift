@@ -555,6 +555,43 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testGmailWakeupDoesNotPersistAfterSessionChangesDuringNotificationDelivery() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [pushMessage(categoryId: "system:flights")]
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let notificationDelivery = RecordingNotificationDelivery(
+      onDeliver: { try? sessionStore.clear() }
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(notificationDelivery.messages.count, 1)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testConcurrentGmailWakeupPreservesTheNewestRouteWatermark() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -916,9 +953,15 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
 
 private final class RecordingNotificationDelivery: CategoryAwareNotificationDelivering {
   private(set) var messages: [GmailMessageMetadata] = []
+  private let onDeliver: () -> Void
+
+  init(onDeliver: @escaping () -> Void = {}) {
+    self.onDeliver = onDeliver
+  }
 
   func deliver(message: GmailMessageMetadata) async throws {
     messages.append(message)
+    onDeliver()
   }
 }
 

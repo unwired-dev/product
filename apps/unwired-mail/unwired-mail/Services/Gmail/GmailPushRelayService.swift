@@ -622,12 +622,13 @@ struct GmailPushWakeupHandler {
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
     }
-    guard let currentWatch = currentWatchForRoute() else { return false }
+    guard currentWatchForRoute() != nil else { return false }
     try await deliverCategoryAwareNotifications(
       for: syncResult.messages,
       excluding: existingMessageIds,
       rules: notificationRules
     )
+    guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
       gmailHistoryIdIsNewer(historyId, than: currentWatermark)

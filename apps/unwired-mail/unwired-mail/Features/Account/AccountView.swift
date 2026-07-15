@@ -179,6 +179,10 @@ final class NotificationRuleViewModel {
     enabledCategoryIds.contains(categoryId)
   }
 
+  func prune(categoryIds: Set<String>) {
+    enabledCategoryIds.formIntersection(categoryIds)
+  }
+
   func load() async {
     isSyncing = true
     defer { isSyncing = false }
@@ -829,6 +833,9 @@ private struct NotificationRulePanel: View {
           .foregroundStyle(.red)
           .font(.footnote)
       }
+    }
+    .onChange(of: Set(categoryChoices.map(\.id)), initial: true) { _, categoryIds in
+      viewModel.prune(categoryIds: categoryIds)
     }
   }
 }

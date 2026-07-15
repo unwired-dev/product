@@ -112,6 +112,25 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       NotificationRules(categoryIds: ["system:flights"])
     )
   }
+
+  func testViewModelPrunesRulesForUnavailableCategories() async throws {
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: RecordingRuleSyncTransport()
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(granted: true),
+      service: service,
+      session: session
+    )
+    await viewModel.load()
+    viewModel.setEnabled(true, categoryId: "custom-category-primary")
+    viewModel.setEnabled(true, categoryId: "system:flights")
+
+    viewModel.prune(categoryIds: ["system:flights"])
+
+    XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
+  }
 }
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
