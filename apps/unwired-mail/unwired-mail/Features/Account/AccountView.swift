@@ -94,6 +94,7 @@ struct AccountView: View {
           categoryChoices: MessageCategoryChoice.available(
             customCategory: categoryViewModel.category
           ),
+          hasLoadedCategory: categoryViewModel.hasLoadedCategory,
           viewModel: notificationRuleViewModel
         )
 
@@ -789,6 +790,7 @@ private struct CustomCategoryPanel: View {
 
 private struct NotificationRulePanel: View {
   let categoryChoices: [MessageCategoryChoice]
+  let hasLoadedCategory: Bool
   @Bindable var viewModel: NotificationRuleViewModel
 
   var body: some View {
@@ -809,7 +811,9 @@ private struct NotificationRulePanel: View {
 
         Button {
           Task {
-            await viewModel.load(categoryIds: Set(categoryChoices.map(\.id)))
+            await viewModel.load(
+              categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+            )
           }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")

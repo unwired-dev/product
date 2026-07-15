@@ -85,6 +85,38 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     }
   }
 
+  func testSaveWithoutLocalKeyMaterialRejectsWhenAnotherPayloadExists() async throws {
+    let transport = RecordingRuleSyncTransport()
+    _ = try await transport.putEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: "custom-category-primary",
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: ProductSyncEncryptedPayload.algorithmName,
+        ciphertextBase64: "ciphertext",
+        keyVersion: 1,
+        nonceBase64: "nonce",
+        schemaVersion: 1,
+        tagBase64: "tag"
+      ),
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:flights"]),
+        expectedUpdatedAt: nil,
+        session: session
+      )
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as NotificationRuleSyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+  }
+
   func testViewModelSavesRulesBeforeReportingDeniedNotificationAuthorization() async throws {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
