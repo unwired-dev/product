@@ -517,17 +517,32 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 @MainActor
 struct GmailPushWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
+  private let hasProcessingTimeRemaining: @MainActor () -> Bool
+  private let notificationDelivery: CategoryAwareNotificationDelivering
+  private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
   private let syncService: GmailMessageMetadataSyncing
   private let watchStore: GmailPushWatchPersisting
 
   init(
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
+    hasProcessingTimeRemaining: @escaping @MainActor () -> Bool = {
+      #if canImport(UIKit)
+        UIApplication.shared.backgroundTimeRemaining > 1
+      #else
+        true
+      #endif
+    },
+    notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
+    notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.connectionStore = connectionStore
+    self.hasProcessingTimeRemaining = hasProcessingTimeRemaining
+    self.notificationDelivery = notificationDelivery
+    self.notificationRuleSync = notificationRuleSync
     self.sessionStore = sessionStore
     self.syncService = syncService
     self.watchStore = watchStore
@@ -584,8 +599,21 @@ struct GmailPushWakeupHandler {
       currentWatchForRoute() != nil
     }
 
+    let existingMessageIds = try await failClosed {
+      Set(
+        try await syncService.loadInbox(
+          connection: connection,
+          session: productSession
+        ).messages.map(\.stableProviderMessageId)
+      )
+    }
+    let notificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession)
+    }
+
+    let syncResult: GmailMetadataSyncResult
     do {
-      _ = try await syncService.syncRecentInbox(
+      syncResult = try await syncService.syncRecentInbox(
         connection: connection,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
@@ -595,6 +623,11 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard let currentWatch = currentWatchForRoute() else { return false }
+    try await deliverCategoryAwareNotifications(
+      for: syncResult.messages,
+      excluding: existingMessageIds,
+      rules: notificationRules
+    )
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
       gmailHistoryIdIsNewer(historyId, than: currentWatermark)
@@ -610,6 +643,39 @@ struct GmailPushWakeupHandler {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     return true
+  }
+
+  private func deliverCategoryAwareNotifications(
+    for messages: [GmailMessageMetadata],
+    excluding existingMessageIds: Set<String>?,
+    rules: NotificationRules?
+  ) async throws {
+    guard let existingMessageIds, let rules, hasProcessingTimeRemaining() else { return }
+    for message in messages
+    where !message.isHistorical
+      && !existingMessageIds.contains(message.stableProviderMessageId)
+      && message.categoryId.map(rules.allows(categoryId:)) == true
+    {
+      do {
+        try await notificationDelivery.deliver(message: message)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        // Visible notification delivery fails closed without adding a generic fallback.
+      }
+    }
+  }
+
+  private func failClosed<Value>(
+    _ operation: () async throws -> Value
+  ) async throws -> Value? {
+    do {
+      return try await operation()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return nil
+    }
   }
 }
 

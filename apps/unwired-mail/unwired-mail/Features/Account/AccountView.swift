@@ -13,6 +13,7 @@ struct AccountView: View {
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var mailActionViewModel: GmailMailActionViewModel
+  @State private var notificationRuleViewModel: NotificationRuleViewModel
 
   init(
     session: ProductAccountSession,
@@ -24,7 +25,9 @@ struct AccountView: View {
     gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
-    gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService()
+    gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
+    notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
+    notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService()
   ) {
     self.session = session
     self.snapshot = snapshot
@@ -56,6 +59,13 @@ struct AccountView: View {
         session: snapshot
       )
     )
+    _notificationRuleViewModel = State(
+      initialValue: NotificationRuleViewModel(
+        authorization: notificationAuthorization,
+        service: notificationRuleSync,
+        session: snapshot
+      )
+    )
   }
 
   var body: some View {
@@ -79,6 +89,13 @@ struct AccountView: View {
         }
 
         CustomCategoryPanel(viewModel: categoryViewModel)
+
+        NotificationRulePanel(
+          categoryChoices: MessageCategoryChoice.available(
+            customCategory: categoryViewModel.category
+          ),
+          viewModel: notificationRuleViewModel
+        )
 
         GmailProviderConnectionPanel(viewModel: gmailViewModel)
 
@@ -112,6 +129,7 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       await categoryViewModel.load()
+      await notificationRuleViewModel.load()
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
@@ -122,6 +140,86 @@ struct AccountView: View {
       Task {
         await gmailViewModel.renewPushWatch()
       }
+    }
+  }
+}
+
+@MainActor
+@Observable
+final class NotificationRuleViewModel {
+  var enabledCategoryIds: Set<String> = []
+  var errorMessage: String?
+  var isSaving = false
+  var isSyncing = false
+
+  private let authorization: NotificationAuthorizationRequesting
+  private var hasLoadedRules = false
+  private let service: NotificationRuleSyncing
+  private let session: ProductAccountSessionSnapshot
+
+  init(
+    authorization: NotificationAuthorizationRequesting,
+    service: NotificationRuleSyncing,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.authorization = authorization
+    self.service = service
+    self.session = session
+  }
+
+  var canSave: Bool {
+    hasLoadedRules && !isSaving && !isSyncing
+  }
+
+  var isEditingDisabled: Bool {
+    isSaving || isSyncing
+  }
+
+  func isEnabled(categoryId: String) -> Bool {
+    enabledCategoryIds.contains(categoryId)
+  }
+
+  func load() async {
+    isSyncing = true
+    defer { isSyncing = false }
+
+    do {
+      let rules = try await service.loadRules(session: session)
+      enabledCategoryIds = Set(rules.categoryIds)
+      hasLoadedRules = true
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func save() async {
+    guard canSave else { return }
+    isSaving = true
+    defer { isSaving = false }
+
+    do {
+      let rules = try await service.saveRules(
+        NotificationRules(categoryIds: Array(enabledCategoryIds)),
+        session: session
+      )
+      enabledCategoryIds = Set(rules.categoryIds)
+      if !rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
+        errorMessage =
+          "Rules were saved, but visible notifications are disabled in system settings."
+      } else {
+        errorMessage = nil
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setEnabled(_ isEnabled: Bool, categoryId: String) {
+    if isEnabled {
+      enabledCategoryIds.insert(categoryId)
+    } else {
+      enabledCategoryIds.remove(categoryId)
     }
   }
 }
@@ -668,6 +766,69 @@ private struct CustomCategoryPanel: View {
           .font(.footnote)
       }
 
+    }
+  }
+}
+
+private struct NotificationRulePanel: View {
+  let categoryChoices: [MessageCategoryChoice]
+  @Bindable var viewModel: NotificationRuleViewModel
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Notification Rules")
+            .font(.headline)
+          Text(
+            "Choose which locally categorized messages can notify you. "
+              + "Rules sync encrypted and are disabled by default."
+          )
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+
+        Button {
+          Task {
+            await viewModel.load()
+          }
+        } label: {
+          Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.isEditingDisabled)
+      }
+
+      ForEach(categoryChoices) { category in
+        Toggle(
+          category.name,
+          isOn: Binding(
+            get: { viewModel.isEnabled(categoryId: category.id) },
+            set: { viewModel.setEnabled($0, categoryId: category.id) }
+          )
+        )
+        .disabled(viewModel.isEditingDisabled)
+      }
+
+      Button("Save Notification Rules") {
+        Task {
+          await viewModel.save()
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!viewModel.canSave)
+
+      if viewModel.isSyncing || viewModel.isSaving {
+        ProgressView(viewModel.isSaving ? "Saving rules..." : "Syncing rules...")
+      }
+
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
     }
   }
 }

@@ -1,0 +1,134 @@
+import Foundation
+
+/// User-owned category preferences that control visible new-mail notifications.
+///
+/// The category identifiers are encrypted on the trusted device before Product Sync sees them.
+/// An empty rule set is the default and never enables a generic notification fallback.
+///
+/// Example:
+/// ```swift
+/// let rules = NotificationRules(categoryIds: ["system:flights"])
+/// if rules.allows(categoryId: "system:flights") {
+///   // This category may produce a visible notification after local categorization.
+/// }
+/// ```
+struct NotificationRules: Codable, Equatable {
+  static let primaryIdentifier = "notification-rules-primary"
+
+  let categoryIds: [String]
+  let schemaVersion: Int
+
+  init(categoryIds: [String]) {
+    self.categoryIds = Array(Set(categoryIds.filter { !$0.isEmpty })).sorted()
+    schemaVersion = 1
+  }
+
+  func allows(categoryId: String) -> Bool {
+    categoryIds.contains(categoryId)
+  }
+}
+
+/// Synchronizes Notification Rules as opaque encrypted user data.
+///
+/// Example:
+/// ```swift
+/// let rules = try await NotificationRuleSyncService().loadRules(session: session)
+/// if rules.allows(categoryId: "system:flights") {
+///   // A trusted device may show a category-aware notification.
+/// }
+/// ```
+protocol NotificationRuleSyncing {
+  func loadRules(session: ProductAccountSessionSnapshot) async throws -> NotificationRules
+
+  @discardableResult
+  func saveRules(
+    _ rules: NotificationRules,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRules
+}
+
+enum NotificationRuleSyncError: LocalizedError, Equatable {
+  case missingProductSyncKeyMaterial
+
+  var errorDescription: String? {
+    switch self {
+    case .missingProductSyncKeyMaterial:
+      return "Restore Product Sync key material before changing Notification Rules."
+    }
+  }
+}
+
+final class NotificationRuleSyncService: NotificationRuleSyncing {
+  private let decoder = JSONDecoder()
+  private let encoder = JSONEncoder()
+  private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let transport: ProductSyncPayloadTransport
+
+  init(
+    keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    transport: ProductSyncPayloadTransport = ConvexClient()
+  ) {
+    self.keyMaterialStore = keyMaterialStore
+    self.transport = transport
+  }
+
+  func loadRules(session: ProductAccountSessionSnapshot) async throws -> NotificationRules {
+    guard let syncedPayload = try await loadRemotePayload(session: session) else {
+      return NotificationRules(categoryIds: [])
+    }
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw NotificationRuleSyncError.missingProductSyncKeyMaterial
+    }
+    let plaintext = try material.decryptPayload(
+      syncedPayload.encryptedPayload,
+      associatedData: associatedData
+    )
+    return try decoder.decode(NotificationRules.self, from: plaintext)
+  }
+
+  @discardableResult
+  func saveRules(
+    _ rules: NotificationRules,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRules {
+    let material = try await keyMaterialForWrite(session: session)
+    let plaintext = try encoder.encode(rules)
+    let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
+    _ = try await transport.putEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: NotificationRules.primaryIdentifier,
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    return rules
+  }
+
+  private var associatedData: Data {
+    Data(NotificationRules.primaryIdentifier.utf8)
+  }
+
+  private func keyMaterialForWrite(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProductSyncKeyMaterial {
+    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
+      return material
+    }
+    if try await loadRemotePayload(session: session) != nil {
+      throw NotificationRuleSyncError.missingProductSyncKeyMaterial
+    }
+    return try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+  }
+
+  private func loadRemotePayload(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> EncryptedProductSyncPayload? {
+    try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: NotificationRules.primaryIdentifier
+    )
+  }
+}
