@@ -592,6 +592,56 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testGmailWakeupStopsNotificationDeliveryAfterSessionChanges() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let firstMessage = pushMessage(categoryId: "system:flights")
+    let secondMessage = GmailMessageMetadata(
+      categoryId: "system:flights",
+      from: firstMessage.from,
+      isHistorical: false,
+      providerAccountIdentifier: firstMessage.providerAccountIdentifier,
+      providerInternalDateMilliseconds: firstMessage.providerInternalDateMilliseconds,
+      providerMessageId: "message-002",
+      providerThreadId: "thread-002",
+      replyTo: nil,
+      snippet: firstMessage.snippet,
+      stableProviderMessageId: "gmail:gmail-user-001:message-002",
+      subject: firstMessage.subject,
+      rfcMessageId: "<message-002@example.com>"
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [firstMessage, secondMessage]
+    let notificationDelivery = RecordingNotificationDelivery(
+      onDeliver: { try? sessionStore.clear() }
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(notificationDelivery.messages, [firstMessage])
+  }
+
   func testConcurrentGmailWakeupPreservesTheNewestRouteWatermark() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)

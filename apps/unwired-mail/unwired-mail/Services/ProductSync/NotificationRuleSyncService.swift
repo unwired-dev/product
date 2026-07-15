@@ -56,10 +56,13 @@ protocol NotificationRuleSyncing {
 }
 
 enum NotificationRuleSyncError: LocalizedError, Equatable {
+  case concurrentModification
   case missingProductSyncKeyMaterial
 
   var errorDescription: String? {
     switch self {
+    case .concurrentModification:
+      return "Notification Rules changed on another device. Refresh before saving again."
     case .missingProductSyncKeyMaterial:
       return "Restore Product Sync key material before changing Notification Rules."
     }
@@ -119,6 +122,9 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       trustedDeviceId: session.trustedDeviceId,
       expectedUpdatedAt: expectedUpdatedAt
     )
+    guard writtenPayload.encryptedPayload == encryptedPayload else {
+      throw NotificationRuleSyncError.concurrentModification
+    }
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 
