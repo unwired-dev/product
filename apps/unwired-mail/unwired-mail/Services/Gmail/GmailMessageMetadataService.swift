@@ -377,6 +377,10 @@ struct GmailMessageMetadataService:
       fetchedMessages,
       preservingExistingStateFrom: existingMessagesByStableId
     )
+    try Task.checkCancellation()
+    guard shouldPersist?() ?? true else {
+      throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
     fetchedMessages = try await categorizer.categorize(
       messages: fetchedMessages,
       session: session

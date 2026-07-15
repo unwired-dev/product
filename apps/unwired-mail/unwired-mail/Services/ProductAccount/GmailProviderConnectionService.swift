@@ -217,7 +217,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       previousTokens: previousTokens
     )
     if shouldClearLocalCache {
-      try clearLocalCache(session: session)
       if let previousConnection {
         if shouldStopPreviousWatch {
           try? await pushWatchStopper.stop(
@@ -231,6 +230,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
           providerAccountIdentifier: previousConnection.providerAccountIdentifier
         )
       }
+      try clearLocalCache(session: session)
     }
     return status
   }

@@ -553,7 +553,9 @@ struct GmailPushWakeupHandler {
     let currentWatchForRoute: () -> GmailPushWatchStatus? = {
       guard
         let currentSession = try? sessionStore.load(),
-        currentSession == productSession,
+        currentSession.appleUserIdentifier == productSession.appleUserIdentifier,
+        currentSession.productAccountId == productSession.productAccountId,
+        currentSession.trustedDeviceId == productSession.trustedDeviceId,
         let currentConnection = try? connectionStore.load(
           productAccountId: productSession.productAccountId
         ),

@@ -488,6 +488,10 @@ private final class GmailProviderConnectionViewModel {
 
   private func refreshPushWatch(connection: GmailProviderConnectionStatus) async {
     do {
+      try Task.checkCancellation()
+      guard isSessionCurrent(session), self.connection == connection else {
+        return
+      }
       _ = try await pushWatchService.registerOrRenew(
         connection: connection,
         session: session
