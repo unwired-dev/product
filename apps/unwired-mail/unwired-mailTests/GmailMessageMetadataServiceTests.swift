@@ -514,6 +514,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
   }
 
+  func testSyncRecentInboxDoesNotTreatRestoredInboxMessageAsNew() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {
+          "history": [{
+            "labelsAdded": [{
+              "message": {"id": "message-002"},
+              "labelIds": ["INBOX"]
+            }]
+          }]
+        }
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, [])
+  }
+
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
     let fixture = try makeSyncFixture()
     let originalTokens = try XCTUnwrap(
