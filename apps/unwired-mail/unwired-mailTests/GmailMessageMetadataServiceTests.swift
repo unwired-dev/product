@@ -501,6 +501,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session,
       sinceHistoryId: "123",
+      throughHistoryId: nil,
       shouldPersist: { true }
     )
 
@@ -534,6 +535,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session,
       sinceHistoryId: "123",
+      throughHistoryId: nil,
       shouldPersist: { true }
     )
 
@@ -559,10 +561,59 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session,
       sinceHistoryId: "123",
+      throughHistoryId: nil,
       shouldPersist: { true }
     )
 
     XCTAssertEqual(result.newMessageIds, ["message-002"])
+  }
+
+  func testSyncRecentInboxStopsHistoryCandidatesAtWakeHistoryId() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {"history":[
+          {"id":"124","messagesAdded":[{"message":{"id":"message-002"}}]},
+          {"id":"125","messagesAdded":[{"message":{"id":"message-001"}}]}
+        ]}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+  }
+
+  func testSyncRecentInboxPagesUntilHistoryCandidatesAreListed() async throws {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      historyResponseData: Data(
+        """
+        {"history":[{"id":"124","messagesAdded":[{"message":{"id":"message-001"}}]}]}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
+      ["labelIds=INBOX&maxResults=25", "labelIds=INBOX&maxResults=25&pageToken=next-page-token"]
+    )
   }
 
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
@@ -576,6 +627,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session,
         sinceHistoryId: nil,
+        throughHistoryId: nil,
         shouldPersist: { false }
       )
       XCTFail("Expected stale local connection")
@@ -1074,6 +1126,7 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot,
     sinceHistoryId _: String?,
+    throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     result(for: connection)

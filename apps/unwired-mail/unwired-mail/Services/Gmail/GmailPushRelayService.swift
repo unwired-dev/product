@@ -26,7 +26,7 @@ struct GmailPushWatchStatus: Codable, Equatable {
   }
 }
 
-private func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
+func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
   guard
     candidate.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
     current.unicodeScalars.allSatisfy({ (48...57).contains($0.value) })
@@ -605,6 +605,7 @@ struct GmailPushWakeupHandler {
         connection: connection,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
+        throughHistoryId: historyId,
         shouldPersist: routeIsCurrent
       )
     } catch GmailMessageMetadataSyncError.staleLocalConnection {

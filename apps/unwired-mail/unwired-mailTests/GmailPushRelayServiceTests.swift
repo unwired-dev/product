@@ -1087,6 +1087,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot,
     sinceHistoryId: String?,
+    throughHistoryId _: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     syncedConnection = connection
