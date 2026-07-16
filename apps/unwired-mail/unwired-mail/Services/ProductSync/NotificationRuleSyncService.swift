@@ -138,16 +138,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
       return material
     }
-    if !(try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: nil
-    )).isEmpty {
-      throw NotificationRuleSyncError.missingProductSyncKeyMaterial
-    }
-    return try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: true
-    )
+    throw NotificationRuleSyncError.missingProductSyncKeyMaterial
   }
 
   private func loadRemotePayload(

@@ -13,9 +13,11 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   )
 
   func testSaveEncryptsNotificationRulesBeforeWritingToProductSync() async throws {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: store,
       transport: transport
     )
 
@@ -38,6 +40,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testLoadDecryptsNotificationRulesFromProductSync() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(keyMaterialStore: store, transport: transport)
     let rules = NotificationRules(categoryIds: ["system:promotions"])
@@ -117,10 +120,30 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     }
   }
 
-  func testViewModelSavesRulesBeforeReportingDeniedNotificationAuthorization() async throws {
-    let transport = RecordingRuleSyncTransport()
+  func testSaveWithoutLocalKeyMaterialRejectsWhenNoPayloadExists() async throws {
     let service = NotificationRuleSyncService(
       keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: RecordingRuleSyncTransport()
+    )
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:flights"]),
+        expectedUpdatedAt: nil,
+        session: session
+      )
+      XCTFail("Expected missing Product Sync key material")
+    } catch let error as NotificationRuleSyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+  }
+
+  func testViewModelSavesRulesBeforeReportingDeniedNotificationAuthorization() async throws {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: store,
       transport: transport
     )
     let authorization = StubNotificationAuthorization(granted: false)
