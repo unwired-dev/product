@@ -516,7 +516,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
-    let fixture = try makeSyncFixture(historyStatusCode: 404)
+    let fixture = try makeSyncFixture(usesPagination: true, historyStatusCode: 404)
+    fixture.store.messages = [
+      metadata(
+        messageId: "message-stale", threadId: "thread-stale", internalDateMilliseconds: 1)
+    ]
 
     let result = try await fixture.service.syncRecentInbox(
       connection: connection,
@@ -531,9 +535,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       fixture.requestRecorder.paths,
       [
         "/token", "/tokeninfo", "/gmail/v1/users/me/history", "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages", "/gmail/v1/users/me/messages/message-003",
         "/gmail/v1/users/me/messages/message-002", "/gmail/v1/users/me/messages/message-001",
       ]
     )
+    XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
+    XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
   }
 
   func testSyncRecentInboxDoesNotTreatRestoredInboxMessageAsNew() async throws {
