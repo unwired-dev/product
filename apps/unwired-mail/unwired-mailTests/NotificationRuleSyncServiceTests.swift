@@ -186,10 +186,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     await viewModel.load(categoryIds: ["system:flights"])
 
     XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
-    XCTAssertTrue(viewModel.hasUnsavedChanges)
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
     XCTAssertEqual(authorization.requestCount, 1)
-
-    await viewModel.save()
 
     let savedRules = try await service.loadRules(session: session)
     XCTAssertEqual(savedRules.rules, NotificationRules(categoryIds: ["system:flights"]))

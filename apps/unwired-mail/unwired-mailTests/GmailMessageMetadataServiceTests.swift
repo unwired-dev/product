@@ -676,6 +676,31 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSyncRecentInboxIncludesCachedHistoryAdditionsInNotificationEligibility() async throws {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      historyResponseData: Data(
+        """
+        {"history":[{"id":"124","messagesAdded":[{"message":{"id":"message-001"}}]}]}
+        """.utf8
+      )
+    )
+    fixture.store.messages = [
+      metadata(messageId: "message-001", threadId: "thread-001", internalDateMilliseconds: 1)
+    ]
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertFalse(result.hasUnlistedNewMessages)
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
+  }
+
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
     let fixture = try makeSyncFixture()
     let originalTokens = try XCTUnwrap(

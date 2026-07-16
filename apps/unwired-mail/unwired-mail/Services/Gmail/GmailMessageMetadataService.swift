@@ -432,14 +432,14 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    let listedMessageIds = Set(listedMessages.map(\.id))
+    let syncedMessageIds = Set(fetchedMessages.map(\.providerMessageId))
     let addedMessageIds = inboxHistoryChanges?.addedMessageIds
     return GmailMetadataSyncResult(
       hasUnlistedNewMessages: addedMessageIds.map {
-        !$0.isSubset(of: listedMessageIds)
+        !$0.isSubset(of: syncedMessageIds)
       } ?? false,
       messages: fetchedMessages,
-      newMessageIds: addedMessageIds?.intersection(listedMessageIds),
+      newMessageIds: addedMessageIds?.intersection(syncedMessageIds),
       threads: GmailInboxThread.group(fetchedMessages)
     )
   }

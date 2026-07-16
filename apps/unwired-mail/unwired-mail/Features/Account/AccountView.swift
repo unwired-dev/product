@@ -201,13 +201,22 @@ final class NotificationRuleViewModel {
     defer { isSyncing = false }
 
     do {
-      let snapshot = try await service.loadRules(session: session)
+      var snapshot = try await service.loadRules(session: session)
       enabledCategoryIds = Set(snapshot.rules.categoryIds)
       rulesUpdatedAt = snapshot.updatedAt
       if let categoryIds {
         prune(categoryIds: categoryIds)
+        if enabledCategoryIds != Set(snapshot.rules.categoryIds) {
+          snapshot = try await service.saveRules(
+            NotificationRules(categoryIds: Array(enabledCategoryIds)),
+            expectedUpdatedAt: rulesUpdatedAt,
+            session: session
+          )
+          enabledCategoryIds = Set(snapshot.rules.categoryIds)
+          rulesUpdatedAt = snapshot.updatedAt
+        }
       }
-      syncedCategoryIds = Set(snapshot.rules.categoryIds)
+      syncedCategoryIds = enabledCategoryIds
       hasLoadedRules = true
       if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
         errorMessage =
