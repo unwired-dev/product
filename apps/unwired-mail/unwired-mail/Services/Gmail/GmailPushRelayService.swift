@@ -79,17 +79,38 @@ protocol GmailPushConnectionPersisting {
   ) throws
 }
 
+@MainActor
 protocol GmailPushNotificationReceiptPersisting {
   func claim(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> Bool
+  func complete(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
   func release(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
+}
+
+@MainActor
+private final class GmailPushInFlightReceiptStore {
+  static let shared = GmailPushInFlightReceiptStore()
+
+  private var receiptKeys: Set<String> = []
+
+  func claim(_ key: String) -> Bool {
+    receiptKeys.insert(key).inserted
+  }
+
+  func release(_ key: String) {
+    receiptKeys.remove(key)
+  }
 }
 
 protocol GmailPushWatchRegistering {
@@ -183,10 +204,25 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> Bool {
+    let receiptKey = receiptKey(message, productAccountId, providerAccountIdentifier)
+    guard
+      !receipts(productAccountId, providerAccountIdentifier)
+        .contains(message.stableProviderMessageId)
+    else { return false }
+    return GmailPushInFlightReceiptStore.shared.claim(receiptKey)
+  }
+
+  func complete(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
     var value = receipts(productAccountId, providerAccountIdentifier)
-    guard value.insert(message.stableProviderMessageId).inserted else { return false }
+    value.insert(message.stableProviderMessageId)
     defaults.set(Array(value), forKey: key(productAccountId, providerAccountIdentifier))
-    return true
+    GmailPushInFlightReceiptStore.shared.release(
+      receiptKey(message, productAccountId, providerAccountIdentifier)
+    )
   }
 
   func release(
@@ -194,14 +230,22 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
-    var value = receipts(productAccountId, providerAccountIdentifier)
-    value.remove(message.stableProviderMessageId)
-    defaults.set(Array(value), forKey: key(productAccountId, providerAccountIdentifier))
+    GmailPushInFlightReceiptStore.shared.release(
+      receiptKey(message, productAccountId, providerAccountIdentifier)
+    )
   }
 
   private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
     "gmail-push-notification-receipts.\(gmailSafeFileComponent(productAccountId))."
       + gmailSafeFileComponent(providerAccountIdentifier)
+  }
+
+  private func receiptKey(
+    _ message: GmailMessageMetadata,
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) -> String {
+    "\(key(productAccountId, providerAccountIdentifier)).\(message.stableProviderMessageId)"
   }
 
   private func receipts(_ productAccountId: String, _ providerAccountIdentifier: String) -> Set<
@@ -216,7 +260,13 @@ private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationRecei
     _: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
-  ) throws -> Bool { false }
+  ) throws -> Bool { true }
+
+  func complete(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 
   func release(
     _: GmailMessageMetadata,
@@ -769,6 +819,11 @@ struct GmailPushWakeupHandler {
       else { continue }
       do {
         try await notificationDelivery.deliver(message: message)
+        try notificationReceiptStore.complete(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
       } catch is CancellationError {
         try notificationReceiptStore.release(
           message,

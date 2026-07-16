@@ -1473,6 +1473,12 @@ private final class RecordingGmailPushReceiptStore:
     receipts.insert(message.stableProviderMessageId).inserted
   }
 
+  func complete(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+
   func release(
     _ message: GmailMessageMetadata,
     productAccountId _: String,
