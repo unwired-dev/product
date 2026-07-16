@@ -626,6 +626,44 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
+  func testGmailWakeupDeliversListedMessagesBeforeRetryingUnlistedMessages() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.hasUnlistedNewMessages = true
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertEqual(notificationDelivery.messages, [message])
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationDeliveryFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -806,7 +844,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     ])
     XCTAssertTrue(secondHandled)
     XCTAssertEqual(notificationDelivery.messages, messages)
-    XCTAssertTrue(receiptStore.receipts.isEmpty)
+    XCTAssertEqual(receiptStore.receipts, Set(messages.map(\.stableProviderMessageId)))
   }
 
   func testUserNotificationServiceRequestsVisibleNotificationAuthorization() async throws {

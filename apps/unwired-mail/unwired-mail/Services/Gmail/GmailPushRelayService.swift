@@ -703,9 +703,8 @@ struct GmailPushWakeupHandler {
     if !notificationRules.categoryIds.isEmpty {
       guard try await notificationAuthorization.requestAuthorization() else { return false }
     }
-    guard notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages else {
-      return false
-    }
+    let canAdvanceWatermark =
+      notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
     guard
       try await deliverCategoryAwareNotifications(
         for: syncResult.messages,
@@ -723,6 +722,7 @@ struct GmailPushWakeupHandler {
         }
       )
     else { return false }
+    guard canAdvanceWatermark else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
@@ -735,10 +735,6 @@ struct GmailPushWakeupHandler {
         latestSyncedHistoryId: nextWatermark,
         routeId: currentWatch.routeId
       ),
-      productAccountId: productSession.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-    try notificationReceiptStore.clear(
       productAccountId: productSession.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )

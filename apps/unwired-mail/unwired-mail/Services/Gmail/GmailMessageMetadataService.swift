@@ -337,15 +337,27 @@ struct GmailMessageMetadataService:
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
-    try await syncInbox(
-      connection: connection,
-      maximumPages: 1,
-      preservingUnlistedMessages: true,
-      sinceHistoryId: sinceHistoryId,
-      throughHistoryId: throughHistoryId,
-      session: session,
-      shouldPersist: shouldPersist
-    )
+    do {
+      return try await syncInbox(
+        connection: connection,
+        maximumPages: 1,
+        preservingUnlistedMessages: true,
+        sinceHistoryId: sinceHistoryId,
+        throughHistoryId: throughHistoryId,
+        session: session,
+        shouldPersist: shouldPersist
+      )
+    } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
+      return try await syncInbox(
+        connection: connection,
+        maximumPages: nil,
+        preservingUnlistedMessages: false,
+        sinceHistoryId: nil,
+        throughHistoryId: nil,
+        session: session,
+        shouldPersist: shouldPersist
+      )
+    }
   }
 
   // swiftlint:disable:next function_body_length function_parameter_count
@@ -376,15 +388,11 @@ struct GmailMessageMetadataService:
     )
     let inboxHistoryChanges: GmailInboxHistoryChanges?
     if let sinceHistoryId {
-      do {
-        inboxHistoryChanges = try await fetchInboxHistoryChanges(
-          accessToken: tokens.accessToken,
-          sinceHistoryId: sinceHistoryId,
-          throughHistoryId: throughHistoryId
-        )
-      } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
-        inboxHistoryChanges = nil
-      }
+      inboxHistoryChanges = try await fetchInboxHistoryChanges(
+        accessToken: tokens.accessToken,
+        sinceHistoryId: sinceHistoryId,
+        throughHistoryId: throughHistoryId
+      )
     } else {
       inboxHistoryChanges = nil
     }
