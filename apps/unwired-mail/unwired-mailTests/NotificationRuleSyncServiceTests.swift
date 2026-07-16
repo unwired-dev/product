@@ -184,15 +184,15 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       session: session
     )
     await viewModel.load()
+    viewModel.setEnabled(true, categoryId: "system:invoices")
     await viewModel.prune(categoryIds: ["system:flights"])
 
-    XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights", "system:invoices"])
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
     XCTAssertEqual(authorization.requestCount, 1)
 
     let savedRules = try await service.loadRules(session: session)
     XCTAssertEqual(savedRules.rules, NotificationRules(categoryIds: ["system:flights"]))
-    XCTAssertFalse(viewModel.hasUnsavedChanges)
   }
 
   func testViewModelPreservesRulesWhenAvailableCategoriesAreUnknown() async throws {

@@ -196,7 +196,21 @@ final class NotificationRuleViewModel {
     let categoryIdsBeforePruning = enabledCategoryIds
     enabledCategoryIds.formIntersection(categoryIds)
     guard hasLoadedRules, enabledCategoryIds != categoryIdsBeforePruning else { return }
-    await save(requestingNotificationAuthorization: false)
+    isSaving = true
+    defer { isSaving = false }
+
+    do {
+      let snapshot = try await service.saveRules(
+        NotificationRules(categoryIds: Array(syncedCategoryIds.intersection(categoryIds))),
+        expectedUpdatedAt: rulesUpdatedAt,
+        session: session
+      )
+      syncedCategoryIds = Set(snapshot.rules.categoryIds)
+      rulesUpdatedAt = snapshot.updatedAt
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 
   func load(categoryIds: Set<String>? = nil) async {
