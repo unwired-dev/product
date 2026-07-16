@@ -407,6 +407,7 @@ struct GmailMessageMetadataService:
       messages: fetchedMessages,
       session: session
     )
+    let currentInboxMessageIds = Set(fetchedMessages.map(\.providerMessageId))
     if preservingUnlistedMessages {
       let fetchedStableIds = Set(fetchedMessages.map(\.stableProviderMessageId))
       let unlistedMessages = existingMessages.filter {
@@ -432,14 +433,13 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    let syncedMessageIds = Set(fetchedMessages.map(\.providerMessageId))
     let addedMessageIds = inboxHistoryChanges?.addedMessageIds
     return GmailMetadataSyncResult(
       hasUnlistedNewMessages: addedMessageIds.map {
-        !$0.isSubset(of: syncedMessageIds)
+        !$0.isSubset(of: currentInboxMessageIds)
       } ?? false,
       messages: fetchedMessages,
-      newMessageIds: addedMessageIds?.intersection(syncedMessageIds),
+      newMessageIds: addedMessageIds?.intersection(currentInboxMessageIds),
       threads: GmailInboxThread.group(fetchedMessages)
     )
   }
@@ -685,7 +685,10 @@ struct GmailMessageMetadataService:
         url: gmailBaseURL.appendingPathComponent("users/me/history"),
         resolvingAgainstBaseURL: false
       )
-      var queryItems = [URLQueryItem(name: "startHistoryId", value: sinceHistoryId)]
+      var queryItems = [
+        URLQueryItem(name: "startHistoryId", value: sinceHistoryId),
+        URLQueryItem(name: "labelId", value: "INBOX"),
+      ]
       if let nextPageToken {
         queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
       }

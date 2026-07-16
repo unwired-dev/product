@@ -507,7 +507,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.requestRecorder.queries.first { $0.contains("startHistoryId") },
-      "startHistoryId=123"
+      "startHistoryId=123&labelId=INBOX"
     )
     XCTAssertTrue(result.messages.contains { $0.providerMessageId == "message-preserved" })
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-archived" })
@@ -644,7 +644,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(result.newMessageIds, ["message-002"])
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") },
-      ["startHistoryId=123"]
+      ["startHistoryId=123&labelId=INBOX"]
     )
   }
 
@@ -676,7 +676,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
-  func testSyncRecentInboxIncludesCachedHistoryAdditionsInNotificationEligibility() async throws {
+  func testSyncRecentInboxRequiresCurrentListingForHistoryAdditions() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
       historyResponseData: Data(
@@ -697,8 +697,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertFalse(result.hasUnlistedNewMessages)
-    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    XCTAssertTrue(result.hasUnlistedNewMessages)
+    XCTAssertEqual(result.newMessageIds, [])
   }
 
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
