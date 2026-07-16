@@ -85,7 +85,7 @@ protocol GmailPushNotificationReceiptPersisting {
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
-  ) throws -> Bool
+  ) throws -> GmailPushNotificationReceiptClaim
   func complete(
     _ message: GmailMessageMetadata,
     productAccountId: String,
@@ -96,6 +96,12 @@ protocol GmailPushNotificationReceiptPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
+}
+
+enum GmailPushNotificationReceiptClaim {
+  case claimed
+  case completed
+  case inFlight
 }
 
 @MainActor
@@ -203,13 +209,13 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
-  ) throws -> Bool {
+  ) throws -> GmailPushNotificationReceiptClaim {
     let receiptKey = receiptKey(message, productAccountId, providerAccountIdentifier)
     guard
       !receipts(productAccountId, providerAccountIdentifier)
         .contains(message.stableProviderMessageId)
-    else { return false }
-    return GmailPushInFlightReceiptStore.shared.claim(receiptKey)
+    else { return .completed }
+    return GmailPushInFlightReceiptStore.shared.claim(receiptKey) ? .claimed : .inFlight
   }
 
   func complete(
@@ -260,7 +266,7 @@ private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationRecei
     _: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
-  ) throws -> Bool { true }
+  ) throws -> GmailPushNotificationReceiptClaim { .claimed }
 
   func complete(
     _: GmailMessageMetadata,
@@ -810,13 +816,18 @@ struct GmailPushWakeupHandler {
         watermarkIsCurrent(),
         hasProcessingTimeRemaining()
       else { return false }
-      guard
-        try notificationReceiptStore.claim(
-          message,
-          productAccountId: productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        )
-      else { continue }
+      switch try notificationReceiptStore.claim(
+        message,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ) {
+      case .claimed:
+        break
+      case .completed:
+        continue
+      case .inFlight:
+        return false
+      }
       do {
         try await notificationDelivery.deliver(message: message)
         try notificationReceiptStore.complete(

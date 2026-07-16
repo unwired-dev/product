@@ -1090,6 +1090,40 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
   }
 
+  func testGmailWakeupDoesNotAdvanceWatermarkForInFlightNotification() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: RecordingNotificationDelivery(),
+      notificationReceiptStore: InFlightGmailPushReceiptStore(),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124", "provider": "gmail", "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1469,8 +1503,8 @@ private final class RecordingGmailPushReceiptStore:
     _ message: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
-  ) throws -> Bool {
-    receipts.insert(message.stableProviderMessageId).inserted
+  ) throws -> GmailPushNotificationReceiptClaim {
+    receipts.insert(message.stableProviderMessageId).inserted ? .claimed : .completed
   }
 
   func complete(
@@ -1486,6 +1520,26 @@ private final class RecordingGmailPushReceiptStore:
   ) throws {
     receipts.remove(message.stableProviderMessageId)
   }
+}
+
+private struct InFlightGmailPushReceiptStore: GmailPushNotificationReceiptPersisting {
+  func claim(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailPushNotificationReceiptClaim { .inFlight }
+
+  func complete(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+
+  func release(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 }
 
 private final class RecordingUserNotificationCenter: UserNotificationCenterClient {
