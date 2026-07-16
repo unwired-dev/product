@@ -628,7 +628,7 @@ struct GmailMessageMetadataService:
     var nextPageToken: String?
     var pageCount = 0
 
-    repeat {
+    while true {
       var components = URLComponents(
         url: gmailBaseURL.appendingPathComponent("users/me/messages"),
         resolvingAgainstBaseURL: false
@@ -653,10 +653,14 @@ struct GmailMessageMetadataService:
       listedMessages.append(contentsOf: response.messages ?? [])
       nextPageToken = response.nextPageToken
       pageCount += 1
+      let hasRequiredMessages =
+        requiredMessageIds.map { requiredMessageIds in
+          requiredMessageIds.isSubset(of: Set(listedMessages.map(\.id)))
+        } ?? true
       try Task.checkCancellation()
-    } while nextPageToken != nil
-      && (maximumPages.map { pageCount < $0 } ?? true)
-      && (requiredMessageIds.map { !$0.isSubset(of: Set(listedMessages.map(\.id))) } ?? true)
+      guard nextPageToken != nil else { break }
+      guard (maximumPages.map { pageCount < $0 } ?? true) || !hasRequiredMessages else { break }
+    }
 
     return listedMessages
   }

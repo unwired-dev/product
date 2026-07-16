@@ -67,7 +67,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   func testLoadExistingRemoteRulesRequiresLocalKeyMaterial() async throws {
     let transport = RecordingRuleSyncTransport()
     let firstDevice = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try seededKeyMaterialStore(for: session),
       transport: transport
     )
     _ = try await firstDevice.saveRules(
@@ -139,8 +139,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   }
 
   func testViewModelSavesRulesBeforeReportingDeniedNotificationAuthorization() async throws {
-    let store = InMemoryProductSyncKeyMaterialStore()
-    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let store = try seededKeyMaterialStore(for: session)
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       keyMaterialStore: store,
@@ -170,7 +169,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   func testViewModelPrunesRulesForUnavailableCategories() async throws {
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: try seededKeyMaterialStore(for: session),
       transport: transport
     )
     _ = try await service.saveRules(
@@ -197,8 +196,9 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testViewModelPreservesRulesWhenAvailableCategoriesAreUnknown() async throws {
     let transport = RecordingRuleSyncTransport()
+    let store = try seededKeyMaterialStore(for: session)
     let service = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: store,
       transport: transport
     )
     let rules = NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
@@ -236,8 +236,9 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testViewModelRequestsNotificationAuthorizationForLoadedRules() async throws {
     let transport = RecordingRuleSyncTransport()
+    let store = try seededKeyMaterialStore(for: session)
     let service = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: store,
       transport: transport
     )
     _ = try await service.saveRules(
@@ -263,8 +264,10 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testSaveRejectsStaleExpectedUpdatedAt() async throws {
     let transport = RecordingRuleSyncTransport()
+    let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
     let service = NotificationRuleSyncService(
-      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      keyMaterialStore: store,
       transport: transport
     )
     _ = try await service.saveRules(
@@ -284,6 +287,14 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       XCTAssertEqual(error, .concurrentModification)
     }
   }
+}
+
+private func seededKeyMaterialStore(
+  for session: ProductAccountSessionSnapshot
+) throws -> InMemoryProductSyncKeyMaterialStore {
+  let store = InMemoryProductSyncKeyMaterialStore()
+  _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+  return store
 }
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
