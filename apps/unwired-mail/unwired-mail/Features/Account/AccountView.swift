@@ -161,6 +161,7 @@ final class NotificationRuleViewModel {
 
   private let authorization: NotificationAuthorizationRequesting
   private var hasLoadedRules = false
+  private var pendingPruneCategoryIds: Set<String>?
   private var rulesUpdatedAt: Int64?
   private var syncedCategoryIds: Set<String> = []
   private let service: NotificationRuleSyncing
@@ -193,11 +194,15 @@ final class NotificationRuleViewModel {
   }
 
   func prune(categoryIds: Set<String>) async {
+    guard !isSaving && !isSyncing else {
+      pendingPruneCategoryIds = categoryIds
+      return
+    }
     let categoryIdsBeforePruning = enabledCategoryIds
     enabledCategoryIds.formIntersection(categoryIds)
     guard hasLoadedRules, enabledCategoryIds != categoryIdsBeforePruning else { return }
     isSaving = true
-    defer { isSaving = false }
+    defer { finishSaving() }
 
     do {
       let snapshot = try await service.saveRules(
@@ -249,7 +254,7 @@ final class NotificationRuleViewModel {
   func save(requestingNotificationAuthorization: Bool = true) async {
     guard canSave else { return }
     isSaving = true
-    defer { isSaving = false }
+    defer { finishSaving() }
 
     do {
       let snapshot = try await service.saveRules(
@@ -279,6 +284,15 @@ final class NotificationRuleViewModel {
       enabledCategoryIds.insert(categoryId)
     } else {
       enabledCategoryIds.remove(categoryId)
+    }
+  }
+
+  private func finishSaving() {
+    isSaving = false
+    guard let categoryIds = pendingPruneCategoryIds else { return }
+    pendingPruneCategoryIds = nil
+    Task {
+      await prune(categoryIds: categoryIds)
     }
   }
 }
