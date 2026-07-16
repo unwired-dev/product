@@ -185,7 +185,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     )
     await viewModel.load()
     viewModel.setEnabled(true, categoryId: "system:invoices")
-    await viewModel.prune(categoryIds: ["system:flights"])
+    await viewModel.prune(categoryIds: ["system:flights", "system:invoices"])
 
     XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights", "system:invoices"])
     XCTAssertTrue(viewModel.hasUnsavedChanges)
