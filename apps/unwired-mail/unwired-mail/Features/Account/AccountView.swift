@@ -193,9 +193,10 @@ final class NotificationRuleViewModel {
   }
 
   func prune(categoryIds: Set<String>) async {
+    let categoryIdsBeforePruning = enabledCategoryIds
     enabledCategoryIds.formIntersection(categoryIds)
-    guard hasLoadedRules, hasUnsavedChanges else { return }
-    await save()
+    guard hasLoadedRules, enabledCategoryIds != categoryIdsBeforePruning else { return }
+    await save(requestingNotificationAuthorization: false)
   }
 
   func load(categoryIds: Set<String>? = nil) async {
@@ -231,7 +232,7 @@ final class NotificationRuleViewModel {
     }
   }
 
-  func save() async {
+  func save(requestingNotificationAuthorization: Bool = true) async {
     guard canSave else { return }
     isSaving = true
     defer { isSaving = false }
@@ -245,7 +246,10 @@ final class NotificationRuleViewModel {
       enabledCategoryIds = Set(snapshot.rules.categoryIds)
       syncedCategoryIds = enabledCategoryIds
       rulesUpdatedAt = snapshot.updatedAt
-      if !snapshot.rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
+      if requestingNotificationAuthorization,
+        !snapshot.rules.categoryIds.isEmpty,
+        try await !authorization.requestAuthorization()
+      {
         errorMessage =
           "Rules were saved, but visible notifications are disabled in system settings."
       } else {
