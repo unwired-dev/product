@@ -200,13 +200,18 @@ final class NotificationRuleViewModel {
     }
     let categoryIdsBeforePruning = enabledCategoryIds
     enabledCategoryIds.formIntersection(categoryIds)
-    guard hasLoadedRules, enabledCategoryIds != categoryIdsBeforePruning else { return }
+    let syncedCategoryIdsAfterPruning = syncedCategoryIds.intersection(categoryIds)
+    guard
+      hasLoadedRules,
+      enabledCategoryIds != categoryIdsBeforePruning
+        || syncedCategoryIds != syncedCategoryIdsAfterPruning
+    else { return }
     isSaving = true
     defer { finishSaving() }
 
     do {
       let snapshot = try await service.saveRules(
-        NotificationRules(categoryIds: Array(syncedCategoryIds.intersection(categoryIds))),
+        NotificationRules(categoryIds: Array(syncedCategoryIdsAfterPruning)),
         expectedUpdatedAt: rulesUpdatedAt,
         session: session
       )

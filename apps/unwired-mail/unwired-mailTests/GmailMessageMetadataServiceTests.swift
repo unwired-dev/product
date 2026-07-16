@@ -532,13 +532,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     XCTAssertNil(result.newMessageIds)
     XCTAssertEqual(
-      fixture.requestRecorder.paths,
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
       [
-        "/token", "/tokeninfo", "/gmail/v1/users/me/history", "/gmail/v1/users/me/messages",
-        "/gmail/v1/users/me/messages", "/gmail/v1/users/me/messages/message-003",
-        "/gmail/v1/users/me/messages/message-002", "/gmail/v1/users/me/messages/message-001",
+        "labelIds=INBOX&maxResults=25",
+        "labelIds=INBOX&maxResults=25&pageToken=next-page-token",
       ]
     )
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-002"))
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-001"))
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
     XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
   }

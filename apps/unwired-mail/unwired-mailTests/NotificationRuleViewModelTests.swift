@@ -29,6 +29,32 @@ final class NotificationRuleViewModelTests: XCTestCase {
     let savedRules = await service.loadSavedRules()
     XCTAssertEqual(savedRules, NotificationRules(categoryIds: ["system:flights"]))
   }
+
+  func testPruneRemovesDisabledDeletedCategoryFromSyncedRules() async throws {
+    let service = ImmediateNotificationRuleSync(
+      rules: NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
+    )
+    let viewModel = NotificationRuleViewModel(
+      authorization: StubNotificationAuthorization(),
+      service: service,
+      session: ProductAccountSessionSnapshot(
+        appleUserIdentifier: "apple-user-preview",
+        identityToken: "apple-token",
+        productAccountId: "productAccountFixtureId",
+        trustedDeviceId: "trustedDeviceFixtureId"
+      )
+    )
+
+    await viewModel.load()
+    viewModel.setEnabled(false, categoryId: "custom-category-primary")
+    await viewModel.prune(categoryIds: ["system:flights"])
+
+    let savedRules = await service.loadSavedRules()
+    XCTAssertEqual(
+      savedRules,
+      NotificationRules(categoryIds: ["system:flights"])
+    )
+  }
 }
 
 private final class StubNotificationAuthorization: NotificationAuthorizationRequesting {
@@ -71,6 +97,34 @@ private actor DelayedNotificationRuleSync: NotificationRuleSyncing {
   func finishLoading() {
     loadContinuation?.resume()
     loadContinuation = nil
+  }
+
+  func loadSavedRules() -> NotificationRules? {
+    savedRules
+  }
+}
+
+private actor ImmediateNotificationRuleSync: NotificationRuleSyncing {
+  private let loadedRules: NotificationRules
+  private(set) var savedRules: NotificationRules?
+
+  init(rules: NotificationRules) {
+    loadedRules = rules
+  }
+
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    NotificationRuleSyncSnapshot(rules: loadedRules, updatedAt: 1)
+  }
+
+  func saveRules(
+    _ rules: NotificationRules,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    savedRules = rules
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: 2)
   }
 
   func loadSavedRules() -> NotificationRules? {
