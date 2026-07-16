@@ -717,6 +717,10 @@ struct GmailMessageMetadataService:
           }
           removedMessageIds.remove(addition.message.id)
         }
+        for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
+          removedMessageIds.insert(removal.message.id)
+          addedMessageIds.remove(removal.message.id)
+        }
         for addition in record.labelsAdded ?? [] where addition.labelIds.contains("INBOX") {
           restoreHistoryAddition(
             addition.message.id,
@@ -724,10 +728,6 @@ struct GmailMessageMetadataService:
             into: &addedMessageIds
           )
           removedMessageIds.remove(addition.message.id)
-        }
-        for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
-          removedMessageIds.insert(removal.message.id)
-          addedMessageIds.remove(removal.message.id)
         }
         for deletion in record.messagesDeleted ?? [] {
           removedMessageIds.insert(deletion.message.id)
