@@ -80,13 +80,12 @@ protocol GmailPushConnectionPersisting {
 }
 
 protocol GmailPushNotificationReceiptPersisting {
-  func clear(productAccountId: String, providerAccountIdentifier: String) throws
-  func contains(
+  func claim(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> Bool
-  func record(
+  func release(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
@@ -179,25 +178,24 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
     self.defaults = defaults
   }
 
-  func clear(productAccountId: String, providerAccountIdentifier: String) throws {
-    defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
-  }
-
-  func contains(
+  func claim(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> Bool {
-    receipts(productAccountId, providerAccountIdentifier).contains(message.stableProviderMessageId)
+    var value = receipts(productAccountId, providerAccountIdentifier)
+    guard value.insert(message.stableProviderMessageId).inserted else { return false }
+    defaults.set(Array(value), forKey: key(productAccountId, providerAccountIdentifier))
+    return true
   }
 
-  func record(
+  func release(
     _ message: GmailMessageMetadata,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
     var value = receipts(productAccountId, providerAccountIdentifier)
-    value.insert(message.stableProviderMessageId)
+    value.remove(message.stableProviderMessageId)
     defaults.set(Array(value), forKey: key(productAccountId, providerAccountIdentifier))
   }
 
@@ -214,15 +212,13 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
 }
 
 private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
-  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {}
-
-  func contains(
+  func claim(
     _: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> Bool { false }
 
-  func record(
+  func release(
     _: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -759,28 +755,33 @@ struct GmailPushWakeupHandler {
       && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
-      if try notificationReceiptStore.contains(
-        message,
-        productAccountId: productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      ) {
-        continue
-      }
       guard
         routeIsCurrent(),
         watermarkIsCurrent(),
         hasProcessingTimeRemaining()
       else { return false }
-      do {
-        try await notificationDelivery.deliver(message: message)
-        try notificationReceiptStore.record(
+      guard
+        try notificationReceiptStore.claim(
           message,
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
+      else { continue }
+      do {
+        try await notificationDelivery.deliver(message: message)
       } catch is CancellationError {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
         throw CancellationError()
       } catch {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
         // Visible notification delivery fails closed without adding a generic fallback.
         return false
       }

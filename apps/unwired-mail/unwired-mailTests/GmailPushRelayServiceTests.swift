@@ -671,6 +671,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.syncedMessages = [message]
     syncService.newMessageIds = [message.providerMessageId]
+    let receiptStore = RecordingGmailPushReceiptStore()
     let watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
@@ -681,6 +682,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       notificationDelivery: FailingNotificationDelivery(),
+      notificationReceiptStore: receiptStore,
       notificationRuleSync: StubNotificationRuleSync(
         rules: NotificationRules(categoryIds: ["system:flights"])
       ),
@@ -696,6 +698,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     ])
 
     XCTAssertFalse(handled)
+    XCTAssertTrue(receiptStore.receipts.isEmpty)
     XCTAssertNil(watchStore.savedStatus)
   }
 
@@ -1462,24 +1465,20 @@ private final class RecordingGmailPushReceiptStore:
 {
   private(set) var receipts: Set<String> = []
 
-  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {
-    receipts = []
-  }
-
-  func contains(
+  func claim(
     _ message: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> Bool {
-    receipts.contains(message.stableProviderMessageId)
+    receipts.insert(message.stableProviderMessageId).inserted
   }
 
-  func record(
+  func release(
     _ message: GmailMessageMetadata,
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {
-    receipts.insert(message.stableProviderMessageId)
+    receipts.remove(message.stableProviderMessageId)
   }
 }
 
