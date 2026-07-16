@@ -684,7 +684,7 @@ struct GmailPushWakeupHandler {
     self.watchStore = watchStore
   }
 
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  // swiftlint:disable:next function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == "gmail",
@@ -752,9 +752,6 @@ struct GmailPushWakeupHandler {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else { return false }
-    if !notificationRules.categoryIds.isEmpty {
-      guard try await notificationAuthorization.requestAuthorization() else { return false }
-    }
     let canAdvanceWatermark =
       notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
     guard
@@ -793,7 +790,7 @@ struct GmailPushWakeupHandler {
     return true
   }
 
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next cyclomatic_complexity function_body_length function_parameter_count
   private func deliverCategoryAwareNotifications(
     for messages: [GmailMessageMetadata],
     including newMessageIds: Set<String>?,
@@ -806,6 +803,7 @@ struct GmailPushWakeupHandler {
     guard let rules else { return false }
     guard !rules.categoryIds.isEmpty else { return true }
     guard let newMessageIds else { return false }
+    var notificationAuthorizationGranted = false
     for message in messages
     where !message.isHistorical
       && newMessageIds.contains(message.providerMessageId)
@@ -816,6 +814,10 @@ struct GmailPushWakeupHandler {
         watermarkIsCurrent(),
         hasProcessingTimeRemaining()
       else { return false }
+      if !notificationAuthorizationGranted {
+        guard try await notificationAuthorization.requestAuthorization() else { return false }
+        notificationAuthorizationGranted = true
+      }
       switch try notificationReceiptStore.claim(
         message,
         productAccountId: productAccountId,

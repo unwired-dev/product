@@ -348,7 +348,7 @@ struct GmailMessageMetadataService:
         shouldPersist: shouldPersist
       )
     } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
-      return try await syncInbox(
+      let result = try await syncInbox(
         connection: connection,
         maximumPages: nil,
         preservingUnlistedMessages: false,
@@ -356,6 +356,11 @@ struct GmailMessageMetadataService:
         throughHistoryId: nil,
         session: session,
         shouldPersist: shouldPersist
+      )
+      return GmailMetadataSyncResult(
+        messages: result.messages,
+        newMessageIds: [],
+        threads: result.threads
       )
     }
   }
@@ -675,7 +680,14 @@ struct GmailMessageMetadataService:
       pageCount += 1
       try Task.checkCancellation()
       guard nextPageToken != nil else { break }
-      guard maximumPages.map({ pageCount < $0 }) ?? true else { break }
+      let listedMessageIds = Set(listedMessages.map(\.id))
+      let hasListedRequiredMessages =
+        requiredMessageIds.map {
+          $0.isSubset(of: listedMessageIds)
+        } ?? true
+      guard maximumPages.map({ pageCount < $0 }) ?? true || !hasListedRequiredMessages else {
+        break
+      }
     }
 
     return listedMessages
