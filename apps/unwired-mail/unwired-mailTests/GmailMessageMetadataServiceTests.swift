@@ -621,6 +621,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(result.newMessageIds, ["message-002"])
   }
 
+  func testSyncRecentInboxStopsHistoryPaginationAtWakeHistoryId() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {"history":[
+          {"id":"124","messagesAdded":[{"message":{"id":"message-002"}}]},
+          {"id":"125","messagesAdded":[{"message":{"id":"message-001"}}]}
+        ],"nextPageToken":"next-history-page"}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") },
+      ["startHistoryId=123"]
+    )
+  }
+
   func testSyncRecentInboxPagesUntilHistoryCandidatesAreListed() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,

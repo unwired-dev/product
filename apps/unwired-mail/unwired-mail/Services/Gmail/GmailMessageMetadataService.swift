@@ -665,6 +665,7 @@ struct GmailMessageMetadataService:
     return listedMessages
   }
 
+  // swiftlint:disable:next function_body_length
   private func fetchInboxHistoryChanges(
     accessToken: String,
     sinceHistoryId: String,
@@ -674,6 +675,7 @@ struct GmailMessageMetadataService:
     var removedMessageIds: Set<String> = []
     var nextPageToken: String?
 
+    var reachedWakeBoundary = false
     repeat {
       var components = URLComponents(
         url: gmailBaseURL.appendingPathComponent("users/me/history"),
@@ -697,7 +699,8 @@ struct GmailMessageMetadataService:
         if let throughHistoryId, let recordId = record.id,
           gmailHistoryIdIsNewer(recordId, than: throughHistoryId)
         {
-          continue
+          reachedWakeBoundary = true
+          break
         }
         for addition in record.messagesAdded ?? [] {
           if addition.message.labelIds?.contains("INBOX") != false {
@@ -710,14 +713,16 @@ struct GmailMessageMetadataService:
         }
         for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
           removedMessageIds.insert(removal.message.id)
+          addedMessageIds.remove(removal.message.id)
         }
         for deletion in record.messagesDeleted ?? [] {
           removedMessageIds.insert(deletion.message.id)
+          addedMessageIds.remove(deletion.message.id)
         }
       }
       nextPageToken = response.nextPageToken
       try Task.checkCancellation()
-    } while nextPageToken != nil
+    } while nextPageToken != nil && !reachedWakeBoundary
 
     return GmailInboxHistoryChanges(
       addedMessageIds: addedMessageIds,
