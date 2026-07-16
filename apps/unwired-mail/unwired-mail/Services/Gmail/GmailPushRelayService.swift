@@ -612,6 +612,7 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard currentWatchForRoute() != nil else { return false }
+    guard !syncResult.hasUnlistedNewMessages else { return false }
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
@@ -620,7 +621,14 @@ struct GmailPushWakeupHandler {
         for: syncResult.messages,
         including: syncResult.newMessageIds,
         rules: notificationRules,
-        routeIsCurrent: routeIsCurrent
+        routeIsCurrent: routeIsCurrent,
+        watermarkIsCurrent: {
+          guard let currentWatch = currentWatchForRoute() else { return false }
+          return gmailHistoryIdIsNewer(
+            historyId,
+            than: currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
+          )
+        }
       )
     else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
@@ -645,7 +653,8 @@ struct GmailPushWakeupHandler {
     for messages: [GmailMessageMetadata],
     including newMessageIds: Set<String>?,
     rules: NotificationRules?,
-    routeIsCurrent: () -> Bool
+    routeIsCurrent: () -> Bool,
+    watermarkIsCurrent: () -> Bool
   ) async throws -> Bool {
     guard let newMessageIds, let rules else { return false }
     for message in messages
@@ -653,7 +662,11 @@ struct GmailPushWakeupHandler {
       && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
-      guard routeIsCurrent(), hasProcessingTimeRemaining() else { return false }
+      guard
+        routeIsCurrent(),
+        watermarkIsCurrent(),
+        hasProcessingTimeRemaining()
+      else { return false }
       do {
         try await notificationDelivery.deliver(message: message)
       } catch is CancellationError {

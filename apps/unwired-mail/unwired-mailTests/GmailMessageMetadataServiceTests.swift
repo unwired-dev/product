@@ -669,6 +669,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(result.newMessageIds, [])
+    XCTAssertTrue(result.hasUnlistedNewMessages)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
       ["labelIds=INBOX&maxResults=25"]

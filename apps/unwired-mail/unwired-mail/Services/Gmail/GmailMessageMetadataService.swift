@@ -32,15 +32,18 @@ struct GmailInboxThread: Equatable, Identifiable {
 }
 
 struct GmailMetadataSyncResult: Equatable {
+  let hasUnlistedNewMessages: Bool
   let messages: [GmailMessageMetadata]
   let newMessageIds: Set<String>?
   let threads: [GmailInboxThread]
 
   init(
+    hasUnlistedNewMessages: Bool = false,
     messages: [GmailMessageMetadata],
     newMessageIds: Set<String>? = nil,
     threads: [GmailInboxThread]
   ) {
+    self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.messages = messages
     self.newMessageIds = newMessageIds
     self.threads = threads
@@ -429,11 +432,14 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
+    let listedMessageIds = Set(listedMessages.map(\.id))
+    let addedMessageIds = inboxHistoryChanges?.addedMessageIds
     return GmailMetadataSyncResult(
+      hasUnlistedNewMessages: addedMessageIds.map {
+        !$0.isSubset(of: listedMessageIds)
+      } ?? false,
       messages: fetchedMessages,
-      newMessageIds: inboxHistoryChanges?.addedMessageIds.intersection(
-        Set(fetchedMessages.map(\.providerMessageId))
-      ),
+      newMessageIds: addedMessageIds?.intersection(listedMessageIds),
       threads: GmailInboxThread.group(fetchedMessages)
     )
   }

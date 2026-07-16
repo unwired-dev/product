@@ -595,6 +595,35 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testGmailWakeupDoesNotAdvanceWatermarkForUnlistedNewMessages() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.hasUnlistedNewMessages = true
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationDeliveryFails() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -855,6 +884,55 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertTrue(handled)
     XCTAssertEqual(syncService.shouldPersist, true)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
+  }
+
+  func testGmailWakeupDoesNotDeliverAfterConcurrentWatermarkAdvance() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    syncService.onSync = {
+      try? watchStore.save(
+        GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          latestSyncedHistoryId: "126",
+          routeId: "route-001"
+        ),
+        productAccountId: self.session.productAccountId,
+        providerAccountIdentifier: self.connection.providerAccountIdentifier
+      )
+    }
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "125",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.messages.isEmpty)
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "126")
   }
 
@@ -1124,6 +1202,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   var shouldPersist: Bool?
   var sinceHistoryId: String?
   var syncedMessages: [GmailMessageMetadata] = []
+  var hasUnlistedNewMessages = false
   var newMessageIds: Set<String>?
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
@@ -1167,6 +1246,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
       throw GmailMessageMetadataSyncError.staleLocalConnection
     }
     return GmailMetadataSyncResult(
+      hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: syncedMessages,
       newMessageIds: newMessageIds ?? Set(syncedMessages.map(\.providerMessageId)),
       threads: []
