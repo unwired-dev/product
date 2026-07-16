@@ -192,8 +192,10 @@ final class NotificationRuleViewModel {
     enabledCategoryIds.contains(categoryId)
   }
 
-  func prune(categoryIds: Set<String>) {
+  func prune(categoryIds: Set<String>) async {
     enabledCategoryIds.formIntersection(categoryIds)
+    guard hasLoadedRules, hasUnsavedChanges else { return }
+    await save()
   }
 
   func load(categoryIds: Set<String>? = nil) async {
@@ -205,7 +207,7 @@ final class NotificationRuleViewModel {
       enabledCategoryIds = Set(snapshot.rules.categoryIds)
       rulesUpdatedAt = snapshot.updatedAt
       if let categoryIds {
-        prune(categoryIds: categoryIds)
+        enabledCategoryIds.formIntersection(categoryIds)
         if enabledCategoryIds != Set(snapshot.rules.categoryIds) {
           snapshot = try await service.saveRules(
             NotificationRules(categoryIds: Array(enabledCategoryIds)),
@@ -874,11 +876,15 @@ private struct NotificationRulePanel: View {
       }
     }
     .onChange(of: Set(categoryChoices.map(\.id)), initial: true) { _, categoryIds in
-      viewModel.prune(categoryIds: categoryIds)
+      Task {
+        await viewModel.prune(categoryIds: categoryIds)
+      }
     }
     .onChange(of: hasLoadedCategory) { _, hasLoadedCategory in
       guard hasLoadedCategory else { return }
-      viewModel.prune(categoryIds: Set(categoryChoices.map(\.id)))
+      Task {
+        await viewModel.prune(categoryIds: Set(categoryChoices.map(\.id)))
+      }
     }
     .confirmationDialog(
       "Discard unsaved notification rule changes?",

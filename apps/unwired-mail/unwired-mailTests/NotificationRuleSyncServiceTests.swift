@@ -183,7 +183,8 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       service: service,
       session: session
     )
-    await viewModel.load(categoryIds: ["system:flights"])
+    await viewModel.load()
+    await viewModel.prune(categoryIds: ["system:flights"])
 
     XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
     XCTAssertFalse(viewModel.hasUnsavedChanges)
