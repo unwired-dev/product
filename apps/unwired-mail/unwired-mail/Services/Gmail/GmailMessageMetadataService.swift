@@ -1133,6 +1133,11 @@ private struct GmailListHistoryResponse: Decodable {
 private struct GmailInboxHistoryChanges {
   let addedMessageIds: Set<String>
   let removedMessageIds: Set<String>
+
+  init(addedMessageIds: Set<String>, removedMessageIds: Set<String>) {
+    self.addedMessageIds = addedMessageIds.subtracting(removedMessageIds)
+    self.removedMessageIds = removedMessageIds
+  }
 }
 
 private struct GmailHistoryRecord: Decodable {
