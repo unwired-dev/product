@@ -218,7 +218,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let viewModel = NotificationRuleViewModel(
       authorization: StubNotificationAuthorization(granted: true),
       service: NotificationRuleSyncService(
-        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        keyMaterialStore: try seededKeyMaterialStore(for: session),
         transport: RecordingRuleSyncTransport()
       ),
       session: session
