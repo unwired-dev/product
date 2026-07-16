@@ -596,7 +596,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
-  func testGmailWakeupDoesNotAdvanceWatermarkForUnlistedNewMessages() async throws {
+  func testGmailWakeupAdvancesWatermarkForUnlistedMessagesWithoutNotificationRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
     let syncService = RecordingPushGmailMetadataSyncService()
@@ -622,8 +622,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertFalse(handled)
-    XCTAssertNil(watchStore.savedStatus)
+    XCTAssertTrue(handled)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationDeliveryFails() async throws {

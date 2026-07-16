@@ -612,9 +612,12 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard currentWatchForRoute() != nil else { return false }
-    guard !syncResult.hasUnlistedNewMessages else { return false }
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
+    }
+    guard let notificationRules else { return false }
+    guard notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages else {
+      return false
     }
     guard
       try await deliverCategoryAwareNotifications(
@@ -656,7 +659,9 @@ struct GmailPushWakeupHandler {
     routeIsCurrent: () -> Bool,
     watermarkIsCurrent: () -> Bool
   ) async throws -> Bool {
-    guard let newMessageIds, let rules else { return false }
+    guard let rules else { return false }
+    guard !rules.categoryIds.isEmpty else { return true }
+    guard let newMessageIds else { return false }
     for message in messages
     where !message.isHistorical
       && newMessageIds.contains(message.providerMessageId)
