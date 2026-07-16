@@ -647,7 +647,7 @@ struct GmailPushWakeupHandler {
     rules: NotificationRules?,
     routeIsCurrent: () -> Bool
   ) async throws -> Bool {
-    guard let newMessageIds, let rules else { return true }
+    guard let newMessageIds, let rules else { return false }
     for message in messages
     where !message.isHistorical
       && newMessageIds.contains(message.providerMessageId)
@@ -660,6 +660,7 @@ struct GmailPushWakeupHandler {
         throw CancellationError()
       } catch {
         // Visible notification delivery fails closed without adding a generic fallback.
+        return false
       }
     }
     return true

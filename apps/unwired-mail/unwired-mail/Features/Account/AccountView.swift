@@ -207,7 +207,7 @@ final class NotificationRuleViewModel {
       if let categoryIds {
         prune(categoryIds: categoryIds)
       }
-      syncedCategoryIds = enabledCategoryIds
+      syncedCategoryIds = Set(snapshot.rules.categoryIds)
       hasLoadedRules = true
       if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
         errorMessage =
