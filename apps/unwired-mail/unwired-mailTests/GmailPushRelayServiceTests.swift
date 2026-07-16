@@ -874,6 +874,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     }
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationRuleSync: StubNotificationRuleSync(rules: .init(categoryIds: [])),
       sessionStore: sessionStore,
       syncService: syncService,
       watchStore: watchStore
