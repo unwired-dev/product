@@ -867,6 +867,10 @@ private struct NotificationRulePanel: View {
     .onChange(of: Set(categoryChoices.map(\.id)), initial: true) { _, categoryIds in
       viewModel.prune(categoryIds: categoryIds)
     }
+    .onChange(of: hasLoadedCategory) { _, hasLoadedCategory in
+      guard hasLoadedCategory else { return }
+      viewModel.prune(categoryIds: Set(categoryChoices.map(\.id)))
+    }
     .confirmationDialog(
       "Discard unsaved notification rule changes?",
       isPresented: $showsRefreshConfirmation,
