@@ -515,6 +515,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
   }
 
+  func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
+    let fixture = try makeSyncFixture(historyStatusCode: 404)
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertNil(result.newMessageIds)
+    XCTAssertEqual(
+      fixture.requestRecorder.paths,
+      [
+        "/token", "/tokeninfo", "/gmail/v1/users/me/history", "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages/message-002", "/gmail/v1/users/me/messages/message-001",
+      ]
+    )
+  }
+
   func testSyncRecentInboxDoesNotTreatRestoredInboxMessageAsNew() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(
@@ -1018,6 +1039,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String = "gmail-user-001",
     usesPagination: Bool = false,
     replyTo: String? = nil,
+    historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8)
   ) throws -> GmailMessageMetadataSyncFixture {
     let store = RecordingGmailMessageMetadataStore()
@@ -1034,6 +1056,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         tokenInfoSubject: tokenInfoSubject,
         usesPagination: usesPagination,
         replyTo: replyTo,
+        historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
       )
     }
@@ -1062,6 +1085,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String,
     usesPagination: Bool,
     replyTo: String?,
+    historyStatusCode: Int,
     historyResponseData: Data
   ) -> (HTTPURLResponse, Data) {
     requestRecorder.paths.append(request.url?.path ?? "")
@@ -1097,7 +1121,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     if request.url?.path == "/gmail/v1/users/me/history" {
-      return (Self.httpResponse(for: request, statusCode: 200), historyResponseData)
+      return (Self.httpResponse(for: request, statusCode: historyStatusCode), historyResponseData)
     }
 
     if request.url?.path == "/gmail/v1/users/me/messages" {

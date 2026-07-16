@@ -661,6 +661,44 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationAuthorizationIsDenied()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: RecordingNotificationDelivery(),
+      notificationAuthorization: StubNotificationAuthorization(granted: false),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupStopsNotificationsWhenBackgroundTimeExpiresDuringDelivery() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1266,7 +1304,9 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   }
 }
 
-private final class RecordingNotificationDelivery: CategoryAwareNotificationDelivering {
+private final class RecordingNotificationDelivery:
+  CategoryAwareNotificationDelivering, NotificationAuthorizationRequesting
+{
   private(set) var messages: [GmailMessageMetadata] = []
   private let onDeliver: () -> Void
 
@@ -1278,11 +1318,33 @@ private final class RecordingNotificationDelivery: CategoryAwareNotificationDeli
     messages.append(message)
     onDeliver()
   }
+
+  func requestAuthorization() async throws -> Bool {
+    true
+  }
 }
 
-private struct FailingNotificationDelivery: CategoryAwareNotificationDelivering {
+private struct FailingNotificationDelivery:
+  CategoryAwareNotificationDelivering, NotificationAuthorizationRequesting
+{
   func deliver(message _: GmailMessageMetadata) async throws {
     throw GmailPushRelayTestError.unexpectedCall
+  }
+
+  func requestAuthorization() async throws -> Bool {
+    true
+  }
+}
+
+private struct StubNotificationAuthorization: NotificationAuthorizationRequesting {
+  let granted: Bool
+
+  init(granted: Bool = true) {
+    self.granted = granted
+  }
+
+  func requestAuthorization() async throws -> Bool {
+    granted
   }
 }
 

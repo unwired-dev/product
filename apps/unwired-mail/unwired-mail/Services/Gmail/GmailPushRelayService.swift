@@ -518,6 +518,7 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 struct GmailPushWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
   private let hasProcessingTimeRemaining: @MainActor () -> Bool
+  private let notificationAuthorization: NotificationAuthorizationRequesting
   private let notificationDelivery: CategoryAwareNotificationDelivering
   private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
@@ -534,6 +535,7 @@ struct GmailPushWakeupHandler {
       #endif
     },
     notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
+    notificationAuthorization: NotificationAuthorizationRequesting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
@@ -542,13 +544,17 @@ struct GmailPushWakeupHandler {
     self.connectionStore = connectionStore
     self.hasProcessingTimeRemaining = hasProcessingTimeRemaining
     self.notificationDelivery = notificationDelivery
+    self.notificationAuthorization =
+      notificationAuthorization
+      ?? (notificationDelivery as? NotificationAuthorizationRequesting)
+      ?? UserNotificationService()
     self.notificationRuleSync = notificationRuleSync
     self.sessionStore = sessionStore
     self.syncService = syncService
     self.watchStore = watchStore
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == "gmail",
@@ -616,6 +622,9 @@ struct GmailPushWakeupHandler {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else { return false }
+    if !notificationRules.categoryIds.isEmpty {
+      guard try await notificationAuthorization.requestAuthorization() else { return false }
+    }
     guard notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages else {
       return false
     }

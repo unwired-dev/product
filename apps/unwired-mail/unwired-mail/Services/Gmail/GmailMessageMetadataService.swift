@@ -376,11 +376,15 @@ struct GmailMessageMetadataService:
     )
     let inboxHistoryChanges: GmailInboxHistoryChanges?
     if let sinceHistoryId {
-      inboxHistoryChanges = try await fetchInboxHistoryChanges(
-        accessToken: tokens.accessToken,
-        sinceHistoryId: sinceHistoryId,
-        throughHistoryId: throughHistoryId
-      )
+      do {
+        inboxHistoryChanges = try await fetchInboxHistoryChanges(
+          accessToken: tokens.accessToken,
+          sinceHistoryId: sinceHistoryId,
+          throughHistoryId: throughHistoryId
+        )
+      } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
+        inboxHistoryChanges = nil
+      }
     } else {
       inboxHistoryChanges = nil
     }
@@ -840,6 +844,11 @@ struct GmailMessageMetadataService:
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode)
     else {
+      if (response as? HTTPURLResponse)?.statusCode == 404,
+        url.path.hasSuffix("/users/me/history")
+      {
+        throw GmailMessageMetadataSyncError.expiredGmailHistoryId
+      }
       throw GmailMessageMetadataSyncError.gmailRequestFailed
     }
 
@@ -1066,6 +1075,7 @@ struct GmailMessageMetadataService:
 }
 
 enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
+  case expiredGmailHistoryId
   case invalidMessageHeader
   case gmailRequestFailed
   case invalidGmailRequest
@@ -1078,6 +1088,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .expiredGmailHistoryId:
+      return "The Gmail history cursor expired."
     case .invalidMessageHeader:
       return "Message recipients and subjects cannot contain line breaks."
     case .gmailRequestFailed:
