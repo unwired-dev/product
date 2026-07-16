@@ -653,13 +653,9 @@ struct GmailMessageMetadataService:
       listedMessages.append(contentsOf: response.messages ?? [])
       nextPageToken = response.nextPageToken
       pageCount += 1
-      let hasRequiredMessages =
-        requiredMessageIds.map { requiredMessageIds in
-          requiredMessageIds.isSubset(of: Set(listedMessages.map(\.id)))
-        } ?? true
       try Task.checkCancellation()
       guard nextPageToken != nil else { break }
-      guard (maximumPages.map { pageCount < $0 } ?? true) || !hasRequiredMessages else { break }
+      guard maximumPages.map({ pageCount < $0 }) ?? true else { break }
     }
 
     return listedMessages

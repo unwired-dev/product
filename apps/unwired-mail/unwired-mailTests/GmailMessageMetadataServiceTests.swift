@@ -648,7 +648,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
-  func testSyncRecentInboxPagesUntilHistoryCandidatesAreListed() async throws {
+  func testSyncRecentInboxDoesNotExceedBackgroundPageLimitForMissingHistoryCandidates()
+    async throws
+  {
     let fixture = try makeSyncFixture(
       usesPagination: true,
       historyResponseData: Data(
@@ -666,10 +668,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    XCTAssertEqual(result.newMessageIds, [])
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
-      ["labelIds=INBOX&maxResults=25", "labelIds=INBOX&maxResults=25&pageToken=next-page-token"]
+      ["labelIds=INBOX&maxResults=25"]
     )
   }
 
