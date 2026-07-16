@@ -209,7 +209,7 @@ final class NotificationRuleViewModel {
       }
       syncedCategoryIds = enabledCategoryIds
       hasLoadedRules = true
-      if !snapshot.rules.categoryIds.isEmpty, try await !authorization.requestAuthorization() {
+      if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
         errorMessage =
           "Rules are enabled, but visible notifications are disabled in system settings."
       } else {

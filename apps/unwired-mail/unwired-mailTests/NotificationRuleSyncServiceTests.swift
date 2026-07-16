@@ -177,21 +177,21 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       expectedUpdatedAt: nil,
       session: session
     )
+    let authorization = StubNotificationAuthorization(granted: true)
     let viewModel = NotificationRuleViewModel(
-      authorization: StubNotificationAuthorization(granted: true),
+      authorization: authorization,
       service: service,
       session: session
     )
     await viewModel.load(categoryIds: ["system:flights"])
-    await viewModel.save()
 
     XCTAssertEqual(viewModel.enabledCategoryIds, ["system:flights"])
-    let savedRules = try await service.loadRules(session: session)
-    XCTAssertEqual(
-      savedRules.rules,
-      NotificationRules(categoryIds: ["system:flights"])
-    )
-    XCTAssertEqual(transport.expectedUpdatedAts, [nil, 1_781_200_000_000])
+    XCTAssertEqual(authorization.requestCount, 1)
+
+    await viewModel.load(categoryIds: [])
+
+    XCTAssertTrue(viewModel.enabledCategoryIds.isEmpty)
+    XCTAssertEqual(authorization.requestCount, 1)
   }
 
   func testViewModelPreservesRulesWhenAvailableCategoriesAreUnknown() async throws {

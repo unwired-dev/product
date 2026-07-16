@@ -700,7 +700,9 @@ struct GmailMessageMetadataService:
           continue
         }
         for addition in record.messagesAdded ?? [] {
-          addedMessageIds.insert(addition.message.id)
+          if addition.message.labelIds?.contains("INBOX") != false {
+            addedMessageIds.insert(addition.message.id)
+          }
           removedMessageIds.remove(addition.message.id)
         }
         for addition in record.labelsAdded ?? [] where addition.labelIds.contains("INBOX") {

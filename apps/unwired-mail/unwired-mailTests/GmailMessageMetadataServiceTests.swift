@@ -550,6 +550,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           "history": [{
             "messagesAdded": [{
               "message": {"id": "message-002"}
+            }, {
+              "message": {"id": "message-sent", "labelIds": ["SENT"]}
             }]
           }]
         }
