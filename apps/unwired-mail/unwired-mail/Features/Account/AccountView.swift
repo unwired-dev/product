@@ -220,7 +220,6 @@ final class NotificationRuleViewModel {
 
   func load(categoryIds: Set<String>? = nil) async {
     isSyncing = true
-    defer { isSyncing = false }
 
     do {
       var snapshot = try await service.loadRules(session: session)
@@ -249,6 +248,8 @@ final class NotificationRuleViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+    isSyncing = false
+    await replayPendingPrune()
   }
 
   func save(requestingNotificationAuthorization: Bool = true) async {
@@ -289,11 +290,15 @@ final class NotificationRuleViewModel {
 
   private func finishSaving() {
     isSaving = false
+    Task {
+      await replayPendingPrune()
+    }
+  }
+
+  private func replayPendingPrune() async {
     guard let categoryIds = pendingPruneCategoryIds else { return }
     pendingPruneCategoryIds = nil
-    Task {
-      await prune(categoryIds: categoryIds)
-    }
+    await prune(categoryIds: categoryIds)
   }
 }
 
