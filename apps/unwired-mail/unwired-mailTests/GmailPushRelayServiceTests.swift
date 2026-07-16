@@ -537,6 +537,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.syncedMessages = [pushMessage(categoryId: "system:flights")]
     let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       hasProcessingTimeRemaining: { false },
@@ -546,13 +553,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
-      watchStore: RecordingGmailPushWatchStore(
-        status: GmailPushWatchStatus(
-          expirationMilliseconds: 1_781_400_000_000,
-          historyId: "123",
-          routeId: "route-001"
-        )
-      )
+      watchStore: watchStore
     )
 
     let handled = try await handler.handle(userInfo: [
@@ -561,8 +562,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    XCTAssertFalse(handled)
     XCTAssertTrue(notificationDelivery.messages.isEmpty)
+    XCTAssertNil(watchStore.savedStatus)
   }
 
   func testGmailWakeupStopsNotificationsWhenBackgroundTimeExpiresDuringDelivery() async throws {
@@ -574,6 +576,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
       pushMessage(categoryId: "system:flights"),
     ]
     let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       hasProcessingTimeRemaining: { notificationDelivery.messages.isEmpty },
@@ -583,13 +592,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
-      watchStore: RecordingGmailPushWatchStore(
-        status: GmailPushWatchStatus(
-          expirationMilliseconds: 1_781_400_000_000,
-          historyId: "123",
-          routeId: "route-001"
-        )
-      )
+      watchStore: watchStore
     )
 
     let handled = try await handler.handle(userInfo: [
@@ -598,8 +601,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.messages.count, 1)
+    XCTAssertNil(watchStore.savedStatus)
   }
 
   func testUserNotificationServiceRequestsVisibleNotificationAuthorization() async throws {

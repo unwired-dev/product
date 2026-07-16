@@ -615,12 +615,14 @@ struct GmailPushWakeupHandler {
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
-    try await deliverCategoryAwareNotifications(
-      for: syncResult.messages,
-      including: syncResult.newMessageIds,
-      rules: notificationRules,
-      routeIsCurrent: routeIsCurrent
-    )
+    guard
+      try await deliverCategoryAwareNotifications(
+        for: syncResult.messages,
+        including: syncResult.newMessageIds,
+        rules: notificationRules,
+        routeIsCurrent: routeIsCurrent
+      )
+    else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
@@ -644,14 +646,14 @@ struct GmailPushWakeupHandler {
     including newMessageIds: Set<String>?,
     rules: NotificationRules?,
     routeIsCurrent: () -> Bool
-  ) async throws {
-    guard let newMessageIds, let rules else { return }
+  ) async throws -> Bool {
+    guard let newMessageIds, let rules else { return true }
     for message in messages
     where !message.isHistorical
       && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
-      guard routeIsCurrent(), hasProcessingTimeRemaining() else { return }
+      guard routeIsCurrent(), hasProcessingTimeRemaining() else { return false }
       do {
         try await notificationDelivery.deliver(message: message)
       } catch is CancellationError {
@@ -660,6 +662,7 @@ struct GmailPushWakeupHandler {
         // Visible notification delivery fails closed without adding a generic fallback.
       }
     }
+    return true
   }
 
   private func failClosed<Value>(

@@ -431,7 +431,9 @@ struct GmailMessageMetadataService:
 
     return GmailMetadataSyncResult(
       messages: fetchedMessages,
-      newMessageIds: inboxHistoryChanges?.addedMessageIds,
+      newMessageIds: inboxHistoryChanges?.addedMessageIds.intersection(
+        Set(fetchedMessages.map(\.providerMessageId))
+      ),
       threads: GmailInboxThread.group(fetchedMessages)
     )
   }
