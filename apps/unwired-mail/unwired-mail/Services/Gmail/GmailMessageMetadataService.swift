@@ -676,6 +676,7 @@ struct GmailMessageMetadataService:
     throughHistoryId: String?
   ) async throws -> GmailInboxHistoryChanges {
     var addedMessageIds: Set<String> = []
+    var historyAddedMessageIds: Set<String> = []
     var removedMessageIds: Set<String> = []
     var nextPageToken: String?
 
@@ -712,10 +713,16 @@ struct GmailMessageMetadataService:
         for addition in record.messagesAdded ?? [] {
           if addition.message.labelIds?.contains("INBOX") != false {
             addedMessageIds.insert(addition.message.id)
+            historyAddedMessageIds.insert(addition.message.id)
           }
           removedMessageIds.remove(addition.message.id)
         }
         for addition in record.labelsAdded ?? [] where addition.labelIds.contains("INBOX") {
+          restoreHistoryAddition(
+            addition.message.id,
+            from: historyAddedMessageIds,
+            into: &addedMessageIds
+          )
           removedMessageIds.remove(addition.message.id)
         }
         for removal in record.labelsRemoved ?? [] where removal.labelIds.contains("INBOX") {
@@ -725,6 +732,7 @@ struct GmailMessageMetadataService:
         for deletion in record.messagesDeleted ?? [] {
           removedMessageIds.insert(deletion.message.id)
           addedMessageIds.remove(deletion.message.id)
+          historyAddedMessageIds.remove(deletion.message.id)
         }
       }
       nextPageToken = response.nextPageToken
@@ -735,6 +743,15 @@ struct GmailMessageMetadataService:
       addedMessageIds: addedMessageIds,
       removedMessageIds: removedMessageIds
     )
+  }
+
+  private func restoreHistoryAddition(
+    _ messageId: String,
+    from historyAddedMessageIds: Set<String>,
+    into addedMessageIds: inout Set<String>
+  ) {
+    guard historyAddedMessageIds.contains(messageId) else { return }
+    addedMessageIds.insert(messageId)
   }
 
   private func fetchListedMessageMetadata(
