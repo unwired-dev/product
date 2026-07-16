@@ -738,6 +738,77 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGmailWakeupDoesNotRedeliverAfterPartialNotificationDelivery() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let messages = [
+      pushMessage(categoryId: "system:flights"),
+      GmailMessageMetadata(
+        categoryId: "system:flights",
+        from: "Sender <sender@example.com>",
+        isHistorical: false,
+        providerAccountIdentifier: connection.providerAccountIdentifier,
+        providerInternalDateMilliseconds: 2,
+        providerMessageId: "message-002",
+        providerThreadId: "thread-002",
+        replyTo: nil,
+        snippet: "Snippet",
+        stableProviderMessageId: "gmail:gmail-user-001:message-002",
+        subject: "Subject",
+        rfcMessageId: "<message-002@example.com>"
+      ),
+    ]
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = messages
+    syncService.newMessageIds = Set(messages.map(\.providerMessageId))
+    let notificationDelivery = RecordingNotificationDelivery()
+    let receiptStore = RecordingGmailPushReceiptStore()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let firstHandler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      hasProcessingTimeRemaining: { notificationDelivery.messages.isEmpty },
+      notificationDelivery: notificationDelivery,
+      notificationReceiptStore: receiptStore,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let firstHandled = try await firstHandler.handle(userInfo: [
+      "historyId": "124", "provider": "gmail", "routeId": "route-001",
+    ])
+    XCTAssertFalse(firstHandled)
+
+    let secondHandler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationReceiptStore: receiptStore,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let secondHandled = try await secondHandler.handle(userInfo: [
+      "historyId": "124", "provider": "gmail", "routeId": "route-001",
+    ])
+    XCTAssertTrue(secondHandled)
+    XCTAssertEqual(notificationDelivery.messages, messages)
+    XCTAssertTrue(receiptStore.receipts.isEmpty)
+  }
+
   func testUserNotificationServiceRequestsVisibleNotificationAuthorization() async throws {
     let center = RecordingUserNotificationCenter()
     let service = UserNotificationService(center: center)
@@ -1345,6 +1416,32 @@ private struct StubNotificationAuthorization: NotificationAuthorizationRequestin
 
   func requestAuthorization() async throws -> Bool {
     granted
+  }
+}
+
+private final class RecordingGmailPushReceiptStore:
+  GmailPushNotificationReceiptPersisting
+{
+  private(set) var receipts: Set<String> = []
+
+  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {
+    receipts = []
+  }
+
+  func contains(
+    _ message: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Bool {
+    receipts.contains(message.stableProviderMessageId)
+  }
+
+  func record(
+    _ message: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    receipts.insert(message.stableProviderMessageId)
   }
 }
 
