@@ -793,7 +793,7 @@ struct GmailPushWakeupHandler {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else {
-      return try await completeWithGenericFallback()
+      return false
     }
     guard hasProcessingTimeRemaining() else {
       guard !notificationRules.categoryIds.isEmpty else { return false }
@@ -818,7 +818,7 @@ struct GmailPushWakeupHandler {
       let currentNotificationRules = try await failClosed {
         try await notificationRuleSync.loadRules(session: productSession).rules
       }
-      guard currentNotificationRules?.categoryIds.isEmpty == false else { return false }
+      guard currentNotificationRules?.categoryIds.isEmpty == false else { throw error }
       return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }

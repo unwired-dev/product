@@ -868,7 +868,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
-  func testGmailWakeupShowsEnabledGenericFallbackWhenNotificationRulesCannotLoad()
+  func testGmailWakeupDoesNotFallbackWhenNotificationRulesCannotLoad()
     async throws
   {
     let sessionStore = InMemoryProductAccountSessionStore()
@@ -896,8 +896,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
-    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
   }
 
   func testGmailWakeupShowsEnabledGenericFallbackWhenMetadataSyncFails() async throws {
@@ -966,13 +966,16 @@ final class GmailPushRelayServiceTests: XCTestCase {
       watchStore: watchStore
     )
 
-    let handled = try await handler.handle(userInfo: [
-      "historyId": "124",
-      "provider": "gmail",
-      "routeId": "route-001",
-    ])
-
-    XCTAssertFalse(handled)
+    do {
+      _ = try await handler.handle(userInfo: [
+        "historyId": "124",
+        "provider": "gmail",
+        "routeId": "route-001",
+      ])
+      XCTFail("Expected metadata sync failure")
+    } catch {
+      XCTAssertTrue(error is GmailPushRelayTestError)
+    }
     XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
     XCTAssertNil(watchStore.savedStatus)
   }
