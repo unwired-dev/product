@@ -28,6 +28,10 @@ _Avoid_: Email backend, email source
 An authenticated link between a **Product Account** and one mailbox supplied by a **Mail Provider**.
 _Avoid_: Account, Product Account, provider account
 
+**Stable Provider Mailbox Identity**:
+A provider-issued immutable mailbox or account identifier; when a provider supplies none, the client uses its provider type, verified endpoint, and canonical authenticated mailbox identity and asks the user to repair rather than merge a mismatch.
+_Avoid_: Display name, local database ID
+
 **Mailbox Authorization**:
 A device-local credential grant that lets one trusted device access a **Mailbox Connection**.
 _Avoid_: Mailbox Connection, synced provider credential
@@ -75,6 +79,10 @@ _Avoid_: Unified folder, mailbox account
 **Mailbox Role**:
 A provider-independent meaning such as Inbox, Sent, Drafts, Spam, Trash, or Archive assigned to a provider mailbox or label.
 _Avoid_: Folder name, localized-name inference
+
+**All Mail**:
+A product-local aggregate of every message except Spam and Trash across all **Mailbox Connections**, available even when a provider has no native all-mail mailbox.
+_Avoid_: Required provider folder, Gmail-only mailbox
 
 **Sent Mailbox**:
 A mailbox containing messages whose delivery has completed successfully; its unified form aggregates sent messages across **Mailbox Connections**.
@@ -261,6 +269,7 @@ _Avoid_: Password reset, support recovery
 - A **Legacy POP3 Connection** does not promise server-synchronized folders, moves, flags, or real-time delivery
 - A **Unified Mailbox** aggregates a mailbox role across all **Mailbox Connections**
 - The permanent **Unified Mailboxes** are Inbox, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
+- **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views
 - Provider-native semantics or IMAP special-use markers assign a **Mailbox Role** when they are unambiguous
@@ -278,7 +287,7 @@ _Avoid_: Password reset, support recovery
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems
 - Pending and failed Outbox messages remain editable and cancellable until an **Outgoing Delivery Attempt** has been handed to its provider; an in-flight attempt must first reach a terminal state
 - Editing an eligible Outbox message creates a new **Outgoing Delivery Attempt** rather than mutating an attempt already in flight
-- A **Pin** is protected by **End-to-End Encrypted Product Sync** and remains independent of provider-visible flags
+- A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Provider Message Identity**, and remains independent of provider-visible flags
 - Pinned messages from all **Mailbox Connections** appear together in the unified pinned-message view
 - A **True email client** supports **Provider Mail Actions**
 - An offline **Provider Mail Action** becomes a **Pending Provider Action** and updates local presentation optimistically
@@ -333,7 +342,7 @@ _Avoid_: Password reset, support recovery
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
-- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 messages combined across Inbox and **Sent Mailbox**, selected by newest received timestamp from the last 30 days
+- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 messages combined across Inbox and **Sent Mailbox**, selected by each message's received timestamp in Inbox or sent timestamp in **Sent Mailbox** from the last 30 days, with **Stable Provider Message Identity** as the deterministic tie-breaker
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs only when they fit without immediately evicting another pinned body; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
 - Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
