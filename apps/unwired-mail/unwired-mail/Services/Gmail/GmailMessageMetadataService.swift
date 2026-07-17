@@ -45,7 +45,7 @@ struct GmailLocalMetadataSearch {
         .compactMap { $0 }
         .joined(separator: " ")
       )
-      let providerStates = providerStates(for: message.providerLabelIds ?? [])
+      let providerStates = message.providerLabelIds.map(providerStates(for:)) ?? []
       return terms.allSatisfy { term in
         searchableText.contains(term) || providerStates.contains(String(term))
       }
@@ -54,10 +54,10 @@ struct GmailLocalMetadataSearch {
 
   private static func dateText(for milliseconds: Int64) -> String {
     let formatter = DateFormatter()
-    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.calendar = .current
     formatter.dateFormat = "yyyy-MM-dd"
     formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    formatter.timeZone = .current
     return formatter.string(
       from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
     )

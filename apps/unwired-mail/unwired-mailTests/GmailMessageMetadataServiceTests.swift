@@ -88,6 +88,31 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testLocalMetadataSearchDoesNotInferStatesWhenLabelsAreMissing() {
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: [message],
+        matching: "read",
+        categoryNamesById: [:]
+      ),
+      []
+    )
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: [message],
+        matching: "unstarred",
+        categoryNamesById: [:]
+      ),
+      []
+    )
+  }
+
   func testSyncInboxStoresMetadataWithStableProviderIdentityAndNoCategory() async throws {
     let fixture = try makeSyncFixture()
 
@@ -430,6 +455,36 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(searchService.receivedQueries, ["private body phrase"])
     XCTAssertEqual(viewModel.searchResult?.source, .providerFullText)
     XCTAssertEqual(viewModel.searchResult?.messages, [providerMessage])
+  }
+
+  @MainActor
+  func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
+    let providerMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+    let metadataService = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:]
+    )
+    let searchService = DelayedGmailMessageSearchService(messages: [providerMessage])
+    let viewModel = GmailInboxViewModel(
+      service: metadataService,
+      searchService: searchService,
+      session: session
+    )
+    await viewModel.loadAfterConnectionChange(connection: connection)
+
+    viewModel.searchQuery = "invoice"
+    let searchTask = Task {
+      await viewModel.searchProvider(connection: connection)
+    }
+    await searchService.waitUntilSearchStarts()
+    viewModel.searchQuery = "flight"
+    await searchService.releaseSearch()
+    await searchTask.value
+
+    XCTAssertNil(viewModel.searchResult)
   }
 
   @MainActor
@@ -1700,6 +1755,32 @@ private final class RecordingGmailMessageSearchService: GmailMessageSearching {
   ) async throws -> [GmailMessageMetadata] {
     receivedQueries.append(query)
     return messages
+  }
+}
+
+private final class DelayedGmailMessageSearchService: GmailMessageSearching {
+  private let messages: [GmailMessageMetadata]
+  private let searchGate = OverrideGate()
+
+  init(messages: [GmailMessageMetadata]) {
+    self.messages = messages
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    await searchGate.waitForRelease()
+    return messages
+  }
+
+  func waitUntilSearchStarts() async {
+    await searchGate.waitUntilStarted()
+  }
+
+  func releaseSearch() async {
+    await searchGate.release()
   }
 }
 

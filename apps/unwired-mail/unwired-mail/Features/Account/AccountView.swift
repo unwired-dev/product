@@ -581,15 +581,21 @@ final class GmailInboxViewModel {
     guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else { return }
     isSearching = true
     defer { isSearching = false }
+    let query = searchQuery
 
     do {
       let messages = try await searchService.searchProvider(
-        query: searchQuery,
+        query: query,
         connection: connection,
         session: session
       )
       try Task.checkCancellation()
-      guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else { return }
+      guard
+        currentProviderAccountIdentifier == connection.providerAccountIdentifier,
+        searchQuery == query
+      else {
+        return
+      }
       searchResult = GmailSearchResult(messages: messages, source: .providerFullText)
       errorMessage = nil
     } catch is CancellationError {
@@ -1209,14 +1215,15 @@ private struct GmailSearchPanel: View {
       HStack {
         Button("Search Local Metadata", action: searchLocal)
           .buttonStyle(.borderedProminent)
+          .disabled(isDisabled || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         Button("Search Gmail Full Text", action: searchProvider)
           .buttonStyle(.bordered)
+          .disabled(isDisabled || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         if result != nil {
           Button("Clear Search", action: clear)
             .buttonStyle(.plain)
         }
       }
-      .disabled(isDisabled || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
 
       Text(
         "Local search stays on this device. Gmail full-text search sends only this query to Gmail."
