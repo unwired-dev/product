@@ -795,6 +795,40 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
   }
 
+  func testGmailWakeupShowsEnabledGenericFallbackWhenMetadataSyncFails() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncError = GmailPushRelayTestError.unexpectedCall
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+  }
+
   func testGmailWakeupAdvancesWatermarkForUnlistedMessagesWithoutNotificationRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -900,6 +934,47 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertFalse(handled)
     XCTAssertTrue(receiptStore.receipts.isEmpty)
     XCTAssertNil(watchStore.savedStatus)
+  }
+
+  func testGmailWakeupShowsEnabledGenericFallbackWhenCategoryNotificationDeliveryFails()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let genericDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationDelivery: genericDelivery,
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: FailingNotificationDelivery(),
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(genericDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationAuthorizationIsDenied()
@@ -1710,6 +1785,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   var newMessageIds: Set<String>?
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
+  var syncError: Error?
 
   func categorizeHistorical(
     scope _: GmailHistoricalCategorizationScope,
@@ -1751,6 +1827,9 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
     self.shouldPersist = canPersist
     guard canPersist else {
       throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
+    if let syncError {
+      throw syncError
     }
     return GmailMetadataSyncResult(
       hasUnlistedNewMessages: hasUnlistedNewMessages,

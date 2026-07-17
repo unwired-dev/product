@@ -745,26 +745,24 @@ struct GmailPushWakeupHandler {
     let routeIsCurrent = {
       currentWatchForRoute() != nil
     }
-
-    guard hasProcessingTimeRemaining() else {
-      return try await deliverGenericFallback(
+    let scheduleGenericFallback: () async throws -> Bool = {
+      try await deliverGenericFallback(
         historyId: historyId,
         productAccountId: productSession.productAccountId,
         routeId: routeId,
         routeIsCurrent: routeIsCurrent
       )
+    }
+
+    guard hasProcessingTimeRemaining() else {
+      return try await scheduleGenericFallback()
     }
 
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else {
-      return try await deliverGenericFallback(
-        historyId: historyId,
-        productAccountId: productSession.productAccountId,
-        routeId: routeId,
-        routeIsCurrent: routeIsCurrent
-      )
+      return try await scheduleGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let syncResult: GmailMetadataSyncResult
@@ -777,20 +775,19 @@ struct GmailPushWakeupHandler {
         throughHistoryId: historyId,
         shouldPersist: routeIsCurrent
       )
+    } catch is CancellationError {
+      throw CancellationError()
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
+    } catch {
+      return try await scheduleGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let currentNotificationRules else {
-      return try await deliverGenericFallback(
-        historyId: historyId,
-        productAccountId: productSession.productAccountId,
-        routeId: routeId,
-        routeIsCurrent: routeIsCurrent
-      )
+      return try await scheduleGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let canAdvanceWatermark =
@@ -810,12 +807,7 @@ struct GmailPushWakeupHandler {
         productAccountId: productSession.productAccountId
       )
     {
-      deliveredGenericFallback = try await deliverGenericFallback(
-        historyId: historyId,
-        productAccountId: productSession.productAccountId,
-        routeId: routeId,
-        routeIsCurrent: routeIsCurrent
-      )
+      deliveredGenericFallback = try await scheduleGenericFallback()
       guard deliveredGenericFallback else { return false }
     } else {
       deliveredGenericFallback = false
@@ -830,14 +822,7 @@ struct GmailPushWakeupHandler {
         connection: connection,
         productAccountId: productSession.productAccountId,
         rules: currentNotificationRules,
-        onProcessingTimeout: {
-          try await deliverGenericFallback(
-            historyId: historyId,
-            productAccountId: productSession.productAccountId,
-            routeId: routeId,
-            routeIsCurrent: routeIsCurrent
-          )
-        },
+        onProcessingFailure: scheduleGenericFallback,
         routeIsCurrent: routeIsCurrent,
         watermarkIsCurrent: {
           guard let currentWatch = currentWatchForRoute() else { return false }
@@ -895,7 +880,7 @@ struct GmailPushWakeupHandler {
     connection: GmailProviderConnectionStatus,
     productAccountId: String,
     rules: NotificationRules?,
-    onProcessingTimeout: () async throws -> Bool,
+    onProcessingFailure: () async throws -> Bool,
     routeIsCurrent: () -> Bool,
     watermarkIsCurrent: () -> Bool
   ) async throws -> Bool {
@@ -910,7 +895,7 @@ struct GmailPushWakeupHandler {
     {
       guard routeIsCurrent(), watermarkIsCurrent() else { return false }
       guard hasProcessingTimeRemaining() else {
-        return try await onProcessingTimeout()
+        return try await onProcessingFailure()
       }
       switch try notificationReceiptStore.claim(
         message,
@@ -949,7 +934,7 @@ struct GmailPushWakeupHandler {
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
-        return try await onProcessingTimeout()
+        return try await onProcessingFailure()
       }
       do {
         try await notificationDelivery.deliver(message: message)
@@ -971,8 +956,7 @@ struct GmailPushWakeupHandler {
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
-        // Visible notification delivery fails closed without adding a generic fallback.
-        return false
+        return try await onProcessingFailure()
       }
     }
     return true
