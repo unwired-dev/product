@@ -977,6 +977,42 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testGmailWakeupDoesNotFallbackWhenRulesCannotReloadAfterMetadataSync()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: FailingAfterFirstNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: RecordingPushGmailMetadataSyncService(),
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupAdvancesWatermarkForUnlistedMessagesWithoutNotificationRules() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -2221,6 +2257,31 @@ private actor ChangingNotificationRuleSync: NotificationRuleSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     NotificationRuleSyncSnapshot(rules: rules.removeFirst(), updatedAt: nil)
+  }
+
+  func saveRules(
+    _ rules: NotificationRules,
+    expectedUpdatedAt _: Int64?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
+  }
+}
+
+private actor FailingAfterFirstNotificationRuleSync: NotificationRuleSyncing {
+  private let rules: NotificationRules
+  private var hasLoaded = false
+
+  init(rules: NotificationRules) {
+    self.rules = rules
+  }
+
+  func loadRules(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    guard !hasLoaded else { throw GmailPushRelayTestError.unexpectedCall }
+    hasLoaded = true
+    return NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
   }
 
   func saveRules(

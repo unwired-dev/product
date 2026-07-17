@@ -825,9 +825,7 @@ struct GmailPushWakeupHandler {
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
-    guard let currentNotificationRules else {
-      return try await completeWithGenericFallback()
-    }
+    guard let currentNotificationRules else { return false }
     guard currentWatchForRoute() != nil else { return false }
     let canAdvanceWatermark =
       currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
