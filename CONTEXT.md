@@ -125,7 +125,7 @@ A category assigned to an individual message, such as promotions, invites, invoi
 _Avoid_: Thread category, folder
 
 **Stable Provider Message Identity**:
-A provider-specific message identity used to match the same message across devices.
+A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph uses its immutable ID; IMAP uses UIDVALIDITY plus UID within its mailbox; POP3 uses UIDL; and Exchange uses its provider item identity. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
 _Avoid_: Local database ID, backend message ID
 
 **Stable Provider Mailbox Identity**:
@@ -342,10 +342,11 @@ _Avoid_: Password reset, support recovery
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
-- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 messages combined across Inbox and **Sent Mailbox**, selected by each message's received timestamp in Inbox or sent timestamp in **Sent Mailbox** from the last 30 days, with **Stable Provider Message Identity** as the deterministic tie-breaker
+- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp is on or after that instant minus 30 days; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
+- Recent prefetched bodies are admitted only when they fit without immediately evicting another selected recent body; bodies refused admission remain on demand until a later synchronization finds space
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs only when they fit without immediately evicting another pinned body; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
-- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
+- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes opened older non-pinned bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
@@ -427,7 +428,7 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Should the app permanently store every email body?"
 > **Domain expert:** "No — store **Durable Message Metadata** and categorization, while using a **Bounded Encrypted Body Cache** for recent and previously opened body text."
 > **Dev:** "Which message bodies should be prefetched?"
-> **Domain expert:** "The newest 500 Inbox and **Sent Mailbox** bodies combined, plus pinned bodies that fit without evicting another pinned body; keep Spam, Trash, attachments, and older unpinned bodies on-demand."
+> **Domain expert:** "At each synchronization reference instant, select up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days that fit without immediately evicting another selected recent body, plus pinned bodies that fit without evicting another pinned body; keep Spam, Trash, attachments, and older unpinned bodies on-demand."
 > **Dev:** "Can the backend participate in push without holding mail provider tokens?"
 > **Domain expert:** "Yes — it may use **Minimal Push Metadata** to wake trusted devices, but devices fetch mail themselves."
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
