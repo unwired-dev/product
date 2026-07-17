@@ -497,7 +497,6 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				GMAIL_OAUTH_CALLBACK_SCHEME = "";
 				GMAIL_OAUTH_CLIENT_ID = "";
 				GMAIL_PUBSUB_TOPIC = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
@@ -531,7 +530,6 @@
 				ENABLE_PREVIEWS = YES;
 				"EXCLUDED_ARCHS[sdk=macosx*]" = x86_64;
 				GENERATE_INFOPLIST_FILE = YES;
-				GMAIL_OAUTH_CALLBACK_SCHEME = "";
 				GMAIL_OAUTH_CLIENT_ID = "";
 				GMAIL_PUBSUB_TOPIC = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
