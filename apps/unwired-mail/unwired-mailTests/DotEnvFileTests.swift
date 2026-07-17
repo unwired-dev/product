@@ -52,4 +52,25 @@ final class DotEnvFileTests: XCTestCase {
 
     XCTAssertEqual(DotEnvFile.value(for: "DOTENV_TEST_KEY"), "https://example.convex.cloud")
   }
+
+  func testAppleClientValuesExcludeBackendSecrets() {
+    let values = DotEnvFile.parseAppleClientValues(
+      """
+      CONVEX_URL=https://example.convex.cloud
+      GMAIL_OAUTH_CLIENT_ID=client-id.apps.googleusercontent.com
+      GMAIL_PUBSUB_TOPIC=projects/example/topics/gmail-push
+      APNS_PRIVATE_KEY=backend-secret
+      GMAIL_PUSH_VERIFICATION_TOKEN=backend-secret
+      """
+    )
+
+    XCTAssertEqual(
+      values,
+      [
+        "CONVEX_URL": "https://example.convex.cloud",
+        "GMAIL_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
+        "GMAIL_PUBSUB_TOPIC": "projects/example/topics/gmail-push",
+      ]
+    )
+  }
 }

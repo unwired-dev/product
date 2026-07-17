@@ -4,6 +4,15 @@
 <dict>
 	<key>GmailOAuthClientId</key>
 	<string>$(GMAIL_OAUTH_CLIENT_ID)</string>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(GMAIL_OAUTH_CALLBACK_SCHEME)</string>
+			</array>
+		</dict>
+	</array>
 	<key>GmailPubSubTopic</key>
 	<string>$(GMAIL_PUBSUB_TOPIC)</string>
 	<key>UIBackgroundModes</key>

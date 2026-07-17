@@ -151,6 +151,7 @@ vite.config.ts.timestamp-*
 # Xcode
 DerivedData/
 *.xcuserdata/
+apps/unwired-mail/unwired-mail/LocalSigning.xcconfig
 
 # Mac
 .DS_Store

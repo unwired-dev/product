@@ -95,9 +95,7 @@ protocol GmailProviderConnecting {
 protocol GmailProviderCredentialVerifying {
   func verify(
     accessToken: String,
-    refreshToken: String,
-    expectedEmailAddress: String,
-    expectedProviderAccountIdentifier: String
+    refreshToken: String
   ) async throws -> VerifiedGmailAccount
 }
 
@@ -364,6 +362,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
   private let session: URLSession
   private let tokenInfoURL: URL
   private let tokenRefreshURL: URL
+  private let userInfoURL: URL
 
   init(
     gmailProfileURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1/users/me/profile")!,
@@ -373,21 +372,20 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
     tokenInfoURL: URL = URL(string: "https://oauth2.googleapis.com/tokeninfo")!,
-    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!
+    tokenRefreshURL: URL = URL(string: "https://oauth2.googleapis.com/token")!,
+    userInfoURL: URL = URL(string: "https://openidconnect.googleapis.com/v1/userinfo")!
   ) {
     self.gmailProfileURL = gmailProfileURL
     self.oauthClientId = oauthClientId
     self.session = session
     self.tokenInfoURL = tokenInfoURL
     self.tokenRefreshURL = tokenRefreshURL
+    self.userInfoURL = userInfoURL
   }
 
-  // swiftlint:disable:next function_body_length
   func verify(
     accessToken: String,
-    refreshToken: String,
-    expectedEmailAddress: String,
-    expectedProviderAccountIdentifier: String
+    refreshToken: String
   ) async throws -> VerifiedGmailAccount {
     guard let oauthClientId, !oauthClientId.isEmpty else {
       throw GmailProviderCredentialVerificationError.missingOAuthClientId
@@ -410,28 +408,19 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     }
 
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: data)
-    guard let subject = tokenInfo.sub else {
-      throw GmailProviderCredentialVerificationError.missingVerificationResponse
-    }
     guard tokenInfo.allowsReadingMessageBodies else {
       throw GmailProviderCredentialVerificationError.insufficientGmailScope
     }
-    guard
-      profile.emailAddress.caseInsensitiveCompare(expectedEmailAddress) == .orderedSame,
-      subject == expectedProviderAccountIdentifier
-    else {
-      throw GmailProviderCredentialVerificationError.accountMismatch
-    }
-
+    let subject = try await loadGoogleAccountIdentifier(accessToken: accessToken)
     let refreshedProfileAndTokenInfo = try await refreshProfileAndTokenInfo(
       refreshToken: refreshToken,
       oauthClientId: oauthClientId
     )
     guard
       refreshedProfileAndTokenInfo.profile.emailAddress.caseInsensitiveCompare(
-        expectedEmailAddress
+        profile.emailAddress
       ) == .orderedSame,
-      refreshedProfileAndTokenInfo.tokenInfo.sub == expectedProviderAccountIdentifier
+      refreshedProfileAndTokenInfo.subject == subject
     else {
       throw GmailProviderCredentialVerificationError.accountMismatch
     }
@@ -472,7 +461,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
   private func refreshProfileAndTokenInfo(
     refreshToken: String,
     oauthClientId: String
-  ) async throws -> (profile: GoogleGmailProfileResponse, tokenInfo: GoogleTokenInfoResponse) {
+  ) async throws -> RefreshedGmailVerification {
     var request = URLRequest(url: tokenRefreshURL)
     request.httpMethod = "POST"
     request.setValue("application/x-www-form-urlencoded", forHTTPHeaderField: "Content-Type")
@@ -510,10 +499,29 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       throw GmailProviderCredentialVerificationError.invalidRefreshToken
     }
 
-    return (
+    let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: tokenInfoData)
+    let subject = try await loadGoogleAccountIdentifier(accessToken: tokenResponse.accessToken)
+    return RefreshedGmailVerification(
       profile: profile,
-      tokenInfo: try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: tokenInfoData)
+      subject: subject,
+      tokenInfo: tokenInfo
     )
+  }
+
+  private func loadGoogleAccountIdentifier(accessToken: String) async throws -> String {
+    var request = URLRequest(url: userInfoURL)
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+
+    let (data, response) = try await session.data(for: request)
+    guard
+      let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode),
+      let userInfo = try? JSONDecoder().decode(GoogleOpenIDUserInfoResponse.self, from: data),
+      !userInfo.sub.isEmpty
+    else {
+      throw GmailProviderCredentialVerificationError.missingVerificationResponse
+    }
+    return userInfo.sub
   }
 
   private func formURLEncodedBody(_ fields: [String: String]) -> Data {
@@ -559,12 +567,21 @@ private struct GoogleTokenInfoResponse: Decodable {
   ]
 
   let scope: String?
-  let sub: String?
 
   var allowsReadingMessageBodies: Bool {
     guard let scope else { return false }
     return !Self.bodyReadableScopes.isDisjoint(with: scope.split(separator: " ").map(String.init))
   }
+}
+
+private struct GoogleOpenIDUserInfoResponse: Decodable {
+  let sub: String
+}
+
+private struct RefreshedGmailVerification {
+  let profile: GoogleGmailProfileResponse
+  let subject: String
+  let tokenInfo: GoogleTokenInfoResponse
 }
 
 private struct GoogleGmailProfileResponse: Decodable {

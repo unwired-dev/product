@@ -617,9 +617,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     do {
       _ = try await verifier.verify(
         accessToken: "access-token",
-        refreshToken: "refresh-token",
-        expectedEmailAddress: "user@example.com",
-        expectedProviderAccountIdentifier: "gmail-user-001"
+        refreshToken: "refresh-token"
       )
       XCTFail("Expected Gmail authorization failure")
     } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
@@ -651,9 +649,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     do {
       _ = try await verifier.verify(
         accessToken: "access-token",
-        refreshToken: "refresh-token",
-        expectedEmailAddress: "user@example.com",
-        expectedProviderAccountIdentifier: "gmail-user-001"
+        refreshToken: "refresh-token"
       )
       XCTFail("Expected insufficient Gmail scope")
     } catch GmailProviderCredentialVerificationError.insufficientGmailScope {
@@ -689,20 +685,26 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         )
       }
 
+      if path == "/v1/userinfo" {
+        let subject =
+          request.value(forHTTPHeaderField: "Authorization") == "Bearer access-token"
+          ? "gmail-user-001" : "other-gmail-user"
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"\#(subject)"}"#.utf8)
+        )
+      }
+
       if request.url?.query == "access_token=access-token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(
-            #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
-              .utf8)
+          Data(#"{"scope":"\#(Self.gmailReadScope)"}"#.utf8)
         )
       }
 
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(
-          #"{"email":"other@example.com","scope":"\#(Self.gmailReadScope)","sub":"other-gmail-user"}"#
-            .utf8)
+        Data(#"{"scope":"\#(Self.gmailReadScope)"}"#.utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -713,9 +715,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     do {
       _ = try await verifier.verify(
         accessToken: "access-token",
-        refreshToken: "refresh-token",
-        expectedEmailAddress: "user@example.com",
-        expectedProviderAccountIdentifier: "gmail-user-001"
+        refreshToken: "refresh-token"
       )
       XCTFail("Expected account mismatch")
     } catch GmailProviderCredentialVerificationError.accountMismatch {
@@ -743,11 +743,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         )
       }
 
+      if path == "/v1/userinfo" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        )
+      }
+
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(
-          #"{"email":"user@example.com","scope":"\#(Self.gmailReadScope)","sub":"gmail-user-001"}"#
-            .utf8)
+        Data(#"{"scope":"\#(Self.gmailReadScope)"}"#.utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -758,9 +763,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     do {
       _ = try await verifier.verify(
         accessToken: "access-token",
-        refreshToken: "refresh-token",
-        expectedEmailAddress: "user@example.com",
-        expectedProviderAccountIdentifier: "gmail-user-001"
+        refreshToken: "refresh-token"
       )
       XCTFail("Expected Gmail authorization failure")
     } catch GmailProviderCredentialVerificationError.missingGmailAuthorization {
@@ -790,11 +793,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         )
       }
 
+      if path == "/v1/userinfo" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        )
+      }
+
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(
-          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
-        )
+        Data(#"{"scope":"https://www.googleapis.com/auth/gmail.readonly"}"#.utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -804,9 +812,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let account = try await verifier.verify(
       accessToken: "access-token",
-      refreshToken: "refresh-token",
-      expectedEmailAddress: "user@example.com",
-      expectedProviderAccountIdentifier: "gmail-user-001"
+      refreshToken: "refresh-token"
     )
 
     XCTAssertEqual(account.emailAddress, "user@example.com")
@@ -838,11 +844,16 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         )
       }
 
+      if path == "/v1/userinfo" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"gmail-user-001"}"#.utf8)
+        )
+      }
+
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(
-          #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#.utf8
-        )
+        Data(#"{"scope":"https://www.googleapis.com/auth/gmail.readonly"}"#.utf8)
       )
     }
     let verifier = GoogleGmailProviderCredentialVerifier(
@@ -852,13 +863,102 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     let account = try await verifier.verify(
       accessToken: "access-token",
-      refreshToken: "refresh-token",
-      expectedEmailAddress: "user@example.com",
-      expectedProviderAccountIdentifier: "gmail-user-001"
+      refreshToken: "refresh-token"
     )
 
     XCTAssertEqual(account.emailAddress, "user@example.com")
     XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
+  }
+
+  func testGoogleOAuthRequestUsesPKCEAndIdentityAndGmailScopes() throws {
+    let request = GoogleGmailOAuthRequest(
+      clientIdentifier: "123.apps.googleusercontent.com",
+      codeVerifier: "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk",
+      state: "oauth-state"
+    )
+    let authorizationURL = try XCTUnwrap(request.authorizationURL)
+    let components = try XCTUnwrap(
+      URLComponents(url: authorizationURL, resolvingAgainstBaseURL: false)
+    )
+    let query = Dictionary(
+      uniqueKeysWithValues: (components.queryItems ?? []).compactMap { item in
+        item.value.map { (item.name, $0) }
+      }
+    )
+
+    XCTAssertEqual(request.callbackScheme, "com.googleusercontent.apps.123")
+    XCTAssertEqual(
+      request.redirectURI?.absoluteString,
+      "com.googleusercontent.apps.123:/oauth2redirect"
+    )
+    XCTAssertEqual(query["access_type"], "offline")
+    XCTAssertEqual(query["client_id"], "123.apps.googleusercontent.com")
+    XCTAssertEqual(query["code_challenge"], "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
+    XCTAssertEqual(query["code_challenge_method"], "S256")
+    XCTAssertEqual(query["prompt"], "consent")
+    XCTAssertEqual(query["response_type"], "code")
+    XCTAssertEqual(query["scope"], GoogleGmailOAuthRequest.authorizationScope)
+    XCTAssertEqual(query["state"], "oauth-state")
+  }
+
+  func testGoogleOAuthRequestRejectsCallbackWithDifferentState() throws {
+    let request = GoogleGmailOAuthRequest(
+      clientIdentifier: "123.apps.googleusercontent.com",
+      codeVerifier: "code-verifier",
+      state: "expected-state"
+    )
+    let callbackURL = try XCTUnwrap(
+      URL(string: "com.googleusercontent.apps.123:/oauth2redirect?code=code&state=other-state")
+    )
+
+    XCTAssertThrowsError(try request.authorizationCode(from: callbackURL)) { error in
+      guard case GoogleGmailOAuthError.invalidAuthorizationState = error else {
+        return XCTFail("Unexpected error: \(error)")
+      }
+    }
+  }
+
+  @MainActor
+  func testGoogleOAuthTokenExchangeReturnsAccessAndRefreshTokens() async throws {
+    let session = ConvexClientTesting.makeSession { request in
+      XCTAssertEqual(request.httpMethod, "POST")
+      XCTAssertEqual(
+        request.value(forHTTPHeaderField: "Content-Type"),
+        "application/x-www-form-urlencoded"
+      )
+      let body = Self.httpBodyString(for: request)
+      XCTAssertTrue(body?.contains("client_id=123.apps.googleusercontent.com") == true)
+      XCTAssertTrue(body?.contains("code=authorization-code") == true)
+      XCTAssertTrue(body?.contains("code_verifier=code-verifier") == true)
+      XCTAssertTrue(body?.contains("grant_type=authorization_code") == true)
+      XCTAssertTrue(
+        body?.contains("redirect_uri=com.googleusercontent.apps.123%3A%2Foauth2redirect") == true
+      )
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(#"{"access_token":"access-token","refresh_token":"refresh-token"}"#.utf8)
+      )
+    }
+    let service = GoogleGmailOAuthService(
+      clientIdentifier: "123.apps.googleusercontent.com",
+      session: session,
+      tokenEndpoint: URL(string: "https://oauth.example.test/token")!
+    )
+    let request = GoogleGmailOAuthRequest(
+      clientIdentifier: "123.apps.googleusercontent.com",
+      codeVerifier: "code-verifier",
+      state: "oauth-state"
+    )
+
+    let tokens = try await service.exchangeAuthorizationCode(
+      "authorization-code",
+      request: request
+    )
+
+    XCTAssertEqual(
+      tokens,
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+    )
   }
 
   func testBundledOAuthClientIdReadsGeneratedInfoPlistKey() throws {

@@ -9,11 +9,13 @@
  */
 
 import type * as apns from "../apns.js";
+import type * as gmailPushPayload from "../gmailPushPayload.js";
 import type * as health from "../health.js";
-import type * as pushRelay from "../pushRelay.js";
+import type * as http from "../http.js";
 import type * as productAccount from "../productAccount.js";
 import type * as productAccountAuth from "../productAccountAuth.js";
 import type * as productSync from "../productSync.js";
+import type * as pushRelay from "../pushRelay.js";
 
 import type {
   ApiFromModules,
@@ -23,11 +25,13 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   apns: typeof apns;
+  gmailPushPayload: typeof gmailPushPayload;
   health: typeof health;
-  pushRelay: typeof pushRelay;
+  http: typeof http;
   productAccount: typeof productAccount;
   productAccountAuth: typeof productAccountAuth;
   productSync: typeof productSync;
+  pushRelay: typeof pushRelay;
 }>;
 
 /**

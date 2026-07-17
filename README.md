@@ -33,13 +33,13 @@ pnpm install
 Run the Convex backend development environment:
 
 ```sh
-cp .env.example packages/convex/.env.local
+cp .env.example .env.local
 pnpm dev
 ```
 
-`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use an untracked `apps/unwired-mail/.env.local` file, a local Xcode scheme environment variable, or another untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
+`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Debug builds read `CONVEX_URL`, `GMAIL_OAUTH_CLIENT_ID`, and `GMAIL_PUBSUB_TOPIC` from the repository-root `.env.local`; backend-only values are ignored. An untracked `apps/unwired-mail/.env.local` file or local Xcode scheme environment variables can override those defaults. Do not commit developer-specific Convex URLs or secrets.
 
-Gmail provider connection also requires `GMAIL_OAUTH_CLIENT_ID` so the device can validate pasted refresh tokens with Google before storing them locally. Use an Apple app environment value for local development, and set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting for release-style builds so the non-secret client id is bundled in Info.plist. Keep any OAuth client secrets out of the app.
+Gmail provider connection requires an **iOS OAuth client ID** from the Google Cloud project, configured for the app's bundle identifier. Enable the Gmail API, configure the OAuth consent screen with the `openid`, `email`, and `gmail.modify` scopes, then set the client ID as `GMAIL_OAUTH_CLIENT_ID`. Also set the app target's `GMAIL_OAUTH_CALLBACK_SCHEME` build setting to its reversed client ID (for example, `com.googleusercontent.apps.1234567890-abc`); iOS must register that scheme before Google can return to the app. Debug builds may read the client ID from the repository-root or app-specific `.env.local`, but the callback scheme remains an Xcode build setting. Release-style builds should set both values in the app target so the non-secret client ID and callback registration are bundled in Info.plist. The single **Sign in with Google** button opens the system authentication window, uses PKCE, and reuses the browser's Google session when available. Keep OAuth client secrets out of the app.
 
 ### Gmail push relay
 
@@ -88,12 +88,10 @@ The first app screen is the Product Account path. It lets a user sign in with Ap
 
 Sign in with Apple requires a signed build with the capability enabled. Error 1000 (`AuthorizationError unknown`) almost always means signing or entitlements are missing.
 
-1. Open `apps/unwired-mail/unwired-mail.xcodeproj` in Xcode.
-2. Select the `unwired-mail` target → **Signing & Capabilities**.
-3. Choose your **Development Team** (Apple Developer Program membership required).
-4. Confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
-5. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control and set matching `APPLE_BUNDLE_ID` in the Convex deployment environment (`packages/convex/.env.local` for local dev).
-6. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
+1. Set your Apple team in the untracked `apps/unwired-mail/unwired-mail/LocalSigning.xcconfig` file: `DEVELOPMENT_TEAM = YOUR_TEAM_ID`. (The local development setup creates this file for you.)
+2. Open `apps/unwired-mail/unwired-mail.xcodeproj` in Xcode and confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
+3. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control and set matching `APPLE_BUNDLE_ID` in the Convex deployment environment (`.env.local` at the repository root for local dev).
+4. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
 
 CI keeps code signing disabled for simulator tests; only local runs that exercise Apple sign-in need the steps above.
 
