@@ -1192,7 +1192,7 @@ extension GmailMessageMetadata {
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
-      recipientHeader: recipientHeader,
+      recipientHeaders: recipientHeaders,
       rfcMessageId: rfcMessageId
     )
   }

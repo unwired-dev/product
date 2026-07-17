@@ -19,7 +19,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let snippet: String
   let stableProviderMessageId: String
   let subject: String
-  var recipientHeader: String? = .none
+  var recipientHeaders: [String]? = .none
   let rfcMessageId: String?
 }
 
@@ -36,17 +36,19 @@ struct GmailLocalMetadataSearch {
       let searchableText = normalized(
         [
           message.from,
-          message.recipientHeader,
+          message.recipientHeaders?.joined(separator: " "),
           message.subject,
           dateText(for: message.providerInternalDateMilliseconds),
-          message.providerLabelIds?.joined(separator: " "),
           message.categoryId,
           message.categoryId.flatMap { categoryNamesById[$0] },
         ]
         .compactMap { $0 }
         .joined(separator: " ")
       )
-      return terms.allSatisfy(searchableText.contains)
+      let providerStates = providerStates(for: message.providerLabelIds ?? [])
+      return terms.allSatisfy { term in
+        searchableText.contains(term) || providerStates.contains(String(term))
+      }
     }
   }
 
@@ -68,6 +70,14 @@ struct GmailLocalMetadataSearch {
         locale: Locale(identifier: "en_US_POSIX")
       )
       .lowercased()
+  }
+
+  private static func providerStates(for labelIds: [String]) -> Set<String> {
+    let states = Set(labelIds.map { normalized($0) })
+    return states.union([
+      states.contains("unread") ? "unread" : "read",
+      states.contains("starred") ? "starred" : "unstarred",
+    ])
   }
 }
 
@@ -795,23 +805,36 @@ struct GmailMessageMetadataService:
     accessToken: String,
     query: String
   ) async throws -> [GmailListedMessage] {
-    var components = URLComponents(
-      url: gmailBaseURL.appendingPathComponent("users/me/messages"),
-      resolvingAgainstBaseURL: false
-    )
-    components?.queryItems = [
-      URLQueryItem(name: "maxResults", value: "25"),
-      URLQueryItem(name: "q", value: query),
-    ]
-    guard let url = components?.url else {
-      throw GmailMessageMetadataSyncError.invalidGmailRequest
-    }
-    let response = try await sendAuthorizedRequest(
-      url: url,
-      accessToken: accessToken,
-      responseType: GmailListMessagesResponse.self
-    )
-    return response.messages ?? []
+    var listedMessages: [GmailListedMessage] = []
+    var nextPageToken: String?
+
+    repeat {
+      var components = URLComponents(
+        url: gmailBaseURL.appendingPathComponent("users/me/messages"),
+        resolvingAgainstBaseURL: false
+      )
+      var queryItems = [
+        URLQueryItem(name: "maxResults", value: "100"),
+        URLQueryItem(name: "q", value: query),
+      ]
+      if let nextPageToken {
+        queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
+      }
+      components?.queryItems = queryItems
+      guard let url = components?.url else {
+        throw GmailMessageMetadataSyncError.invalidGmailRequest
+      }
+      let response = try await sendAuthorizedRequest(
+        url: url,
+        accessToken: accessToken,
+        responseType: GmailListMessagesResponse.self
+      )
+      listedMessages.append(contentsOf: response.messages ?? [])
+      nextPageToken = response.nextPageToken
+      try Task.checkCancellation()
+    } while nextPageToken != nil
+
+    return listedMessages
   }
 
   // swiftlint:disable:next function_body_length
@@ -931,6 +954,8 @@ struct GmailMessageMetadataService:
     )
     components?.queryItems = [
       URLQueryItem(name: "format", value: "metadata"),
+      URLQueryItem(name: "metadataHeaders", value: "Bcc"),
+      URLQueryItem(name: "metadataHeaders", value: "Cc"),
       URLQueryItem(name: "metadataHeaders", value: "From"),
       URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
       URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
@@ -969,13 +994,19 @@ struct GmailMessageMetadataService:
       snippet: response.snippet,
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
-      recipientHeader: response.payload?.headers.first {
-        $0.name.caseInsensitiveCompare("To") == .orderedSame
-      }?.value,
+      recipientHeaders: recipientHeaders(in: response),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value
     )
+  }
+
+  private func recipientHeaders(in response: GmailMessageMetadataResponse) -> [String]? {
+    response.payload?.headers.filter { header in
+      ["Bcc", "Cc", "To"].contains {
+        header.name.caseInsensitiveCompare($0) == .orderedSame
+      }
+    }.map(\.value)
   }
 
   private func sendAuthorizedRequest<Response: Decodable>(
@@ -1303,7 +1334,7 @@ extension GmailMessageMetadata {
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
-      recipientHeader: recipientHeader,
+      recipientHeaders: recipientHeaders,
       rfcMessageId: rfcMessageId
     )
   }

@@ -34,20 +34,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       snippet: "This text is not part of local search",
       stableProviderMessageId: "gmail:gmail-user-001:message-001",
       subject: "Quarterly invoice",
-      recipientHeader: "User <user@example.com>",
+      recipientHeaders: [
+        "User <user@example.com>",
+        "Finance <finance@example.com>",
+        "Auditor <auditor@example.com>",
+      ],
       rfcMessageId: nil
     )
-    let otherMessage = metadata(
+    var otherMessage = metadata(
       messageId: "message-002",
       threadId: "thread-002",
       internalDateMilliseconds: 10
     )
+    otherMessage.providerLabelIds = ["INBOX"]
     let messages = [matchingMessage, otherMessage]
     let categoryNamesById = ["system:invoices": "Invoices"]
 
     for query in [
       "billing@example.com",
       "user@example.com",
+      "finance@example.com",
+      "auditor@example.com",
       "quarterly invoice",
       "2026-07-15",
       "unread",
@@ -63,6 +70,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "Expected local metadata search to match \(query)"
       )
     }
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: messages,
+        matching: "read",
+        categoryNamesById: categoryNamesById
+      ),
+      [otherMessage]
+    )
     XCTAssertEqual(
       GmailLocalMetadataSearch.messages(
         in: messages,
@@ -133,9 +148,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(
       fixture.requestRecorder.queries
         .filter { $0.contains("format=metadata") }
-        .allSatisfy { $0.contains("metadataHeaders=To") }
+        .allSatisfy {
+          $0.contains("metadataHeaders=To")
+            && $0.contains("metadataHeaders=Cc")
+            && $0.contains("metadataHeaders=Bcc")
+        }
     )
-    XCTAssertEqual(result.messages.first?.recipientHeader, "User <user@example.com>")
+    XCTAssertEqual(
+      result.messages.first?.recipientHeaders,
+      [
+        "User <user@example.com>",
+        "Finance <finance@example.com>",
+        "Auditor <auditor@example.com>",
+      ]
+    )
     XCTAssertEqual(result.messages.first?.providerLabelIds, ["INBOX", "UNREAD"])
   }
 
@@ -162,15 +188,23 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           Data(#"{"sub":"gmail-user-001","email":"user@example.com"}"#.utf8)
         )
       case "/gmail/v1/users/me/messages":
+        if request.url?.query?.contains("pageToken=next-page-token") == true {
+          return (
+            Self.httpResponse(for: request, statusCode: 200),
+            Data(#"{"messages":[{"id":"message-002"}]}"#.utf8)
+          )
+        }
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(#"{"messages":[{"id":"message-001"}]}"#.utf8)
+          Data(
+            #"{"messages":[{"id":"message-001"}],"nextPageToken":"next-page-token"}"#.utf8
+          )
         )
       default:
         return (
           Self.httpResponse(for: request, statusCode: 200),
           Self.messageMetadataResponseData(
-            messageId: "message-001",
+            messageId: request.url?.lastPathComponent ?? "",
             internalDate: "1784073600000",
             snippet: "Provider result"
           )
@@ -199,11 +233,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "/token",
         "/tokeninfo",
         "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-001",
+        "/gmail/v1/users/me/messages/message-002",
       ]
     )
     XCTAssertTrue(recorder.queries[2].contains("q=invoice%20total"))
-    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001"])
+    XCTAssertTrue(recorder.queries[3].contains("pageToken=next-page-token"))
+    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001", "message-002"])
     XCTAssertTrue(store.savedMessages.isEmpty)
   }
 
@@ -1218,6 +1255,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           "headers": [
             {"name": "From", "value": "Sender <sender@example.com>"},
             {"name": "To", "value": "User <user@example.com>"},
+            {"name": "Cc", "value": "Finance <finance@example.com>"},
+            {"name": "Bcc", "value": "Auditor <auditor@example.com>"},
             {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
           ]
         }
