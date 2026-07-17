@@ -766,16 +766,38 @@ struct GmailPushWakeupHandler {
         routeIsCurrent: { routeIsCurrent() && watermarkIsCurrent() }
       )
     }
+    let advanceWatermark: () throws -> Bool = {
+      guard let currentWatch = currentWatchForRoute() else { return false }
+      let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
+      let nextWatermark =
+        gmailHistoryIdIsNewer(historyId, than: currentWatermark)
+        ? historyId : currentWatermark
+      try watchStore.save(
+        GmailPushWatchStatus(
+          expirationMilliseconds: currentWatch.expirationMilliseconds,
+          historyId: currentWatch.historyId,
+          latestSyncedHistoryId: nextWatermark,
+          routeId: currentWatch.routeId
+        ),
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      return true
+    }
+    let completeWithGenericFallback: () async throws -> Bool = {
+      guard try await scheduleGenericFallback() else { return false }
+      return try advanceWatermark()
+    }
 
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else {
-      return try await scheduleGenericFallback()
+      return try await completeWithGenericFallback()
     }
     guard hasProcessingTimeRemaining() else {
       guard !notificationRules.categoryIds.isEmpty else { return false }
-      return try await scheduleGenericFallback()
+      return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let syncResult: GmailMetadataSyncResult
@@ -794,14 +816,14 @@ struct GmailPushWakeupHandler {
       return false
     } catch {
       guard !notificationRules.categoryIds.isEmpty else { return false }
-      return try await scheduleGenericFallback()
+      return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let currentNotificationRules else {
-      return try await scheduleGenericFallback()
+      return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let canAdvanceWatermark =
@@ -841,24 +863,9 @@ struct GmailPushWakeupHandler {
       deliveredGenericFallback = false
     }
     guard
-      canAdvanceWatermark || deliveredGenericFallback
+      deliveredGenericFallback || (!shouldDeliverGenericFallback && canAdvanceWatermark)
     else { return false }
-    guard let currentWatch = currentWatchForRoute() else { return false }
-    let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
-    let nextWatermark =
-      gmailHistoryIdIsNewer(historyId, than: currentWatermark)
-      ? historyId : currentWatermark
-    try watchStore.save(
-      GmailPushWatchStatus(
-        expirationMilliseconds: currentWatch.expirationMilliseconds,
-        historyId: currentWatch.historyId,
-        latestSyncedHistoryId: nextWatermark,
-        routeId: currentWatch.routeId
-      ),
-      productAccountId: productSession.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-    return true
+    return try advanceWatermark()
   }
 
   private func deliverGenericFallback(

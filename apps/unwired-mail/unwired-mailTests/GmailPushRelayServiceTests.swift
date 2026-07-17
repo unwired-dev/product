@@ -647,6 +647,42 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
   }
 
+  func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryIsExpired() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.historyIsExpired = true
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+  }
+
   func testGmailWakeupDoesNotShowFallbackAfterBackgroundDeadline() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -870,6 +906,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.syncError = GmailPushRelayTestError.unexpectedCall
     let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
     let handler = GmailPushWakeupHandler(
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
@@ -879,13 +922,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       ),
       sessionStore: sessionStore,
       syncService: syncService,
-      watchStore: RecordingGmailPushWatchStore(
-        status: GmailPushWatchStatus(
-          expirationMilliseconds: 1_781_400_000_000,
-          historyId: "123",
-          routeId: "route-001"
-        )
-      )
+      watchStore: watchStore
     )
 
     let handled = try await handler.handle(userInfo: [
@@ -896,6 +933,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertTrue(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
   func testGmailWakeupAdvancesWatermarkForUnlistedMessagesWithoutNotificationRules() async throws {
