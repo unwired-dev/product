@@ -611,6 +611,42 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(notificationDelivery.messages.isEmpty)
   }
 
+  func testGmailWakeupShowsEnabledGenericFallbackWhenHistoryDeltaIsUnavailable()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.usesUnavailableHistoryDelta = true
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
+  }
+
   func testGmailWakeupDoesNotShowFallbackAfterBackgroundDeadline() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1861,6 +1897,7 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
 
 private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataSyncing {
   var existingMessages: [GmailMessageMetadata] = []
+  var historyIsExpired = false
   var onSync: (() -> Void)?
   var shouldPersist: Bool?
   var sinceHistoryId: String?
@@ -1871,6 +1908,7 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedSession: ProductAccountSessionSnapshot?
   var syncError: Error?
+  var usesUnavailableHistoryDelta = false
 
   func categorizeHistorical(
     scope _: GmailHistoricalCategorizationScope,
@@ -1917,9 +1955,12 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
       throw syncError
     }
     return GmailMetadataSyncResult(
+      historyIsExpired: historyIsExpired,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: syncedMessages,
-      newMessageIds: newMessageIds ?? Set(syncedMessages.map(\.providerMessageId)),
+      newMessageIds: usesUnavailableHistoryDelta
+        ? nil
+        : newMessageIds ?? Set(syncedMessages.map(\.providerMessageId)),
       threads: []
     )
   }

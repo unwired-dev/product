@@ -32,17 +32,20 @@ struct GmailInboxThread: Equatable, Identifiable {
 }
 
 struct GmailMetadataSyncResult: Equatable {
+  let historyIsExpired: Bool
   let hasUnlistedNewMessages: Bool
   let messages: [GmailMessageMetadata]
   let newMessageIds: Set<String>?
   let threads: [GmailInboxThread]
 
   init(
+    historyIsExpired: Bool = false,
     hasUnlistedNewMessages: Bool = false,
     messages: [GmailMessageMetadata],
     newMessageIds: Set<String>? = nil,
     threads: [GmailInboxThread]
   ) {
+    self.historyIsExpired = historyIsExpired
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.messages = messages
     self.newMessageIds = newMessageIds
@@ -365,6 +368,7 @@ struct GmailMessageMetadataService:
         shouldPersist: shouldPersist
       )
       return GmailMetadataSyncResult(
+        historyIsExpired: true,
         messages: result.messages,
         newMessageIds: [],
         threads: result.threads
