@@ -12,13 +12,63 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let isHistorical: Bool
   let providerAccountIdentifier: String
   let providerInternalDateMilliseconds: Int64
+  var providerLabelIds: [String]? = .none
   let providerMessageId: String
   let providerThreadId: String
   let replyTo: String?
   let snippet: String
   let stableProviderMessageId: String
   let subject: String
+  var recipientHeader: String? = .none
   let rfcMessageId: String?
+}
+
+struct GmailLocalMetadataSearch {
+  static func messages(
+    in messages: [GmailMessageMetadata],
+    matching query: String,
+    categoryNamesById: [String: String]
+  ) -> [GmailMessageMetadata] {
+    let terms = normalized(query).split(whereSeparator: \Character.isWhitespace)
+    guard !terms.isEmpty else { return [] }
+
+    return messages.filter { message in
+      let searchableText = normalized(
+        [
+          message.from,
+          message.recipientHeader,
+          message.subject,
+          dateText(for: message.providerInternalDateMilliseconds),
+          message.providerLabelIds?.joined(separator: " "),
+          message.categoryId,
+          message.categoryId.flatMap { categoryNamesById[$0] },
+        ]
+        .compactMap { $0 }
+        .joined(separator: " ")
+      )
+      return terms.allSatisfy(searchableText.contains)
+    }
+  }
+
+  private static func dateText(for milliseconds: Int64) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.dateFormat = "yyyy-MM-dd"
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = TimeZone(secondsFromGMT: 0)
+    return formatter.string(
+      from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
+    )
+  }
+
+  private static func normalized(_ value: String) -> String {
+    value
+      .folding(
+        options: [.caseInsensitive, .diacriticInsensitive],
+        locale: Locale(identifier: "en_US_POSIX")
+      )
+      .lowercased()
+  }
 }
 
 struct GmailInboxThread: Equatable, Identifiable {
@@ -100,6 +150,14 @@ protocol GmailMessageMetadataSyncing {
     for message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata
+}
+
+protocol GmailMessageSearching {
+  func searchProvider(
+    query: String,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata]
 }
 
 extension GmailMessageMetadataSyncing {
@@ -248,7 +306,8 @@ func gmailSafeFileComponent(_ value: String) -> String {
 }
 
 struct GmailMessageMetadataService:
-  GmailMessageMetadataSyncing, GmailProviderMailActing, GmailProviderTokenRefreshing
+  GmailMessageMetadataSyncing, GmailMessageSearching, GmailProviderMailActing,
+  GmailProviderTokenRefreshing
 {
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
@@ -293,6 +352,33 @@ struct GmailMessageMetadataService:
     return GmailMetadataSyncResult(
       messages: messages,
       threads: GmailInboxThread.group(messages)
+    )
+  }
+
+  func searchProvider(
+    query: String,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !query.isEmpty else { return [] }
+
+    let tokens = try await tokensForSync(
+      connection: connection,
+      deferPersistence: false,
+      session: session
+    )
+    let listedMessages = try await listProviderSearchMessages(
+      accessToken: tokens.accessToken,
+      query: query
+    )
+    return try await fetchListedMessageMetadata(
+      accessToken: tokens.accessToken,
+      categorizationBoundary: Date(
+        timeIntervalSince1970: TimeInterval(connection.updatedAt) / 1_000
+      ),
+      connection: connection,
+      listedMessages: listedMessages
     )
   }
 
@@ -705,6 +791,29 @@ struct GmailMessageMetadataService:
     return listedMessages
   }
 
+  private func listProviderSearchMessages(
+    accessToken: String,
+    query: String
+  ) async throws -> [GmailListedMessage] {
+    var components = URLComponents(
+      url: gmailBaseURL.appendingPathComponent("users/me/messages"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "maxResults", value: "25"),
+      URLQueryItem(name: "q", value: query),
+    ]
+    guard let url = components?.url else {
+      throw GmailMessageMetadataSyncError.invalidGmailRequest
+    }
+    let response = try await sendAuthorizedRequest(
+      url: url,
+      accessToken: accessToken,
+      responseType: GmailListMessagesResponse.self
+    )
+    return response.messages ?? []
+  }
+
   // swiftlint:disable:next function_body_length
   private func fetchInboxHistoryChanges(
     accessToken: String,
@@ -826,6 +935,7 @@ struct GmailMessageMetadataService:
       URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
       URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
       URLQueryItem(name: "metadataHeaders", value: "Subject"),
+      URLQueryItem(name: "metadataHeaders", value: "To"),
     ]
     guard let url = components?.url else {
       throw GmailMessageMetadataSyncError.invalidGmailRequest
@@ -850,6 +960,7 @@ struct GmailMessageMetadataService:
       isHistorical: internalDate <= categorizationBoundary,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       providerInternalDateMilliseconds: internalDateMilliseconds,
+      providerLabelIds: response.labelIds,
       providerMessageId: response.id,
       providerThreadId: response.threadId,
       replyTo: response.payload?.headers.first {
@@ -858,6 +969,9 @@ struct GmailMessageMetadataService:
       snippet: response.snippet,
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
+      recipientHeader: response.payload?.headers.first {
+        $0.name.caseInsensitiveCompare("To") == .orderedSame
+      }?.value,
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value
@@ -1182,12 +1296,14 @@ extension GmailMessageMetadata {
       isHistorical: existingMessage.isHistorical,
       providerAccountIdentifier: providerAccountIdentifier,
       providerInternalDateMilliseconds: providerInternalDateMilliseconds,
+      providerLabelIds: providerLabelIds,
       providerMessageId: providerMessageId,
       providerThreadId: providerThreadId,
       replyTo: replyTo,
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
+      recipientHeader: recipientHeader,
       rfcMessageId: rfcMessageId
     )
   }
@@ -1242,6 +1358,7 @@ private struct GmailListedMessage: Decodable {
 private struct GmailMessageMetadataResponse: Decodable {
   let id: String
   let internalDate: String
+  let labelIds: [String]?
   let payload: GmailMessagePayload?
   let snippet: String
   let threadId: String

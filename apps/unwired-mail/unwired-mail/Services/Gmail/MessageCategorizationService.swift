@@ -1185,12 +1185,14 @@ extension GmailMessageMetadata {
       isHistorical: isHistorical,
       providerAccountIdentifier: providerAccountIdentifier,
       providerInternalDateMilliseconds: providerInternalDateMilliseconds,
+      providerLabelIds: providerLabelIds,
       providerMessageId: providerMessageId,
       providerThreadId: providerThreadId,
       replyTo: replyTo,
       snippet: snippet,
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
+      recipientHeader: recipientHeader,
       rfcMessageId: rfcMessageId
     )
   }
