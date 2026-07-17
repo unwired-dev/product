@@ -807,6 +807,7 @@ struct GmailMessageMetadataService:
     accessToken: String,
     query: String
   ) async throws -> [GmailListedMessage] {
+    let maximumResults = 100
     var listedMessages: [GmailListedMessage] = []
     var nextPageToken: String?
 
@@ -816,7 +817,10 @@ struct GmailMessageMetadataService:
         resolvingAgainstBaseURL: false
       )
       var queryItems = [
-        URLQueryItem(name: "maxResults", value: "100"),
+        URLQueryItem(
+          name: "maxResults",
+          value: String(min(100, maximumResults - listedMessages.count))
+        ),
         URLQueryItem(name: "q", value: query),
       ]
       if let nextPageToken {
@@ -834,7 +838,7 @@ struct GmailMessageMetadataService:
       listedMessages.append(contentsOf: response.messages ?? [])
       nextPageToken = response.nextPageToken
       try Task.checkCancellation()
-    } while nextPageToken != nil
+    } while nextPageToken != nil && listedMessages.count < maximumResults
 
     return listedMessages
   }

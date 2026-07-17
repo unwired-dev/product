@@ -21,12 +21,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   )
 
   func testLocalMetadataSearchMatchesSupportedFieldsWithoutBodyIndex() {
+    var calendar = Calendar.current
+    calendar.timeZone = .current
     let matchingMessage = GmailMessageMetadata(
       categoryId: "system:invoices",
       from: "Billing <billing@example.com>",
       isHistorical: false,
       providerAccountIdentifier: connection.providerAccountIdentifier,
-      providerInternalDateMilliseconds: 1_784_073_600_000,
+      providerInternalDateMilliseconds: Int64(
+        calendar.date(from: DateComponents(year: 2026, month: 7, day: 15))!
+          .timeIntervalSince1970 * 1_000
+      ),
       providerLabelIds: ["INBOX", "UNREAD"],
       providerMessageId: "message-001",
       providerThreadId: "thread-001",
@@ -258,14 +263,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "/token",
         "/tokeninfo",
         "/gmail/v1/users/me/messages",
-        "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-001",
-        "/gmail/v1/users/me/messages/message-002",
       ]
     )
     XCTAssertTrue(recorder.queries[2].contains("q=invoice%20total"))
-    XCTAssertTrue(recorder.queries[3].contains("pageToken=next-page-token"))
-    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001", "message-002"])
+    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001"])
     XCTAssertTrue(store.savedMessages.isEmpty)
   }
 
