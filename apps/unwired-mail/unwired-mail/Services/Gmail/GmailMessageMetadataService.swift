@@ -82,8 +82,10 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
 
+  // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
+    includingHistoryCandidates: Bool,
     session: ProductAccountSessionSnapshot,
     sinceHistoryId: String?,
     throughHistoryId: String?,
@@ -104,6 +106,7 @@ extension GmailMessageMetadataSyncing {
   ) async throws -> GmailMetadataSyncResult {
     try await syncRecentInbox(
       connection: connection,
+      includingHistoryCandidates: true,
       session: session,
       sinceHistoryId: nil,
       throughHistoryId: nil,
@@ -321,6 +324,7 @@ struct GmailMessageMetadataService:
   ) async throws -> GmailMetadataSyncResult {
     try await syncInbox(
       connection: connection,
+      includingHistoryCandidates: false,
       maximumPages: nil,
       preservingUnlistedMessages: false,
       sinceHistoryId: nil,
@@ -332,6 +336,7 @@ struct GmailMessageMetadataService:
 
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
+    includingHistoryCandidates: Bool = true,
     session: ProductAccountSessionSnapshot,
     sinceHistoryId: String?,
     throughHistoryId: String?,
@@ -340,6 +345,7 @@ struct GmailMessageMetadataService:
     do {
       return try await syncInbox(
         connection: connection,
+        includingHistoryCandidates: includingHistoryCandidates,
         maximumPages: 1,
         preservingUnlistedMessages: true,
         sinceHistoryId: sinceHistoryId,
@@ -350,6 +356,7 @@ struct GmailMessageMetadataService:
     } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
       let result = try await syncInbox(
         connection: connection,
+        includingHistoryCandidates: false,
         maximumPages: nil,
         preservingUnlistedMessages: false,
         sinceHistoryId: nil,
@@ -368,6 +375,7 @@ struct GmailMessageMetadataService:
   // swiftlint:disable:next function_body_length function_parameter_count
   private func syncInbox(
     connection: GmailProviderConnectionStatus,
+    includingHistoryCandidates: Bool,
     maximumPages: Int?,
     preservingUnlistedMessages: Bool,
     sinceHistoryId: String?,
@@ -404,7 +412,7 @@ struct GmailMessageMetadataService:
     let listedMessages = try await listInboxMessages(
       accessToken: tokens.accessToken,
       maximumPages: maximumPages,
-      including: inboxHistoryChanges?.addedMessageIds
+      including: includingHistoryCandidates ? inboxHistoryChanges?.addedMessageIds : nil
     )
     var fetchedMessages = try await fetchListedMessageMetadata(
       accessToken: tokens.accessToken,

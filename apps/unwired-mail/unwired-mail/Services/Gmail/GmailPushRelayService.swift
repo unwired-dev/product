@@ -735,10 +735,15 @@ struct GmailPushWakeupHandler {
       currentWatchForRoute() != nil
     }
 
+    let notificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession).rules
+    }
+    guard let notificationRules else { return false }
     let syncResult: GmailMetadataSyncResult
     do {
       syncResult = try await syncService.syncRecentInbox(
         connection: connection,
+        includingHistoryCandidates: !notificationRules.categoryIds.isEmpty,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
         throughHistoryId: historyId,
@@ -748,10 +753,6 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard currentWatchForRoute() != nil else { return false }
-    let notificationRules = try await failClosed {
-      try await notificationRuleSync.loadRules(session: productSession).rules
-    }
-    guard let notificationRules else { return false }
     let canAdvanceWatermark =
       notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
     guard
@@ -814,10 +815,6 @@ struct GmailPushWakeupHandler {
         watermarkIsCurrent(),
         hasProcessingTimeRemaining()
       else { return false }
-      if !notificationAuthorizationGranted {
-        guard try await notificationAuthorization.requestAuthorization() else { return false }
-        notificationAuthorizationGranted = true
-      }
       switch try notificationReceiptStore.claim(
         message,
         productAccountId: productAccountId,
@@ -829,6 +826,17 @@ struct GmailPushWakeupHandler {
         continue
       case .inFlight:
         return false
+      }
+      if !notificationAuthorizationGranted {
+        guard try await notificationAuthorization.requestAuthorization() else {
+          try notificationReceiptStore.release(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+          return false
+        }
+        notificationAuthorizationGranted = true
       }
       do {
         try await notificationDelivery.deliver(message: message)

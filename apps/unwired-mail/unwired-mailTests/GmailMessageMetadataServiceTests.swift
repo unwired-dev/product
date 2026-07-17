@@ -741,7 +741,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
-  func testSyncRecentInboxRequiresCurrentListingForHistoryAdditions() async throws {
+  func testSyncRecentInboxFindsHistoryAdditionsInLaterPages() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
       historyResponseData: Data(
@@ -762,8 +762,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       shouldPersist: { true }
     )
 
-    XCTAssertTrue(result.hasUnlistedNewMessages)
-    XCTAssertEqual(result.newMessageIds, [])
+    XCTAssertFalse(result.hasUnlistedNewMessages)
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
   }
 
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
@@ -1275,8 +1275,10 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     result(for: connection)
   }
 
+  // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
+    includingHistoryCandidates _: Bool,
     session _: ProductAccountSessionSnapshot,
     sinceHistoryId _: String?,
     throughHistoryId _: String?,
