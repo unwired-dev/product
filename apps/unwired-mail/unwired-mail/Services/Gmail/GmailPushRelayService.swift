@@ -815,7 +815,10 @@ struct GmailPushWakeupHandler {
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
     } catch {
-      guard !notificationRules.categoryIds.isEmpty else { return false }
+      let currentNotificationRules = try await failClosed {
+        try await notificationRuleSync.loadRules(session: productSession).rules
+      }
+      guard currentNotificationRules?.categoryIds.isEmpty == false else { return false }
       return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
