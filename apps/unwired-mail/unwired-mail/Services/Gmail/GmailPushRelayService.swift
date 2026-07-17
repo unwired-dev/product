@@ -739,6 +739,7 @@ struct GmailPushWakeupHandler {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
     guard let notificationRules else { return false }
+    guard currentWatchForRoute() != nil else { return false }
     let syncResult: GmailMetadataSyncResult
     do {
       syncResult = try await syncService.syncRecentInbox(
@@ -837,6 +838,18 @@ struct GmailPushWakeupHandler {
           return false
         }
         notificationAuthorizationGranted = true
+      }
+      guard
+        routeIsCurrent(),
+        watermarkIsCurrent(),
+        hasProcessingTimeRemaining()
+      else {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        return false
       }
       do {
         try await notificationDelivery.deliver(message: message)

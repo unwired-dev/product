@@ -12,32 +12,6 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     trustedDeviceId: "trustedDeviceFixtureId"
   )
 
-  func testSaveEncryptsNotificationRulesBeforeWritingToProductSync() async throws {
-    let store = InMemoryProductSyncKeyMaterialStore()
-    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
-    let transport = RecordingRuleSyncTransport()
-    let service = NotificationRuleSyncService(
-      keyMaterialStore: store,
-      transport: transport
-    )
-
-    let savedRules = try await service.saveRules(
-      NotificationRules(categoryIds: ["system:flights", "system:invoices"]),
-      expectedUpdatedAt: nil,
-      session: session
-    )
-
-    XCTAssertEqual(savedRules.rules.categoryIds, ["system:flights", "system:invoices"])
-    XCTAssertEqual(transport.writes.count, 1)
-    XCTAssertEqual(transport.writes[0].payloadIdentifier, NotificationRules.primaryIdentifier)
-    XCTAssertFalse(
-      transport.writes[0].encryptedPayload.ciphertextBase64.contains("system:flights")
-    )
-    XCTAssertFalse(
-      transport.writes[0].encryptedPayload.ciphertextBase64.contains("system:invoices")
-    )
-  }
-
   func testLoadDecryptsNotificationRulesFromProductSync() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
     _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
@@ -287,6 +261,37 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     } catch let error as NotificationRuleSyncError {
       XCTAssertEqual(error, .concurrentModification)
     }
+  }
+}
+
+extension NotificationRuleSyncServiceTests {
+  func testSaveEncryptsNotificationRulesBeforeWritingToProductSync() async throws {
+    let store = InMemoryProductSyncKeyMaterialStore()
+    _ = try store.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      keyMaterialStore: store,
+      transport: transport
+    )
+
+    let savedRules = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights", "system:invoices"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    XCTAssertEqual(savedRules.rules.categoryIds, ["system:flights", "system:invoices"])
+    XCTAssertEqual(transport.writes.count, 1)
+    XCTAssertEqual(transport.writes[0].payloadIdentifier, NotificationRules.primaryIdentifier)
+    let ciphertext = try XCTUnwrap(
+      Data(base64Encoded: transport.writes[0].encryptedPayload.ciphertextBase64)
+    )
+    let plaintext = try JSONEncoder().encode(
+      NotificationRules(categoryIds: ["system:flights", "system:invoices"])
+    )
+    XCTAssertFalse(ciphertext.contains(Data("system:flights".utf8)))
+    XCTAssertFalse(ciphertext.contains(Data("system:invoices".utf8)))
+    XCTAssertFalse(ciphertext.contains(plaintext))
   }
 }
 

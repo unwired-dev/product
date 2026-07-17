@@ -917,7 +917,7 @@ private struct NotificationRulePanel: View {
           .font(.footnote)
       }
     }
-    .onChange(of: Set(categoryChoices.map(\.id)), initial: true) { _, categoryIds in
+    .onChange(of: Set(categoryChoices.map(\.id)), initial: false) { _, categoryIds in
       Task {
         await viewModel.prune(categoryIds: categoryIds)
       }
