@@ -153,7 +153,7 @@ Message-identifying and mailbox state data retained locally to support sync, dis
 _Avoid_: Full message archive
 
 **Initial Mailbox Availability**:
-The state in which the newest 50 messages are visible and usable before the rest of a newly connected mailbox has synchronized.
+The state in which the newest 50 messages, or all provider-visible messages when fewer exist, are visible and usable before the rest of a newly connected mailbox has synchronized.
 _Avoid_: Completed mailbox synchronization, full initial sync
 
 **Historical Metadata Backfill**:
@@ -243,6 +243,7 @@ _Avoid_: Password reset, support recovery
 - Passwords, app-specific passwords, and OAuth refresh tokens remain in the current device's Keychain
 - **Remove Device Authorization** affects only the current device and preserves the synchronized **Mailbox Connection**
 - **Remove Mailbox Connection Everywhere** removes synchronized connection and product-owned state from all trusted devices but never deletes provider mail
+- A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
 - Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections**
 - A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
@@ -261,6 +262,8 @@ _Avoid_: Password reset, support recovery
 - Provider-native semantics or IMAP special-use markers assign a **Mailbox Role** when they are unambiguous
 - A user explicitly maps any required **Mailbox Role** that a provider does not identify unambiguously
 - **Mailbox Roles** are never inferred from localized folder names and user mappings may be changed later
+- Changing a **Mailbox Role** mapping reclassifies existing local metadata and applies to future synchronization; the prior mapping is retained until the new mapping completes and may be restored if the change fails
+- A changed mapping requires the user to reconfirm any destructive action whose target or meaning changed before that action reaches its provider
 - A user may select either a **Unified Mailbox** or a mailbox within one **Mailbox Connection** to scope the messages being viewed
 - A **Unified Mailbox** interleaves mailbox-scoped **Threads** by latest message time rather than grouping them by account
 - Every thread in a **Unified Mailbox** visibly identifies its source **Mailbox Connection**
@@ -269,14 +272,15 @@ _Avoid_: Password reset, support recovery
 - The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems
-- Pending and failed Outbox messages remain editable and cancellable
-- Editing an Outbox message creates a new **Outgoing Delivery Attempt** rather than mutating an attempt already in flight
+- Pending and failed Outbox messages remain editable and cancellable until an **Outgoing Delivery Attempt** has been handed to its provider; an in-flight attempt must first reach a terminal state
+- Editing an eligible Outbox message creates a new **Outgoing Delivery Attempt** rather than mutating an attempt already in flight
 - A **Pin** is protected by **End-to-End Encrypted Product Sync** and remains independent of provider-visible flags
 - Pinned messages from all **Mailbox Connections** appear together in the unified pinned-message view
 - A **True email client** supports **Provider Mail Actions**
 - An offline **Provider Mail Action** becomes a **Pending Provider Action** and updates local presentation optimistically
 - **Pending Provider Actions** are ordered per **Mailbox Connection** and retried when connectivity returns
-- A permanently rejected **Pending Provider Action** restores provider-derived state and produces a visible failure
+- A permanently rejected **Pending Provider Action** restores provider-derived state, replays later pending actions in order, and produces a visible failure without overwriting newer optimistic changes
+- Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
 - Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Cross-connection bulk actions execute as per-connection batches and preserve successful batches when another connection fails
@@ -288,7 +292,7 @@ _Avoid_: Password reset, support recovery
 - **End-to-End Encrypted Product Sync** prevents the product backend from reading **Synced Categories**
 - A **Recovery Key** can restore access to data protected by **End-to-End Encrypted Product Sync**
 - A **Message Category** is assigned to an individual message, not to a **Thread**
-- A **Message Category** syncs across devices by **Stable Provider Message Identity**
+- A **Message Category** syncs across devices by its **Mailbox Connection** and **Stable Provider Message Identity**
 - A **Thread** groups related messages without being the categorization target
 - A **Thread** never spans multiple **Mailbox Connections**, including when shown in a **Unified Mailbox**
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
@@ -297,6 +301,7 @@ _Avoid_: Password reset, support recovery
 - The conversation reader expands the latest message and keeps older messages available to expand
 - Replies from a **Thread** use that thread's **Mailbox Connection** identity
 - Replies and forwards default to their source **Thread** identity rather than the **Default Sending Connection**
+- If a source **Thread** connection cannot send on the current device, the user must authorize it or explicitly select another sender; the product never silently substitutes an identity
 - A new message defaults to the **Default Sending Connection** and always exposes its sending identity
 - The **Default Sending Connection** synchronizes across trusted devices without mailbox credentials
 - If the **Default Sending Connection** cannot send on the current device, the user must authorize it or explicitly select another sender
@@ -318,20 +323,20 @@ _Avoid_: Password reset, support recovery
 - The **Category Conflict Rule** gives user actions priority over system actions and otherwise keeps the first assignment
 - **Durable Message Metadata** is retained separately from the **Bounded Encrypted Body Cache**
 - **Durable Message Metadata** is read locally before mailbox synchronization updates it
-- **Initial Mailbox Availability** requires the newest 50 message metadata and does not wait for full history
+- **Initial Mailbox Availability** requires the newest 50 message metadata, or all provider-visible messages when fewer exist, and does not wait for full history
 - **Historical Metadata Backfill** continues after the mailbox becomes usable and reports progress separately
 - **Historical Metadata Backfill** pauses under low storage, low power, or network loss and resumes when conditions permit
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
 - For each **Mailbox Connection**, the prefetched recent working set contains at most the newest 500 Inbox and **Sent Mailbox** messages from the last 30 days
-- Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs
+- Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs only when they fit without immediately evicting another pinned body; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
-- Draft body content remains available offline as product-authored local data
+- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes opened older bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
-- Draft bodies are stored separately and do not count against the body-cache limit
+- Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
 - **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data
 - **Best-Effort Background Freshness** uses provider push where available, active IMAP connections, system-scheduled background refresh, and foreground synchronization
