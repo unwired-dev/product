@@ -22,6 +22,7 @@ struct AccountView: View {
     gmailConnectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     gmailCredentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
+    gmailOAuthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
@@ -41,6 +42,7 @@ struct AccountView: View {
     _gmailViewModel = State(
       initialValue: GmailProviderConnectionViewModel(
         credentialVerifier: gmailCredentialVerifier,
+        oauthAuthorizer: gmailOAuthAuthorizer,
         pushWatchService: gmailPushWatchService,
         service: gmailConnectionService,
         isSessionCurrent: { session.isCurrent($0) },
@@ -594,30 +596,29 @@ final class GmailInboxViewModel {
 @MainActor
 @Observable
 private final class GmailProviderConnectionViewModel {
-  var accessToken = ""
   var connection: GmailProviderConnectionStatus?
-  var emailAddress = ""
   var errorMessage: String?
   var isConnecting = false
   var isLoading = false
-  var providerAccountIdentifier = ""
   var pushStatusMessage: String?
-  var refreshToken = ""
 
   private let credentialVerifier: GmailProviderCredentialVerifying
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let service: GmailProviderConnecting
   private let session: ProductAccountSessionSnapshot
 
   init(
     credentialVerifier: GmailProviderCredentialVerifying,
+    oauthAuthorizer: GmailOAuthAuthorizing,
     pushWatchService: GmailPushWatchRegistering,
     service: GmailProviderConnecting,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
     session: ProductAccountSessionSnapshot
   ) {
     self.credentialVerifier = credentialVerifier
+    self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.isSessionCurrent = isSessionCurrent
     self.service = service
@@ -625,12 +626,7 @@ private final class GmailProviderConnectionViewModel {
   }
 
   var canConnect: Bool {
-    !isConnecting
-      && !isLoading
-      && !emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && !providerAccountIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-      && !accessToken.isEmpty
-      && !refreshToken.isEmpty
+    !isConnecting && !isLoading
   }
 
   var isEditingDisabled: Bool {
@@ -655,18 +651,7 @@ private final class GmailProviderConnectionViewModel {
   }
 
   func connect() async {
-    let trimmedEmailAddress = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
-    let trimmedProviderAccountIdentifier = providerAccountIdentifier.trimmingCharacters(
-      in: .whitespacesAndNewlines
-    )
-    guard
-      !trimmedEmailAddress.isEmpty,
-      !trimmedProviderAccountIdentifier.isEmpty,
-      !accessToken.isEmpty,
-      !refreshToken.isEmpty
-    else {
-      return
-    }
+    guard canConnect else { return }
 
     isConnecting = true
     defer {
@@ -674,11 +659,10 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
+      let tokens = try await oauthAuthorizer.authorize()
       let verifiedAccount = try await credentialVerifier.verify(
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        expectedEmailAddress: trimmedEmailAddress,
-        expectedProviderAccountIdentifier: trimmedProviderAccountIdentifier
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken
       )
       try Task.checkCancellation()
       guard isSessionCurrent(session) else {
@@ -688,8 +672,6 @@ private final class GmailProviderConnectionViewModel {
         verifiedAccount: verifiedAccount,
         session: session
       )
-      accessToken = ""
-      refreshToken = ""
       errorMessage = nil
       if let connection {
         await refreshPushWatch(connection: connection)
@@ -1051,29 +1033,14 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      VStack(alignment: .leading, spacing: 12) {
-        TextField("Gmail address", text: $viewModel.emailAddress)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-
-        TextField("Gmail account ID", text: $viewModel.providerAccountIdentifier)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-
-        SecureField("Access token", text: $viewModel.accessToken)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-
-        SecureField("Refresh token", text: $viewModel.refreshToken)
-          .textFieldStyle(.roundedBorder)
-          .disabled(viewModel.isEditingDisabled)
-      }
-
-      Button(viewModel.connection == nil ? "Connect Gmail" : "Update Gmail") {
+      Button {
         connectTask?.cancel()
         connectTask = Task {
           await viewModel.connect()
         }
+      } label: {
+        Label("Sign in with Google", systemImage: "person.crop.circle.badge.checkmark")
+          .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
       .disabled(!viewModel.canConnect)

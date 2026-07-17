@@ -37,9 +37,9 @@ cp .env.example packages/convex/.env.local
 pnpm dev
 ```
 
-`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Use an untracked `apps/unwired-mail/.env.local` file, a local Xcode scheme environment variable, or another untracked local configuration. Do not commit developer-specific Convex URLs or secrets.
+`convex dev` fills in `CONVEX_DEPLOYMENT` after you log in. Set `CONVEX_URL` for the Apple app to the deployment URL shown by `convex dev`. Debug builds read `CONVEX_URL`, `GMAIL_OAUTH_CLIENT_ID`, and `GMAIL_PUBSUB_TOPIC` from the repository-root `.env.local`; backend-only values are ignored. An untracked `apps/unwired-mail/.env.local` file or local Xcode scheme environment variables can override those defaults. Do not commit developer-specific Convex URLs or secrets.
 
-Gmail provider connection also requires `GMAIL_OAUTH_CLIENT_ID` so the device can validate pasted refresh tokens with Google before storing them locally. Use an Apple app environment value for local development, and set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting for release-style builds so the non-secret client id is bundled in Info.plist. Keep any OAuth client secrets out of the app.
+Gmail provider connection requires an **iOS OAuth client ID** from the Google Cloud project, configured for the app's bundle identifier. Enable the Gmail API, configure the OAuth consent screen with the `openid`, `email`, and `gmail.modify` scopes, then set the client ID as `GMAIL_OAUTH_CLIENT_ID`. Debug builds may read it from the repository-root or app-specific `.env.local`; release-style builds should set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting so the non-secret client ID is bundled in Info.plist. The single **Sign in with Google** button opens the system authentication window, uses PKCE, and reuses the browser's Google session when available. Keep OAuth client secrets out of the app.
 
 ### Gmail push relay
 

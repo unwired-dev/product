@@ -21,19 +21,48 @@ enum DotEnvFile {
   }
 
   #if DEBUG
+    private static let appleClientKeys: Set = [
+      "CONVEX_URL",
+      "GMAIL_OAUTH_CLIENT_ID",
+      "GMAIL_PUBSUB_TOPIC",
+    ]
+
     static func loadDefaultsIfPresent() {
-      let projectRoot = URL(fileURLWithPath: #filePath)
+      let appProjectRoot = URL(fileURLWithPath: #filePath)
         .deletingLastPathComponent()
         .deletingLastPathComponent()
         .deletingLastPathComponent()
 
-      for fileName in [".env.local", ".env"] {
-        loadIfPresent(at: projectRoot.appendingPathComponent(fileName))
+      let repositoryRoot =
+        appProjectRoot
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+
+      for fileName in [".env", ".env.local"] {
+        loadAppleClientValuesIfPresent(at: repositoryRoot.appendingPathComponent(fileName))
       }
+      for fileName in [".env", ".env.local"] {
+        loadIfPresent(at: appProjectRoot.appendingPathComponent(fileName))
+      }
+    }
+
+    static func parseAppleClientValues(_ contents: String) -> [String: String] {
+      parse(contents).filter { appleClientKeys.contains($0.key) }
     }
 
     static func resetForTesting() {
       loadedValues = [:]
+    }
+
+    private static func loadAppleClientValuesIfPresent(at url: URL) {
+      guard
+        FileManager.default.fileExists(atPath: url.path),
+        let contents = try? String(contentsOf: url, encoding: .utf8)
+      else {
+        return
+      }
+
+      merge(parseAppleClientValues(contents))
     }
   #endif
 

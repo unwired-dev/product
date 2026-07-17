@@ -47,6 +47,7 @@
 		71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */; };
 		71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */; };
 		71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */; };
+		71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -105,6 +106,7 @@
 		71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/CategoryAwareNotificationService.swift; sourceTree = "<group>"; };
 		71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRuleViewModelTests.swift; sourceTree = "<group>"; };
 		71A6A0A02C0B000100000001 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
+		71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GoogleGmailOAuthService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -153,6 +155,7 @@
 				71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */,
 				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
+				71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */,
 				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
 				71A6A0612C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift */,
 				71A6A01D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift */,
@@ -313,6 +316,7 @@
 				71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */,
 				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
+				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
 				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
 				71A6A0602C0B000100000001 /* Services/ProductAccount/ProductAccountSession.swift in Sources */,
 				71A6A00D2C0B000100000001 /* Services/ProductAccount/ProductAccountSessionStore.swift in Sources */,

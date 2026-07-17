@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "check-types": "tsc --noEmit",
-    "dev": "convex dev",
+    "dev": "convex dev --env-file ../../.env.local",
     "format": "oxfmt --ignore-path ../../.gitignore --check .",
     "format:fix": "oxfmt --ignore-path ../../.gitignore --write .",
     "lint": "oxlint --type-aware --type-check --deny-warnings --report-unused-disable-directives",
