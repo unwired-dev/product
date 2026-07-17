@@ -79,6 +79,7 @@ struct GoogleGmailOAuthRequest {
       URLQueryItem(name: "code_challenge", value: codeChallenge),
       URLQueryItem(name: "code_challenge_method", value: "S256"),
       URLQueryItem(name: "include_granted_scopes", value: "true"),
+      URLQueryItem(name: "prompt", value: "consent"),
       URLQueryItem(name: "redirect_uri", value: redirectURI.absoluteString),
       URLQueryItem(name: "response_type", value: "code"),
       URLQueryItem(name: "scope", value: Self.authorizationScope),

@@ -895,6 +895,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(query["client_id"], "123.apps.googleusercontent.com")
     XCTAssertEqual(query["code_challenge"], "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM")
     XCTAssertEqual(query["code_challenge_method"], "S256")
+    XCTAssertEqual(query["prompt"], "consent")
     XCTAssertEqual(query["response_type"], "code")
     XCTAssertEqual(query["scope"], GoogleGmailOAuthRequest.authorizationScope)
     XCTAssertEqual(query["state"], "oauth-state")
