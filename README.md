@@ -88,12 +88,10 @@ The first app screen is the Product Account path. It lets a user sign in with Ap
 
 Sign in with Apple requires a signed build with the capability enabled. Error 1000 (`AuthorizationError unknown`) almost always means signing or entitlements are missing.
 
-1. Open `apps/unwired-mail/unwired-mail.xcodeproj` in Xcode.
-2. Select the `unwired-mail` target → **Signing & Capabilities**.
-3. Choose your **Development Team** (Apple Developer Program membership required).
-4. Confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
-5. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control and set matching `APPLE_BUNDLE_ID` in the Convex deployment environment (`packages/convex/.env.local` for local dev).
-6. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
+1. Set your Apple team in the untracked `apps/unwired-mail/unwired-mail/LocalSigning.xcconfig` file: `DEVELOPMENT_TEAM = YOUR_TEAM_ID`. (The local development setup creates this file for you.)
+2. Open `apps/unwired-mail/unwired-mail.xcodeproj` in Xcode and confirm **Sign in with Apple** appears under Capabilities (the repo includes `unwired-mail.entitlements`).
+3. In [Apple Developer → Identifiers](https://developer.apple.com/account/resources/identifiers/list), enable **Sign in with Apple** for App ID `dev.unwired.mail`, or change the bundle identifier to one you control and set matching `APPLE_BUNDLE_ID` in the Convex deployment environment (`packages/convex/.env.local` for local dev).
+4. Clean build folder and run again on **My Mac (Mac Catalyst)** or an iOS simulator.
 
 CI keeps code signing disabled for simulator tests; only local runs that exercise Apple sign-in need the steps above.
 
