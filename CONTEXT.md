@@ -120,6 +120,10 @@ _Avoid_: Thread category, folder
 A provider-specific message identity used to match the same message across devices.
 _Avoid_: Local database ID, backend message ID
 
+**Stable Provider Mailbox Identity**:
+A provider-specific immutable mailbox identifier when available; otherwise a normalized, user-reviewed provider account and endpoint identity that is retained to repair rather than duplicate the same mailbox connection.
+_Avoid_: Display name, local database ID
+
 **Uncategorized State**:
 The state of a message when no **Message Category** has been assigned, including historical mail that is not automatically categorized.
 _Avoid_: Uncategorized category, forced category
@@ -133,7 +137,7 @@ Automatic assignment of a **Message Category** by the product.
 _Avoid_: Manual category
 
 **New-Mail-Only Categorization**:
-The rule that **System Categorization** applies only to messages received after the app is installed for an account.
+The rule that **System Categorization** applies only to messages received after their **Mailbox Connection** is first added to the product.
 _Avoid_: Historical backfill
 
 **Historical Categorization Opt-In**:
@@ -153,7 +157,7 @@ Message-identifying and mailbox state data retained locally to support sync, dis
 _Avoid_: Full message archive
 
 **Initial Mailbox Availability**:
-The state in which the newest 50 messages, or all provider-visible messages when fewer exist, are visible and usable before the rest of a newly connected mailbox has synchronized.
+The state in which metadata for the newest 50 messages, or all provider-visible messages when fewer exist, is list-visible and usable before the rest of a newly connected mailbox has synchronized; bodies remain on demand or subject to separate body-cache prefetch rules.
 _Avoid_: Completed mailbox synchronization, full initial sync
 
 **Historical Metadata Backfill**:
@@ -235,9 +239,9 @@ _Avoid_: Password reset, support recovery
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
 - A **Mailbox Connection** links one **Product Account** to one mailbox supplied by a **Mail Provider**
-- A **Product Account** may contain only one **Mailbox Connection** for a stable provider mailbox identity
+- A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Mailbox Identity**
 - Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate
-- A **Mailbox Connection** definition synchronizes across trusted devices without provider credentials
+- A **Mailbox Connection** definition, including its reviewed non-secret address, username, and endpoint settings, synchronizes end-to-end encrypted across trusted devices without provider credentials
 - Each trusted device needs its own **Mailbox Authorization** before it can access a synchronized **Mailbox Connection**
 - **Mailbox Authorization** prefers provider OAuth but may use a password or app-specific password over **Secure Mail Transport**
 - Passwords, app-specific passwords, and OAuth refresh tokens remain in the current device's Keychain
@@ -309,7 +313,7 @@ _Avoid_: Password reset, support recovery
 - Unauthorized or receive-only **Mailbox Connections** remain visible but cannot be selected for sending
 - **System Categorization** must not change an existing **Message Category**, whether it is a **System Category** or **Custom Category**
 - A **User Override** may change an existing **Message Category**
-- **New-Mail-Only Categorization** excludes historical mail from automatic categorization
+- **New-Mail-Only Categorization** excludes mail received before its **Mailbox Connection** was added from automatic categorization
 - **Historical Categorization Opt-In** permits categorization of old mail when the user chooses it
 - **Bounded Historical Categorization** limits **Historical Categorization Opt-In** to a user-selected scope
 - A **Category** may be a **System Category** or a **Custom Category**
@@ -329,12 +333,12 @@ _Avoid_: Password reset, support recovery
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
-- For each **Mailbox Connection**, the prefetched recent working set contains at most the newest 500 Inbox and **Sent Mailbox** messages from the last 30 days
+- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 messages combined across Inbox and **Sent Mailbox**, selected by newest received timestamp from the last 30 days
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs only when they fit without immediately evicting another pinned body; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
 - Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
-- Cache eviction removes opened older bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
+- Cache eviction removes opened older non-pinned bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
 - Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
@@ -388,11 +392,11 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Should categorization apply to the whole conversation?"
 > **Domain expert:** "No — assign a **Message Category** to each message, while the **Thread** only groups related messages."
 > **Dev:** "How does a second device know which message an encrypted category assignment belongs to?"
-> **Domain expert:** "Use **Stable Provider Message Identity** to match the same message across devices."
+> **Domain expert:** "Use the **Mailbox Connection** and **Stable Provider Message Identity** to match the same message across devices."
 > **Dev:** "Can the system recategorize a message later?"
 > **Domain expert:** "No — after **System Categorization**, only a **User Override** can change it."
 > **Dev:** "Should old mail be categorized during account setup?"
-> **Domain expert:** "No — use **New-Mail-Only Categorization** after the app is installed for the account."
+> **Domain expert:** "No — use **New-Mail-Only Categorization** after that **Mailbox Connection** is added."
 > **Dev:** "Should historical mail have a separate not-processed state?"
 > **Domain expert:** "No — historical mail remains in **Uncategorized State**."
 > **Dev:** "Can the user choose to categorize old mail?"
@@ -414,7 +418,7 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Should the app permanently store every email body?"
 > **Domain expert:** "No — store **Durable Message Metadata** and categorization, while using a **Bounded Encrypted Body Cache** for recent and previously opened body text."
 > **Dev:** "Which message bodies should be prefetched?"
-> **Domain expert:** "Recent Inbox and **Sent Mailbox** bodies plus all pinned bodies; keep Spam, Trash, attachments, and older unpinned bodies on-demand."
+> **Domain expert:** "The newest 500 Inbox and **Sent Mailbox** bodies combined, plus pinned bodies that fit without evicting another pinned body; keep Spam, Trash, attachments, and older unpinned bodies on-demand."
 > **Dev:** "Can the backend participate in push without holding mail provider tokens?"
 > **Domain expert:** "Yes — it may use **Minimal Push Metadata** to wake trusted devices, but devices fetch mail themselves."
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
@@ -438,7 +442,7 @@ _Avoid_: Password reset, support recovery
 - "offline mail actions" was resolved as optimistic local changes backed by durable **Pending Provider Actions**, not silent failure or online-only interaction.
 - "cross-account bulk actions" was resolved as capability-intersection actions with per-connection execution and partial-success reporting, not an all-or-nothing transaction.
 - "multiple accounts" was resolved as multiple **Mailbox Connections** owned by one **Product Account**, not multiple product sign-ins.
-- "duplicate account connection" was resolved as authorization or repair of the existing **Mailbox Connection**, not a second connection for the same stable provider mailbox identity.
+- "duplicate account connection" was resolved as authorization or repair of the existing **Mailbox Connection**, not a second connection for the same **Stable Provider Mailbox Identity**.
 - "mailbox credential sync" was resolved as synchronized non-secret **Mailbox Connections** with device-local **Mailbox Authorization**, not synchronized provider credentials.
 - "generic provider authentication" was resolved as preferred OAuth with device-Keychain passwords or app passwords permitted over **Secure Mail Transport**; client certificates and enterprise SSO are deferred.
 - "disconnect account" was split into **Remove Device Authorization** and **Remove Mailbox Connection Everywhere**, with distinct local and cross-device data scopes.
@@ -466,7 +470,7 @@ _Avoid_: Password reset, support recovery
 - "privacy-focused backend sync" was resolved as **End-to-End Encrypted Product Sync**, not server-readable sync.
 - "recovery mechanism" was resolved as **Recovery Key**, not password-only recovery or support-assisted decryption.
 - "categorization" was resolved as **Message Category** assignment, not thread-level categorization.
-- "category sync identity" was resolved as **Stable Provider Message Identity**, not local database IDs.
+- "category sync identity" was resolved as **Mailbox Connection** plus **Stable Provider Message Identity**, not local database IDs.
 - "cannot be changed by the system" was resolved as **System Categorization** being immutable unless changed by a **User Override**.
 - "historical categorization" was resolved as **New-Mail-Only Categorization** by default with optional **Historical Categorization Opt-In**.
 - "categorize old emails" was resolved as **Bounded Historical Categorization**, not all-mail backfill.
@@ -480,7 +484,7 @@ _Avoid_: Password reset, support recovery
 - "initial mailbox sync" was resolved as **Initial Mailbox Availability** after the newest 50 messages, followed by **Historical Metadata Backfill** and then body prefetch without blocking mailbox use.
 - "historical metadata scope" was resolved as the complete provider-visible mailbox history with resumable backfill, not a full historical body archive.
 - "body prefetch" was resolved as recent Inbox and **Sent Mailbox** body text plus pinned bodies regardless of age, not Spam, Trash, attachments, or older unpinned bodies.
-- "recent body prefetch" was resolved as the newest 500 Inbox and **Sent Mailbox** messages from the last 30 days per **Mailbox Connection**, whichever boundary is reached first.
+- "recent body prefetch" was resolved as the newest 500 messages combined across Inbox and **Sent Mailbox** from the last 30 days per **Mailbox Connection**, whichever boundary is reached first.
 - "body-cache limit" was resolved as 500 MB per device with opened older, non-pinned prefetched, then pinned-body eviction priority; draft bodies remain separate.
 - "push metadata" was resolved as **Minimal Push Metadata**, not server-side mailbox sync.
 - "real-time mail" was resolved as **Best-Effort Background Freshness**, not guaranteed instant background delivery or backend-held mailbox credentials.
