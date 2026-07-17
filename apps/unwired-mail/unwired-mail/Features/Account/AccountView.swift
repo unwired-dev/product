@@ -302,7 +302,11 @@ final class NotificationRuleViewModel {
     }
   }
 
+  private var fallbackChangeGeneration = 0
+
   func setGenericNotificationFallbackEnabled(_ isEnabled: Bool) async {
+    fallbackChangeGeneration += 1
+    let generation = fallbackChangeGeneration
     genericNotificationFallbackStore.setEnabled(
       isEnabled,
       productAccountId: session.productAccountId
@@ -311,11 +315,20 @@ final class NotificationRuleViewModel {
     fallbackErrorMessage = nil
     guard isEnabled else { return }
     do {
-      if try await !authorization.requestAuthorization() {
+      let authorized = try await authorization.requestAuthorization()
+      guard
+        generation == fallbackChangeGeneration,
+        isGenericNotificationFallbackEnabled
+      else { return }
+      if !authorized {
         fallbackErrorMessage =
           "Fallback is enabled, but visible notifications are disabled in system settings."
       }
     } catch {
+      guard
+        generation == fallbackChangeGeneration,
+        isGenericNotificationFallbackEnabled
+      else { return }
       fallbackErrorMessage = error.localizedDescription
     }
   }
