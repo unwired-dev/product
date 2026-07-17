@@ -156,10 +156,14 @@ struct AccountView: View {
 final class NotificationRuleViewModel {
   var enabledCategoryIds: Set<String> = []
   var errorMessage: String?
+  var fallbackErrorMessage: String?
+  private var fallbackChangeGeneration = 0
+  var isGenericNotificationFallbackEnabled: Bool
   var isSaving = false
   var isSyncing = false
 
   private let authorization: NotificationAuthorizationRequesting
+  private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
   private var hasLoadedRules = false
   private var pendingPruneCategoryIds: Set<String>?
   private var rulesUpdatedAt: Int64?
@@ -169,10 +173,16 @@ final class NotificationRuleViewModel {
 
   init(
     authorization: NotificationAuthorizationRequesting,
+    genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
+      UserDefaultsFallbackStore(),
     service: NotificationRuleSyncing,
     session: ProductAccountSessionSnapshot
   ) {
     self.authorization = authorization
+    self.genericNotificationFallbackStore = genericNotificationFallbackStore
+    isGenericNotificationFallbackEnabled = genericNotificationFallbackStore.isEnabled(
+      productAccountId: session.productAccountId
+    )
     self.service = service
     self.session = session
   }
@@ -290,6 +300,35 @@ final class NotificationRuleViewModel {
       enabledCategoryIds.insert(categoryId)
     } else {
       enabledCategoryIds.remove(categoryId)
+    }
+  }
+
+  func setGenericNotificationFallbackEnabled(_ isEnabled: Bool) async {
+    fallbackChangeGeneration += 1
+    let generation = fallbackChangeGeneration
+    genericNotificationFallbackStore.setEnabled(
+      isEnabled,
+      productAccountId: session.productAccountId
+    )
+    isGenericNotificationFallbackEnabled = isEnabled
+    fallbackErrorMessage = nil
+    guard isEnabled else { return }
+    do {
+      let authorized = try await authorization.requestAuthorization()
+      guard
+        generation == fallbackChangeGeneration,
+        isGenericNotificationFallbackEnabled
+      else { return }
+      if !authorized {
+        fallbackErrorMessage =
+          "Fallback is enabled, but visible notifications are disabled in system settings."
+      }
+    } catch {
+      guard
+        generation == fallbackChangeGeneration,
+        isGenericNotificationFallbackEnabled
+      else { return }
+      fallbackErrorMessage = error.localizedDescription
     }
   }
 
@@ -899,6 +938,27 @@ private struct NotificationRulePanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      Divider()
+
+      Toggle(
+        "Generic Notification Fallback",
+        isOn: Binding(
+          get: { viewModel.isGenericNotificationFallbackEnabled },
+          set: { isEnabled in
+            Task {
+              await viewModel.setGenericNotificationFallbackEnabled(isEnabled)
+            }
+          }
+        )
+      )
+
+      Text(
+        "When enabled, show a content-free new-mail notification only if category-aware "
+          + "processing cannot finish. This device-only setting is off by default."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+
       Button("Save Notification Rules") {
         Task {
           await viewModel.save()
@@ -913,6 +973,12 @@ private struct NotificationRulePanel: View {
 
       if let errorMessage = viewModel.errorMessage {
         Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
+
+      if let fallbackErrorMessage = viewModel.fallbackErrorMessage {
+        Text(fallbackErrorMessage)
           .foregroundStyle(.red)
           .font(.footnote)
       }

@@ -4,6 +4,31 @@ import XCTest
 
 @MainActor
 final class NotificationRuleViewModelTests: XCTestCase {
+  func testGenericNotificationFallbackStartsDisabledAndPersistsOptIn() async {
+    let authorization = RecordingFallbackAuthorization()
+    let fallbackStore = RecordingFallbackStore()
+    let viewModel = NotificationRuleViewModel(
+      authorization: authorization,
+      genericNotificationFallbackStore: fallbackStore,
+      service: ImmediateNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
+      session: ProductAccountSessionSnapshot(
+        appleUserIdentifier: "apple-user-preview",
+        identityToken: "apple-token",
+        productAccountId: "productAccountFixtureId",
+        trustedDeviceId: "trustedDeviceFixtureId"
+      )
+    )
+
+    XCTAssertFalse(viewModel.isGenericNotificationFallbackEnabled)
+
+    await viewModel.setGenericNotificationFallbackEnabled(true)
+
+    XCTAssertTrue(viewModel.isGenericNotificationFallbackEnabled)
+    XCTAssertEqual(fallbackStore.savedProductAccountId, "productAccountFixtureId")
+    XCTAssertEqual(fallbackStore.savedValue, true)
+    XCTAssertEqual(authorization.requestCount, 1)
+  }
+
   func testReplaysPruneQueuedDuringRuleLoad() async {
     let service = DelayedNotificationRuleSync(
       rules: NotificationRules(categoryIds: ["custom-category-primary", "system:flights"])
@@ -54,6 +79,33 @@ final class NotificationRuleViewModelTests: XCTestCase {
       savedRules,
       NotificationRules(categoryIds: ["system:flights"])
     )
+  }
+}
+
+private final class RecordingFallbackAuthorization:
+  NotificationAuthorizationRequesting
+{
+  private(set) var requestCount = 0
+
+  func requestAuthorization() async throws -> Bool {
+    requestCount += 1
+    return true
+  }
+}
+
+private final class RecordingFallbackStore:
+  GenericNotificationFallbackPersisting
+{
+  var savedProductAccountId: String?
+  var savedValue: Bool?
+
+  func isEnabled(productAccountId _: String) -> Bool {
+    false
+  }
+
+  func setEnabled(_ isEnabled: Bool, productAccountId: String) {
+    savedProductAccountId = productAccountId
+    savedValue = isEnabled
   }
 }
 

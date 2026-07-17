@@ -531,6 +531,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(result.newMessageIds, [])
+    XCTAssertTrue(result.historyIsExpired)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
       [
