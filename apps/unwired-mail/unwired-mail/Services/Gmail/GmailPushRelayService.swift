@@ -640,6 +640,12 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 // swiftlint:disable type_body_length
 @MainActor
 struct GmailPushWakeupHandler {
+  private enum CategoryNotificationDeliveryResult {
+    case completed
+    case failed
+    case fallbackDelivered
+  }
+
   private let connectionStore: GmailPushConnectionPersisting
   private let genericNotificationDelivery: GenericNotificationDelivering
   private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
@@ -757,8 +763,7 @@ struct GmailPushWakeupHandler {
         historyId: historyId,
         productAccountId: productSession.productAccountId,
         routeId: routeId,
-        routeIsCurrent: routeIsCurrent,
-        watermarkIsCurrent: watermarkIsCurrent
+        routeIsCurrent: { routeIsCurrent() && watermarkIsCurrent() }
       )
     }
 
@@ -799,46 +804,45 @@ struct GmailPushWakeupHandler {
       return try await scheduleGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
+    let canAdvanceWatermark =
+      currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
     let categoryProcessingIsIncomplete =
       !currentNotificationRules.categoryIds.isEmpty
-      && (syncResult.hasUnlistedNewMessages
+      && (syncResult.historyIsExpired
+        || syncResult.hasUnlistedNewMessages
         || syncResult.newMessageIds == nil
         || syncResult.messages.contains { message in
           !message.isHistorical
             && syncResult.newMessageIds?.contains(message.providerMessageId) == true
             && message.categoryId == nil
         })
-    var deliveredFallbackDuringCategoryDelivery = false
-    let notificationsCompleted = try await deliverCategoryAwareNotifications(
+    let notificationDeliveryResult = try await deliverCategoryAwareNotifications(
       for: syncResult.messages,
       including: syncResult.newMessageIds,
       connection: connection,
       productAccountId: productSession.productAccountId,
       rules: currentNotificationRules,
-      onProcessingFailure: {
-        let delivered = try await scheduleGenericFallback()
-        deliveredFallbackDuringCategoryDelivery = delivered
-        return delivered
-      },
+      onProcessingFailure: scheduleGenericFallback,
       routeIsCurrent: routeIsCurrent,
       watermarkIsCurrent: watermarkIsCurrent
     )
-    guard notificationsCompleted else { return false }
-    var deliveredGenericFallback = deliveredFallbackDuringCategoryDelivery
-    if !deliveredGenericFallback,
-      categoryProcessingIsIncomplete,
-      genericNotificationFallbackStore.isEnabled(
+    guard notificationDeliveryResult != .failed else { return false }
+    let shouldDeliverGenericFallback =
+      categoryProcessingIsIncomplete
+      && genericNotificationFallbackStore.isEnabled(
         productAccountId: productSession.productAccountId
       )
-    {
+    let deliveredGenericFallback: Bool
+    if notificationDeliveryResult == .fallbackDelivered {
+      deliveredGenericFallback = true
+    } else if shouldDeliverGenericFallback {
       deliveredGenericFallback = try await scheduleGenericFallback()
+    } else {
+      deliveredGenericFallback = false
     }
-    guard !categoryProcessingIsIncomplete || deliveredGenericFallback else { return false }
-    let canAdvanceWatermark =
-      currentNotificationRules.categoryIds.isEmpty
-      || !syncResult.hasUnlistedNewMessages
-      || deliveredGenericFallback
-    guard canAdvanceWatermark else { return false }
+    guard
+      canAdvanceWatermark || deliveredGenericFallback
+    else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
@@ -861,16 +865,13 @@ struct GmailPushWakeupHandler {
     historyId: String,
     productAccountId: String,
     routeId: String,
-    routeIsCurrent: () -> Bool,
-    watermarkIsCurrent: () -> Bool
+    routeIsCurrent: () -> Bool
   ) async throws -> Bool {
     guard
       genericNotificationFallbackStore.isEnabled(productAccountId: productAccountId),
       routeIsCurrent(),
-      watermarkIsCurrent(),
       try await failClosed({ try await notificationAuthorization.requestAuthorization() }) == true,
-      routeIsCurrent(),
-      watermarkIsCurrent()
+      routeIsCurrent()
     else { return false }
     return try await failClosed {
       try await genericNotificationDelivery.deliverGeneric(
@@ -890,11 +891,11 @@ struct GmailPushWakeupHandler {
     onProcessingFailure: () async throws -> Bool,
     routeIsCurrent: () -> Bool,
     watermarkIsCurrent: () -> Bool
-  ) async throws -> Bool {
-    guard let rules else { return false }
-    guard !rules.categoryIds.isEmpty else { return true }
+  ) async throws -> CategoryNotificationDeliveryResult {
+    guard let rules else { return .failed }
+    guard !rules.categoryIds.isEmpty else { return .completed }
     guard let newMessageIds else {
-      return try await onProcessingFailure()
+      return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
     }
     var notificationAuthorizationGranted = false
     for message in messages
@@ -902,9 +903,9 @@ struct GmailPushWakeupHandler {
       && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
-      guard routeIsCurrent(), watermarkIsCurrent() else { return false }
+      guard routeIsCurrent(), watermarkIsCurrent() else { return .failed }
       guard hasProcessingTimeRemaining() else {
-        return try await onProcessingFailure()
+        return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
       switch try notificationReceiptStore.claim(
         message,
@@ -916,7 +917,7 @@ struct GmailPushWakeupHandler {
       case .completed:
         continue
       case .inFlight:
-        return false
+        return .failed
       }
       if !notificationAuthorizationGranted {
         guard try await notificationAuthorization.requestAuthorization() else {
@@ -925,7 +926,7 @@ struct GmailPushWakeupHandler {
             productAccountId: productAccountId,
             providerAccountIdentifier: connection.providerAccountIdentifier
           )
-          return false
+          return .failed
         }
         notificationAuthorizationGranted = true
       }
@@ -935,7 +936,7 @@ struct GmailPushWakeupHandler {
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
-        return false
+        return .failed
       }
       guard hasProcessingTimeRemaining() else {
         try notificationReceiptStore.release(
@@ -943,7 +944,7 @@ struct GmailPushWakeupHandler {
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
-        return try await onProcessingFailure()
+        return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
       do {
         try await notificationDelivery.deliver(message: message)
@@ -965,10 +966,10 @@ struct GmailPushWakeupHandler {
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
-        return try await onProcessingFailure()
+        return (try await onProcessingFailure()) ? .fallbackDelivered : .failed
       }
     }
-    return true
+    return .completed
   }
 
   private func failClosed<Value>(

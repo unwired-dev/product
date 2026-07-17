@@ -157,6 +157,7 @@ final class NotificationRuleViewModel {
   var enabledCategoryIds: Set<String> = []
   var errorMessage: String?
   var fallbackErrorMessage: String?
+  private var fallbackChangeGeneration = 0
   var isGenericNotificationFallbackEnabled: Bool
   var isSaving = false
   var isSyncing = false
@@ -301,8 +302,6 @@ final class NotificationRuleViewModel {
       enabledCategoryIds.remove(categoryId)
     }
   }
-
-  private var fallbackChangeGeneration = 0
 
   func setGenericNotificationFallbackEnabled(_ isEnabled: Bool) async {
     fallbackChangeGeneration += 1
