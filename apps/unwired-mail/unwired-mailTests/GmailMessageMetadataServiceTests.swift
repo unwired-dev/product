@@ -263,11 +263,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "/token",
         "/tokeninfo",
         "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages",
         "/gmail/v1/users/me/messages/message-001",
+        "/gmail/v1/users/me/messages/message-002",
       ]
     )
     XCTAssertTrue(recorder.queries[2].contains("q=invoice%20total"))
-    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001"])
+    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001", "message-002"])
     XCTAssertTrue(store.savedMessages.isEmpty)
   }
 
