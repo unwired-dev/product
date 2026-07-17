@@ -637,9 +637,12 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
   }
 }
 
+// swiftlint:disable type_body_length
 @MainActor
 struct GmailPushWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
+  private let genericNotificationDelivery: GenericNotificationDelivering
+  private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
   private let hasProcessingTimeRemaining: @MainActor () -> Bool
   private let notificationAuthorization: NotificationAuthorizationRequesting
   private let notificationDelivery: CategoryAwareNotificationDelivering
@@ -651,6 +654,9 @@ struct GmailPushWakeupHandler {
 
   init(
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
+    genericNotificationDelivery: GenericNotificationDelivering? = nil,
+    genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
+      UserDefaultsFallbackStore(),
     hasProcessingTimeRemaining: @escaping @MainActor () -> Bool = {
       #if canImport(UIKit)
         UIApplication.shared.backgroundTimeRemaining > 1
@@ -667,6 +673,11 @@ struct GmailPushWakeupHandler {
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.connectionStore = connectionStore
+    self.genericNotificationDelivery =
+      genericNotificationDelivery
+      ?? (notificationDelivery as? GenericNotificationDelivering)
+      ?? UserNotificationService()
+    self.genericNotificationFallbackStore = genericNotificationFallbackStore
     self.hasProcessingTimeRemaining = hasProcessingTimeRemaining
     self.notificationDelivery = notificationDelivery
     self.notificationAuthorization =
@@ -735,10 +746,26 @@ struct GmailPushWakeupHandler {
       currentWatchForRoute() != nil
     }
 
+    guard hasProcessingTimeRemaining() else {
+      return try await deliverGenericFallback(
+        historyId: historyId,
+        productAccountId: productSession.productAccountId,
+        routeId: routeId,
+        routeIsCurrent: routeIsCurrent
+      )
+    }
+
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
-    guard let notificationRules else { return false }
+    guard let notificationRules else {
+      return try await deliverGenericFallback(
+        historyId: historyId,
+        productAccountId: productSession.productAccountId,
+        routeId: routeId,
+        routeIsCurrent: routeIsCurrent
+      )
+    }
     guard currentWatchForRoute() != nil else { return false }
     let syncResult: GmailMetadataSyncResult
     do {
@@ -757,17 +784,60 @@ struct GmailPushWakeupHandler {
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRules(session: productSession).rules
     }
-    guard let currentNotificationRules else { return false }
+    guard let currentNotificationRules else {
+      return try await deliverGenericFallback(
+        historyId: historyId,
+        productAccountId: productSession.productAccountId,
+        routeId: routeId,
+        routeIsCurrent: routeIsCurrent
+      )
+    }
     guard currentWatchForRoute() != nil else { return false }
     let canAdvanceWatermark =
       currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
-    guard
-      try await deliverCategoryAwareNotifications(
+    let categoryProcessingIsIncomplete =
+      !currentNotificationRules.categoryIds.isEmpty
+      && (syncResult.hasUnlistedNewMessages
+        || syncResult.newMessageIds == nil
+        || syncResult.messages.contains { message in
+          !message.isHistorical
+            && syncResult.newMessageIds?.contains(message.providerMessageId) == true
+            && message.categoryId == nil
+        })
+    let deliveredGenericFallback: Bool
+    if categoryProcessingIsIncomplete,
+      genericNotificationFallbackStore.isEnabled(
+        productAccountId: productSession.productAccountId
+      )
+    {
+      deliveredGenericFallback = try await deliverGenericFallback(
+        historyId: historyId,
+        productAccountId: productSession.productAccountId,
+        routeId: routeId,
+        routeIsCurrent: routeIsCurrent
+      )
+      guard deliveredGenericFallback else { return false }
+    } else {
+      deliveredGenericFallback = false
+    }
+    let notificationsCompleted: Bool
+    if deliveredGenericFallback {
+      notificationsCompleted = true
+    } else {
+      notificationsCompleted = try await deliverCategoryAwareNotifications(
         for: syncResult.messages,
         including: syncResult.newMessageIds,
         connection: connection,
         productAccountId: productSession.productAccountId,
         rules: currentNotificationRules,
+        onProcessingTimeout: {
+          try await deliverGenericFallback(
+            historyId: historyId,
+            productAccountId: productSession.productAccountId,
+            routeId: routeId,
+            routeIsCurrent: routeIsCurrent
+          )
+        },
         routeIsCurrent: routeIsCurrent,
         watermarkIsCurrent: {
           guard let currentWatch = currentWatchForRoute() else { return false }
@@ -777,7 +847,8 @@ struct GmailPushWakeupHandler {
           )
         }
       )
-    else { return false }
+    }
+    guard notificationsCompleted else { return false }
     guard canAdvanceWatermark else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
@@ -797,6 +868,26 @@ struct GmailPushWakeupHandler {
     return true
   }
 
+  private func deliverGenericFallback(
+    historyId: String,
+    productAccountId: String,
+    routeId: String,
+    routeIsCurrent: () -> Bool
+  ) async throws -> Bool {
+    guard
+      genericNotificationFallbackStore.isEnabled(productAccountId: productAccountId),
+      routeIsCurrent(),
+      try await failClosed({ try await notificationAuthorization.requestAuthorization() }) == true,
+      routeIsCurrent()
+    else { return false }
+    return try await failClosed {
+      try await genericNotificationDelivery.deliverGeneric(
+        identifier: "gmail-generic-fallback:\(routeId):\(historyId)"
+      )
+      return true
+    } ?? false
+  }
+
   // swiftlint:disable:next cyclomatic_complexity function_body_length function_parameter_count
   private func deliverCategoryAwareNotifications(
     for messages: [GmailMessageMetadata],
@@ -804,6 +895,7 @@ struct GmailPushWakeupHandler {
     connection: GmailProviderConnectionStatus,
     productAccountId: String,
     rules: NotificationRules?,
+    onProcessingTimeout: () async throws -> Bool,
     routeIsCurrent: () -> Bool,
     watermarkIsCurrent: () -> Bool
   ) async throws -> Bool {
@@ -816,11 +908,10 @@ struct GmailPushWakeupHandler {
       && newMessageIds.contains(message.providerMessageId)
       && message.categoryId.map(rules.allows(categoryId:)) == true
     {
-      guard
-        routeIsCurrent(),
-        watermarkIsCurrent(),
-        hasProcessingTimeRemaining()
-      else { return false }
+      guard routeIsCurrent(), watermarkIsCurrent() else { return false }
+      guard hasProcessingTimeRemaining() else {
+        return try await onProcessingTimeout()
+      }
       switch try notificationReceiptStore.claim(
         message,
         productAccountId: productAccountId,
@@ -844,17 +935,21 @@ struct GmailPushWakeupHandler {
         }
         notificationAuthorizationGranted = true
       }
-      guard
-        routeIsCurrent(),
-        watermarkIsCurrent(),
-        hasProcessingTimeRemaining()
-      else {
+      guard routeIsCurrent(), watermarkIsCurrent() else {
         try notificationReceiptStore.release(
           message,
           productAccountId: productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
         )
         return false
+      }
+      guard hasProcessingTimeRemaining() else {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        return try await onProcessingTimeout()
       }
       do {
         try await notificationDelivery.deliver(message: message)
@@ -895,6 +990,7 @@ struct GmailPushWakeupHandler {
     }
   }
 }
+// swiftlint:enable type_body_length
 
 enum GmailPushTopicConfiguration {
   static let infoDictionaryKey = "GmailPubSubTopic"

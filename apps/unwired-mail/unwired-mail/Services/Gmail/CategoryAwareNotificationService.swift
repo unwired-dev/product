@@ -11,6 +11,37 @@ protocol CategoryAwareNotificationDelivering {
   func deliver(message: GmailMessageMetadata) async throws
 }
 
+/// Delivers a content-free visible notification when device processing cannot finish in time.
+protocol GenericNotificationDelivering {
+  func deliverGeneric(identifier: String) async throws
+}
+
+/// Stores the device-local opt-in for Generic Notification Fallback.
+protocol GenericNotificationFallbackPersisting {
+  func isEnabled(productAccountId: String) -> Bool
+  func setEnabled(_ isEnabled: Bool, productAccountId: String)
+}
+
+struct UserDefaultsFallbackStore: GenericNotificationFallbackPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func isEnabled(productAccountId: String) -> Bool {
+    defaults.bool(forKey: key(productAccountId: productAccountId))
+  }
+
+  func setEnabled(_ isEnabled: Bool, productAccountId: String) {
+    defaults.set(isEnabled, forKey: key(productAccountId: productAccountId))
+  }
+
+  private func key(productAccountId: String) -> String {
+    "generic-notification-fallback.\(productAccountId)"
+  }
+}
+
 /// Requests the local alert permission needed to make matching Notification Rules visible.
 ///
 /// Example:
@@ -37,7 +68,8 @@ extension UNUserNotificationCenter: UserNotificationCenterClient {}
 /// try await notifications.deliver(message: categorizedMessage)
 /// ```
 struct UserNotificationService:
-  CategoryAwareNotificationDelivering, NotificationAuthorizationRequesting
+  CategoryAwareNotificationDelivering, GenericNotificationDelivering,
+  NotificationAuthorizationRequesting
 {
   private let center: UserNotificationCenterClient
 
@@ -60,6 +92,16 @@ struct UserNotificationService:
         content: content,
         trigger: nil
       )
+    )
+  }
+
+  func deliverGeneric(identifier: String) async throws {
+    let content = UNMutableNotificationContent()
+    content.body = "New mail is available."
+    content.sound = .default
+    content.title = "New mail"
+    try await center.add(
+      UNNotificationRequest(identifier: identifier, content: content, trigger: nil)
     )
   }
 }

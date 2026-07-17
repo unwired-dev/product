@@ -56,7 +56,7 @@ The client renews a Gmail watch when less than one day remains, matching Gmail's
 
 ### Category-aware notifications
 
-Signed-in users can enable Notification Rules for System Categories and their Custom Category. The client encrypts the selected category identifiers with Product Sync key material before syncing them; the backend stores only opaque encrypted user data. A Gmail background wake can schedule a visible local notification only after the trusted device fetches the new message, categorizes it locally, and matches its category against those decrypted rules. Rules are empty by default, and failed, incomplete, or out-of-time background processing stays silent without a Generic Notification Fallback. See [ADR 0008](docs/adr/0008-device-evaluated-category-aware-notifications.md).
+Signed-in users can enable Notification Rules for System Categories and their Custom Category. The client encrypts the selected category identifiers with Product Sync key material before syncing them; the backend stores only opaque encrypted user data. A Gmail background wake can schedule a visible local notification only after the trusted device fetches the new message, categorizes it locally, and matches its category against those decrypted rules. Rules are empty by default. A separate device-only Generic Notification Fallback is also off by default; when the user enables it, failed, incomplete, or out-of-time category processing may instead schedule a content-free new-mail notification. The fallback does not sync and does not expose Notification Rules, categories, or message content to the backend. See [ADR 0008](docs/adr/0008-device-evaluated-category-aware-notifications.md).
 
 Open and run the Apple app:
 
