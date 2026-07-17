@@ -1,0 +1,3 @@
+# Keep mailbox authorization device-local
+
+Product Sync will synchronize the non-secret definition of each Mailbox Connection, but provider passwords, app passwords, OAuth refresh tokens, and equivalent credentials will remain in the current trusted device's Keychain. Mailbox Authorization prefers OAuth for known providers and may use passwords or app-specific passwords only over Secure Mail Transport; client-certificate and enterprise SSO authentication are deferred. Every device must obtain its own authorization, accepting additional setup friction to prevent provider credentials from entering backend or cross-device sync and to preserve the existing device-held credential boundary.

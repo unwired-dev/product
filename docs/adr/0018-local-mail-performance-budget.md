@@ -1,0 +1,3 @@
+# Set a local mail performance budget
+
+At the 95th percentile on a supported reference device with cached data, the sidebar and initial thread list must appear within one second of launch, cached mailbox switching and cached body opening must complete within 200 milliseconds, and synchronization must not cause a main-thread stall longer than 100 milliseconds. Provider and network latency will be measured and reported separately rather than counted against local rendering. These budgets make the local store the presentation source of truth and require synchronization, decryption, parsing, and persistence work to stay off the main thread.
