@@ -26,7 +26,7 @@ struct GmailPushWatchStatus: Codable, Equatable {
   }
 }
 
-private func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
+func gmailHistoryIdIsNewer(_ candidate: String, than current: String) -> Bool {
   guard
     candidate.unicodeScalars.allSatisfy({ (48...57).contains($0.value) }),
     current.unicodeScalars.allSatisfy({ (48...57).contains($0.value) })
@@ -77,6 +77,46 @@ protocol GmailPushConnectionPersisting {
     _ connection: GmailProviderConnectionStatus,
     productAccountId: String
   ) throws
+}
+
+@MainActor
+protocol GmailPushNotificationReceiptPersisting {
+  func claim(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailPushNotificationReceiptClaim
+  func complete(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+  func release(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+}
+
+enum GmailPushNotificationReceiptClaim {
+  case claimed
+  case completed
+  case inFlight
+}
+
+@MainActor
+private final class GmailPushInFlightReceiptStore {
+  static let shared = GmailPushInFlightReceiptStore()
+
+  private var receiptKeys: Set<String> = []
+
+  func claim(_ key: String) -> Bool {
+    receiptKeys.insert(key).inserted
+  }
+
+  func release(_ key: String) {
+    receiptKeys.remove(key)
+  }
 }
 
 protocol GmailPushWatchRegistering {
@@ -156,6 +196,89 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
   private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
     "gmail-push-watch.\(gmailSafeFileComponent(productAccountId)).\(gmailSafeFileComponent(providerAccountIdentifier))"
   }
+}
+
+struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func claim(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailPushNotificationReceiptClaim {
+    let receiptKey = receiptKey(message, productAccountId, providerAccountIdentifier)
+    guard
+      !receipts(productAccountId, providerAccountIdentifier)
+        .contains(message.stableProviderMessageId)
+    else { return .completed }
+    return GmailPushInFlightReceiptStore.shared.claim(receiptKey) ? .claimed : .inFlight
+  }
+
+  func complete(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    var value = receipts(productAccountId, providerAccountIdentifier)
+    value.insert(message.stableProviderMessageId)
+    defaults.set(Array(value), forKey: key(productAccountId, providerAccountIdentifier))
+    GmailPushInFlightReceiptStore.shared.release(
+      receiptKey(message, productAccountId, providerAccountIdentifier)
+    )
+  }
+
+  func release(
+    _ message: GmailMessageMetadata,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    GmailPushInFlightReceiptStore.shared.release(
+      receiptKey(message, productAccountId, providerAccountIdentifier)
+    )
+  }
+
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    "gmail-push-notification-receipts.\(gmailSafeFileComponent(productAccountId))."
+      + gmailSafeFileComponent(providerAccountIdentifier)
+  }
+
+  private func receiptKey(
+    _ message: GmailMessageMetadata,
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) -> String {
+    "\(key(productAccountId, providerAccountIdentifier)).\(message.stableProviderMessageId)"
+  }
+
+  private func receipts(_ productAccountId: String, _ providerAccountIdentifier: String) -> Set<
+    String
+  > {
+    Set(defaults.stringArray(forKey: key(productAccountId, providerAccountIdentifier)) ?? [])
+  }
+}
+
+private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
+  func claim(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailPushNotificationReceiptClaim { .claimed }
+
+  func complete(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+
+  func release(
+    _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 }
 
 struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
@@ -517,23 +640,51 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 @MainActor
 struct GmailPushWakeupHandler {
   private let connectionStore: GmailPushConnectionPersisting
+  private let hasProcessingTimeRemaining: @MainActor () -> Bool
+  private let notificationAuthorization: NotificationAuthorizationRequesting
+  private let notificationDelivery: CategoryAwareNotificationDelivering
+  private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
+  private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
   private let syncService: GmailMessageMetadataSyncing
   private let watchStore: GmailPushWatchPersisting
 
   init(
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
+    hasProcessingTimeRemaining: @escaping @MainActor () -> Bool = {
+      #if canImport(UIKit)
+        UIApplication.shared.backgroundTimeRemaining > 1
+      #else
+        true
+      #endif
+    },
+    notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
+    notificationAuthorization: NotificationAuthorizationRequesting? = nil,
+    notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
+    notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.connectionStore = connectionStore
+    self.hasProcessingTimeRemaining = hasProcessingTimeRemaining
+    self.notificationDelivery = notificationDelivery
+    self.notificationAuthorization =
+      notificationAuthorization
+      ?? (notificationDelivery as? NotificationAuthorizationRequesting)
+      ?? UserNotificationService()
+    self.notificationReceiptStore =
+      notificationReceiptStore
+      ?? (notificationDelivery is UserNotificationService
+        ? GmailPushNotificationReceiptStore()
+        : NoopGmailPushNotificationReceiptStore())
+    self.notificationRuleSync = notificationRuleSync
     self.sessionStore = sessionStore
     self.syncService = syncService
     self.watchStore = watchStore
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == "gmail",
@@ -584,16 +735,50 @@ struct GmailPushWakeupHandler {
       currentWatchForRoute() != nil
     }
 
+    let notificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession).rules
+    }
+    guard let notificationRules else { return false }
+    guard currentWatchForRoute() != nil else { return false }
+    let syncResult: GmailMetadataSyncResult
     do {
-      _ = try await syncService.syncRecentInbox(
+      syncResult = try await syncService.syncRecentInbox(
         connection: connection,
+        includingHistoryCandidates: !notificationRules.categoryIds.isEmpty,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
+        throughHistoryId: historyId,
         shouldPersist: routeIsCurrent
       )
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
     }
+    guard currentWatchForRoute() != nil else { return false }
+    let currentNotificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession).rules
+    }
+    guard let currentNotificationRules else { return false }
+    guard currentWatchForRoute() != nil else { return false }
+    let canAdvanceWatermark =
+      currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
+    guard
+      try await deliverCategoryAwareNotifications(
+        for: syncResult.messages,
+        including: syncResult.newMessageIds,
+        connection: connection,
+        productAccountId: productSession.productAccountId,
+        rules: currentNotificationRules,
+        routeIsCurrent: routeIsCurrent,
+        watermarkIsCurrent: {
+          guard let currentWatch = currentWatchForRoute() else { return false }
+          return gmailHistoryIdIsNewer(
+            historyId,
+            than: currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
+          )
+        }
+      )
+    else { return false }
+    guard canAdvanceWatermark else { return false }
     guard let currentWatch = currentWatchForRoute() else { return false }
     let currentWatermark = currentWatch.latestSyncedHistoryId ?? currentWatch.historyId
     let nextWatermark =
@@ -610,6 +795,104 @@ struct GmailPushWakeupHandler {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     return true
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length function_parameter_count
+  private func deliverCategoryAwareNotifications(
+    for messages: [GmailMessageMetadata],
+    including newMessageIds: Set<String>?,
+    connection: GmailProviderConnectionStatus,
+    productAccountId: String,
+    rules: NotificationRules?,
+    routeIsCurrent: () -> Bool,
+    watermarkIsCurrent: () -> Bool
+  ) async throws -> Bool {
+    guard let rules else { return false }
+    guard !rules.categoryIds.isEmpty else { return true }
+    guard let newMessageIds else { return false }
+    var notificationAuthorizationGranted = false
+    for message in messages
+    where !message.isHistorical
+      && newMessageIds.contains(message.providerMessageId)
+      && message.categoryId.map(rules.allows(categoryId:)) == true
+    {
+      guard
+        routeIsCurrent(),
+        watermarkIsCurrent(),
+        hasProcessingTimeRemaining()
+      else { return false }
+      switch try notificationReceiptStore.claim(
+        message,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ) {
+      case .claimed:
+        break
+      case .completed:
+        continue
+      case .inFlight:
+        return false
+      }
+      if !notificationAuthorizationGranted {
+        guard try await notificationAuthorization.requestAuthorization() else {
+          try notificationReceiptStore.release(
+            message,
+            productAccountId: productAccountId,
+            providerAccountIdentifier: connection.providerAccountIdentifier
+          )
+          return false
+        }
+        notificationAuthorizationGranted = true
+      }
+      guard
+        routeIsCurrent(),
+        watermarkIsCurrent(),
+        hasProcessingTimeRemaining()
+      else {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        return false
+      }
+      do {
+        try await notificationDelivery.deliver(message: message)
+        try notificationReceiptStore.complete(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      } catch is CancellationError {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        throw CancellationError()
+      } catch {
+        try notificationReceiptStore.release(
+          message,
+          productAccountId: productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        // Visible notification delivery fails closed without adding a generic fallback.
+        return false
+      }
+    }
+    return true
+  }
+
+  private func failClosed<Value>(
+    _ operation: () async throws -> Value
+  ) async throws -> Value? {
+    do {
+      return try await operation()
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return nil
+    }
   }
 }
 

@@ -13,6 +13,7 @@ struct AccountView: View {
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var mailActionViewModel: GmailMailActionViewModel
+  @State private var notificationRuleViewModel: NotificationRuleViewModel
 
   init(
     session: ProductAccountSession,
@@ -24,7 +25,9 @@ struct AccountView: View {
     gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
-    gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService()
+    gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
+    notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
+    notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService()
   ) {
     self.session = session
     self.snapshot = snapshot
@@ -56,6 +59,13 @@ struct AccountView: View {
         session: snapshot
       )
     )
+    _notificationRuleViewModel = State(
+      initialValue: NotificationRuleViewModel(
+        authorization: notificationAuthorization,
+        service: notificationRuleSync,
+        session: snapshot
+      )
+    )
   }
 
   var body: some View {
@@ -79,6 +89,14 @@ struct AccountView: View {
         }
 
         CustomCategoryPanel(viewModel: categoryViewModel)
+
+        NotificationRulePanel(
+          categoryChoices: MessageCategoryChoice.available(
+            customCategory: categoryViewModel.category
+          ),
+          hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+          viewModel: notificationRuleViewModel
+        )
 
         GmailProviderConnectionPanel(viewModel: gmailViewModel)
 
@@ -112,6 +130,13 @@ struct AccountView: View {
         requestDevicePushRegistration()
       #endif
       await categoryViewModel.load()
+      await notificationRuleViewModel.load(
+        categoryIds: categoryViewModel.hasLoadedCategory
+          ? Set(
+            MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
+          )
+          : nil
+      )
       await gmailViewModel.load()
       if let connection = gmailViewModel.connection {
         await inboxViewModel.load(connection: connection)
@@ -123,6 +148,162 @@ struct AccountView: View {
         await gmailViewModel.renewPushWatch()
       }
     }
+  }
+}
+
+@MainActor
+@Observable
+final class NotificationRuleViewModel {
+  var enabledCategoryIds: Set<String> = []
+  var errorMessage: String?
+  var isSaving = false
+  var isSyncing = false
+
+  private let authorization: NotificationAuthorizationRequesting
+  private var hasLoadedRules = false
+  private var pendingPruneCategoryIds: Set<String>?
+  private var rulesUpdatedAt: Int64?
+  private var syncedCategoryIds: Set<String> = []
+  private let service: NotificationRuleSyncing
+  private let session: ProductAccountSessionSnapshot
+
+  init(
+    authorization: NotificationAuthorizationRequesting,
+    service: NotificationRuleSyncing,
+    session: ProductAccountSessionSnapshot
+  ) {
+    self.authorization = authorization
+    self.service = service
+    self.session = session
+  }
+
+  var canSave: Bool {
+    hasLoadedRules && !isSaving && !isSyncing
+  }
+
+  var isEditingDisabled: Bool {
+    isSaving || isSyncing
+  }
+
+  var hasUnsavedChanges: Bool {
+    enabledCategoryIds != syncedCategoryIds
+  }
+
+  func isEnabled(categoryId: String) -> Bool {
+    enabledCategoryIds.contains(categoryId)
+  }
+
+  func prune(categoryIds: Set<String>) async {
+    guard !isSaving && !isSyncing else {
+      pendingPruneCategoryIds = categoryIds
+      return
+    }
+    let categoryIdsBeforePruning = enabledCategoryIds
+    enabledCategoryIds.formIntersection(categoryIds)
+    let syncedCategoryIdsAfterPruning = syncedCategoryIds.intersection(categoryIds)
+    guard
+      hasLoadedRules,
+      enabledCategoryIds != categoryIdsBeforePruning
+        || syncedCategoryIds != syncedCategoryIdsAfterPruning
+    else { return }
+    isSaving = true
+    defer { finishSaving() }
+
+    do {
+      let snapshot = try await service.saveRules(
+        NotificationRules(categoryIds: Array(syncedCategoryIdsAfterPruning)),
+        expectedUpdatedAt: rulesUpdatedAt,
+        session: session
+      )
+      syncedCategoryIds = Set(snapshot.rules.categoryIds)
+      rulesUpdatedAt = snapshot.updatedAt
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func load(categoryIds: Set<String>? = nil) async {
+    isSyncing = true
+
+    do {
+      var snapshot = try await service.loadRules(session: session)
+      enabledCategoryIds = Set(snapshot.rules.categoryIds)
+      rulesUpdatedAt = snapshot.updatedAt
+      if let categoryIds {
+        enabledCategoryIds.formIntersection(categoryIds)
+        if enabledCategoryIds != Set(snapshot.rules.categoryIds) {
+          snapshot = try await service.saveRules(
+            NotificationRules(categoryIds: Array(enabledCategoryIds)),
+            expectedUpdatedAt: rulesUpdatedAt,
+            session: session
+          )
+          enabledCategoryIds = Set(snapshot.rules.categoryIds)
+          rulesUpdatedAt = snapshot.updatedAt
+        }
+      }
+      syncedCategoryIds = enabledCategoryIds
+      hasLoadedRules = true
+      if !enabledCategoryIds.isEmpty, try await !authorization.requestAuthorization() {
+        errorMessage =
+          "Rules are enabled, but visible notifications are disabled in system settings."
+      } else {
+        errorMessage = nil
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+    isSyncing = false
+    await replayPendingPrune()
+  }
+
+  func save(requestingNotificationAuthorization: Bool = true) async {
+    guard canSave else { return }
+    isSaving = true
+    defer { finishSaving() }
+
+    do {
+      let snapshot = try await service.saveRules(
+        NotificationRules(categoryIds: Array(enabledCategoryIds)),
+        expectedUpdatedAt: rulesUpdatedAt,
+        session: session
+      )
+      enabledCategoryIds = Set(snapshot.rules.categoryIds)
+      syncedCategoryIds = enabledCategoryIds
+      rulesUpdatedAt = snapshot.updatedAt
+      if requestingNotificationAuthorization,
+        !snapshot.rules.categoryIds.isEmpty,
+        try await !authorization.requestAuthorization()
+      {
+        errorMessage =
+          "Rules were saved, but visible notifications are disabled in system settings."
+      } else {
+        errorMessage = nil
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setEnabled(_ isEnabled: Bool, categoryId: String) {
+    if isEnabled {
+      enabledCategoryIds.insert(categoryId)
+    } else {
+      enabledCategoryIds.remove(categoryId)
+    }
+  }
+
+  private func finishSaving() {
+    isSaving = false
+    Task {
+      await replayPendingPrune()
+    }
+  }
+
+  private func replayPendingPrune() async {
+    guard let categoryIds = pendingPruneCategoryIds else { return }
+    pendingPruneCategoryIds = nil
+    await prune(categoryIds: categoryIds)
   }
 }
 
@@ -515,7 +696,7 @@ private final class CustomCategoryViewModel {
   var isSyncing = false
   var name = ""
 
-  private var hasLoadedCategory = false
+  var hasLoadedCategory = false
   private let service: CustomCategorySyncing
   private let session: ProductAccountSessionSnapshot
 
@@ -668,6 +849,101 @@ private struct CustomCategoryPanel: View {
           .font(.footnote)
       }
 
+    }
+  }
+}
+
+private struct NotificationRulePanel: View {
+  let categoryChoices: [MessageCategoryChoice]
+  let hasLoadedCategory: Bool
+  @Bindable var viewModel: NotificationRuleViewModel
+  @State private var showsRefreshConfirmation = false
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 16) {
+      HStack {
+        VStack(alignment: .leading, spacing: 4) {
+          Text("Notification Rules")
+            .font(.headline)
+          Text(
+            "Choose which locally categorized messages can notify you. "
+              + "Rules sync encrypted and are disabled by default."
+          )
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
+        }
+
+        Spacer()
+
+        Button {
+          if viewModel.hasUnsavedChanges {
+            showsRefreshConfirmation = true
+          } else {
+            refresh()
+          }
+        } label: {
+          Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .buttonStyle(.bordered)
+        .disabled(viewModel.isEditingDisabled)
+      }
+
+      ForEach(categoryChoices) { category in
+        Toggle(
+          category.name,
+          isOn: Binding(
+            get: { viewModel.isEnabled(categoryId: category.id) },
+            set: { viewModel.setEnabled($0, categoryId: category.id) }
+          )
+        )
+        .disabled(viewModel.isEditingDisabled)
+      }
+
+      Button("Save Notification Rules") {
+        Task {
+          await viewModel.save()
+        }
+      }
+      .buttonStyle(.borderedProminent)
+      .disabled(!viewModel.canSave)
+
+      if viewModel.isSyncing || viewModel.isSaving {
+        ProgressView(viewModel.isSaving ? "Saving rules..." : "Syncing rules...")
+      }
+
+      if let errorMessage = viewModel.errorMessage {
+        Text(errorMessage)
+          .foregroundStyle(.red)
+          .font(.footnote)
+      }
+    }
+    .onChange(of: Set(categoryChoices.map(\.id)), initial: false) { _, categoryIds in
+      Task {
+        await viewModel.prune(categoryIds: categoryIds)
+      }
+    }
+    .onChange(of: hasLoadedCategory) { _, hasLoadedCategory in
+      guard hasLoadedCategory else { return }
+      Task {
+        await viewModel.prune(categoryIds: Set(categoryChoices.map(\.id)))
+      }
+    }
+    .confirmationDialog(
+      "Discard unsaved notification rule changes?",
+      isPresented: $showsRefreshConfirmation,
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes and Refresh", role: .destructive) {
+        refresh()
+      }
+    }
+  }
+
+  private func refresh() {
+    Task {
+      await viewModel.load(
+        categoryIds: hasLoadedCategory ? Set(categoryChoices.map(\.id)) : nil
+      )
     }
   }
 }

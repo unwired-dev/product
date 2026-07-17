@@ -54,6 +54,10 @@ Configure the Google and Apple infrastructure before enabling the path:
 
 The client renews a Gmail watch when less than one day remains, matching Gmail's daily-renewal recommendation. Each accepted background wake refreshes only the newest Gmail inbox page and advances the local history watermark; foreground/manual sync performs full pagination and reconciliation. Background APNs delivery is best effort, so foreground/manual inbox sync remains available when the system delays or drops a wakeup.
 
+### Category-aware notifications
+
+Signed-in users can enable Notification Rules for System Categories and their Custom Category. The client encrypts the selected category identifiers with Product Sync key material before syncing them; the backend stores only opaque encrypted user data. A Gmail background wake can schedule a visible local notification only after the trusted device fetches the new message, categorizes it locally, and matches its category against those decrypted rules. Rules are empty by default, and failed, incomplete, or out-of-time background processing stays silent without a Generic Notification Fallback. See [ADR 0008](docs/adr/0008-device-evaluated-category-aware-notifications.md).
+
 Open and run the Apple app:
 
 ```sh

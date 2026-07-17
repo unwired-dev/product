@@ -43,6 +43,10 @@
 		71A6A08D2C0B000100000001 /* MessageCategorizationServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A08F2C0B000100000001 /* MessageCategorizationServiceTests.swift */; };
 		71A6A0902C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0922C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift */; };
 		71A6A0912C0B000100000001 /* GmailPushRelayServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0932C0B000100000001 /* GmailPushRelayServiceTests.swift */; };
+		71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */; };
+		71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */; };
+		71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */; };
+		71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -96,6 +100,10 @@
 		71A6A0922C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/GmailPushRelayService.swift; sourceTree = "<group>"; };
 		71A6A0932C0B000100000001 /* GmailPushRelayServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GmailPushRelayServiceTests.swift; sourceTree = "<group>"; };
 		71A6A0942C0B000100000001 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRuleSyncServiceTests.swift; sourceTree = "<group>"; };
+		71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRuleViewModelTests.swift; sourceTree = "<group>"; };
+		71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductSync/NotificationRuleSyncService.swift; sourceTree = "<group>"; };
+		71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Gmail/CategoryAwareNotificationService.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -136,6 +144,7 @@
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
 				71A6A0192C0B000100000001 /* Services/DotEnvFile.swift */,
 				71A6A0862C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift */,
+				71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */,
 				71A6A08A2C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift */,
 				71A6A0922C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift */,
 				71A6A08E2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift */,
@@ -148,6 +157,7 @@
 				71A6A01E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift */,
 				71A6A01C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift */,
 				71A6A07A2C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift */,
+				71A6A0982C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift */,
 				71A6A0742C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift */,
 				71A6A0752C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift */,
 				71A6A0132C0B000100000001 /* Services/BackendHealthService.swift */,
@@ -168,6 +178,8 @@
 				71A6A08B2C0B000100000001 /* GmailMessageBodyServiceTests.swift */,
 				71A6A0932C0B000100000001 /* GmailPushRelayServiceTests.swift */,
 				71A6A08F2C0B000100000001 /* MessageCategorizationServiceTests.swift */,
+				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
+				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */,
 				71A6A0692C0B000100000001 /* ProductAccountSessionStoreTests.swift */,
 				71A6A06B2C0B000100000001 /* ProductAccountSessionTests.swift */,
@@ -292,6 +304,7 @@
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
 				71A6A0092C0B000100000001 /* Services/DotEnvFile.swift in Sources */,
 				71A6A0842C0B000100000001 /* Services/Gmail/GmailMessageMetadataService.swift in Sources */,
+				71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */,
 				71A6A0882C0B000100000001 /* Services/Gmail/GmailMessageBodyService.swift in Sources */,
 				71A6A0902C0B000100000001 /* Services/Gmail/GmailPushRelayService.swift in Sources */,
 				71A6A08C2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift in Sources */,
@@ -304,6 +317,7 @@
 				71A6A00E2C0B000100000001 /* Services/ProductAccount/SignInWithAppleService.swift in Sources */,
 				71A6A00C2C0B000100000001 /* Services/ProductAccount/TrustedDeviceIdentity.swift in Sources */,
 				71A6A0782C0B000100000001 /* Services/ProductSync/CustomCategorySyncService.swift in Sources */,
+				71A6A0972C0B000100000001 /* Services/ProductSync/NotificationRuleSyncService.swift in Sources */,
 				71A6A0702C0B000100000001 /* Services/ProductSync/ProductSyncEncryption.swift in Sources */,
 				71A6A0712C0B000100000001 /* Services/ProductSync/ProductSyncKeyMaterialStore.swift in Sources */,
 				71A6A0032C0B000100000001 /* Services/BackendHealthService.swift in Sources */,
@@ -322,6 +336,8 @@
 				71A6A0892C0B000100000001 /* GmailMessageBodyServiceTests.swift in Sources */,
 				71A6A0912C0B000100000001 /* GmailPushRelayServiceTests.swift in Sources */,
 				71A6A08D2C0B000100000001 /* MessageCategorizationServiceTests.swift in Sources */,
+				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
+				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */,
 				71A6A0682C0B000100000001 /* ProductAccountSessionStoreTests.swift in Sources */,
 				71A6A06A2C0B000100000001 /* ProductAccountSessionTests.swift in Sources */,

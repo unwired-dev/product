@@ -501,17 +501,269 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session,
       sinceHistoryId: "123",
+      throughHistoryId: nil,
       shouldPersist: { true }
     )
 
     XCTAssertEqual(
       fixture.requestRecorder.queries.first { $0.contains("startHistoryId") },
-      "startHistoryId=123"
+      "startHistoryId=123&labelId=INBOX"
     )
     XCTAssertTrue(result.messages.contains { $0.providerMessageId == "message-preserved" })
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-archived" })
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-deleted" })
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
+  func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true, historyStatusCode: 404)
+    fixture.store.messages = [
+      metadata(
+        messageId: "message-stale", threadId: "thread-stale", internalDateMilliseconds: 1)
+    ]
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, [])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
+      [
+        "labelIds=INBOX&maxResults=25",
+        "labelIds=INBOX&maxResults=25&pageToken=next-page-token",
+      ]
+    )
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-002"))
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-001"))
+    XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
+    XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
+  }
+
+  func testSyncRecentInboxDoesNotTreatRestoredInboxMessageAsNew() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {
+          "history": [{
+            "labelsAdded": [{
+              "message": {"id": "message-002"},
+              "labelIds": ["INBOX"]
+            }]
+          }]
+        }
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, [])
+  }
+
+  func testSyncRecentInboxDropsHistoryAdditionsRemovedBeforeListing() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {
+          "history": [{
+            "messagesAdded": [{"message": {"id": "message-002"}}],
+            "labelsRemoved": [{
+              "message": {"id": "message-002"},
+              "labelIds": ["INBOX"]
+            }]
+          }]
+        }
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, [])
+  }
+
+  func testSyncRecentInboxRestoresNewHistoryAdditionsReaddedToInbox() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {
+          "history": [{
+            "messagesAdded": [{"message": {"id": "message-002"}}],
+            "labelsRemoved": [{
+              "message": {"id": "message-002"},
+              "labelIds": ["INBOX"]
+            }],
+            "labelsAdded": [{
+              "message": {"id": "message-002"},
+              "labelIds": ["INBOX"]
+            }]
+          }]
+        }
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+  }
+
+  func testSyncRecentInboxTreatsHistoryAdditionsWithoutLabelsAsNew() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {
+          "history": [{
+            "messagesAdded": [{
+              "message": {"id": "message-002"}
+            }, {
+              "message": {"id": "message-sent", "labelIds": ["SENT"]}
+            }]
+          }]
+        }
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+  }
+
+  func testSyncRecentInboxStopsHistoryCandidatesAtWakeHistoryId() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {"history":[
+          {"id":"124","messagesAdded":[{"message":{"id":"message-002"}}]},
+          {"id":"125","messagesAdded":[{"message":{"id":"message-001"}}]}
+        ]}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+  }
+
+  func testSyncRecentInboxStopsHistoryPaginationAtWakeHistoryId() async throws {
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        """
+        {"history":[
+          {"id":"124","messagesAdded":[{"message":{"id":"message-002"}}]},
+          {"id":"125","messagesAdded":[{"message":{"id":"message-001"}}]}
+        ],"nextPageToken":"next-history-page"}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-002"])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") },
+      ["startHistoryId=123&labelId=INBOX"]
+    )
+  }
+
+  func testSyncRecentInboxContinuesPagingForMissingHistoryCandidates()
+    async throws
+  {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      historyResponseData: Data(
+        """
+        {"history":[{"id":"124","messagesAdded":[{"message":{"id":"message-001"}}]}]}
+        """.utf8
+      )
+    )
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    XCTAssertFalse(result.hasUnlistedNewMessages)
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("labelIds=INBOX") },
+      [
+        "labelIds=INBOX&maxResults=25",
+        "labelIds=INBOX&maxResults=25&pageToken=next-page-token",
+      ]
+    )
+  }
+
+  func testSyncRecentInboxFindsHistoryAdditionsInLaterPages() async throws {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      historyResponseData: Data(
+        """
+        {"history":[{"id":"124","messagesAdded":[{"message":{"id":"message-001"}}]}]}
+        """.utf8
+      )
+    )
+    fixture.store.messages = [
+      metadata(messageId: "message-001", threadId: "thread-001", internalDateMilliseconds: 1)
+    ]
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: "123",
+      throughHistoryId: "124",
+      shouldPersist: { true }
+    )
+
+    XCTAssertFalse(result.hasUnlistedNewMessages)
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
   }
 
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
@@ -525,6 +777,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         connection: connection,
         session: session,
         sinceHistoryId: nil,
+        throughHistoryId: nil,
         shouldPersist: { false }
       )
       XCTFail("Expected stale local connection")
@@ -798,6 +1051,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String = "gmail-user-001",
     usesPagination: Bool = false,
     replyTo: String? = nil,
+    historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8)
   ) throws -> GmailMessageMetadataSyncFixture {
     let store = RecordingGmailMessageMetadataStore()
@@ -814,6 +1068,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         tokenInfoSubject: tokenInfoSubject,
         usesPagination: usesPagination,
         replyTo: replyTo,
+        historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
       )
     }
@@ -842,6 +1097,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String,
     usesPagination: Bool,
     replyTo: String?,
+    historyStatusCode: Int,
     historyResponseData: Data
   ) -> (HTTPURLResponse, Data) {
     requestRecorder.paths.append(request.url?.path ?? "")
@@ -877,7 +1133,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     if request.url?.path == "/gmail/v1/users/me/history" {
-      return (Self.httpResponse(for: request, statusCode: 200), historyResponseData)
+      return (Self.httpResponse(for: request, statusCode: historyStatusCode), historyResponseData)
     }
 
     if request.url?.path == "/gmail/v1/users/me/messages" {
@@ -1019,10 +1275,13 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     result(for: connection)
   }
 
+  // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
     connection: GmailProviderConnectionStatus,
+    includingHistoryCandidates _: Bool,
     session _: ProductAccountSessionSnapshot,
     sinceHistoryId _: String?,
+    throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     result(for: connection)
