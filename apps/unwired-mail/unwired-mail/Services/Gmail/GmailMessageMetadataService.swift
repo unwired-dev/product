@@ -319,6 +319,8 @@ struct GmailMessageMetadataService:
   GmailMessageMetadataSyncing, GmailMessageSearching, GmailProviderMailActing,
   GmailProviderTokenRefreshing
 {
+  private static let recipientHeaderNames = ["Bcc", "Cc", "To"]
+
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
   private let oauthClientId: String?
@@ -952,16 +954,17 @@ struct GmailMessageMetadataService:
       url: gmailBaseURL.appendingPathComponent("users/me/messages/\(providerMessageId)"),
       resolvingAgainstBaseURL: false
     )
-    components?.queryItems = [
-      URLQueryItem(name: "format", value: "metadata"),
-      URLQueryItem(name: "metadataHeaders", value: "Bcc"),
-      URLQueryItem(name: "metadataHeaders", value: "Cc"),
-      URLQueryItem(name: "metadataHeaders", value: "From"),
-      URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
-      URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
-      URLQueryItem(name: "metadataHeaders", value: "Subject"),
-      URLQueryItem(name: "metadataHeaders", value: "To"),
-    ]
+    components?.queryItems =
+      [
+        URLQueryItem(name: "format", value: "metadata"),
+        URLQueryItem(name: "metadataHeaders", value: "From"),
+        URLQueryItem(name: "metadataHeaders", value: "Message-ID"),
+        URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
+        URLQueryItem(name: "metadataHeaders", value: "Subject"),
+      ]
+      + Self.recipientHeaderNames.map {
+        URLQueryItem(name: "metadataHeaders", value: $0)
+      }
     guard let url = components?.url else {
       throw GmailMessageMetadataSyncError.invalidGmailRequest
     }
@@ -1003,7 +1006,7 @@ struct GmailMessageMetadataService:
 
   private func recipientHeaders(in response: GmailMessageMetadataResponse) -> [String]? {
     response.payload?.headers.filter { header in
-      ["Bcc", "Cc", "To"].contains {
+      Self.recipientHeaderNames.contains {
         header.name.caseInsensitiveCompare($0) == .orderedSame
       }
     }.map(\.value)
