@@ -684,7 +684,7 @@ struct GmailPushWakeupHandler {
     self.watchStore = watchStore
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func handle(userInfo: [AnyHashable: Any]) async throws -> Bool {
     guard
       userInfo["provider"] as? String == "gmail",
@@ -754,15 +754,20 @@ struct GmailPushWakeupHandler {
       return false
     }
     guard currentWatchForRoute() != nil else { return false }
+    let currentNotificationRules = try await failClosed {
+      try await notificationRuleSync.loadRules(session: productSession).rules
+    }
+    guard let currentNotificationRules else { return false }
+    guard currentWatchForRoute() != nil else { return false }
     let canAdvanceWatermark =
-      notificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
+      currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
     guard
       try await deliverCategoryAwareNotifications(
         for: syncResult.messages,
         including: syncResult.newMessageIds,
         connection: connection,
         productAccountId: productSession.productAccountId,
-        rules: notificationRules,
+        rules: currentNotificationRules,
         routeIsCurrent: routeIsCurrent,
         watermarkIsCurrent: {
           guard let currentWatch = currentWatchForRoute() else { return false }
