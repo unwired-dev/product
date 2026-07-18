@@ -36,6 +36,10 @@ _Avoid_: Mailbox Connection, Unified Mailbox
 A provider-issued immutable mailbox or account identifier; when a provider supplies none, the client uses its provider type, verified endpoint, and canonical authenticated mailbox identity and asks the user to repair rather than merge a mismatch.
 _Avoid_: Display name, local database ID
 
+**Stable Provider Connection Key**:
+A deterministic, device-generated opaque key derived from the provider type and **Stable Provider Mailbox Identity** (and verified endpoint when needed), stored only inside the end-to-end encrypted **Mailbox Connection** definition. Trusted devices use it to converge concurrent additions of the same provider mailbox.
+_Avoid_: Backend-readable email address, random local connection ID
+
 **Mailbox Authorization**:
 A device-local credential grant that lets one trusted device access a **Mailbox Connection**.
 _Avoid_: Mailbox Connection, synced provider credential
@@ -247,8 +251,8 @@ _Avoid_: Password reset, support recovery
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
 - A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
-- A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Mailbox Identity**
-- Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate
+- A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Connection Key**
+- Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate; after synchronization, trusted devices group equal **Stable Provider Connection Keys**, keep the lexicographically lowest connection identifier, and migrate product-owned pins, categories, pending actions, and Outbox attempts to it before deleting duplicate connection records
 - A **Mailbox Connection** definition, including its reviewed non-secret address, username, and endpoint settings, synchronizes end-to-end encrypted across trusted devices without provider credentials
 - Each trusted device needs its own **Mailbox Authorization** before it can access a synchronized **Mailbox Connection**
 - **Mailbox Authorization** prefers provider OAuth but may use a password or app-specific password over **Secure Mail Transport**
@@ -350,13 +354,13 @@ _Avoid_: Password reset, support recovery
 - Recent and pinned prefetched bodies are admitted by evicting only eligible bodies outside the combined selected-recent and pinned protected set; selected-recent and pinned bodies never evict one another during that selection, and bodies refused admission remain on demand until a later synchronization finds space
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that combined protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a **Pin** for body prefetch
-- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed
+- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed. When trusted devices edit the same draft from the same synchronized revision while offline, synchronization preserves both bodies: the later upload remains the original draft and the other becomes a user-visible conflicted draft copy; neither body is silently overwritten
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; bodies in the current selected-recent and pinned protected set are not eligible until a later selection no longer protects them
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
 - Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
-- **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data
+- **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data; Gmail's provider-supplied email address and history identifier are permitted only as transient push-routing inputs, must not be persisted or included in application logs, and must be discarded after the wakeup is routed
 - **Best-Effort Background Freshness** uses provider push where available, active IMAP connections, system-scheduled background refresh, and foreground synchronization
 - Every authorized **Mailbox Connection** synchronizes on app launch and foreground activation
 - While the app remains active, provider signals are supplemented by a five-minute fallback poll and manual refresh
