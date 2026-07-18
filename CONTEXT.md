@@ -278,6 +278,7 @@ _Avoid_: Password reset, support recovery
 - Every thread in a **Unified Mailbox** visibly identifies its source **Mailbox Connection**
 - Background synchronization preserves the selected **Thread** when newer threads enter the list
 - The unified **Sent Mailbox** is always available
+- After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
 - The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems
@@ -339,10 +340,10 @@ _Avoid_: Password reset, support recovery
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
-- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
+- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive, ordered by newest applicable timestamp first; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
 - Recent and pinned prefetched bodies are admitted by evicting only eligible bodies outside the combined selected-recent and pinned protected set; selected-recent and pinned bodies never evict one another during that selection, and bodies refused admission remain on demand until a later synchronization finds space
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that combined protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
-- Spam, Trash, attachments, and older unpinned message bodies remain on-demand
+- Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a **Pin** for body prefetch
 - Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; bodies in the current selected-recent and pinned protected set are not eligible until a later selection no longer protects them
@@ -425,7 +426,7 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Should the app permanently store every email body?"
 > **Domain expert:** "No — store **Durable Message Metadata** and categorization, while using a **Bounded Encrypted Body Cache** for recent and previously opened body text."
 > **Dev:** "Which message bodies should be prefetched?"
-> **Domain expert:** "At each synchronization reference instant, select up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days that fit without immediately evicting another selected recent body, plus pinned bodies that fit without evicting another pinned body; keep Spam, Trash, attachments, and older unpinned bodies on-demand."
+> **Domain expert:** "At each synchronization reference instant, select the newest up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days. Recent and pinned bodies may reclaim only eligible bodies outside their combined protected set, so they never evict one another during that selection; keep Spam, Trash, attachments, and older unpinned bodies on-demand, with Spam and Trash excluded even when pinned."
 > **Dev:** "Can the backend participate in push without holding mail provider tokens?"
 > **Domain expert:** "Yes — it may use **Minimal Push Metadata** to wake trusted devices, but devices fetch mail themselves."
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
