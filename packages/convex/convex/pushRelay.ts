@@ -329,6 +329,7 @@ async function clearGmailPushProofs(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
+    cleanupStartedAt: number;
     cursor?: string | null;
     productAccountId: Id<'productAccounts'>;
     trustedDeviceId: Id<'trustedDevices'>;
@@ -343,21 +344,28 @@ async function clearGmailPushProofs(
     numItems: gmailPushProofCleanupBatchSize,
   });
   await Promise.all(
-    page.page.map((connection) =>
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      ctx.db.patch(connection._id, {
-        pushVerificationHistoryId: undefined,
-        pushVerificationRequestedAt: undefined,
-        pushVerifiedHistoryId: undefined,
-        pushVerifiedAt: undefined,
-      }),
-    ),
+    page.page
+      .filter(
+        (connection) =>
+          connection.pushVerifiedAt === undefined ||
+          connection.pushVerifiedAt <= request.cleanupStartedAt,
+      )
+      .map((connection) =>
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        ctx.db.patch(connection._id, {
+          pushVerificationHistoryId: undefined,
+          pushVerificationRequestedAt: undefined,
+          pushVerifiedHistoryId: undefined,
+          pushVerifiedAt: undefined,
+        }),
+      ),
   );
   if (!page.isDone) {
     await ctx.scheduler.runAfter(
       0,
       internal.pushRelay.continueGmailPushProofCleanup,
       {
+        cleanupStartedAt: request.cleanupStartedAt,
         cursor: page.continueCursor,
         productAccountId: request.productAccountId,
         trustedDeviceId: request.trustedDeviceId,
@@ -422,6 +430,7 @@ async function clearDevicePushRoute(
     },
   );
   await clearGmailPushProofs(ctx, {
+    cleanupStartedAt: Date.now(),
     productAccountId: device.productAccountId,
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
@@ -624,6 +633,7 @@ export const expireGmailVerificationSignal = internalMutation({
 
 export const continueGmailPushProofCleanup = internalMutation({
   args: {
+    cleanupStartedAt: v.number(),
     cursor: v.string(),
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
@@ -645,6 +655,10 @@ export const continueReusedApnsTokenCleanup = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device?.apnsToken !== args.apnsToken) {
+      return null;
+    }
     await clearReusedApnsToken(ctx, args);
     return null;
   },

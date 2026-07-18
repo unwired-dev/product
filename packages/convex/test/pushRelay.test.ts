@@ -648,7 +648,7 @@ describe('gmail push relay', () => {
     }
   });
 
-  it('stops paginated proof cleanup after the route is re-registered', async () => {
+  it('preserves refreshed proofs while clearing stale paginated proofs', async () => {
     expect.assertions(1);
     vi.useFakeTimers();
     try {
@@ -702,7 +702,7 @@ describe('gmail push relay', () => {
           )
           .take(11);
         await Promise.all(
-          connections.map((connection) =>
+          connections.slice(-1).map((connection) =>
             // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
             ctx.db.patch(connection._id, {
               pushVerifiedHistoryId: '101',
@@ -714,7 +714,7 @@ describe('gmail push relay', () => {
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-      const proofsWerePreserved = await t.run(async (ctx) => {
+      const freshProofWasPreserved = await t.run(async (ctx) => {
         const connections = await ctx.db
           .query('mailProviderConnections')
           .withIndex(
@@ -730,9 +730,10 @@ describe('gmail push relay', () => {
           (connection) => connection.pushVerifiedAt === refreshedVerifiedAt,
         );
       });
-      expect(proofsWerePreserved).toStrictEqual(
-        Array.from({ length: 11 }, () => true),
-      );
+      expect(freshProofWasPreserved).toStrictEqual([
+        ...Array.from({ length: 10 }, () => false),
+        true,
+      ]);
     } finally {
       vi.useRealTimers();
     }
@@ -780,6 +781,63 @@ describe('gmail push relay', () => {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       expect(routes.map((route) => route._id)).toStrictEqual([
         currentDevice.trustedDeviceId,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('stops reused-token cleanup when another device takes ownership', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const firstDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'first-device',
+        platform: 'ios',
+      });
+      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'second-device',
+        platform: 'ios',
+      });
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 10; index += 1) {
+          await ctx.db.insert('trustedDevices', {
+            apnsEnvironment: 'sandbox',
+            apnsToken: 'shared-apns-token',
+            deviceIdentifier: `old-device-${index}`,
+            lastSeenAt: Date.now(),
+            platform: 'ios',
+            productAccountId: firstDevice.productAccountId,
+            registeredAt: Date.now(),
+          });
+        }
+      });
+
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'shared-apns-token',
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'shared-apns-token',
+        trustedDeviceId: secondDevice.trustedDeviceId,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const routes = await t.run((ctx) =>
+        ctx.db
+          .query('trustedDevices')
+          .withIndex('by_apnsToken', (q) =>
+            q.eq('apnsToken', 'shared-apns-token'),
+          )
+          .take(12),
+      );
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      expect(routes.map((route) => route._id)).toStrictEqual([
+        secondDevice.trustedDeviceId,
       ]);
     } finally {
       vi.useRealTimers();
