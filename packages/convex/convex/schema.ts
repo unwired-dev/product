@@ -14,6 +14,7 @@ export default defineSchema({
       v.union(v.literal('production'), v.literal('sandbox')),
     ),
     apnsToken: v.optional(v.string()),
+    pushCleanupGeneration: v.optional(v.number()),
     deviceIdentifier: v.string(),
     lastSeenAt: v.number(),
     platform: v.string(),

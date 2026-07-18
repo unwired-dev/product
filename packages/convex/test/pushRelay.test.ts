@@ -660,7 +660,7 @@ describe('gmail push relay', () => {
       });
       const originalVerifiedAt = Date.now();
       await t.run(async (ctx) => {
-        for (let index = 0; index < 11; index += 1) {
+        for (let index = 0; index < 12; index += 1) {
           await ctx.db.insert('mailProviderConnections', {
             connectedAt: originalVerifiedAt,
             emailAddress: `matching-${index}@example.com`,
@@ -700,7 +700,7 @@ describe('gmail push relay', () => {
                 .eq('provider', 'gmail')
                 .eq('trustedDeviceId', device.trustedDeviceId),
           )
-          .take(11);
+          .take(12);
         await Promise.all(
           connections.slice(-1).map((connection) =>
             // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
@@ -725,13 +725,13 @@ describe('gmail push relay', () => {
                 .eq('provider', 'gmail')
                 .eq('trustedDeviceId', device.trustedDeviceId),
           )
-          .take(11);
+          .take(12);
         return connections.map(
           (connection) => connection.pushVerifiedAt === refreshedVerifiedAt,
         );
       });
       expect(freshProofWasPreserved).toStrictEqual([
-        ...Array.from({ length: 10 }, () => false),
+        ...Array.from({ length: 11 }, () => false),
         true,
       ]);
     } finally {
@@ -739,7 +739,7 @@ describe('gmail push relay', () => {
     }
   });
 
-  it('clears every reused APNs token route in bounded continuations', async () => {
+  it('drains reused APNs token cleanup after the owner signs out', async () => {
     expect.assertions(1);
     vi.useFakeTimers();
     try {
@@ -768,6 +768,9 @@ describe('gmail push relay', () => {
         apnsToken: 'shared-apns-token',
         trustedDeviceId: currentDevice.trustedDeviceId,
       });
+      await asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
       const routes = await t.run((ctx) =>
@@ -778,10 +781,7 @@ describe('gmail push relay', () => {
           )
           .take(102),
       );
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      expect(routes.map((route) => route._id)).toStrictEqual([
-        currentDevice.trustedDeviceId,
-      ]);
+      expect(routes).toStrictEqual([]);
     } finally {
       vi.useRealTimers();
     }
