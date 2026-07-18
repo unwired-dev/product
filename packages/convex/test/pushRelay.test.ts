@@ -518,10 +518,50 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'refreshed-apns-token',
+        pushCleanupGeneration: expect.any(Number),
         routeId: expect.any(String),
         trustedDeviceId: refreshedDevice.trustedDeviceId,
       },
     ]);
+  });
+
+  it('keeps a re-registered route after a delayed stale-token clear', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'reused-apns-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const originalRoute = await t.run((ctx) =>
+      ctx.db.get(device.trustedDeviceId),
+    );
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'reused-apns-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.clearStaleDevice, {
+      apnsToken: 'reused-apns-token',
+      pushCleanupGeneration: originalRoute!.pushCleanupGeneration!,
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    const refreshedRoute = await t.run((ctx) =>
+      ctx.db.get(device.trustedDeviceId),
+    );
+    expect(refreshedRoute).toStrictEqual(
+      expect.objectContaining({
+        apnsEnvironment: 'production',
+        apnsToken: 'reused-apns-token',
+      }),
+    );
   });
 
   it('requires fresh Gmail push proof after device unregistration', async () => {
@@ -994,6 +1034,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'matching-apns-token',
+        pushCleanupGeneration: expect.any(Number),
         routeId: expect.any(String),
         trustedDeviceId: firstConnection.trustedDeviceId,
       },
@@ -1222,6 +1263,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'verified-token',
+        pushCleanupGeneration: expect.any(Number),
         routeId: expect.any(String),
         trustedDeviceId: verifiedDeviceId,
       },
@@ -1298,6 +1340,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'pending-token',
+        pushCleanupGeneration: expect.any(Number),
         routeId: expect.any(String),
         trustedDeviceId: pendingDeviceId,
       },
@@ -1377,6 +1420,7 @@ describe('gmail push relay', () => {
       {
         apnsEnvironment: 'production',
         apnsToken: 'newest-pending-token',
+        pushCleanupGeneration: expect.any(Number),
         routeId: expect.any(String),
         trustedDeviceId: pendingDeviceId,
       },
@@ -1660,6 +1704,7 @@ describe('gmail push relay', () => {
           {
             apnsEnvironment: 'sandbox',
             apnsToken: 'device-token',
+            pushCleanupGeneration: 0,
             routeId: 'good-route',
             trustedDeviceId: goodDevice.trustedDeviceId,
           },
@@ -1697,12 +1742,14 @@ describe('gmail push relay', () => {
             {
               apnsEnvironment: 'production',
               apnsToken: 'bad-device-token',
+              pushCleanupGeneration: 1,
               routeId: 'bad-route',
               trustedDeviceId: badDevice.trustedDeviceId,
             },
             {
               apnsEnvironment: 'production',
               apnsToken: 'good-device-token',
+              pushCleanupGeneration: 0,
               routeId: 'good-route',
               trustedDeviceId: goodDevice.trustedDeviceId,
             },
@@ -1779,6 +1826,7 @@ describe('gmail push relay', () => {
           {
             apnsEnvironment: 'production',
             apnsToken: 'stalled-device-token',
+            pushCleanupGeneration: 0,
             routeId: 'stalled-route',
             trustedDeviceId: device.trustedDeviceId,
           },

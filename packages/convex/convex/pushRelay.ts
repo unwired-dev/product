@@ -26,6 +26,7 @@ const apnsEnvironmentValidator = v.union(
 const apnsRecipientValidator = v.object({
   apnsEnvironment: apnsEnvironmentValidator,
   apnsToken: v.string(),
+  pushCleanupGeneration: v.number(),
   routeId: v.string(),
   trustedDeviceId: v.id('trustedDevices'),
 });
@@ -33,6 +34,7 @@ const apnsRecipientValidator = v.object({
 type ApnsRecipient = Readonly<{
   apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
   apnsToken: string;
+  pushCleanupGeneration: number;
   routeId: string;
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
@@ -102,6 +104,7 @@ async function apnsRecipientForDevice(
   return {
     apnsEnvironment: device.apnsEnvironment,
     apnsToken: device.apnsToken,
+    pushCleanupGeneration: device.pushCleanupGeneration ?? 0,
     routeId,
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
@@ -347,8 +350,11 @@ async function clearGmailPushProofs(
     page.page
       .filter(
         (connection) =>
-          connection.pushVerifiedAt === undefined ||
-          connection.pushVerifiedAt <= request.cleanupStartedAt,
+          (connection.pushVerificationRequestedAt === undefined ||
+            connection.pushVerificationRequestedAt <=
+              request.cleanupStartedAt) &&
+          (connection.pushVerifiedAt === undefined ||
+            connection.pushVerifiedAt <= request.cleanupStartedAt),
       )
       .map((connection) =>
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
@@ -432,7 +438,7 @@ async function clearDevicePushRoute(
       lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
       pushCleanupGeneration: request?.preservePushCleanupGeneration
         ? device.pushCleanupGeneration
-        : undefined,
+        : (device.pushCleanupGeneration ?? 0) + 1,
     },
   );
   await clearGmailPushProofs(ctx, {
@@ -448,6 +454,7 @@ async function clearReusedApnsToken(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
     apnsToken: string;
+    cleanupStartedAt: number;
     pushCleanupGeneration: number;
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
@@ -460,6 +467,7 @@ async function clearReusedApnsToken(
     devices
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       .filter((device) => device._id !== request.trustedDeviceId)
+      .filter((device) => device.lastSeenAt <= request.cleanupStartedAt)
       .map((device) => clearDevicePushRoute(ctx, device)),
   );
   if (devices.length === devicePushTokenCleanupBatchSize) {
@@ -468,6 +476,7 @@ async function clearReusedApnsToken(
       internal.pushRelay.continueReusedApnsTokenCleanup,
       {
         apnsToken: request.apnsToken,
+        cleanupStartedAt: request.cleanupStartedAt,
         pushCleanupGeneration: request.pushCleanupGeneration,
         trustedDeviceId: request.trustedDeviceId,
       },
@@ -491,9 +500,13 @@ export const registerDevice = mutation({
     if (device === null) {
       throw new Error('Trusted device required');
     }
-    const pushCleanupGeneration = (device.pushCleanupGeneration ?? 0) + 1;
-    await clearReusedApnsToken(ctx, { ...args, pushCleanupGeneration });
     const now = Date.now();
+    const pushCleanupGeneration = (device.pushCleanupGeneration ?? 0) + 1;
+    await clearReusedApnsToken(ctx, {
+      ...args,
+      cleanupStartedAt: now,
+      pushCleanupGeneration,
+    });
     await ctx.db.patch(args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
@@ -665,6 +678,7 @@ export const continueGmailPushProofCleanup = internalMutation({
 export const continueReusedApnsTokenCleanup = internalMutation({
   args: {
     apnsToken: v.string(),
+    cleanupStartedAt: v.number(),
     pushCleanupGeneration: v.number(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -672,6 +686,18 @@ export const continueReusedApnsTokenCleanup = internalMutation({
     const device = await ctx.db.get(args.trustedDeviceId);
     if (device?.pushCleanupGeneration !== args.pushCleanupGeneration) {
       return null;
+    }
+    if (device.apnsToken !== args.apnsToken) {
+      const newerOwner = await ctx.db
+        .query('trustedDevices')
+        .withIndex('by_apnsToken', (q) => q.eq('apnsToken', args.apnsToken))
+        .first();
+      if (
+        newerOwner !== null &&
+        newerOwner.lastSeenAt > args.cleanupStartedAt
+      ) {
+        return null;
+      }
     }
     await clearReusedApnsToken(ctx, args);
     return null;
@@ -745,11 +771,15 @@ export const reconcileStaleDevicePushRoutes = internalMutation({
 export const clearStaleDevice = internalMutation({
   args: {
     apnsToken: v.string(),
+    pushCleanupGeneration: v.number(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
     const device = await ctx.db.get(args.trustedDeviceId);
-    if (device?.apnsToken === args.apnsToken) {
+    if (
+      device?.apnsToken === args.apnsToken &&
+      device.pushCleanupGeneration === args.pushCleanupGeneration
+    ) {
       await clearDevicePushRoute(ctx, device);
     }
     return null;
