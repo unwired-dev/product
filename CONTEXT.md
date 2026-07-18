@@ -25,8 +25,12 @@ A service or protocol endpoint that supplies mailbox data to the product.
 _Avoid_: Email backend, email source
 
 **Mailbox Connection**:
-An authenticated link between a **Product Account** and one mailbox supplied by a **Mail Provider**.
+An authenticated link between a **Product Account** and one provider mailbox account supplied by a **Mail Provider**; it may contain provider mailboxes such as folders or labels.
 _Avoid_: Account, Product Account, provider account
+
+**Provider Mailbox**:
+A provider-owned folder, label, or equivalent mailbox container within one **Mailbox Connection** that may receive a **Mailbox Role**.
+_Avoid_: Mailbox Connection, Unified Mailbox
 
 **Stable Provider Mailbox Identity**:
 A provider-issued immutable mailbox or account identifier; when a provider supplies none, the client uses its provider type, verified endpoint, and canonical authenticated mailbox identity and asks the user to repair rather than merge a mismatch.
@@ -242,7 +246,7 @@ _Avoid_: Password reset, support recovery
 - A **True email client** is responsible for mailbox access and message organization
 - A **True email client** connects to one or more **Mail Providers**
 - A **Product Account** may own multiple **Mailbox Connections**
-- A **Mailbox Connection** links one **Product Account** to one mailbox supplied by a **Mail Provider**
+- A **Mailbox Connection** links one **Product Account** to one provider mailbox account supplied by a **Mail Provider** and contains that account's **Provider Mailboxes**
 - A **Product Account** may contain only one **Mailbox Connection** for a **Stable Provider Mailbox Identity**
 - Re-adding an existing provider mailbox authorizes or repairs its **Mailbox Connection** instead of creating a duplicate
 - A **Mailbox Connection** definition, including its reviewed non-secret address, username, and endpoint settings, synchronizes end-to-end encrypted across trusted devices without provider credentials
@@ -263,6 +267,7 @@ _Avoid_: Password reset, support recovery
 - Exchange Online and Microsoft 365 use Microsoft Graph, while an **On-Premises Exchange Connection** uses Exchange Web Services
 - A **Legacy POP3 Connection** leaves downloaded messages on the server by default
 - A **Legacy POP3 Connection** does not promise server-synchronized folders, moves, flags, or real-time delivery
+- A **Legacy POP3 Connection** does not support server-side body search; it may search locally retained metadata, while body search remains unavailable unless the matching body is already available in the **Bounded Encrypted Body Cache**
 - A **Unified Mailbox** aggregates a mailbox role across all **Mailbox Connections**
 - The permanent **Unified Mailboxes** are Inbox, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
