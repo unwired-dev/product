@@ -40,6 +40,7 @@ type ApnsRecipient = Readonly<{
 const gmailPushVerificationSignalLifetimeMs = 10 * 60 * 1000;
 const devicePushRouteInactivityLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const devicePushRouteReconciliationBatchSize = 10;
+const devicePushTokenCleanupBatchSize = 10;
 const gmailPushProofCleanupBatchSize = 10;
 
 function gmailHistoryIdAtOrAfter(
@@ -429,19 +430,32 @@ async function clearDevicePushRoute(
 
 async function clearReusedApnsToken(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  trustedDeviceId: Id<'trustedDevices'>,
-  apnsToken: string,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    apnsToken: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
 ): Promise<void> {
   const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_apnsToken', (q) => q.eq('apnsToken', apnsToken))
-    .take(100);
+    .withIndex('by_apnsToken', (q) => q.eq('apnsToken', request.apnsToken))
+    .take(devicePushTokenCleanupBatchSize);
   await Promise.all(
     devices
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      .filter((device) => device._id !== trustedDeviceId)
+      .filter((device) => device._id !== request.trustedDeviceId)
       .map((device) => clearDevicePushRoute(ctx, device)),
   );
+  if (devices.length === devicePushTokenCleanupBatchSize) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.pushRelay.continueReusedApnsTokenCleanup,
+      {
+        apnsToken: request.apnsToken,
+        trustedDeviceId: request.trustedDeviceId,
+      },
+    );
+  }
 }
 
 export const registerDevice = mutation({
@@ -456,7 +470,7 @@ export const registerDevice = mutation({
     }
 
     await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
-    await clearReusedApnsToken(ctx, args.trustedDeviceId, args.apnsToken);
+    await clearReusedApnsToken(ctx, args);
     const now = Date.now();
     await ctx.db.patch(args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
@@ -615,7 +629,23 @@ export const continueGmailPushProofCleanup = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device?.apnsToken !== undefined) {
+      return null;
+    }
     await clearGmailPushProofs(ctx, args);
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const continueReusedApnsTokenCleanup = internalMutation({
+  args: {
+    apnsToken: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    await clearReusedApnsToken(ctx, args);
     return null;
   },
   returns: v.null(),

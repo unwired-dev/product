@@ -585,6 +585,216 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('stops paginated proof cleanup after the route is re-registered', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const originalVerifiedAt = Date.now();
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 11; index += 1) {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: originalVerifiedAt,
+            emailAddress: `matching-${index}@example.com`,
+            lastVerifiedAt: originalVerifiedAt,
+            productAccountId: device.productAccountId,
+            provider: 'gmail',
+            providerAccountIdentifier: `gmail-user-${index}`,
+            pushVerifiedHistoryId: '100',
+            pushVerifiedAt: originalVerifiedAt,
+            trustedDeviceId: device.trustedDeviceId,
+            updatedAt: originalVerifiedAt,
+          });
+        }
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'first-apns-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'second-apns-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      const refreshedVerifiedAt = originalVerifiedAt + 1;
+      await t.run(async (ctx) => {
+        const connections = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId),
+          )
+          .take(11);
+        await Promise.all(
+          connections.map((connection) =>
+            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+            ctx.db.patch(connection._id, {
+              pushVerifiedHistoryId: '101',
+              pushVerifiedAt: refreshedVerifiedAt,
+            }),
+          ),
+        );
+      });
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const proofsWerePreserved = await t.run(async (ctx) => {
+        const connections = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId),
+          )
+          .take(11);
+        return connections.map(
+          (connection) => connection.pushVerifiedAt === refreshedVerifiedAt,
+        );
+      });
+      expect(proofsWerePreserved).toStrictEqual(
+        Array.from({ length: 11 }, () => true),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clears every reused APNs token route in bounded continuations', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'current-device',
+        platform: 'ios',
+      });
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 101; index += 1) {
+          await ctx.db.insert('trustedDevices', {
+            apnsEnvironment: 'sandbox',
+            apnsToken: 'shared-apns-token',
+            deviceIdentifier: `old-device-${index}`,
+            lastSeenAt: Date.now(),
+            platform: 'ios',
+            productAccountId: currentDevice.productAccountId,
+            registeredAt: Date.now(),
+          });
+        }
+      });
+
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'shared-apns-token',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const routes = await t.run((ctx) =>
+        ctx.db
+          .query('trustedDevices')
+          .withIndex('by_apnsToken', (q) =>
+            q.eq('apnsToken', 'shared-apns-token'),
+          )
+          .take(102),
+      );
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      expect(routes.map((route) => route._id)).toStrictEqual([
+        currentDevice.trustedDeviceId,
+      ]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('continues route reconciliation and backfills a fresh legacy route', async () => {
+    expect.assertions(2);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const connectRoute = async (index: number) => {
+        const device = await asUser.mutation(api.productAccount.connect, {
+          deviceIdentifier: `device-${index}`,
+          platform: 'ios',
+        });
+        await asUser.mutation(api.pushRelay.registerDevice, {
+          apnsEnvironment: 'sandbox',
+          apnsToken: `route-token-${String(index).padStart(2, '0')}`,
+          trustedDeviceId: device.trustedDeviceId,
+        });
+        return device;
+      };
+      for (let index = 0; index < 9; index += 1) {
+        await connectRoute(index);
+      }
+      const freshLegacyDevice = await connectRoute(9);
+      const staleSecondPageDevice = await connectRoute(10);
+      const staleBefore = Date.now() - 1000;
+      const freshLegacyLastSeenAt = await t.run(async (ctx) => {
+        const freshLegacyHeartbeat = await ctx.db
+          .query('devicePushRouteHeartbeats')
+          .withIndex('by_trustedDeviceId', (q) =>
+            q.eq('trustedDeviceId', freshLegacyDevice.trustedDeviceId),
+          )
+          .unique();
+        const staleHeartbeat = await ctx.db
+          .query('devicePushRouteHeartbeats')
+          .withIndex('by_trustedDeviceId', (q) =>
+            q.eq('trustedDeviceId', staleSecondPageDevice.trustedDeviceId),
+          )
+          .unique();
+        const freshLegacyRoute = await ctx.db.get(
+          freshLegacyDevice.trustedDeviceId,
+        );
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.delete(freshLegacyHeartbeat!._id);
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(staleHeartbeat!._id, {
+          refreshedAt: staleBefore - 1,
+        });
+        return freshLegacyRoute!.lastSeenAt;
+      });
+
+      await t.mutation(internal.pushRelay.reconcileStaleDevicePushRoutes, {
+        staleBefore,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const state = await t.run(async (ctx) => ({
+        freshLegacyHeartbeat: await ctx.db
+          .query('devicePushRouteHeartbeats')
+          .withIndex('by_trustedDeviceId', (q) =>
+            q.eq('trustedDeviceId', freshLegacyDevice.trustedDeviceId),
+          )
+          .unique(),
+        staleRoute: await ctx.db.get(staleSecondPageDevice.trustedDeviceId),
+      }));
+      expect(state.freshLegacyHeartbeat).toStrictEqual(
+        expect.objectContaining({ refreshedAt: freshLegacyLastSeenAt }),
+      );
+      expect(state.staleRoute).not.toHaveProperty('apnsToken');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('associates minimal Gmail metadata only with matching connected devices', async () => {
     expect.assertions(5);
 
