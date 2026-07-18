@@ -1,4 +1,10 @@
+---
+status: superseded by ADR-0012
+---
+
 # App-level encryption for sensitive local cache
+
+> Superseded by [ADR-0012](0012-bounded-encrypted-body-cache.md), which defines the current bounded encrypted body-cache policy. The decision below is retained as historical context.
 
 The Apple client will use normal SwiftData persistence for non-sensitive operational local state, but add an app-level encryption layer for sensitive body and cache stores. This keeps common model development simple while making cached message bodies, extracted text, and similarly sensitive local data explicitly protected beyond ordinary persistence defaults.
 

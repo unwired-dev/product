@@ -1,0 +1,3 @@
+# Keep thread identity scoped to one mailbox connection
+
+Threads shown in a Unified Mailbox will remain scoped to one Mailbox Connection rather than merging related messages across accounts. Within a connection, a reliable provider conversation identity is preferred; otherwise RFC `Message-ID`, `In-Reply-To`, and `References` linkage is used, while subject similarity alone never merges messages and unlinked messages remain separate. This preserves sending identity, permissions, provider actions, and sync identity while favoring harmless false splits over dangerous false merges. See [RFC 5322](https://www.rfc-editor.org/info/rfc5322/).
