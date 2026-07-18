@@ -125,12 +125,8 @@ A category assigned to an individual message, such as promotions, invites, invoi
 _Avoid_: Thread category, folder
 
 **Stable Provider Message Identity**:
-A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph uses its immutable ID; IMAP uses its immutable provider-mailbox identity plus UIDVALIDITY and UID; POP3 uses UIDL; and Exchange uses its provider item identity. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
+A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph connections require immutable IDs; IMAP uses its immutable provider-mailbox identity plus UIDVALIDITY and UID; POP3 connections require UIDL; and Exchange uses its provider item identity. A provider that cannot supply the required stable identity is not eligible for a synchronized Mailbox Connection. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
 _Avoid_: Local database ID, backend message ID
-
-**Stable Provider Mailbox Identity**:
-A provider-specific immutable mailbox identifier when available; otherwise a normalized, user-reviewed provider account and endpoint identity that is retained to repair rather than duplicate the same mailbox connection.
-_Avoid_: Display name, local database ID
 
 **Uncategorized State**:
 The state of a message when no **Message Category** has been assigned, including historical mail that is not automatically categorized.
@@ -343,13 +339,13 @@ _Avoid_: Password reset, support recovery
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
-- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp is on or after that instant minus 30 days; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
-- Recent and pinned prefetched bodies are admitted only when they fit without immediately evicting another body in the combined selected-recent and pinned protected set; bodies refused admission remain on demand until a later synchronization finds space
+- For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
+- Recent and pinned prefetched bodies are admitted by evicting only eligible bodies outside the combined selected-recent and pinned protected set; selected-recent and pinned bodies never evict one another during that selection, and bodies refused admission remain on demand until a later synchronization finds space
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that combined protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
 - Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
-- Cache eviction removes opened older non-pinned bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
+- Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; bodies in the current selected-recent and pinned protected set are not eligible until a later selection no longer protects them
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
 - Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
