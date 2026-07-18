@@ -25,6 +25,7 @@ struct AccountView: View {
     gmailOAuthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     gmailPushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     gmailMessageMetadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    gmailMessageSearchService: GmailMessageSearching = GmailMessageMetadataService(),
     gmailMessageBodyService: GmailMessageReading = GmailMessageBodyService(),
     gmailMailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
@@ -52,6 +53,7 @@ struct AccountView: View {
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
         service: gmailMessageMetadataService,
+        searchService: gmailMessageSearchService,
         session: snapshot
       )
     )
@@ -151,6 +153,25 @@ struct AccountView: View {
       }
     }
   }
+}
+
+enum GmailSearchSource: Equatable {
+  case localMetadata
+  case providerFullText
+
+  var title: String {
+    switch self {
+    case .localMetadata:
+      return "Local Metadata"
+    case .providerFullText:
+      return "Gmail Full Text"
+    }
+  }
+}
+
+struct GmailSearchResult: Equatable {
+  let messages: [GmailMessageMetadata]
+  let source: GmailSearchSource
 }
 
 @MainActor
@@ -434,23 +455,29 @@ final class GmailInboxViewModel {
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
+  var isSearching = false
   var isSyncing = false
+  var searchQuery = ""
+  var searchResult: GmailSearchResult?
   var threads: [GmailInboxThread] = []
 
   private var currentProviderAccountIdentifier: String?
+  private let searchService: GmailMessageSearching
   private let service: GmailMessageMetadataSyncing
   private let session: ProductAccountSessionSnapshot
 
   init(
     service: GmailMessageMetadataSyncing,
+    searchService: GmailMessageSearching = GmailMessageMetadataService(),
     session: ProductAccountSessionSnapshot
   ) {
+    self.searchService = searchService
     self.service = service
     self.session = session
   }
 
   var isRefreshDisabled: Bool {
-    isCategorizingHistorical || isLoading || isSyncing
+    isCategorizingHistorical || isLoading || isSearching || isSyncing
   }
 
   var messageCount: Int {
@@ -462,6 +489,8 @@ final class GmailInboxViewModel {
   func clear() {
     currentProviderAccountIdentifier = nil
     threads = []
+    searchQuery = ""
+    searchResult = nil
     errorMessage = nil
   }
 
@@ -493,6 +522,8 @@ final class GmailInboxViewModel {
     if currentProviderAccountIdentifier != connection.providerAccountIdentifier {
       currentProviderAccountIdentifier = connection.providerAccountIdentifier
       threads = []
+      searchQuery = ""
+      searchResult = nil
       errorMessage = nil
     }
 
@@ -536,6 +567,54 @@ final class GmailInboxViewModel {
       return false
     }
     return await sync(connection: connection)
+  }
+
+  func searchLocal(categoryNamesById: [String: String]) {
+    let messages = GmailLocalMetadataSearch.messages(
+      in: threads.flatMap(\.messages),
+      matching: searchQuery,
+      categoryNamesById: categoryNamesById
+    )
+    searchResult = GmailSearchResult(messages: messages, source: .localMetadata)
+    errorMessage = nil
+  }
+
+  func searchProvider(connection: GmailProviderConnectionStatus) async {
+    guard currentProviderAccountIdentifier == connection.providerAccountIdentifier else { return }
+    isSearching = true
+    defer { isSearching = false }
+    let query = searchQuery
+
+    do {
+      let messages = try await searchService.searchProvider(
+        query: query,
+        connection: connection,
+        session: session
+      )
+      try Task.checkCancellation()
+      guard
+        currentProviderAccountIdentifier == connection.providerAccountIdentifier,
+        searchQuery == query
+      else {
+        return
+      }
+      searchResult = GmailSearchResult(messages: messages, source: .providerFullText)
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      guard
+        currentProviderAccountIdentifier == connection.providerAccountIdentifier,
+        searchQuery == query
+      else {
+        return
+      }
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func clearSearch() {
+    searchQuery = ""
+    searchResult = nil
   }
 
   func categorizeHistorical(
@@ -1085,6 +1164,86 @@ private struct MessageCategoryChoice: Identifiable {
   }
 }
 
+private struct GmailSearchPanel: View {
+  @Binding var query: String
+  let result: GmailSearchResult?
+  let isDisabled: Bool
+  let isSearching: Bool
+  let clear: () -> Void
+  let open: (GmailMessageMetadata) -> Void
+  let searchLocal: () -> Void
+  let searchProvider: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Search")
+        .font(.subheadline.bold())
+      TextField(
+        "Sender, recipient, subject, date, state, or Category",
+        text: $query
+      )
+      .textFieldStyle(.roundedBorder)
+
+      HStack {
+        Button("Search Local Metadata", action: searchLocal)
+          .buttonStyle(.borderedProminent)
+          .disabled(isDisabled || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        Button("Search Gmail Full Text", action: searchProvider)
+          .buttonStyle(.bordered)
+          .disabled(isDisabled || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        if result != nil {
+          Button("Clear Search", action: clear)
+            .buttonStyle(.plain)
+        }
+      }
+
+      Text(
+        "Local search stays on this device. Gmail full-text search sends only this query to Gmail."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+
+      if isSearching {
+        ProgressView("Searching Gmail...")
+      }
+
+      if let result {
+        Label(
+          "\(result.messages.count) results from \(result.source.title)",
+          systemImage: result.source == .localMetadata ? "internaldrive" : "cloud"
+        )
+        .font(.subheadline.bold())
+
+        if result.messages.isEmpty {
+          Text("No matching messages.")
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(result.messages) { message in
+            Button {
+              open(message)
+            } label: {
+              VStack(alignment: .leading, spacing: 4) {
+                Text(message.subject)
+                  .font(.subheadline.bold())
+                Text(message.from ?? "Unknown sender")
+                  .font(.footnote)
+                  .foregroundStyle(.secondary)
+                Text(message.snippet)
+                  .font(.footnote)
+                  .lineLimit(2)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+            }
+            .buttonStyle(.plain)
+          }
+        }
+      }
+    }
+  }
+}
+
+// swiftlint:disable:next type_body_length
 private struct GmailInboxPanel: View {
   let categoryChoices: [MessageCategoryChoice]
   let connection: GmailProviderConnectionStatus?
@@ -1093,6 +1252,7 @@ private struct GmailInboxPanel: View {
   let messageReader: GmailMessageReading
   let session: ProductAccountSessionSnapshot
   @Bindable var viewModel: GmailInboxViewModel
+  @State private var searchTask: Task<Void, Never>?
   @State private var syncTask: Task<Void, Never>?
   @State private var cacheErrorMessage: String?
   @State private var composeBody = ""
@@ -1191,6 +1351,33 @@ private struct GmailInboxPanel: View {
                 scope: scope,
                 connection: connection
               )
+            }
+          }
+        )
+
+        GmailSearchPanel(
+          query: $viewModel.searchQuery,
+          result: viewModel.searchResult,
+          isDisabled: viewModel.isRefreshDisabled
+            || viewModel.isAssigningCategory
+            || mailActionViewModel.isPerformingAction
+            || isConnectionBusy,
+          isSearching: viewModel.isSearching,
+          clear: viewModel.clearSearch,
+          open: { message in
+            selectedMessage = message
+          },
+          searchLocal: {
+            viewModel.searchLocal(
+              categoryNamesById: Dictionary(
+                uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) }
+              )
+            )
+          },
+          searchProvider: {
+            searchTask?.cancel()
+            searchTask = Task {
+              await viewModel.searchProvider(connection: connection)
             }
           }
         )
@@ -1297,6 +1484,7 @@ private struct GmailInboxPanel: View {
       }
     }
     .task(id: connection?.providerAccountIdentifier) {
+      searchTask?.cancel()
       syncTask?.cancel()
       mailActionViewModel.clearError()
       replyToMessage = nil
@@ -1311,6 +1499,7 @@ private struct GmailInboxPanel: View {
       await viewModel.loadAfterConnectionChange(connection: connection)
     }
     .onDisappear {
+      searchTask?.cancel()
       syncTask?.cancel()
     }
     .sheet(item: $selectedMessage) { message in

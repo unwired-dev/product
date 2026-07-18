@@ -20,6 +20,104 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  func testLocalMetadataSearchMatchesSupportedFieldsWithoutBodyIndex() {
+    var calendar = Calendar.current
+    calendar.timeZone = .current
+    let matchingMessage = GmailMessageMetadata(
+      categoryId: "system:invoices",
+      from: "Billing <billing@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      providerInternalDateMilliseconds: Int64(
+        calendar.date(from: DateComponents(year: 2026, month: 7, day: 15))!
+          .timeIntervalSince1970 * 1_000
+      ),
+      providerLabelIds: ["INBOX", "UNREAD"],
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      replyTo: nil,
+      snippet: "This text is not part of local search",
+      stableProviderMessageId: "gmail:gmail-user-001:message-001",
+      subject: "Quarterly invoice",
+      recipientHeaders: [
+        "User <user@example.com>",
+        "Finance <finance@example.com>",
+        "Auditor <auditor@example.com>",
+      ],
+      rfcMessageId: nil
+    )
+    var otherMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 10
+    )
+    otherMessage.providerLabelIds = ["INBOX"]
+    let messages = [matchingMessage, otherMessage]
+    let categoryNamesById = ["system:invoices": "Invoices"]
+
+    for query in [
+      "billing@example.com",
+      "user@example.com",
+      "finance@example.com",
+      "auditor@example.com",
+      "quarterly invoice",
+      "2026-07-15",
+      "unread",
+      "invoices",
+    ] {
+      XCTAssertEqual(
+        GmailLocalMetadataSearch.messages(
+          in: messages,
+          matching: query,
+          categoryNamesById: categoryNamesById
+        ),
+        [matchingMessage],
+        "Expected local metadata search to match \(query)"
+      )
+    }
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: messages,
+        matching: "read",
+        categoryNamesById: categoryNamesById
+      ),
+      [otherMessage]
+    )
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: messages,
+        matching: "text is not part",
+        categoryNamesById: categoryNamesById
+      ),
+      []
+    )
+  }
+
+  func testLocalMetadataSearchDoesNotInferStatesWhenLabelsAreMissing() {
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: [message],
+        matching: "read",
+        categoryNamesById: [:]
+      ),
+      []
+    )
+    XCTAssertEqual(
+      GmailLocalMetadataSearch.messages(
+        in: [message],
+        matching: "unstarred",
+        categoryNamesById: [:]
+      ),
+      []
+    )
+  }
+
   func testSyncInboxStoresMetadataWithStableProviderIdentityAndNoCategory() async throws {
     let fixture = try makeSyncFixture()
 
@@ -67,6 +165,112 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       result.messages.first { $0.providerMessageId == "message-002" }?.replyTo,
       "Replies <replies@example.com>"
     )
+  }
+
+  func testSyncInboxStoresRecipientAndProviderStateForLocalSearch() async throws {
+    let fixture = try makeSyncFixture()
+
+    let result = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(
+      fixture.requestRecorder.queries
+        .filter { $0.contains("format=metadata") }
+        .allSatisfy {
+          $0.contains("metadataHeaders=To")
+            && $0.contains("metadataHeaders=Cc")
+            && $0.contains("metadataHeaders=Bcc")
+        }
+    )
+    XCTAssertEqual(
+      result.messages.first?.recipientHeaders,
+      [
+        "User <user@example.com>",
+        "Finance <finance@example.com>",
+        "Auditor <auditor@example.com>",
+      ]
+    )
+    XCTAssertEqual(result.messages.first?.providerLabelIds, ["INBOX", "UNREAD"])
+  }
+
+  func testProviderFullTextSearchSendsQueryAndDoesNotPersistResults() async throws {
+    let store = RecordingGmailMessageMetadataStore()
+    let tokenStore = RecordingGmailProviderTokenStore()
+    let recorder = GmailMetadataRequestRecorder()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let urlSession = ConvexClientTesting.makeSession { request in
+      recorder.paths.append(request.url?.path ?? "")
+      recorder.queries.append(request.url?.query ?? "")
+      switch request.url?.path {
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      case "/tokeninfo":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"sub":"gmail-user-001","email":"user@example.com"}"#.utf8)
+        )
+      case "/gmail/v1/users/me/messages":
+        if request.url?.query?.contains("pageToken=next-page-token") == true {
+          return (
+            Self.httpResponse(for: request, statusCode: 200),
+            Data(#"{"messages":[{"id":"message-002"}]}"#.utf8)
+          )
+        }
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(
+            #"{"messages":[{"id":"message-001"}],"nextPageToken":"next-page-token"}"#.utf8
+          )
+        )
+      default:
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Self.messageMetadataResponseData(
+            messageId: request.url?.lastPathComponent ?? "",
+            internalDate: "1784073600000",
+            snippet: "Provider result"
+          )
+        )
+      }
+    }
+    let service = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+      oauthClientId: "gmail-client-id",
+      session: urlSession,
+      store: store,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+    )
+
+    let messages = try await service.searchProvider(
+      query: "invoice total",
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      recorder.paths,
+      [
+        "/token",
+        "/tokeninfo",
+        "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages",
+        "/gmail/v1/users/me/messages/message-001",
+        "/gmail/v1/users/me/messages/message-002",
+      ]
+    )
+    XCTAssertTrue(recorder.queries[2].contains("q=invoice%20total"))
+    XCTAssertEqual(messages.map(\.providerMessageId), ["message-001", "message-002"])
+    XCTAssertTrue(store.savedMessages.isEmpty)
   }
 
   func testLoadInboxGroupsPersistedMessagesIntoThreads() async throws {
@@ -216,6 +420,75 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await overrideTask.value
 
     XCTAssertEqual(viewModel.threads, GmailInboxThread.group([switchedMessage]))
+  }
+
+  @MainActor
+  func testInboxViewModelDistinguishesLocalAndProviderSearchResults() async {
+    let localMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+    let providerMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    )
+    let metadataService = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: localMessage
+      ]
+    )
+    let searchService = RecordingGmailMessageSearchService(messages: [providerMessage])
+    let viewModel = GmailInboxViewModel(
+      service: metadataService,
+      searchService: searchService,
+      session: session
+    )
+    await viewModel.loadAfterConnectionChange(connection: connection)
+
+    viewModel.searchQuery = "subject"
+    viewModel.searchLocal(categoryNamesById: [:])
+
+    XCTAssertEqual(viewModel.searchResult?.source, .localMetadata)
+    XCTAssertEqual(viewModel.searchResult?.messages, [localMessage])
+
+    viewModel.searchQuery = "private body phrase"
+    await viewModel.searchProvider(connection: connection)
+
+    XCTAssertEqual(searchService.receivedQueries, ["private body phrase"])
+    XCTAssertEqual(viewModel.searchResult?.source, .providerFullText)
+    XCTAssertEqual(viewModel.searchResult?.messages, [providerMessage])
+  }
+
+  @MainActor
+  func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
+    let providerMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    )
+    let metadataService = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:]
+    )
+    let searchService = DelayedGmailMessageSearchService(messages: [providerMessage])
+    let viewModel = GmailInboxViewModel(
+      service: metadataService,
+      searchService: searchService,
+      session: session
+    )
+    await viewModel.loadAfterConnectionChange(connection: connection)
+
+    viewModel.searchQuery = "invoice"
+    let searchTask = Task {
+      await viewModel.searchProvider(connection: connection)
+    }
+    await searchService.waitUntilSearchStarts()
+    viewModel.searchQuery = "flight"
+    await searchService.releaseSearch()
+    await searchTask.value
+
+    XCTAssertNil(viewModel.searchResult)
   }
 
   @MainActor
@@ -1035,10 +1308,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "id": "\(messageId)",
         "threadId": "thread-001",
         "internalDate": "\(internalDate)",
+        "labelIds": ["INBOX", "UNREAD"],
         "snippet": "\(snippet)",
         "payload": {
           "headers": [
             {"name": "From", "value": "Sender <sender@example.com>"},
+            {"name": "To", "value": "User <user@example.com>"},
+            {"name": "Cc", "value": "Finance <finance@example.com>"},
+            {"name": "Bcc", "value": "Auditor <auditor@example.com>"},
             {"name": "Subject", "value": "Thread subject"}\(replyToHeader)
           ]
         }
@@ -1464,6 +1741,50 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
   ) throws {
     savedMessages = messages
     self.messages = messages
+  }
+}
+
+private final class RecordingGmailMessageSearchService: GmailMessageSearching {
+  private let messages: [GmailMessageMetadata]
+  private(set) var receivedQueries: [String] = []
+
+  init(messages: [GmailMessageMetadata]) {
+    self.messages = messages
+  }
+
+  func searchProvider(
+    query: String,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    receivedQueries.append(query)
+    return messages
+  }
+}
+
+private final class DelayedGmailMessageSearchService: GmailMessageSearching {
+  private let messages: [GmailMessageMetadata]
+  private let searchGate = OverrideGate()
+
+  init(messages: [GmailMessageMetadata]) {
+    self.messages = messages
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    await searchGate.waitForRelease()
+    return messages
+  }
+
+  func waitUntilSearchStarts() async {
+    await searchGate.waitUntilStarted()
+  }
+
+  func releaseSearch() async {
+    await searchGate.release()
   }
 }
 
