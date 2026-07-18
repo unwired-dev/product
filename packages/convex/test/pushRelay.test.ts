@@ -948,6 +948,10 @@ describe('gmail push relay', () => {
       await asUser.mutation(api.pushRelay.unregisterDevice, {
         trustedDeviceId: currentDevice.trustedDeviceId,
       });
+      await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'old-device-0',
+        platform: 'ios',
+      });
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
       const routes = await t.run((ctx) =>
@@ -1332,6 +1336,125 @@ describe('gmail push relay', () => {
         return connection?.pushVerifiedAt;
       }),
     ).resolves.toBe(newerProofAt);
+  });
+
+  it('requires a Gmail signal received after proof invalidation', async () => {
+    expect.assertions(2);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const productConnection = await asUser.mutation(
+        api.productAccount.connect,
+        {
+          deviceIdentifier: 'device-001',
+          platform: 'ios',
+        },
+      );
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'matching-apns-token',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        emailAddress: 'matching@example.com',
+        historyId: '100',
+      });
+      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      vi.advanceTimersByTime(1);
+      await t.run(async (ctx) => {
+        await ctx.db.patch(productConnection.trustedDeviceId, {
+          gmailPushProofsInvalidatedAt: Date.now(),
+        });
+      });
+
+      await expect(
+        asUser.mutation(api.pushRelay.verifyGmailWatch, {
+          historyId: '100',
+          trustedDeviceId: productConnection.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
+      await expect(
+        t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+          emailAddress: 'matching@example.com',
+          historyId: '100',
+        }),
+      ).resolves.toStrictEqual({ recipientCount: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not refresh a pending Gmail proof requested before invalidation', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const productConnection = await asUser.mutation(
+        api.productAccount.connect,
+        {
+          deviceIdentifier: 'device-001',
+          platform: 'ios',
+        },
+      );
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'matching-apns-token',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      });
+      vi.advanceTimersByTime(1);
+      await t.run(async (ctx) => {
+        const connection = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', productConnection.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', productConnection.trustedDeviceId),
+          )
+          .unique();
+        await ctx.db.patch(productConnection.trustedDeviceId, {
+          gmailPushProofsInvalidatedAt: Date.now(),
+        });
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(connection!._id, {
+          pushVerificationHistoryId: '100',
+          pushVerificationRequestedAt: Date.now() - 1,
+          pushVerifiedAt: undefined,
+        });
+      });
+
+      await expect(
+        t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+          emailAddress: 'matching@example.com',
+          historyId: '100',
+        }),
+      ).resolves.toStrictEqual({ recipientCount: 0 });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('keeps a Gmail verification signal available for another device', async () => {

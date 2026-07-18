@@ -213,13 +213,14 @@ async function requireGmailConnection(
 
 function hasMatchingVerificationSignal(
   signals: ReadonlyArray<Doc<'gmailPushVerificationSignals'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  historyId: string,
-  now: number,
+  request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
 ): boolean {
   return signals.some(
     (candidate) =>
-      now - candidate.receivedAt <= gmailPushVerificationSignalLifetimeMs &&
-      gmailHistoryIdAtOrAfter(candidate.historyId, historyId),
+      candidate.receivedAt > request.invalidatedAt &&
+      request.now - candidate.receivedAt <=
+        gmailPushVerificationSignalLifetimeMs &&
+      gmailHistoryIdAtOrAfter(candidate.historyId, request.historyId),
   );
 }
 
@@ -305,8 +306,7 @@ async function recordGmailVerificationSignal(
 
 function pendingVerificationMatches(
   connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-  historyId: string,
-  now: number,
+  request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
 ): boolean {
   if (connection.pushVerificationHistoryId === undefined) {
     return false;
@@ -315,8 +315,12 @@ function pendingVerificationMatches(
     return false;
   }
   return (
-    gmailHistoryIdAtOrAfter(historyId, connection.pushVerificationHistoryId) &&
-    now - connection.pushVerificationRequestedAt <=
+    connection.pushVerificationRequestedAt > request.invalidatedAt &&
+    gmailHistoryIdAtOrAfter(
+      request.historyId,
+      connection.pushVerificationHistoryId,
+    ) &&
+    request.now - connection.pushVerificationRequestedAt <=
       gmailPushVerificationSignalLifetimeMs
   );
 }
@@ -338,23 +342,26 @@ async function verifyPendingGmailConnections(
     .order('desc')
     .collect();
   for (const connection of connections) {
+    const device = await ctx.db.get(connection.trustedDeviceId);
     if (
-      pendingVerificationMatches(connection, request.historyId, request.now)
+      device !== null &&
+      pendingVerificationMatches(connection, {
+        historyId: request.historyId,
+        invalidatedAt: device.gmailPushProofsInvalidatedAt ?? 0,
+        now: request.now,
+      })
     ) {
-      const device = await ctx.db.get(connection.trustedDeviceId);
-      if (device !== null) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(connection._id, {
-          pushVerificationHistoryId: undefined,
-          pushVerificationRequestedAt: undefined,
-          pushVerifiedHistoryId: connection.pushVerificationHistoryId,
-          pushVerifiedAt: gmailPushProofUpdatedAt(
-            device,
-            connection,
-            request.now,
-          ),
-        });
-      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection._id, {
+        pushVerificationHistoryId: undefined,
+        pushVerificationRequestedAt: undefined,
+        pushVerifiedHistoryId: connection.pushVerificationHistoryId,
+        pushVerifiedAt: gmailPushProofUpdatedAt(
+          device,
+          connection,
+          request.now,
+        ),
+      });
     }
   }
 }
@@ -533,6 +540,7 @@ function clearedDevicePushRoutePatch(
   return {
     apnsEnvironment: undefined,
     apnsToken: undefined,
+    apnsTokenRegisteredAt: undefined,
     gmailPushProofsInvalidatedAt: cleanupStartedAt,
     lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper preserves monotonic cleanup generations.
@@ -605,7 +613,10 @@ async function clearReusedApnsToken(
     devices
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       .filter((device) => device._id !== request.trustedDeviceId)
-      .filter((device) => device.lastSeenAt <= request.cleanupStartedAt)
+      .filter(
+        (device) =>
+          (device.apnsTokenRegisteredAt ?? 0) <= request.cleanupStartedAt,
+      )
       .map((device) => clearDevicePushRoute(ctx, device)),
   );
   if (devices.length === devicePushTokenCleanupBatchSize) {
@@ -647,6 +658,7 @@ export const registerDevice = mutation({
     await ctx.db.patch(args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
+      apnsTokenRegisteredAt: now,
       lastSeenAt: now,
       pushCleanupGeneration,
     });
@@ -724,7 +736,11 @@ export const verifyGmailWatch = mutation({
     }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const routeId = connection._id;
-    if (connection.pushVerifiedHistoryId === args.historyId) {
+    if (
+      connection.pushVerifiedHistoryId === args.historyId &&
+      (connection.pushVerifiedAt ?? 0) >
+        (device.gmailPushProofsInvalidatedAt ?? 0)
+    ) {
       return { routeId, verified: true };
     }
 
@@ -736,11 +752,11 @@ export const verifyGmailWatch = mutation({
       .order('desc')
       .take(100);
     const now = gmailPushProofUpdatedAt(device, connection, Date.now());
-    const verified = hasMatchingVerificationSignal(
-      signals,
-      args.historyId,
+    const verified = hasMatchingVerificationSignal(signals, {
+      historyId: args.historyId,
+      invalidatedAt: device.gmailPushProofsInvalidatedAt ?? 0,
       now,
-    );
+    });
     await ctx.db.patch(
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       connection._id,
@@ -826,10 +842,10 @@ export const continueReusedApnsTokenCleanup = internalMutation({
   handler: async (ctx, args) => {
     const tokenOwners = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_apnsToken_and_lastSeenAt', (q) =>
+      .withIndex('by_apnsToken_and_apnsTokenRegisteredAt', (q) =>
         q
           .eq('apnsToken', args.apnsToken)
-          .gte('lastSeenAt', args.cleanupStartedAt),
+          .gte('apnsTokenRegisteredAt', args.cleanupStartedAt),
       )
       .order('desc')
       .take(2);
@@ -839,7 +855,7 @@ export const continueReusedApnsTokenCleanup = internalMutation({
           // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           owner._id !== args.trustedDeviceId &&
           owner.pushCleanupGeneration !== undefined &&
-          owner.lastSeenAt >= args.cleanupStartedAt,
+          (owner.apnsTokenRegisteredAt ?? 0) >= args.cleanupStartedAt,
       )
     ) {
       return null;
