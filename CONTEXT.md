@@ -125,7 +125,7 @@ A category assigned to an individual message, such as promotions, invites, invoi
 _Avoid_: Thread category, folder
 
 **Stable Provider Message Identity**:
-A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph uses its immutable ID; IMAP uses UIDVALIDITY plus UID within its mailbox; POP3 uses UIDL; and Exchange uses its provider item identity. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
+A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph uses its immutable ID; IMAP uses its immutable provider-mailbox identity plus UIDVALIDITY and UID; POP3 uses UIDL; and Exchange uses its provider item identity. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
 _Avoid_: Local database ID, backend message ID
 
 **Stable Provider Mailbox Identity**:
@@ -343,8 +343,8 @@ _Avoid_: Password reset, support recovery
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
 - For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp is on or after that instant minus 30 days; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
-- Recent prefetched bodies are admitted only when they fit without immediately evicting another selected recent body; bodies refused admission remain on demand until a later synchronization finds space
-- Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs only when they fit without immediately evicting another pinned body; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
+- Recent and pinned prefetched bodies are admitted only when they fit without immediately evicting another body in the combined selected-recent and pinned protected set; bodies refused admission remain on demand until a later synchronization finds space
+- Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that combined protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
 - Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
