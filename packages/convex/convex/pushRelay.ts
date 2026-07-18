@@ -155,6 +155,8 @@ function isOtherVerifiedGmailRoute(
   );
 }
 
+// The query must distinguish another device's currently routable Gmail proof.
+// fallow-ignore-next-line complexity
 async function hasOtherActiveGmailRoute(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
