@@ -59,6 +59,7 @@ function gmailHistoryIdAtOrAfter(
   }
 }
 
+// fallow-ignore-next-line complexity
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   emailAddress: string,
