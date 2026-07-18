@@ -18,20 +18,19 @@ export default defineSchema({
     lastSeenAt: v.number(),
     platform: v.string(),
     productAccountId: v.id('productAccounts'),
-    pushRegistrationRefreshedAt: v.optional(v.number()),
     registeredAt: v.number(),
   })
     .index('by_productAccountId', ['productAccountId'])
     .index('by_apnsToken', ['apnsToken'])
-    .index('by_pushRegistrationRefreshedAt', ['pushRegistrationRefreshedAt'])
-    .index('by_pushRegistrationRefreshedAt_and_apnsToken', [
-      'pushRegistrationRefreshedAt',
-      'apnsToken',
-    ])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
     ]),
+
+  devicePushRouteHeartbeats: defineTable({
+    refreshedAt: v.number(),
+    trustedDeviceId: v.id('trustedDevices'),
+  }).index('by_trustedDeviceId', ['trustedDeviceId']),
 
   encryptedProductSyncPayloads: defineTable({
     encryptedPayload: v.object({

@@ -462,22 +462,41 @@ describe('gmail push relay', () => {
 
     const staleBefore = Date.now() - 1000;
     await t.run(async (ctx) => {
-      await ctx.db.patch(staleDevice.trustedDeviceId, {
-        pushRegistrationRefreshedAt: staleBefore - 1,
-      });
+      const staleHeartbeat = await ctx.db
+        .query('devicePushRouteHeartbeats')
+        .withIndex('by_trustedDeviceId', (q) =>
+          q.eq('trustedDeviceId', staleDevice.trustedDeviceId),
+        )
+        .unique();
+      const legacyStaleHeartbeat = await ctx.db
+        .query('devicePushRouteHeartbeats')
+        .withIndex('by_trustedDeviceId', (q) =>
+          q.eq('trustedDeviceId', legacyStaleDevice.trustedDeviceId),
+        )
+        .unique();
+      const refreshedHeartbeat = await ctx.db
+        .query('devicePushRouteHeartbeats')
+        .withIndex('by_trustedDeviceId', (q) =>
+          q.eq('trustedDeviceId', refreshedDevice.trustedDeviceId),
+        )
+        .unique();
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(staleHeartbeat!._id, { refreshedAt: staleBefore - 1 });
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(legacyStaleHeartbeat!._id);
       await ctx.db.patch(legacyStaleDevice.trustedDeviceId, {
         lastSeenAt: staleBefore - 1,
-        pushRegistrationRefreshedAt: undefined,
       });
-      await ctx.db.patch(refreshedDevice.trustedDeviceId, {
-        pushRegistrationRefreshedAt: staleBefore + 1,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(refreshedHeartbeat!._id, {
+        refreshedAt: staleBefore + 1,
       });
       const connections = await ctx.db
         .query('mailProviderConnections')
         .withIndex('by_provider_and_emailAddress', (q) =>
           q.eq('provider', 'gmail').eq('emailAddress', 'matching@example.com'),
         )
-        .collect();
+        .take(3);
       await Promise.all(
         connections.map((connection) =>
           // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field

@@ -39,7 +39,8 @@ type ApnsRecipient = Readonly<{
 
 const gmailPushVerificationSignalLifetimeMs = 10 * 60 * 1000;
 const devicePushRouteInactivityLifetimeMs = 30 * 24 * 60 * 60 * 1000;
-const devicePushRouteReconciliationBatchSize = 100;
+const devicePushRouteReconciliationBatchSize = 10;
+const gmailPushProofCleanupBatchSize = 10;
 
 function gmailHistoryIdAtOrAfter(
   candidateHistoryId: string,
@@ -325,16 +326,23 @@ async function scheduleGmailWakeups(
 
 async function clearGmailPushProofs(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  productAccountId: Id<'productAccounts'>,
-  trustedDeviceId: Id<'trustedDevices'>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    cursor?: string | null;
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
 ): Promise<void> {
-  const connections = await gmailConnectionsForDevice(
+  const page = await gmailConnectionsForDevice(
     ctx,
-    productAccountId,
-    trustedDeviceId,
-  ).collect();
+    request.productAccountId,
+    request.trustedDeviceId,
+  ).paginate({
+    cursor: request.cursor ?? null,
+    numItems: gmailPushProofCleanupBatchSize,
+  });
   await Promise.all(
-    connections.map((connection) =>
+    page.page.map((connection) =>
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       ctx.db.patch(connection._id, {
         pushVerificationHistoryId: undefined,
@@ -344,6 +352,49 @@ async function clearGmailPushProofs(
       }),
     ),
   );
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.pushRelay.continueGmailPushProofCleanup,
+      {
+        cursor: page.continueCursor,
+        productAccountId: request.productAccountId,
+        trustedDeviceId: request.trustedDeviceId,
+      },
+    );
+  }
+}
+
+async function devicePushRouteHeartbeat(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<Doc<'devicePushRouteHeartbeats'> | null> {
+  return ctx.db
+    .query('devicePushRouteHeartbeats')
+    .withIndex('by_trustedDeviceId', (q) =>
+      q.eq('trustedDeviceId', trustedDeviceId),
+    )
+    .unique();
+}
+
+async function refreshDevicePushRouteHeartbeat(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+  refreshedAt: number,
+): Promise<void> {
+  const heartbeat = await devicePushRouteHeartbeat(ctx, trustedDeviceId);
+  if (heartbeat === null) {
+    await ctx.db.insert('devicePushRouteHeartbeats', {
+      refreshedAt,
+      trustedDeviceId,
+    });
+    return;
+  }
+  await ctx.db.patch(
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    heartbeat._id,
+    { refreshedAt },
+  );
 }
 
 async function clearDevicePushRoute(
@@ -351,6 +402,15 @@ async function clearDevicePushRoute(
   device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   lastSeenAt?: number,
 ): Promise<void> {
+  const heartbeat = await devicePushRouteHeartbeat(
+    ctx,
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    device._id,
+  );
+  if (heartbeat !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(heartbeat._id);
+  }
   await ctx.db.patch(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     device._id,
@@ -358,15 +418,13 @@ async function clearDevicePushRoute(
       apnsEnvironment: undefined,
       apnsToken: undefined,
       lastSeenAt: lastSeenAt ?? device.lastSeenAt,
-      pushRegistrationRefreshedAt: undefined,
     },
   );
-  await clearGmailPushProofs(
-    ctx,
-    device.productAccountId,
+  await clearGmailPushProofs(ctx, {
+    productAccountId: device.productAccountId,
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    device._id,
-  );
+    trustedDeviceId: device._id,
+  });
 }
 
 async function clearReusedApnsToken(
@@ -377,7 +435,7 @@ async function clearReusedApnsToken(
   const devices = await ctx.db
     .query('trustedDevices')
     .withIndex('by_apnsToken', (q) => q.eq('apnsToken', apnsToken))
-    .collect();
+    .take(100);
   await Promise.all(
     devices
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
@@ -404,8 +462,8 @@ export const registerDevice = mutation({
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
       lastSeenAt: now,
-      pushRegistrationRefreshedAt: now,
     });
+    await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
 
     return { registered: true };
   },
@@ -550,70 +608,78 @@ export const expireGmailVerificationSignal = internalMutation({
   returns: v.null(),
 });
 
+export const continueGmailPushProofCleanup = internalMutation({
+  args: {
+    cursor: v.string(),
+    productAccountId: v.id('productAccounts'),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    await clearGmailPushProofs(ctx, args);
+    return null;
+  },
+  returns: v.null(),
+});
+
 export const reconcileStaleDevicePushRoutes = internalMutation({
-  args: { staleBefore: v.optional(v.number()) },
+  args: {
+    cursor: v.optional(v.string()),
+    staleBefore: v.optional(v.number()),
+  },
   handler: async (ctx, args) => {
     const staleBefore =
       args.staleBefore ?? Date.now() - devicePushRouteInactivityLifetimeMs;
-    const legacyDevices = await ctx.db
+    const page = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_pushRegistrationRefreshedAt_and_apnsToken', (q) =>
-        q.eq('pushRegistrationRefreshedAt', undefined).gt('apnsToken', ''),
-      )
-      .take(devicePushRouteReconciliationBatchSize);
-    const staleLegacyDevices = legacyDevices.filter(
-      (device) => device.lastSeenAt < staleBefore,
+      .withIndex('by_apnsToken', (q) => q.gt('apnsToken', ''))
+      .paginate({
+        cursor: args.cursor ?? null,
+        numItems: devicePushRouteReconciliationBatchSize,
+      });
+    const heartbeats = await Promise.all(
+      page.page.map((device) =>
+        devicePushRouteHeartbeat(
+          ctx,
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          device._id,
+        ),
+      ),
+    );
+    const staleDeviceIds = new Set(
+      page.page
+        .filter(
+          (device, index) =>
+            (heartbeats[index]?.refreshedAt ?? device.lastSeenAt) < staleBefore,
+        )
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        .map((device) => device._id),
     );
     await Promise.all(
-      legacyDevices.map(async (device) => {
-        if (device.lastSeenAt < staleBefore) {
+      page.page.map(async (device, index) => {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        if (staleDeviceIds.has(device._id)) {
           await clearDevicePushRoute(ctx, device);
           return;
         }
-        await ctx.db.patch(
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          device._id,
-          { pushRegistrationRefreshedAt: device.lastSeenAt },
-        );
+        if (heartbeats[index] === null) {
+          await refreshDevicePushRouteHeartbeat(
+            ctx,
+            // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+            device._id,
+            device.lastSeenAt,
+          );
+        }
       }),
     );
-    if (legacyDevices.length === devicePushRouteReconciliationBatchSize) {
+    if (!page.isDone) {
       await ctx.scheduler.runAfter(
         0,
         internal.pushRelay.reconcileStaleDevicePushRoutes,
-        { staleBefore },
-      );
-      return { clearedRouteCount: staleLegacyDevices.length };
-    }
-
-    const remainingBatchSize =
-      devicePushRouteReconciliationBatchSize - legacyDevices.length;
-    const staleDevices = await ctx.db
-      .query('trustedDevices')
-      .withIndex('by_pushRegistrationRefreshedAt', (q) =>
-        q
-          .gt('pushRegistrationRefreshedAt', 0)
-          .lt('pushRegistrationRefreshedAt', staleBefore),
-      )
-      .take(remainingBatchSize);
-
-    await Promise.all(
-      staleDevices.map((device) => clearDevicePushRoute(ctx, device)),
-    );
-    if (
-      legacyDevices.length + staleDevices.length ===
-      devicePushRouteReconciliationBatchSize
-    ) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.pushRelay.reconcileStaleDevicePushRoutes,
-        { staleBefore },
+        { cursor: page.continueCursor, staleBefore },
       );
     }
 
-    return {
-      clearedRouteCount: staleLegacyDevices.length + staleDevices.length,
-    };
+    return { clearedRouteCount: staleDeviceIds.size };
   },
   returns: v.object({ clearedRouteCount: v.number() }),
 });
