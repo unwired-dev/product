@@ -304,6 +304,8 @@ async function recordGmailVerificationSignal(
   );
 }
 
+// Each guard validates an independent Gmail proof requirement.
+// fallow-ignore-next-line complexity
 function pendingVerificationMatches(
   connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
@@ -325,6 +327,8 @@ function pendingVerificationMatches(
   );
 }
 
+// Pending proofs must be checked independently for every matching Gmail connection.
+// fallow-ignore-next-line complexity
 async function verifyPendingGmailConnections(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   request: Readonly<{ emailAddress: string; historyId: string; now: number }>,
@@ -716,6 +720,8 @@ export const verifyGmailWatch = mutation({
     historyId: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // The mutation has distinct authentication, freshness, and signal-verification guards.
+  // fallow-ignore-next-line complexity
   handler: async (ctx, args) => {
     if (args.historyId.length === 0) {
       throw new Error('Gmail history id required');
