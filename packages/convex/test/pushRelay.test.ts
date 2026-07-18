@@ -585,6 +585,69 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('clears every Gmail push proof in bounded continuations', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const verifiedAt = Date.now();
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 11; index += 1) {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: verifiedAt,
+            emailAddress: `matching-${index}@example.com`,
+            lastVerifiedAt: verifiedAt,
+            productAccountId: device.productAccountId,
+            provider: 'gmail',
+            providerAccountIdentifier: `gmail-user-${index}`,
+            pushVerifiedHistoryId: '100',
+            pushVerifiedAt: verifiedAt,
+            trustedDeviceId: device.trustedDeviceId,
+            updatedAt: verifiedAt,
+          });
+        }
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'first-apns-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+
+      await asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const proofsWereCleared = await t.run(async (ctx) => {
+        const connections = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId),
+          )
+          .take(11);
+        return connections.map((connection) => ({
+          pushVerifiedAt: connection.pushVerifiedAt,
+          pushVerifiedHistoryId: connection.pushVerifiedHistoryId,
+        }));
+      });
+      expect(proofsWereCleared).toStrictEqual(
+        Array.from({ length: 11 }, () => ({})),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('stops paginated proof cleanup after the route is re-registered', async () => {
     expect.assertions(1);
     vi.useFakeTimers();
