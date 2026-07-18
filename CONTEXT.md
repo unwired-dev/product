@@ -262,7 +262,7 @@ _Avoid_: Password reset, support recovery
 - A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
 - After wake or reconnect, a trusted device processes synchronized connection-removal tombstones before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
-- Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections**
+- Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections** only when every **Mailbox Role** required by their supported actions is mapped or successfully created; otherwise they remain incomplete for actions requiring a missing role
 - A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
 - Pin and unpin are product-owned actions available across full and reduced connection types
 - IMAP, SMTP, POP3, and Exchange Web Services require **Secure Mail Transport**
@@ -273,7 +273,7 @@ _Avoid_: Password reset, support recovery
 - A **Legacy POP3 Connection** leaves downloaded messages on the server by default
 - A **Legacy POP3 Connection** does not promise server-synchronized folders, moves, flags, or real-time delivery
 - A **Legacy POP3 Connection** does not support server-side body search; it may search locally retained metadata, while body search remains unavailable unless the matching body is already available in the **Bounded Encrypted Body Cache**
-- A **Unified Mailbox** aggregates a mailbox role across all **Mailbox Connections**
+- A **Unified Mailbox** aggregates a corresponding **Mailbox Role** or product-owned aggregate view across all **Mailbox Connections**
 - The permanent **Unified Mailboxes** are Inbox, Pins, Drafts, **Sent Mailbox**, Archive, All Mail, Spam, and Trash
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
@@ -436,7 +436,7 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Should the app permanently store every email body?"
 > **Domain expert:** "No — store **Durable Message Metadata** and categorization, while using a **Bounded Encrypted Body Cache** for recent and previously opened body text."
 > **Dev:** "Which message bodies should be prefetched?"
-> **Domain expert:** "At each synchronization reference instant, select the newest up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days. Recent and pinned bodies may reclaim only eligible bodies outside their combined protected set, so they never evict one another during that selection; keep Spam, Trash, attachments, and older unpinned bodies on-demand, with Spam and Trash excluded even when pinned."
+> **Domain expert:** "At each synchronization reference instant, select the newest up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days. Selected-recent bodies take priority in the cache-fitting protected set; admitting one may drop a pinned-only protection, after which that pinned body is eligible for last-resort pinned eviction. Candidates admitted by the same selection never evict one another; keep Spam, Trash, attachments, and older unpinned bodies on-demand, with Spam and Trash excluded even when pinned."
 > **Dev:** "Can the backend participate in push without holding mail provider tokens?"
 > **Domain expert:** "Yes — it may use **Minimal Push Metadata** to wake trusted devices, but devices fetch mail themselves."
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
