@@ -564,6 +564,38 @@ describe('gmail push relay', () => {
     );
   });
 
+  it('clears a legacy route after a stale-token delivery failure', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const deviceId = await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: Date.now(),
+        lastSeenAt: Date.now(),
+        tokenIdentifier: 'legacy-device-account',
+      });
+      return ctx.db.insert('trustedDevices', {
+        apnsEnvironment: 'production',
+        apnsToken: 'legacy-apns-token',
+        deviceIdentifier: 'legacy-device',
+        lastSeenAt: Date.now(),
+        platform: 'ios',
+        productAccountId,
+        registeredAt: Date.now(),
+      });
+    });
+
+    await t.mutation(internal.pushRelay.clearStaleDevice, {
+      apnsToken: 'legacy-apns-token',
+      pushCleanupGeneration: 0,
+      trustedDeviceId: deviceId,
+    });
+
+    await expect(t.run((ctx) => ctx.db.get(deviceId))).resolves.toStrictEqual(
+      expect.not.objectContaining({ apnsToken: expect.anything() }),
+    );
+  });
+
   it('requires fresh Gmail push proof after device unregistration', async () => {
     expect.assertions(2);
 
@@ -745,8 +777,8 @@ describe('gmail push relay', () => {
           connections.slice(-1).map((connection) =>
             // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
             ctx.db.patch(connection._id, {
-              pushVerifiedHistoryId: '101',
-              pushVerifiedAt: refreshedVerifiedAt,
+              pushVerificationHistoryId: '101',
+              pushVerificationRequestedAt: refreshedVerifiedAt,
             }),
           ),
         );
@@ -754,7 +786,7 @@ describe('gmail push relay', () => {
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-      const freshProofWasPreserved = await t.run(async (ctx) => {
+      const proofCleanupState = await t.run(async (ctx) => {
         const connections = await ctx.db
           .query('mailProviderConnections')
           .withIndex(
@@ -766,13 +798,19 @@ describe('gmail push relay', () => {
                 .eq('trustedDeviceId', device.trustedDeviceId),
           )
           .take(12);
-        return connections.map(
-          (connection) => connection.pushVerifiedAt === refreshedVerifiedAt,
-        );
+        return connections.map((connection) => ({
+          pushVerificationHistoryId: connection.pushVerificationHistoryId,
+          pushVerificationRequestedAt: connection.pushVerificationRequestedAt,
+          pushVerifiedHistoryId: connection.pushVerifiedHistoryId,
+          pushVerifiedAt: connection.pushVerifiedAt,
+        }));
       });
-      expect(freshProofWasPreserved).toStrictEqual([
-        ...Array.from({ length: 11 }, () => false),
-        true,
+      expect(proofCleanupState).toStrictEqual([
+        ...Array.from({ length: 11 }, () => ({})),
+        {
+          pushVerificationHistoryId: '101',
+          pushVerificationRequestedAt: refreshedVerifiedAt,
+        },
       ]);
     } finally {
       vi.useRealTimers();
@@ -822,6 +860,57 @@ describe('gmail push relay', () => {
           .take(102),
       );
       expect(routes).toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('drains reused APNs token cleanup after the owner rotates tokens', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'current-device',
+        platform: 'ios',
+      });
+      await t.run(async (ctx) => {
+        for (let index = 0; index < 101; index += 1) {
+          await ctx.db.insert('trustedDevices', {
+            apnsEnvironment: 'sandbox',
+            apnsToken: 'shared-apns-token',
+            deviceIdentifier: `old-device-${index}`,
+            lastSeenAt: Date.now(),
+            platform: 'ios',
+            productAccountId: currentDevice.productAccountId,
+            registeredAt: Date.now(),
+          });
+        }
+      });
+
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'shared-apns-token',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'rotated-apns-token',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await expect(
+        t.run((ctx) =>
+          ctx.db
+            .query('trustedDevices')
+            .withIndex('by_apnsToken', (q) =>
+              q.eq('apnsToken', 'shared-apns-token'),
+            )
+            .take(101),
+        ),
+      ).resolves.toStrictEqual([]);
     } finally {
       vi.useRealTimers();
     }

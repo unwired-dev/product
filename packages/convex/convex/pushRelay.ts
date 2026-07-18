@@ -347,24 +347,32 @@ async function clearGmailPushProofs(
     numItems: gmailPushProofCleanupBatchSize,
   });
   await Promise.all(
-    page.page
-      .filter(
-        (connection) =>
-          (connection.pushVerificationRequestedAt === undefined ||
-            connection.pushVerificationRequestedAt <=
-              request.cleanupStartedAt) &&
-          (connection.pushVerifiedAt === undefined ||
-            connection.pushVerifiedAt <= request.cleanupStartedAt),
-      )
-      .map((connection) =>
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        ctx.db.patch(connection._id, {
-          pushVerificationHistoryId: undefined,
-          pushVerificationRequestedAt: undefined,
-          pushVerifiedHistoryId: undefined,
-          pushVerifiedAt: undefined,
-        }),
-      ),
+    page.page.map(async (connection) => {
+      const clearPendingProof =
+        connection.pushVerificationRequestedAt === undefined ||
+        connection.pushVerificationRequestedAt <= request.cleanupStartedAt;
+      const clearVerifiedProof =
+        connection.pushVerifiedAt === undefined ||
+        connection.pushVerifiedAt <= request.cleanupStartedAt;
+      if (!clearPendingProof && !clearVerifiedProof) {
+        return;
+      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection._id, {
+        ...(clearPendingProof
+          ? {
+              pushVerificationHistoryId: undefined,
+              pushVerificationRequestedAt: undefined,
+            }
+          : {}),
+        ...(clearVerifiedProof
+          ? {
+              pushVerifiedHistoryId: undefined,
+              pushVerifiedAt: undefined,
+            }
+          : {}),
+      });
+    }),
   );
   if (!page.isDone) {
     await ctx.scheduler.runAfter(
@@ -683,21 +691,20 @@ export const continueReusedApnsTokenCleanup = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const device = await ctx.db.get(args.trustedDeviceId);
-    if (device?.pushCleanupGeneration !== args.pushCleanupGeneration) {
+    const tokenOwners = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_apnsToken', (q) => q.eq('apnsToken', args.apnsToken))
+      .collect();
+    if (
+      tokenOwners.some(
+        (owner) =>
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          owner._id !== args.trustedDeviceId &&
+          owner.pushCleanupGeneration !== undefined &&
+          owner.lastSeenAt >= args.cleanupStartedAt,
+      )
+    ) {
       return null;
-    }
-    if (device.apnsToken !== args.apnsToken) {
-      const newerOwner = await ctx.db
-        .query('trustedDevices')
-        .withIndex('by_apnsToken', (q) => q.eq('apnsToken', args.apnsToken))
-        .first();
-      if (
-        newerOwner !== null &&
-        newerOwner.lastSeenAt > args.cleanupStartedAt
-      ) {
-        return null;
-      }
     }
     await clearReusedApnsToken(ctx, args);
     return null;
@@ -778,7 +785,7 @@ export const clearStaleDevice = internalMutation({
     const device = await ctx.db.get(args.trustedDeviceId);
     if (
       device?.apnsToken === args.apnsToken &&
-      device.pushCleanupGeneration === args.pushCleanupGeneration
+      (device.pushCleanupGeneration ?? 0) === args.pushCleanupGeneration
     ) {
       await clearDevicePushRoute(ctx, device);
     }
