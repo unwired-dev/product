@@ -226,7 +226,7 @@ async function handleDeliveryResult(
     | Readonly<{
         apnsEnvironment: 'production' | 'sandbox';
         apnsToken: string;
-        pushCleanupGeneration: number;
+        pushCleanupGeneration?: number;
         trustedDeviceId: Id<'trustedDevices'>;
       }>
     | undefined,
@@ -240,7 +240,7 @@ async function handleDeliveryResult(
   }
   await ctx.runMutation(internal.pushRelay.clearStaleDevice, {
     apnsToken: recipient.apnsToken,
-    pushCleanupGeneration: recipient.pushCleanupGeneration,
+    pushCleanupGeneration: recipient.pushCleanupGeneration ?? 0,
     trustedDeviceId: recipient.trustedDeviceId,
   });
 }
@@ -258,7 +258,7 @@ export const deliverGmailWakeups = internalAction({
       v.object({
         apnsEnvironment: apnsEnvironmentValidator,
         apnsToken: v.string(),
-        pushCleanupGeneration: v.number(),
+        pushCleanupGeneration: v.optional(v.number()),
         routeId: v.string(),
         trustedDeviceId: v.id('trustedDevices'),
       }),

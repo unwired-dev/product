@@ -564,6 +564,41 @@ describe('gmail push relay', () => {
     );
   });
 
+  it('keeps the cleanup generation for a same-route registration heartbeat', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'heartbeat-apns-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const originalRoute = await t.run((ctx) =>
+      ctx.db.get(device.trustedDeviceId),
+    );
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'heartbeat-apns-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await t.mutation(internal.pushRelay.clearStaleDevice, {
+      apnsToken: 'heartbeat-apns-token',
+      pushCleanupGeneration: originalRoute!.pushCleanupGeneration!,
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await expect(
+      t.run((ctx) => ctx.db.get(device.trustedDeviceId)),
+    ).resolves.toStrictEqual(
+      expect.not.objectContaining({ apnsToken: expect.anything() }),
+    );
+  });
+
   it('clears a legacy route after a stale-token delivery failure', async () => {
     expect.assertions(1);
 
@@ -1793,7 +1828,6 @@ describe('gmail push relay', () => {
           {
             apnsEnvironment: 'sandbox',
             apnsToken: 'device-token',
-            pushCleanupGeneration: 0,
             routeId: 'good-route',
             trustedDeviceId: goodDevice.trustedDeviceId,
           },

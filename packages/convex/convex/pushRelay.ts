@@ -509,7 +509,11 @@ export const registerDevice = mutation({
       throw new Error('Trusted device required');
     }
     const now = Date.now();
-    const pushCleanupGeneration = (device.pushCleanupGeneration ?? 0) + 1;
+    const pushCleanupGeneration =
+      device.apnsEnvironment === args.apnsEnvironment &&
+      device.apnsToken === args.apnsToken
+        ? (device.pushCleanupGeneration ?? 0)
+        : (device.pushCleanupGeneration ?? 0) + 1;
     await clearReusedApnsToken(ctx, {
       ...args,
       cleanupStartedAt: now,
@@ -693,8 +697,13 @@ export const continueReusedApnsTokenCleanup = internalMutation({
   handler: async (ctx, args) => {
     const tokenOwners = await ctx.db
       .query('trustedDevices')
-      .withIndex('by_apnsToken', (q) => q.eq('apnsToken', args.apnsToken))
-      .collect();
+      .withIndex('by_apnsToken_and_lastSeenAt', (q) =>
+        q
+          .eq('apnsToken', args.apnsToken)
+          .gte('lastSeenAt', args.cleanupStartedAt),
+      )
+      .order('desc')
+      .take(2);
     if (
       tokenOwners.some(
         (owner) =>

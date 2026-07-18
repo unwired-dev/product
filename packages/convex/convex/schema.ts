@@ -23,6 +23,7 @@ export default defineSchema({
   })
     .index('by_productAccountId', ['productAccountId'])
     .index('by_apnsToken', ['apnsToken'])
+    .index('by_apnsToken_and_lastSeenAt', ['apnsToken', 'lastSeenAt'])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
