@@ -711,6 +711,51 @@ describe('gmail push relay', () => {
     }
   });
 
+  it('accepts a proof refreshed in the cleanup millisecond', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-01-01T00:00:00.000Z'));
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const connection = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'first-apns-token',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.unregisterDevice, {
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'second-apns-token',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+
+      await expect(
+        t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+          emailAddress: 'matching@example.com',
+          historyId: '100',
+        }),
+      ).resolves.toStrictEqual({ recipientCount: 1 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('clears every Gmail push proof in bounded continuations', async () => {
     expect.assertions(1);
     vi.useFakeTimers();

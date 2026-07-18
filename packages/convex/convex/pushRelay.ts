@@ -258,6 +258,13 @@ function gmailVerificationPatch(
   };
 }
 
+function gmailPushProofUpdatedAt(
+  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  now: number,
+): number {
+  return Math.max(now, (device.gmailPushProofsInvalidatedAt ?? 0) + 1);
+}
+
 async function recordGmailVerificationSignal(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   signal: Readonly<{ emailAddress: string; historyId: string; now: number }>,
@@ -329,13 +336,16 @@ async function verifyPendingGmailConnections(
     if (
       pendingVerificationMatches(connection, request.historyId, request.now)
     ) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection._id, {
-        pushVerificationHistoryId: undefined,
-        pushVerificationRequestedAt: undefined,
-        pushVerifiedHistoryId: connection.pushVerificationHistoryId,
-        pushVerifiedAt: request.now,
-      });
+      const device = await ctx.db.get(connection.trustedDeviceId);
+      if (device !== null) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(connection._id, {
+          pushVerificationHistoryId: undefined,
+          pushVerificationRequestedAt: undefined,
+          pushVerifiedHistoryId: connection.pushVerificationHistoryId,
+          pushVerifiedAt: gmailPushProofUpdatedAt(device, request.now),
+        });
+      }
     }
   }
 }
@@ -699,6 +709,10 @@ export const verifyGmailWatch = mutation({
       account.productAccountId,
       args.trustedDeviceId,
     );
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     const routeId = connection._id;
     if (connection.pushVerifiedHistoryId === args.historyId) {
@@ -712,7 +726,7 @@ export const verifyGmailWatch = mutation({
       )
       .order('desc')
       .take(100);
-    const now = Date.now();
+    const now = gmailPushProofUpdatedAt(device, Date.now());
     const verified = hasMatchingVerificationSignal(
       signals,
       args.historyId,
