@@ -256,6 +256,7 @@ _Avoid_: Password reset, support recovery
 - **Remove Device Authorization** affects only the current device and preserves the synchronized **Mailbox Connection**
 - **Remove Mailbox Connection Everywhere** removes synchronized connection and product-owned state from all trusted devices but never deletes provider mail
 - A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
+- After wake or reconnect, a trusted device processes synchronized connection-removal tombstones before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
 - Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections**
 - A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
@@ -277,7 +278,7 @@ _Avoid_: Password reset, support recovery
 - A user explicitly maps any required **Mailbox Role** that a provider does not identify unambiguously; if no provider mailbox can supply a required role, the client offers to create one when the provider permits it, otherwise the connection remains incomplete for actions requiring that role and has no product-local fallback
 - **Mailbox Roles** are never inferred from localized folder names and user mappings may be changed later
 - Changing a **Mailbox Role** mapping reclassifies existing local metadata and applies to future synchronization; the prior mapping is retained until the new mapping completes and may be restored if the change fails
-- A changed mapping requires the user to reconfirm any destructive action whose target or meaning changed before that action reaches its provider
+- When a **Mailbox Role** mapping changes, every pending **Provider Mail Action** whose target or meaning changed is cancelled until the user reconfirms it against the new mapping
 - A user may select either a **Unified Mailbox** or a mailbox within one **Mailbox Connection** to scope the messages being viewed
 - A **Unified Mailbox** interleaves mailbox-scoped **Threads** by latest message time rather than grouping them by account
 - Every thread in a **Unified Mailbox** visibly identifies its source **Mailbox Connection**
