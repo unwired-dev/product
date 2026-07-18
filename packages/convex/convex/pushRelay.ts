@@ -98,9 +98,24 @@ async function apnsRecipientForDevice(
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<ApnsRecipient | null> {
   const device = await ctx.db.get(trustedDeviceId);
-  if (device?.apnsEnvironment === undefined || device.apnsToken === undefined) {
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper narrows the route fields.
+  if (!hasActiveApnsRoute(device)) {
     return null;
   }
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the recipient after route validation.
+  return apnsRecipient(device, routeId);
+}
+
+function apnsRecipient(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  device: Readonly<
+    Doc<'trustedDevices'> & {
+      apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
+      apnsToken: string;
+    }
+  >,
+  routeId: Id<'mailProviderConnections'>,
+): ApnsRecipient {
   return {
     apnsEnvironment: device.apnsEnvironment,
     apnsToken: device.apnsToken,
@@ -113,7 +128,10 @@ async function apnsRecipientForDevice(
 
 function hasActiveApnsRoute(
   device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
-): boolean {
+): device is Doc<'trustedDevices'> & {
+  apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
+  apnsToken: string;
+} {
   return (
     device?.apnsEnvironment !== undefined && device.apnsToken !== undefined
   );
@@ -347,32 +365,10 @@ async function clearGmailPushProofs(
     numItems: gmailPushProofCleanupBatchSize,
   });
   await Promise.all(
-    page.page.map(async (connection) => {
-      const clearPendingProof =
-        connection.pushVerificationRequestedAt === undefined ||
-        connection.pushVerificationRequestedAt <= request.cleanupStartedAt;
-      const clearVerifiedProof =
-        connection.pushVerifiedAt === undefined ||
-        connection.pushVerifiedAt <= request.cleanupStartedAt;
-      if (!clearPendingProof && !clearVerifiedProof) {
-        return;
-      }
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection._id, {
-        ...(clearPendingProof
-          ? {
-              pushVerificationHistoryId: undefined,
-              pushVerificationRequestedAt: undefined,
-            }
-          : {}),
-        ...(clearVerifiedProof
-          ? {
-              pushVerifiedHistoryId: undefined,
-              pushVerifiedAt: undefined,
-            }
-          : {}),
-      });
-    }),
+    page.page.map((connection) =>
+      // oxlint-disable-next-line eslint/no-use-before-define -- Helper keeps pagination orchestration small.
+      clearGmailPushProof(ctx, connection, request.cleanupStartedAt),
+    ),
   );
   if (!page.isDone) {
     await ctx.scheduler.runAfter(
@@ -386,6 +382,58 @@ async function clearGmailPushProofs(
       },
     );
   }
+}
+
+async function clearGmailPushProof(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context patches proof records.
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  cleanupStartedAt: number,
+): Promise<void> {
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper isolates timestamp comparison.
+  const clearPendingProof = shouldClearGmailPushProof(
+    connection.pushVerificationRequestedAt,
+    cleanupStartedAt,
+  );
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper isolates timestamp comparison.
+  const clearVerifiedProof = shouldClearGmailPushProof(
+    connection.pushVerifiedAt,
+    cleanupStartedAt,
+  );
+  if (!clearPendingProof && !clearVerifiedProof) {
+    return;
+  }
+  await ctx.db.patch(
+    connection._id, // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
+    // oxlint-disable-next-line eslint/no-use-before-define -- Helper centralizes the conditional patch.
+    gmailPushProofPatch(clearPendingProof, clearVerifiedProof),
+  );
+}
+
+function shouldClearGmailPushProof(
+  proofUpdatedAt: number | undefined,
+  cleanupStartedAt: number,
+): boolean {
+  return proofUpdatedAt === undefined || proofUpdatedAt <= cleanupStartedAt;
+}
+
+function gmailPushProofPatch(
+  clearPendingProof: boolean,
+  clearVerifiedProof: boolean,
+) {
+  return {
+    ...(clearPendingProof
+      ? {
+          pushVerificationHistoryId: undefined,
+          pushVerificationRequestedAt: undefined,
+        }
+      : {}),
+    ...(clearVerifiedProof
+      ? {
+          pushVerifiedHistoryId: undefined,
+          pushVerifiedAt: undefined,
+        }
+      : {}),
+  };
 }
 
 async function devicePushRouteHeartbeat(
@@ -428,26 +476,13 @@ async function clearDevicePushRoute(
     preservePushCleanupGeneration?: boolean;
   }>,
 ): Promise<void> {
-  const heartbeat = await devicePushRouteHeartbeat(
-    ctx,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    device._id,
-  );
-  if (heartbeat !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(heartbeat._id);
-  }
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper removes the route heartbeat first.
+  await deleteDevicePushRouteHeartbeat(ctx, device._id); // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.patch(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     device._id,
-    {
-      apnsEnvironment: undefined,
-      apnsToken: undefined,
-      lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
-      pushCleanupGeneration: request?.preservePushCleanupGeneration
-        ? device.pushCleanupGeneration
-        : (device.pushCleanupGeneration ?? 0) + 1,
-    },
+    // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the route-clear patch.
+    clearedDevicePushRoutePatch(device, request),
   );
   await clearGmailPushProofs(ctx, {
     cleanupStartedAt: Date.now(),
@@ -455,6 +490,71 @@ async function clearDevicePushRoute(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
   });
+}
+
+function clearedDevicePushRoutePatch(
+  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  request:
+    | Readonly<{
+        lastSeenAt?: number;
+        preservePushCleanupGeneration?: boolean;
+      }>
+    | undefined,
+) {
+  return {
+    apnsEnvironment: undefined,
+    apnsToken: undefined,
+    lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
+    // oxlint-disable-next-line eslint/no-use-before-define -- Helper preserves monotonic cleanup generations.
+    pushCleanupGeneration: nextPushCleanupGeneration(device, request),
+  };
+}
+
+function nextPushCleanupGeneration(
+  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  request: Readonly<{ preservePushCleanupGeneration?: boolean }> | undefined,
+): number | undefined {
+  if (request?.preservePushCleanupGeneration) {
+    return device.pushCleanupGeneration;
+  }
+  return (device.pushCleanupGeneration ?? 0) + 1;
+}
+
+async function deleteDevicePushRouteHeartbeat(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context deletes heartbeat records.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const heartbeat = await devicePushRouteHeartbeat(ctx, trustedDeviceId);
+  if (heartbeat !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(heartbeat._id);
+  }
+}
+
+function pushCleanupGenerationForRegistration(
+  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  args: Readonly<{
+    apnsEnvironment: Infer<typeof apnsEnvironmentValidator>;
+    apnsToken: string;
+  }>,
+): number {
+  const currentGeneration = device.pushCleanupGeneration ?? 0;
+  return device.apnsEnvironment === args.apnsEnvironment &&
+    device.apnsToken === args.apnsToken
+    ? currentGeneration
+    : currentGeneration + 1;
+}
+
+async function registeredTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context reads authentication state.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<Doc<'trustedDevices'>> {
+  await requireAuthenticatedTrustedDevice(ctx, trustedDeviceId);
+  const device = await ctx.db.get(trustedDeviceId);
+  if (device === null) {
+    throw new Error('Trusted device required');
+  }
+  return device;
 }
 
 async function clearReusedApnsToken(
@@ -503,17 +603,12 @@ export const registerDevice = mutation({
       throw new Error('APNs token required');
     }
 
-    await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
-    const device = await ctx.db.get(args.trustedDeviceId);
-    if (device === null) {
-      throw new Error('Trusted device required');
-    }
+    const device = await registeredTrustedDevice(ctx, args.trustedDeviceId);
     const now = Date.now();
-    const pushCleanupGeneration =
-      device.apnsEnvironment === args.apnsEnvironment &&
-      device.apnsToken === args.apnsToken
-        ? (device.pushCleanupGeneration ?? 0)
-        : (device.pushCleanupGeneration ?? 0) + 1;
+    const pushCleanupGeneration = pushCleanupGenerationForRegistration(
+      device,
+      args,
+    );
     await clearReusedApnsToken(ctx, {
       ...args,
       cleanupStartedAt: now,
@@ -792,13 +887,24 @@ export const clearStaleDevice = internalMutation({
   },
   handler: async (ctx, args) => {
     const device = await ctx.db.get(args.trustedDeviceId);
-    if (
-      device?.apnsToken === args.apnsToken &&
-      (device.pushCleanupGeneration ?? 0) === args.pushCleanupGeneration
-    ) {
+    // oxlint-disable-next-line eslint/no-use-before-define -- Helper validates the current route identity.
+    if (isCurrentPushRoute(device, args)) {
       await clearDevicePushRoute(ctx, device);
     }
     return null;
   },
   returns: v.null(),
 });
+
+function isCurrentPushRoute(
+  device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  request: Readonly<{
+    apnsToken: string;
+    pushCleanupGeneration: number;
+  }>,
+): device is Doc<'trustedDevices'> {
+  return (
+    device?.apnsToken === request.apnsToken &&
+    (device.pushCleanupGeneration ?? 0) === request.pushCleanupGeneration
+  );
+}
