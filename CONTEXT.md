@@ -273,7 +273,7 @@ _Avoid_: Password reset, support recovery
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views
 - Provider-native semantics or IMAP special-use markers assign a **Mailbox Role** when they are unambiguous
-- A user explicitly maps any required **Mailbox Role** that a provider does not identify unambiguously
+- A user explicitly maps any required **Mailbox Role** that a provider does not identify unambiguously; if no provider mailbox can supply a required role, the client offers to create one when the provider permits it, otherwise the connection remains incomplete for actions requiring that role and has no product-local fallback
 - **Mailbox Roles** are never inferred from localized folder names and user mappings may be changed later
 - Changing a **Mailbox Role** mapping reclassifies existing local metadata and applies to future synchronization; the prior mapping is retained until the new mapping completes and may be restored if the change fails
 - A changed mapping requires the user to reconfirm any destructive action whose target or meaning changed before that action reaches its provider
@@ -294,6 +294,7 @@ _Avoid_: Password reset, support recovery
 - **Pending Provider Actions** are ordered per **Mailbox Connection** and retried when connectivity returns
 - A permanently rejected **Pending Provider Action** restores provider-derived state, replays later pending actions in order, and produces a visible failure without overwriting newer optimistic changes
 - Each **Pending Provider Action** has a stable idempotency key and immutable attempt record; an ambiguous provider response is reconciled before retrying so the provider mutation is not duplicated
+- For an ambiguous IMAP move, archive, or copy, the client retries only after it verifies the source-to-target mapping; otherwise it stops the action for user resolution rather than replaying it
 - Product-owned actions such as **Pin** do not wait for a mail provider and synchronize independently
 - A bulk selection may span multiple **Mailbox Connections** but exposes only actions supported by every selected connection
 - Cross-connection bulk actions execute as per-connection batches and preserve successful batches when another connection fails
@@ -346,7 +347,7 @@ _Avoid_: Password reset, support recovery
 - Recent and pinned prefetched bodies are admitted only when they fit without immediately evicting another body in the combined selected-recent and pinned protected set; bodies refused admission remain on demand until a later synchronization finds space
 - Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that combined protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
 - Spam, Trash, attachments, and older unpinned message bodies remain on-demand
-- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft
+- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes opened older non-pinned bodies first, then the oldest non-pinned prefetched bodies, then the least-recently-read pinned bodies as a last resort
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
@@ -491,7 +492,7 @@ _Avoid_: Password reset, support recovery
 - "learning from overrides" was resolved as **Future Learning Signal**, not retroactive recategorization.
 - "category conflict resolution" was resolved as **Category Conflict Rule**, not last-write-wins.
 - "email storage" was resolved as locally read **Durable Message Metadata** plus a **Bounded Encrypted Body Cache**, not permanent full-body or attachment storage.
-- "initial mailbox sync" was resolved as **Initial Mailbox Availability** after the newest 50 messages, followed by **Historical Metadata Backfill** and then body prefetch without blocking mailbox use.
+- "initial mailbox sync" was resolved as **Initial Mailbox Availability** after the newest 50 messages, followed by **Historical Metadata Backfill** while body prefetch starts immediately without blocking mailbox use.
 - "historical metadata scope" was resolved as the complete provider-visible mailbox history with resumable backfill, not a full historical body archive.
 - "body prefetch" was resolved as recent Inbox and **Sent Mailbox** body text plus pinned bodies regardless of age, not Spam, Trash, attachments, or older unpinned bodies.
 - "recent body prefetch" was resolved as the newest 500 messages combined across Inbox and **Sent Mailbox** from the last 30 days per **Mailbox Connection**, whichever boundary is reached first.
