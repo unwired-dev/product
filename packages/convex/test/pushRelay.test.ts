@@ -1272,6 +1272,68 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
+  it('keeps a newer Gmail proof timestamp when a delayed signal verifies', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    const newerProofAt = Date.now() + 1000;
+    await t.run(async (ctx) => {
+      const connection = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId',
+          (q) =>
+            q
+              .eq('productAccountId', productConnection.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', productConnection.trustedDeviceId),
+        )
+        .unique();
+      expect(connection).not.toBeNull();
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection!._id, {
+        pushVerificationHistoryId: '100',
+        pushVerificationRequestedAt: Date.now(),
+        pushVerifiedAt: newerProofAt,
+      });
+    });
+
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'matching@example.com',
+      historyId: '100',
+    });
+
+    await expect(
+      t.run(async (ctx) => {
+        const connection = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', productConnection.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', productConnection.trustedDeviceId),
+          )
+          .unique();
+        return connection?.pushVerifiedAt;
+      }),
+    ).resolves.toBe(newerProofAt);
+  });
+
   it('keeps a Gmail verification signal available for another device', async () => {
     expect.assertions(2);
 

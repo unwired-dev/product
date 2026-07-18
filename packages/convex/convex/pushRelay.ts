@@ -260,9 +260,14 @@ function gmailVerificationPatch(
 
 function gmailPushProofUpdatedAt(
   device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   now: number,
 ): number {
-  return Math.max(now, (device.gmailPushProofsInvalidatedAt ?? 0) + 1);
+  return Math.max(
+    now,
+    (device.gmailPushProofsInvalidatedAt ?? 0) + 1,
+    connection.pushVerifiedAt ?? 0,
+  );
 }
 
 async function recordGmailVerificationSignal(
@@ -343,7 +348,11 @@ async function verifyPendingGmailConnections(
           pushVerificationHistoryId: undefined,
           pushVerificationRequestedAt: undefined,
           pushVerifiedHistoryId: connection.pushVerificationHistoryId,
-          pushVerifiedAt: gmailPushProofUpdatedAt(device, request.now),
+          pushVerifiedAt: gmailPushProofUpdatedAt(
+            device,
+            connection,
+            request.now,
+          ),
         });
       }
     }
@@ -726,7 +735,7 @@ export const verifyGmailWatch = mutation({
       )
       .order('desc')
       .take(100);
-    const now = gmailPushProofUpdatedAt(device, Date.now());
+    const now = gmailPushProofUpdatedAt(device, connection, Date.now());
     const verified = hasMatchingVerificationSignal(
       signals,
       args.historyId,
