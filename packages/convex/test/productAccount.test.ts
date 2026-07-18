@@ -1,5 +1,7 @@
 /// <reference types="vite/client" />
 
+import { generateKeyPairSync, sign } from 'node:crypto';
+
 import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
@@ -12,6 +14,67 @@ const appleIdentity = {
   subject: 'apple-user-001',
   tokenIdentifier: 'https://appleid.apple.com|apple-user-001',
 };
+
+const {
+  privateKey: googleIdentityPrivateKey,
+  publicKey: googleIdentityPublicKey,
+} = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const googleIdentitySigningKey = {
+  ...googleIdentityPublicKey.export({ format: 'jwk' }),
+  alg: 'RS256',
+  kid: 'google-product-account-test-key',
+  use: 'sig',
+};
+
+function createGoogleIdentityToken(
+  emailAddress: string,
+  providerAccountIdentifier: string,
+): string {
+  const header = Buffer.from(
+    JSON.stringify({
+      alg: 'RS256',
+      kid: 'google-product-account-test-key',
+      typ: 'JWT',
+    }),
+  ).toString('base64url');
+  const claims = Buffer.from(
+    JSON.stringify({
+      aud: 'gmail-client-id',
+      email: emailAddress,
+      email_verified: true,
+      exp: 4_102_444_800,
+      iss: 'accounts.google.com',
+      sub: providerAccountIdentifier,
+    }),
+  ).toString('base64url');
+  const signingInput = `${header}.${claims}`;
+  const signature = sign(
+    'RSA-SHA256',
+    Buffer.from(signingInput),
+    googleIdentityPrivateKey,
+  );
+  return `${signingInput}.${signature.toString('base64url')}`;
+}
+
+const otherIdentityToken = createGoogleIdentityToken(
+  'other@example.com',
+  'gmail-user-002',
+);
+const userIdentityToken = createGoogleIdentityToken(
+  'user@example.com',
+  'gmail-user-001',
+);
+
+vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+vi.stubGlobal(
+  'fetch',
+  vi.fn<() => Promise<Response>>(async () =>
+    Response.json(
+      { keys: [googleIdentitySigningKey] },
+      { headers: { 'cache-control': 'public, max-age=3600' } },
+    ),
+  ),
+);
 
 const encryptedPayload = {
   algorithm: 'AES-GCM-256' as const,
@@ -328,7 +391,8 @@ describe('productAccount Gmail provider connection', () => {
       providerAccountIdentifier: 'gmail-user-001',
       trustedDeviceId: connect.trustedDeviceId,
     });
-    const firstRoute = await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+    const firstRoute = await asUser.action(api.pushRelay.verifyGmailWatch, {
+      gmailIdentityToken: userIdentityToken,
       historyId: '1',
       trustedDeviceId: connect.trustedDeviceId,
     });
@@ -338,7 +402,8 @@ describe('productAccount Gmail provider connection', () => {
       providerAccountIdentifier: 'gmail-user-002',
       trustedDeviceId: connect.trustedDeviceId,
     });
-    const secondRoute = await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+    const secondRoute = await asUser.action(api.pushRelay.verifyGmailWatch, {
+      gmailIdentityToken: otherIdentityToken,
       historyId: '2',
       trustedDeviceId: connect.trustedDeviceId,
     });

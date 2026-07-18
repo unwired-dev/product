@@ -23,6 +23,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  // swiftlint:disable:next function_body_length
   func testTokenRefresherRenewsExpiredAccessTokenFromDeviceHeldRefreshToken() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -37,7 +38,12 @@ final class GmailPushRelayServiceTests: XCTestCase {
         headerFields: nil
       )!
       if request.url?.path == "/token" {
-        return (response, Data(#"{"access_token":"refreshed-access-token"}"#.utf8))
+        return (
+          response,
+          Data(
+            #"{"access_token":"refreshed-access-token","id_token":"gmail-identity-token"}"#.utf8
+          )
+        )
       }
       return (
         response,
@@ -67,7 +73,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertEqual(
       tokens,
-      GmailProviderTokens(accessToken: "refreshed-access-token", refreshToken: "refresh-token")
+      GmailProviderTokens(
+        accessToken: "refreshed-access-token",
+        refreshToken: "refresh-token",
+        idToken: "gmail-identity-token"
+      )
     )
     XCTAssertEqual(try tokenStore.load(productAccountId: session.productAccountId), tokens)
   }
@@ -129,6 +139,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(tokenRefresher.session, session)
     XCTAssertEqual(connectionStore.savedConnection, connection)
     XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
+    XCTAssertEqual(verificationTransport.gmailIdentityToken, "gmail-identity-token")
     XCTAssertEqual(verificationTransport.historyId, "history-123")
     XCTAssertEqual(verificationTransport.session, session)
   }
@@ -192,7 +203,13 @@ final class GmailPushRelayServiceTests: XCTestCase {
         )
       },
       store: watchStore,
-      tokenRefresher: FailingGmailPushTokenRefresher(),
+      tokenRefresher: RecordingGmailPushTokenRefresher(
+        tokens: GmailProviderTokens(
+          accessToken: "fresh-access-token",
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
+        )
+      ),
       topicName: "projects/private-email/topics/gmail-push",
       verificationTransport: RecordingGmailPushVerificationTransport()
     )
@@ -1912,6 +1929,7 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
 }
 
 private final class RecordingGmailPushVerificationTransport: GmailPushVerificationTransport {
+  var gmailIdentityToken: String?
   var historyId: String?
   var session: ProductAccountSessionSnapshot?
   private let routeId: String
@@ -1923,10 +1941,12 @@ private final class RecordingGmailPushVerificationTransport: GmailPushVerificati
   }
 
   func verifyGmailPushWatch(
+    gmailIdentityToken: String,
     historyId: String,
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> GmailPushVerificationResponse {
+    self.gmailIdentityToken = gmailIdentityToken
     self.historyId = historyId
     session = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -1944,7 +1964,11 @@ private final class RecordingGmailPushTokenRefresher: GmailProviderTokenRefreshi
   let tokens: GmailProviderTokens
 
   init(tokens: GmailProviderTokens) {
-    self.tokens = tokens
+    self.tokens = GmailProviderTokens(
+      accessToken: tokens.accessToken,
+      refreshToken: tokens.refreshToken,
+      idToken: tokens.idToken ?? "gmail-identity-token"
+    )
   }
 
   func refreshProviderTokens(

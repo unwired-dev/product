@@ -1198,7 +1198,8 @@ struct GmailMessageMetadataService:
 
     let refreshedTokens = GmailProviderTokens(
       accessToken: tokenResponse.accessToken,
-      refreshToken: tokens.refreshToken
+      refreshToken: tokens.refreshToken,
+      idToken: tokenResponse.idToken ?? tokens.idToken
     )
     if persist {
       try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
@@ -1413,9 +1414,11 @@ private struct GmailMessageHeader: Decodable {
 
 private struct GmailRefreshTokenResponse: Decodable {
   let accessToken: String
+  let idToken: String?
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
+    case idToken = "id_token"
   }
 }
 

@@ -739,9 +739,19 @@ private final class GmailProviderConnectionViewModel {
 
     do {
       let tokens = try await oauthAuthorizer.authorize()
-      let verifiedAccount = try await credentialVerifier.verify(
+      let verifiedAccountWithoutIdentityProof = try await credentialVerifier.verify(
         accessToken: tokens.accessToken,
         refreshToken: tokens.refreshToken
+      )
+      let verifiedAccount = VerifiedGmailAccount(
+        emailAddress: verifiedAccountWithoutIdentityProof.emailAddress,
+        providerAccountIdentifier:
+          verifiedAccountWithoutIdentityProof.providerAccountIdentifier,
+        tokens: GmailProviderTokens(
+          accessToken: verifiedAccountWithoutIdentityProof.tokens.accessToken,
+          refreshToken: verifiedAccountWithoutIdentityProof.tokens.refreshToken,
+          idToken: tokens.idToken
+        )
       )
       try Task.checkCancellation()
       guard isSessionCurrent(session) else {

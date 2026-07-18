@@ -202,6 +202,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
       (200..<300).contains(httpResponse.statusCode),
       let tokenResponse = try? JSONDecoder().decode(GoogleOAuthTokenResponse.self, from: data),
       !tokenResponse.accessToken.isEmpty,
+      !tokenResponse.idToken.isEmpty,
       !tokenResponse.refreshToken.isEmpty
     else {
       throw GoogleGmailOAuthError.tokenExchangeFailed
@@ -209,7 +210,8 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
 
     return GmailProviderTokens(
       accessToken: tokenResponse.accessToken,
-      refreshToken: tokenResponse.refreshToken
+      refreshToken: tokenResponse.refreshToken,
+      idToken: tokenResponse.idToken
     )
   }
 
@@ -295,10 +297,12 @@ extension GoogleGmailOAuthService: ASWebAuthenticationPresentationContextProvidi
 
 private struct GoogleOAuthTokenResponse: Decodable {
   let accessToken: String
+  let idToken: String
   let refreshToken: String
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
+    case idToken = "id_token"
     case refreshToken = "refresh_token"
   }
 }

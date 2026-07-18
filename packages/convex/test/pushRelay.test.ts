@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { generateKeyPairSync } from 'node:crypto';
+import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { convexTest } from 'convex-test';
 
@@ -92,7 +92,96 @@ const appleIdentity = {
   tokenIdentifier: 'https://appleid.apple.com|apple-user-001',
 };
 
+const {
+  privateKey: googleIdentityPrivateKey,
+  publicKey: googleIdentityPublicKey,
+} = generateKeyPairSync('rsa', { modulusLength: 2048 });
+const googleIdentitySigningKey = {
+  ...googleIdentityPublicKey.export({ format: 'jwk' }),
+  alg: 'RS256',
+  kid: 'google-test-key',
+  use: 'sig',
+};
+
+function createGoogleIdentityToken(
+  emailAddress: string,
+  providerAccountIdentifier: string,
+): string {
+  const header = Buffer.from(
+    JSON.stringify({ alg: 'RS256', kid: 'google-test-key', typ: 'JWT' }),
+  ).toString('base64url');
+  const claims = Buffer.from(
+    JSON.stringify({
+      aud: 'gmail-client-id',
+      email: emailAddress,
+      email_verified: true,
+      exp: 4_102_444_800,
+      iss: 'https://accounts.google.com',
+      sub: providerAccountIdentifier,
+    }),
+  ).toString('base64url');
+  const signingInput = `${header}.${claims}`;
+  const signature = sign(
+    'RSA-SHA256',
+    Buffer.from(signingInput),
+    googleIdentityPrivateKey,
+  );
+  return `${signingInput}.${signature.toString('base64url')}`;
+}
+
+const badDeviceIdentityToken = createGoogleIdentityToken(
+  'bad-device@example.com',
+  'bad-device-gmail',
+);
+const busyIdentityToken = createGoogleIdentityToken(
+  'busy@example.com',
+  'gmail-user-001',
+);
+const matchingIdentityToken = createGoogleIdentityToken(
+  'matching@example.com',
+  'gmail-user-001',
+);
+const matchingVictimEmailIdentityToken = createGoogleIdentityToken(
+  'victim@example.com',
+  'gmail-attacker',
+);
+const matchingVictimSubjectIdentityToken = createGoogleIdentityToken(
+  'attacker@example.com',
+  'client-asserted-id',
+);
+
+vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+const googleSigningKeyFetch = vi.fn<() => Promise<Response>>(async () =>
+  Response.json(
+    { keys: [googleIdentitySigningKey] },
+    { headers: { 'cache-control': 'public, max-age=3600' } },
+  ),
+);
+vi.stubGlobal('fetch', googleSigningKeyFetch);
+
 describe('gmail push relay', () => {
+  it('authenticates the trusted device before fetching Google signing keys', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const connection = await t
+      .withIdentity(appleIdentity)
+      .mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+    googleSigningKeyFetch.mockClear();
+
+    await expect(
+      t.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: 'untrusted-input',
+        historyId: '100',
+        trustedDeviceId: connection.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Authentication required');
+    expect(googleSigningKeyFetch).not.toHaveBeenCalled();
+  });
+
   it('stops a mailbox watch only after its last active device route', async () => {
     expect.assertions(3);
 
@@ -133,7 +222,10 @@ describe('gmail push relay', () => {
         .unique();
       expect(connection).not.toBeNull();
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, { pushVerifiedAt: Date.now() });
+      await ctx.db.patch(connection!._id, {
+        pushOwnershipVerifiedAt: Date.now(),
+        pushVerifiedAt: Date.now(),
+      });
     });
 
     await expect(
@@ -188,6 +280,7 @@ describe('gmail push relay', () => {
         productAccountId,
         provider: 'gmail',
         providerAccountIdentifier: 'other-gmail-user',
+        pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
         trustedDeviceId,
         updatedAt: Date.now(),
@@ -278,7 +371,10 @@ describe('gmail push relay', () => {
         .unique();
       expect(connection).not.toBeNull();
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, { pushVerifiedAt: proofUpdatedAt });
+      await ctx.db.patch(connection!._id, {
+        pushOwnershipVerifiedAt: proofUpdatedAt,
+        pushVerifiedAt: proofUpdatedAt,
+      });
       await ctx.db.patch(secondDevice.trustedDeviceId, {
         gmailPushProofsInvalidatedAt: proofUpdatedAt,
       });
@@ -358,7 +454,10 @@ describe('gmail push relay', () => {
         .unique();
       expect(connection).not.toBeNull();
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(connection!._id, { pushVerifiedAt: Date.now() });
+      await ctx.db.patch(connection!._id, {
+        pushOwnershipVerifiedAt: Date.now(),
+        pushVerifiedAt: Date.now(),
+      });
     });
 
     await expect(
@@ -554,7 +653,10 @@ describe('gmail push relay', () => {
       await Promise.all(
         connections.map((connection) =>
           // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          ctx.db.patch(connection._id, { pushVerifiedAt: staleBefore }),
+          ctx.db.patch(connection._id, {
+            pushOwnershipVerifiedAt: staleBefore,
+            pushVerifiedAt: staleBefore,
+          }),
         ),
       );
     });
@@ -700,7 +802,8 @@ describe('gmail push relay', () => {
         providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: connection.trustedDeviceId,
       });
-      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: connection.trustedDeviceId,
       });
@@ -717,8 +820,10 @@ describe('gmail push relay', () => {
           provider: 'gmail',
           providerAccountIdentifier: 'duplicate-gmail-user-001',
           pushVerificationHistoryId: '100',
+          pushVerificationOwnershipVerifiedAt: Date.now(),
           pushVerificationRequestedAt: Date.now(),
           pushVerifiedHistoryId: '100',
+          pushOwnershipVerifiedAt: Date.now(),
           pushVerifiedAt: Date.now(),
           trustedDeviceId: connection.trustedDeviceId,
           updatedAt: Date.now(),
@@ -732,6 +837,7 @@ describe('gmail push relay', () => {
             provider: 'gmail',
             providerAccountIdentifier: `duplicate-gmail-user-${index}`,
             pushVerifiedHistoryId: '100',
+            pushOwnershipVerifiedAt: Date.now(),
             pushVerifiedAt: Date.now(),
             trustedDeviceId: connection.trustedDeviceId,
             updatedAt: Date.now(),
@@ -794,7 +900,8 @@ describe('gmail push relay', () => {
         apnsToken: 'second-apns-token',
         trustedDeviceId: connection.trustedDeviceId,
       });
-      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: connection.trustedDeviceId,
       });
@@ -831,6 +938,7 @@ describe('gmail push relay', () => {
             provider: 'gmail',
             providerAccountIdentifier: `gmail-user-${index}`,
             pushVerifiedHistoryId: '100',
+            pushOwnershipVerifiedAt: verifiedAt,
             pushVerifiedAt: verifiedAt,
             trustedDeviceId: device.trustedDeviceId,
             updatedAt: verifiedAt,
@@ -894,6 +1002,7 @@ describe('gmail push relay', () => {
             provider: 'gmail',
             providerAccountIdentifier: `gmail-user-${index}`,
             pushVerifiedHistoryId: '100',
+            pushOwnershipVerifiedAt: originalVerifiedAt,
             pushVerifiedAt: originalVerifiedAt,
             trustedDeviceId: device.trustedDeviceId,
             updatedAt: originalVerifiedAt,
@@ -931,6 +1040,7 @@ describe('gmail push relay', () => {
             // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
             ctx.db.patch(connection._id, {
               pushVerificationHistoryId: '101',
+              pushVerificationOwnershipVerifiedAt: refreshedVerifiedAt,
               pushVerificationRequestedAt: refreshedVerifiedAt,
             }),
           ),
@@ -1252,7 +1362,8 @@ describe('gmail push relay', () => {
 
     expect(recipients).toStrictEqual([]);
     await expect(
-      firstUser.mutation(api.pushRelay.verifyGmailWatch, {
+      firstUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: 'history-123',
         trustedDeviceId: firstConnection.trustedDeviceId,
       }),
@@ -1317,13 +1428,15 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: 'history-first',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: 'history-first',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
@@ -1364,7 +1477,9 @@ describe('gmail push relay', () => {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch(connection!._id, {
         pushVerificationHistoryId: '100',
+        pushVerificationOwnershipVerifiedAt: Date.now(),
         pushVerificationRequestedAt: Date.now(),
+        pushOwnershipVerifiedAt: newerProofAt,
         pushVerifiedAt: newerProofAt,
       });
     });
@@ -1420,7 +1535,8 @@ describe('gmail push relay', () => {
         emailAddress: 'matching@example.com',
         historyId: '100',
       });
-      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       });
@@ -1432,7 +1548,8 @@ describe('gmail push relay', () => {
       });
 
       await expect(
-        asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken: matchingIdentityToken,
           historyId: '100',
           trustedDeviceId: productConnection.trustedDeviceId,
         }),
@@ -1472,7 +1589,8 @@ describe('gmail push relay', () => {
         apnsToken: 'matching-apns-token',
         trustedDeviceId: productConnection.trustedDeviceId,
       });
-      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       });
@@ -1495,7 +1613,9 @@ describe('gmail push relay', () => {
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         await ctx.db.patch(connection!._id, {
           pushVerificationHistoryId: '100',
+          pushVerificationOwnershipVerifiedAt: Date.now() - 1,
           pushVerificationRequestedAt: Date.now() - 1,
+          pushOwnershipVerifiedAt: undefined,
           pushVerifiedAt: undefined,
         });
       });
@@ -1551,13 +1671,15 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      firstUser.mutation(api.pushRelay.verifyGmailWatch, {
+      firstUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: 'history-shared',
         trustedDeviceId: firstConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
-      secondUser.mutation(api.pushRelay.verifyGmailWatch, {
+      secondUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: 'history-shared',
         trustedDeviceId: secondConnection.trustedDeviceId,
       }),
@@ -1596,7 +1718,8 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: busyIdentityToken,
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
@@ -1654,6 +1777,7 @@ describe('gmail push relay', () => {
           productAccountId,
           provider: 'gmail',
           providerAccountIdentifier: `inactive-${index}`,
+          pushOwnershipVerifiedAt: Date.now(),
           pushVerifiedAt: Date.now(),
           trustedDeviceId,
           updatedAt: Date.now(),
@@ -1675,6 +1799,7 @@ describe('gmail push relay', () => {
         productAccountId,
         provider: 'gmail',
         providerAccountIdentifier: 'verified',
+        pushOwnershipVerifiedAt: Date.now(),
         pushVerifiedAt: Date.now(),
         trustedDeviceId,
         updatedAt: Date.now(),
@@ -1742,6 +1867,7 @@ describe('gmail push relay', () => {
         provider: 'gmail',
         providerAccountIdentifier: 'pending',
         pushVerificationHistoryId: '100',
+        pushVerificationOwnershipVerifiedAt: now,
         pushVerificationRequestedAt: now,
         trustedDeviceId,
         updatedAt: now,
@@ -1801,6 +1927,7 @@ describe('gmail push relay', () => {
           provider: 'gmail',
           providerAccountIdentifier: `older-pending-${index}`,
           pushVerificationHistoryId: `${300 + index}`,
+          pushVerificationOwnershipVerifiedAt: now - 100 + index,
           pushVerificationRequestedAt: now - 100 + index,
           trustedDeviceId,
           updatedAt: now,
@@ -1821,6 +1948,7 @@ describe('gmail push relay', () => {
         provider: 'gmail',
         providerAccountIdentifier: 'newest-pending',
         pushVerificationHistoryId: '200',
+        pushVerificationOwnershipVerifiedAt: now,
         pushVerificationRequestedAt: now,
         trustedDeviceId,
         updatedAt: now,
@@ -1854,6 +1982,48 @@ describe('gmail push relay', () => {
     ]);
   });
 
+  it('rejects a spoofed low Gmail history id when the exact email differs', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const productConnection = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'attacker-device',
+        platform: 'ios',
+      },
+    );
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'victim@example.com',
+      providerAccountIdentifier: 'client-asserted-id',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'attacker-device-token',
+      trustedDeviceId: productConnection.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingVictimSubjectIdentityToken,
+        historyId: '1',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail mailbox ownership proof rejected');
+    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+      emailAddress: 'victim@example.com',
+      historyId: '100',
+    });
+
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'victim@example.com',
+      }),
+    ).resolves.toStrictEqual([]);
+  });
+
   it('verifies a Gmail watch from a later notification history id', async () => {
     expect.assertions(2);
 
@@ -1873,7 +2043,8 @@ describe('gmail push relay', () => {
     });
 
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
@@ -1883,7 +2054,8 @@ describe('gmail push relay', () => {
       historyId: '101',
     });
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
@@ -1912,7 +2084,8 @@ describe('gmail push relay', () => {
       historyId: '200',
     });
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
@@ -1922,21 +2095,23 @@ describe('gmail push relay', () => {
       historyId: '120',
     });
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '100',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
     await expect(
-      asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
         historyId: '150',
         trustedDeviceId: productConnection.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
   });
 
-  it('does not route client-asserted Gmail addresses without matching push proof', async () => {
-    expect.assertions(2);
+  it('rejects mailbox ownership when the stable Google subject differs', async () => {
+    expect.assertions(3);
 
     const nowSpy = vi.spyOn(Date, 'now').mockReturnValue(1_784_000_000_000);
     const t = convexTest(schema, modules);
@@ -1958,10 +2133,13 @@ describe('gmail push relay', () => {
       apnsToken: 'attacker-device-token',
       trustedDeviceId: productConnection.trustedDeviceId,
     });
-    await asUser.mutation(api.pushRelay.verifyGmailWatch, {
-      historyId: 'victim-history-id',
-      trustedDeviceId: productConnection.trustedDeviceId,
-    });
+    await expect(
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingVictimEmailIdentityToken,
+        historyId: 'victim-history-id',
+        trustedDeviceId: productConnection.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail mailbox ownership proof rejected');
     nowSpy.mockReturnValue(1_784_000_600_001);
 
     await expect(
@@ -2112,7 +2290,9 @@ describe('gmail push relay', () => {
         providerAccountIdentifier: 'bad-device-gmail',
         trustedDeviceId: badDevice.trustedDeviceId,
       });
-      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+      vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: badDeviceIdentityToken,
         historyId: '100',
         trustedDeviceId: badDevice.trustedDeviceId,
       });
