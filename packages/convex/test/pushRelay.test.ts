@@ -409,6 +409,102 @@ describe('gmail push relay', () => {
     );
   });
 
+  it('reconciles stale APNs routes without clearing a refreshed route', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const staleDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-stale',
+      platform: 'ios',
+    });
+    const legacyStaleDevice = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-legacy-stale',
+        platform: 'ios',
+      },
+    );
+    const refreshedDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-refreshed',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-legacy-stale',
+      trustedDeviceId: legacyStaleDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-stale',
+      trustedDeviceId: staleDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-refreshed',
+      trustedDeviceId: refreshedDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'stale-apns-token',
+      trustedDeviceId: staleDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'legacy-stale-apns-token',
+      trustedDeviceId: legacyStaleDevice.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'refreshed-apns-token',
+      trustedDeviceId: refreshedDevice.trustedDeviceId,
+    });
+
+    const staleBefore = Date.now() - 1000;
+    await t.run(async (ctx) => {
+      await ctx.db.patch(staleDevice.trustedDeviceId, {
+        pushRegistrationRefreshedAt: staleBefore - 1,
+      });
+      await ctx.db.patch(legacyStaleDevice.trustedDeviceId, {
+        lastSeenAt: staleBefore - 1,
+        pushRegistrationRefreshedAt: undefined,
+      });
+      await ctx.db.patch(refreshedDevice.trustedDeviceId, {
+        pushRegistrationRefreshedAt: staleBefore + 1,
+      });
+      const connections = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_provider_and_emailAddress', (q) =>
+          q.eq('provider', 'gmail').eq('emailAddress', 'matching@example.com'),
+        )
+        .collect();
+      await Promise.all(
+        connections.map((connection) =>
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          ctx.db.patch(connection._id, { pushVerifiedAt: staleBefore }),
+        ),
+      );
+    });
+
+    await expect(
+      t.mutation(internal.pushRelay.reconcileStaleDevicePushRoutes, {
+        staleBefore,
+      }),
+    ).resolves.toStrictEqual({ clearedRouteCount: 2 });
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'matching@example.com',
+      }),
+    ).resolves.toStrictEqual([
+      {
+        apnsEnvironment: 'production',
+        apnsToken: 'refreshed-apns-token',
+        routeId: expect.any(String),
+        trustedDeviceId: refreshedDevice.trustedDeviceId,
+      },
+    ]);
+  });
+
   it('requires fresh Gmail push proof after device unregistration', async () => {
     expect.assertions(2);
 

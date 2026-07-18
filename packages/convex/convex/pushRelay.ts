@@ -38,6 +38,8 @@ type ApnsRecipient = Readonly<{
 }>;
 
 const gmailPushVerificationSignalLifetimeMs = 10 * 60 * 1000;
+const devicePushRouteInactivityLifetimeMs = 30 * 24 * 60 * 60 * 1000;
+const devicePushRouteReconciliationBatchSize = 100;
 
 function gmailHistoryIdAtOrAfter(
   candidateHistoryId: string,
@@ -344,6 +346,29 @@ async function clearGmailPushProofs(
   );
 }
 
+async function clearDevicePushRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  device: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  lastSeenAt?: number,
+): Promise<void> {
+  await ctx.db.patch(
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    device._id,
+    {
+      apnsEnvironment: undefined,
+      apnsToken: undefined,
+      lastSeenAt: lastSeenAt ?? device.lastSeenAt,
+      pushRegistrationRefreshedAt: undefined,
+    },
+  );
+  await clearGmailPushProofs(
+    ctx,
+    device.productAccountId,
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    device._id,
+  );
+}
+
 async function clearReusedApnsToken(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   trustedDeviceId: Id<'trustedDevices'>,
@@ -357,19 +382,7 @@ async function clearReusedApnsToken(
     devices
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       .filter((device) => device._id !== trustedDeviceId)
-      .map(async (device) => {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.patch(device._id, {
-          apnsEnvironment: undefined,
-          apnsToken: undefined,
-        });
-        await clearGmailPushProofs(
-          ctx,
-          device.productAccountId,
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          device._id,
-        );
-      }),
+      .map((device) => clearDevicePushRoute(ctx, device)),
   );
 }
 
@@ -386,10 +399,12 @@ export const registerDevice = mutation({
 
     await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
     await clearReusedApnsToken(ctx, args.trustedDeviceId, args.apnsToken);
+    const now = Date.now();
     await ctx.db.patch(args.trustedDeviceId, {
       apnsEnvironment: args.apnsEnvironment,
       apnsToken: args.apnsToken,
-      lastSeenAt: Date.now(),
+      lastSeenAt: now,
+      pushRegistrationRefreshedAt: now,
     });
 
     return { registered: true };
@@ -402,20 +417,12 @@ export const unregisterDevice = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireAuthenticatedTrustedDevice(
-      ctx,
-      args.trustedDeviceId,
-    );
-    await ctx.db.patch(args.trustedDeviceId, {
-      apnsEnvironment: undefined,
-      apnsToken: undefined,
-      lastSeenAt: Date.now(),
-    });
-    await clearGmailPushProofs(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
+    await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
+    await clearDevicePushRoute(ctx, device, Date.now());
 
     return { registered: false };
   },
@@ -543,6 +550,74 @@ export const expireGmailVerificationSignal = internalMutation({
   returns: v.null(),
 });
 
+export const reconcileStaleDevicePushRoutes = internalMutation({
+  args: { staleBefore: v.optional(v.number()) },
+  handler: async (ctx, args) => {
+    const staleBefore =
+      args.staleBefore ?? Date.now() - devicePushRouteInactivityLifetimeMs;
+    const legacyDevices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_pushRegistrationRefreshedAt_and_apnsToken', (q) =>
+        q.eq('pushRegistrationRefreshedAt', undefined).gt('apnsToken', ''),
+      )
+      .take(devicePushRouteReconciliationBatchSize);
+    const staleLegacyDevices = legacyDevices.filter(
+      (device) => device.lastSeenAt < staleBefore,
+    );
+    await Promise.all(
+      legacyDevices.map(async (device) => {
+        if (device.lastSeenAt < staleBefore) {
+          await clearDevicePushRoute(ctx, device);
+          return;
+        }
+        await ctx.db.patch(
+          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          device._id,
+          { pushRegistrationRefreshedAt: device.lastSeenAt },
+        );
+      }),
+    );
+    if (legacyDevices.length === devicePushRouteReconciliationBatchSize) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.pushRelay.reconcileStaleDevicePushRoutes,
+        { staleBefore },
+      );
+      return { clearedRouteCount: staleLegacyDevices.length };
+    }
+
+    const remainingBatchSize =
+      devicePushRouteReconciliationBatchSize - legacyDevices.length;
+    const staleDevices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_pushRegistrationRefreshedAt', (q) =>
+        q
+          .gt('pushRegistrationRefreshedAt', 0)
+          .lt('pushRegistrationRefreshedAt', staleBefore),
+      )
+      .take(remainingBatchSize);
+
+    await Promise.all(
+      staleDevices.map((device) => clearDevicePushRoute(ctx, device)),
+    );
+    if (
+      legacyDevices.length + staleDevices.length ===
+      devicePushRouteReconciliationBatchSize
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.pushRelay.reconcileStaleDevicePushRoutes,
+        { staleBefore },
+      );
+    }
+
+    return {
+      clearedRouteCount: staleLegacyDevices.length + staleDevices.length,
+    };
+  },
+  returns: v.object({ clearedRouteCount: v.number() }),
+});
+
 export const clearStaleDevice = internalMutation({
   args: {
     apnsToken: v.string(),
@@ -551,15 +626,7 @@ export const clearStaleDevice = internalMutation({
   handler: async (ctx, args) => {
     const device = await ctx.db.get(args.trustedDeviceId);
     if (device?.apnsToken === args.apnsToken) {
-      await ctx.db.patch(args.trustedDeviceId, {
-        apnsEnvironment: undefined,
-        apnsToken: undefined,
-      });
-      await clearGmailPushProofs(
-        ctx,
-        device.productAccountId,
-        args.trustedDeviceId,
-      );
+      await clearDevicePushRoute(ctx, device);
     }
     return null;
   },
