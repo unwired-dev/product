@@ -14,6 +14,9 @@ export default defineSchema({
       v.union(v.literal('production'), v.literal('sandbox')),
     ),
     apnsToken: v.optional(v.string()),
+    apnsTokenRegisteredAt: v.optional(v.number()),
+    gmailPushProofsInvalidatedAt: v.optional(v.number()),
+    pushCleanupGeneration: v.optional(v.number()),
     deviceIdentifier: v.string(),
     lastSeenAt: v.number(),
     platform: v.string(),
@@ -22,10 +25,20 @@ export default defineSchema({
   })
     .index('by_productAccountId', ['productAccountId'])
     .index('by_apnsToken', ['apnsToken'])
+    .index('by_apnsToken_and_apnsTokenRegisteredAt', [
+      'apnsToken',
+      'apnsTokenRegisteredAt',
+    ])
+    .index('by_apnsToken_and_lastSeenAt', ['apnsToken', 'lastSeenAt'])
     .index('by_productAccountId_and_deviceIdentifier', [
       'productAccountId',
       'deviceIdentifier',
     ]),
+
+  devicePushRouteHeartbeats: defineTable({
+    refreshedAt: v.number(),
+    trustedDeviceId: v.id('trustedDevices'),
+  }).index('by_trustedDeviceId', ['trustedDeviceId']),
 
   encryptedProductSyncPayloads: defineTable({
     encryptedPayload: v.object({

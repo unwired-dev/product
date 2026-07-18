@@ -9,6 +9,7 @@
  */
 
 import type * as apns from "../apns.js";
+import type * as crons from "../crons.js";
 import type * as gmailPushPayload from "../gmailPushPayload.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
@@ -25,6 +26,7 @@ import type {
 
 declare const fullApi: ApiFromModules<{
   apns: typeof apns;
+  crons: typeof crons;
   gmailPushPayload: typeof gmailPushPayload;
   health: typeof health;
   http: typeof http;

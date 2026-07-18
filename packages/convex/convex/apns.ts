@@ -37,6 +37,13 @@ type ApnsDelivery = Readonly<{
   payload: string;
 }>;
 
+type StaleTokenRecipient = Readonly<{
+  apnsEnvironment: 'production' | 'sandbox';
+  apnsToken: string;
+  pushCleanupGeneration?: number;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
 class ApnsRequestError extends Error {
   public readonly status: number;
 
@@ -226,6 +233,7 @@ async function handleDeliveryResult(
     | Readonly<{
         apnsEnvironment: 'production' | 'sandbox';
         apnsToken: string;
+        pushCleanupGeneration?: number;
         trustedDeviceId: Id<'trustedDevices'>;
       }>
     | undefined,
@@ -234,13 +242,26 @@ async function handleDeliveryResult(
     return;
   }
   console.error('APNs wakeup delivery failed', result.reason);
-  if (recipient === undefined || !isStaleTokenFailure(result)) {
+  // oxlint-disable-next-line eslint/no-use-before-define -- Helper extracts the cleanup target from a stale-token failure.
+  const staleRecipient = staleTokenRecipient(result, recipient);
+  if (staleRecipient === undefined) {
     return;
   }
   await ctx.runMutation(internal.pushRelay.clearStaleDevice, {
-    apnsToken: recipient.apnsToken,
-    trustedDeviceId: recipient.trustedDeviceId,
+    apnsToken: staleRecipient.apnsToken,
+    pushCleanupGeneration: staleRecipient.pushCleanupGeneration ?? 0,
+    trustedDeviceId: staleRecipient.trustedDeviceId,
   });
+}
+
+function staleTokenRecipient(
+  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Recipient data is immutable input.
+  recipient: StaleTokenRecipient | undefined,
+): StaleTokenRecipient | undefined {
+  return recipient !== undefined && isStaleTokenFailure(result)
+    ? recipient
+    : undefined;
 }
 
 function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
@@ -256,6 +277,7 @@ export const deliverGmailWakeups = internalAction({
       v.object({
         apnsEnvironment: apnsEnvironmentValidator,
         apnsToken: v.string(),
+        pushCleanupGeneration: v.optional(v.number()),
         routeId: v.string(),
         trustedDeviceId: v.id('trustedDevices'),
       }),

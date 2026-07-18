@@ -266,7 +266,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertTrue(sessionStore.didClear)
   }
 
-  func testSignOutClearsSessionWhenBackendPushUnregistrationFails() async throws {
+  func testSignOutClearsSessionWhenExpiredIdentityPreventsPushUnregistration() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -274,7 +274,10 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
     try store.save(snapshot)
-    pushUnregisterer.error = ProductAccountSessionTestError.pushUnregistrationFailed
+    pushUnregisterer.error = ConvexClientError.convexFailure(
+      status: "error",
+      message: "Authentication required"
+    )
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
