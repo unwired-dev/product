@@ -75,12 +75,12 @@ async function gmailRecipients(
 
   for await (const connection of connections) {
     // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
-    const recipient = await apnsRecipientForDevice(
-      ctx,
+    const recipient = await apnsRecipientForDevice(ctx, {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      connection._id,
-      connection.trustedDeviceId,
-    );
+      routeId: connection._id,
+      pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+      trustedDeviceId: connection.trustedDeviceId,
+    });
     if (recipient !== null) {
       recipients.push(recipient);
       if (recipients.length === 100) {
@@ -94,16 +94,23 @@ async function gmailRecipients(
 
 async function apnsRecipientForDevice(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  routeId: Id<'mailProviderConnections'>,
-  trustedDeviceId: Id<'trustedDevices'>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Request data is immutable input.
+  request: Readonly<{
+    routeId: Id<'mailProviderConnections'>;
+    pushVerifiedAt: number;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
 ): Promise<ApnsRecipient | null> {
-  const device = await ctx.db.get(trustedDeviceId);
+  const device = await ctx.db.get(request.trustedDeviceId);
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper narrows the route fields.
   if (!hasActiveApnsRoute(device)) {
     return null;
   }
+  if (request.pushVerifiedAt <= (device.gmailPushProofsInvalidatedAt ?? 0)) {
+    return null;
+  }
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the recipient after route validation.
-  return apnsRecipient(device, routeId);
+  return apnsRecipient(device, request.routeId);
 }
 
 function apnsRecipient(
@@ -476,16 +483,17 @@ async function clearDevicePushRoute(
     preservePushCleanupGeneration?: boolean;
   }>,
 ): Promise<void> {
+  const cleanupStartedAt = Date.now();
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper removes the route heartbeat first.
   await deleteDevicePushRouteHeartbeat(ctx, device._id); // oxlint-disable-line eslint/no-underscore-dangle -- Convex document id field
   await ctx.db.patch(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     device._id,
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the route-clear patch.
-    clearedDevicePushRoutePatch(device, request),
+    clearedDevicePushRoutePatch(device, request, cleanupStartedAt),
   );
   await clearGmailPushProofs(ctx, {
-    cleanupStartedAt: Date.now(),
+    cleanupStartedAt,
     productAccountId: device.productAccountId,
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     trustedDeviceId: device._id,
@@ -500,10 +508,12 @@ function clearedDevicePushRoutePatch(
         preservePushCleanupGeneration?: boolean;
       }>
     | undefined,
+  cleanupStartedAt: number,
 ) {
   return {
     apnsEnvironment: undefined,
     apnsToken: undefined,
+    gmailPushProofsInvalidatedAt: cleanupStartedAt,
     lastSeenAt: request?.lastSeenAt ?? device.lastSeenAt,
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper preserves monotonic cleanup generations.
     pushCleanupGeneration: nextPushCleanupGeneration(device, request),

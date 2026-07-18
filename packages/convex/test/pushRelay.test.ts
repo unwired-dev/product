@@ -633,63 +633,82 @@ describe('gmail push relay', () => {
 
   it('requires fresh Gmail push proof after device unregistration', async () => {
     expect.assertions(2);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const connection = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    await asUser.mutation(api.productAccount.connectGmailProvider, {
-      emailAddress: 'matching@example.com',
-      providerAccountIdentifier: 'gmail-user-001',
-      trustedDeviceId: connection.trustedDeviceId,
-    });
-    await asUser.mutation(api.pushRelay.verifyGmailWatch, {
-      historyId: '100',
-      trustedDeviceId: connection.trustedDeviceId,
-    });
-    await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
-      emailAddress: 'matching@example.com',
-      historyId: '100',
-    });
-    await t.run(async (ctx) => {
-      await ctx.db.insert('mailProviderConnections', {
-        connectedAt: Date.now(),
-        emailAddress: 'matching@example.com',
-        lastVerifiedAt: Date.now(),
-        productAccountId: connection.productAccountId,
-        provider: 'gmail',
-        providerAccountIdentifier: 'duplicate-gmail-user-001',
-        pushVerificationHistoryId: '100',
-        pushVerificationRequestedAt: Date.now(),
-        pushVerifiedHistoryId: '100',
-        pushVerifiedAt: Date.now(),
-        trustedDeviceId: connection.trustedDeviceId,
-        updatedAt: Date.now(),
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const connection = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
       });
-    });
-    await asUser.mutation(api.pushRelay.registerDevice, {
-      apnsEnvironment: 'production',
-      apnsToken: 'first-apns-token',
-      trustedDeviceId: connection.trustedDeviceId,
-    });
-
-    await expect(
-      asUser.mutation(api.pushRelay.unregisterDevice, {
-        trustedDeviceId: connection.trustedDeviceId,
-      }),
-    ).resolves.toStrictEqual({ registered: false });
-    await asUser.mutation(api.pushRelay.registerDevice, {
-      apnsEnvironment: 'production',
-      apnsToken: 'second-apns-token',
-      trustedDeviceId: connection.trustedDeviceId,
-    });
-    await expect(
-      t.query(internal.pushRelay.resolveGmailRecipients, {
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
         emailAddress: 'matching@example.com',
-      }),
-    ).resolves.toStrictEqual([]);
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.verifyGmailWatch, {
+        historyId: '100',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await t.mutation(internal.pushRelay.enqueueGmailWakeups, {
+        emailAddress: 'matching@example.com',
+        historyId: '100',
+      });
+      await t.run(async (ctx) => {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: Date.now(),
+          emailAddress: 'matching@example.com',
+          lastVerifiedAt: Date.now(),
+          productAccountId: connection.productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: 'duplicate-gmail-user-001',
+          pushVerificationHistoryId: '100',
+          pushVerificationRequestedAt: Date.now(),
+          pushVerifiedHistoryId: '100',
+          pushVerifiedAt: Date.now(),
+          trustedDeviceId: connection.trustedDeviceId,
+          updatedAt: Date.now(),
+        });
+        for (let index = 0; index < 9; index += 1) {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: Date.now(),
+            emailAddress: 'matching@example.com',
+            lastVerifiedAt: Date.now(),
+            productAccountId: connection.productAccountId,
+            provider: 'gmail',
+            providerAccountIdentifier: `duplicate-gmail-user-${index}`,
+            pushVerifiedHistoryId: '100',
+            pushVerifiedAt: Date.now(),
+            trustedDeviceId: connection.trustedDeviceId,
+            updatedAt: Date.now(),
+          });
+        }
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'first-apns-token',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+
+      await expect(
+        asUser.mutation(api.pushRelay.unregisterDevice, {
+          trustedDeviceId: connection.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual({ registered: false });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken: 'second-apns-token',
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      await expect(
+        t.query(internal.pushRelay.resolveGmailRecipients, {
+          emailAddress: 'matching@example.com',
+        }),
+      ).resolves.toStrictEqual([]);
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('clears every Gmail push proof in bounded continuations', async () => {
