@@ -248,6 +248,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     let material = try await keyMaterialForWrite(session: session)
     let plaintext = try encoder.encode(rules)
     let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
+    try cacheStore.clear(productAccountId: session.productAccountId)
     let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
       identityToken: session.identityToken,
       payloadIdentifier: NotificationRules.primaryIdentifier,
@@ -256,18 +257,10 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       expectedUpdatedAt: expectedUpdatedAt
     )
     guard writtenPayload.encryptedPayload == encryptedPayload else {
-      try refreshCache(
-        writtenPayload,
-        productAccountId: session.productAccountId,
-        failuresAreFatal: false
-      )
+      try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
       throw NotificationRuleSyncError.concurrentModification
     }
-    try refreshCache(
-      writtenPayload,
-      productAccountId: session.productAccountId,
-      failuresAreFatal: false
-    )
+    try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 

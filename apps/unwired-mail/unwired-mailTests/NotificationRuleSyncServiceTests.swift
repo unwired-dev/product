@@ -265,10 +265,11 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
 
   func testSaveFailsWhenCachedRulesCannotClear() async throws {
     let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
       cacheStore: cacheStore,
       keyMaterialStore: try seededKeyMaterialStore(for: session),
-      transport: RecordingRuleSyncTransport()
+      transport: transport
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
@@ -287,6 +288,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     } catch let error as NotificationRuleCacheTestError {
       XCTAssertEqual(error, .writeFailed)
     }
+    XCTAssertEqual(transport.writes.count, 1)
   }
 
   func testForegroundLoadSucceedsWhenCacheRefreshFails() async throws {
