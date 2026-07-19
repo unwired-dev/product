@@ -139,7 +139,11 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     let syncedPayload = try await loadRemotePayload(session: session)
-    return try refreshCacheAndDecrypt(syncedPayload, session: session)
+    return try refreshCacheAndDecrypt(
+      syncedPayload,
+      session: session,
+      cacheFailuresAreFatal: false
+    )
   }
 
   func loadRulesForBackground(
@@ -157,24 +161,59 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       }
       return try decrypt(cachedPayload, session: session)
     }
-    return try refreshCacheAndDecrypt(syncedPayload, session: session)
+    return try refreshCacheAndDecrypt(
+      syncedPayload,
+      session: session,
+      cacheFailuresAreFatal: true
+    )
   }
 
   private func refreshCacheAndDecrypt(
     _ syncedPayload: EncryptedProductSyncPayload?,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    cacheFailuresAreFatal: Bool
   ) throws -> NotificationRuleSyncSnapshot {
     guard let syncedPayload else {
-      try cacheStore.clear(productAccountId: session.productAccountId)
+      try refreshCache(
+        nil,
+        productAccountId: session.productAccountId,
+        failuresAreFatal: cacheFailuresAreFatal
+      )
       return NotificationRuleSyncSnapshot(
         rules: NotificationRules(categoryIds: []),
         updatedAt: nil
       )
     }
-    try cacheStore.clear(productAccountId: session.productAccountId)
+    try refreshCache(
+      nil,
+      productAccountId: session.productAccountId,
+      failuresAreFatal: cacheFailuresAreFatal
+    )
     let snapshot = try decrypt(syncedPayload, session: session)
-    try cacheStore.save(syncedPayload, productAccountId: session.productAccountId)
+    try refreshCache(
+      syncedPayload,
+      productAccountId: session.productAccountId,
+      failuresAreFatal: cacheFailuresAreFatal
+    )
     return snapshot
+  }
+
+  private func refreshCache(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    failuresAreFatal: Bool
+  ) throws {
+    if failuresAreFatal {
+      try cacheStore.clear(productAccountId: productAccountId)
+      if let payload {
+        try cacheStore.save(payload, productAccountId: productAccountId)
+      }
+    } else {
+      try? cacheStore.clear(productAccountId: productAccountId)
+      if let payload {
+        try? cacheStore.save(payload, productAccountId: productAccountId)
+      }
+    }
   }
 
   private func decrypt(
@@ -212,9 +251,18 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       expectedUpdatedAt: expectedUpdatedAt
     )
     guard writtenPayload.encryptedPayload == encryptedPayload else {
+      try? refreshCache(
+        writtenPayload,
+        productAccountId: session.productAccountId,
+        failuresAreFatal: false
+      )
       throw NotificationRuleSyncError.concurrentModification
     }
-    try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
+    try? refreshCache(
+      writtenPayload,
+      productAccountId: session.productAccountId,
+      failuresAreFatal: false
+    )
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 

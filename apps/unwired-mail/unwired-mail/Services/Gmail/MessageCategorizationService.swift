@@ -893,14 +893,20 @@ extension GmailMessageCategorizationService {
       else {
         return message
       }
-      let savedAssignment = try await assignmentSync.saveAssignment(
-        MessageCategoryAssignment(
-          categoryId: categoryId,
-          stableProviderMessageId: message.stableProviderMessageId
-        ),
-        session: session
-      )
-      return message.assigningCategory(savedAssignment.categoryId)
+      do {
+        let savedAssignment = try await assignmentSync.saveAssignment(
+          MessageCategoryAssignment(
+            categoryId: categoryId,
+            stableProviderMessageId: message.stableProviderMessageId
+          ),
+          session: session
+        )
+        return message.assigningCategory(savedAssignment.categoryId)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        return message.assigningCategory(categoryId)
+      }
     } catch {
       try Task.checkCancellation()
       return message

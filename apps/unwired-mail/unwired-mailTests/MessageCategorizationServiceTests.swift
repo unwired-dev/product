@@ -1560,6 +1560,24 @@ extension MessageCategorizationServiceTests {
     XCTAssertEqual(engine.inputs.count, 1)
   }
 
+  func testCategorizationRetainsClassifiedCategoryWhenAssignmentSaveFails() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.saveError = URLError(.userAuthenticationRequired)
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: FailingCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
+    XCTAssertEqual(categorized[0].categoryId, "system:flights")
+  }
+
   func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -1642,6 +1660,7 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
   private(set) var loadedMessageIds: [String] = []
   private(set) var savedAssignments: [MessageCategoryAssignment] = []
   private(set) var savedUserOverrides: [MessageCategoryAssignment] = []
+  var saveError: Error?
 
   func loadAssignments(
     stableProviderMessageIds: [String],
@@ -1682,6 +1701,9 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     _ assignment: MessageCategoryAssignment,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
+    if let saveError {
+      throw saveError
+    }
     savedAssignments.append(assignment)
     assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
     return assignment
