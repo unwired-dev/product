@@ -88,7 +88,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let tokenRefresher = RecordingGmailPushTokenRefresher(
       tokens: GmailProviderTokens(
         accessToken: "refreshed-access-token",
-        refreshToken: "refresh-token"
+        refreshToken: "refresh-token",
+        idToken: "gmail-identity-token"
       )
     )
     let watchStore = RecordingGmailPushWatchStore()
@@ -151,7 +152,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
       latestSyncedHistoryId: "history-synced"
     )
     let tokenRefresher = RecordingGmailPushTokenRefresher(
-      tokens: GmailProviderTokens(accessToken: "fresh-access-token", refreshToken: "refresh-token")
+      tokens: GmailProviderTokens(
+        accessToken: "fresh-access-token",
+        refreshToken: "refresh-token",
+        idToken: "gmail-identity-token"
+      )
     )
     let requestSession = ConvexClientTesting.makeSession { request in
       XCTAssertEqual(
@@ -253,7 +258,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       tokenRefresher: RecordingGmailPushTokenRefresher(
         tokens: GmailProviderTokens(
           accessToken: "fresh-access-token",
-          refreshToken: "refresh-token"
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
         )
       ),
       topicName: "projects/private-email/topics/gmail-push",
@@ -1964,11 +1970,7 @@ private final class RecordingGmailPushTokenRefresher: GmailProviderTokenRefreshi
   let tokens: GmailProviderTokens
 
   init(tokens: GmailProviderTokens) {
-    self.tokens = GmailProviderTokens(
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      idToken: tokens.idToken ?? "gmail-identity-token"
-    )
+    self.tokens = tokens
   }
 
   func refreshProviderTokens(

@@ -47,6 +47,8 @@ const devicePushTokenCleanupBatchSize = 10;
 const gmailPushProofCleanupBatchSize = 10;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
+const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
+const googleSigningKeyFetchTimeoutMs = 10 * 1000;
 
 type CachedGoogleSigningKeys = Readonly<{
   expiresAt: number;
@@ -103,20 +105,18 @@ function decodeJwtRecord(value: string): Readonly<Record<string, unknown>> {
 
 function googleSigningKeyLifetimeMs(response: Response): number {
   const cacheControl = response.headers.get('cache-control') ?? '';
+  if (/\bno-(?:cache|store)\b/u.test(cacheControl)) {
+    return googleSigningKeyFallbackLifetimeMs;
+  }
   const maxAge = /(?:^|,)\s*max-age=(?<seconds>\d+)/u.exec(cacheControl)?.groups
     ?.seconds;
   if (maxAge === undefined) {
     return googleSigningKeyFallbackLifetimeMs;
   }
-  return Number(maxAge) * 1000;
+  return Math.min(Number(maxAge) * 1000, googleSigningKeyMaximumLifetimeMs);
 }
 
-async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
-  const response = await fetch(googleJsonWebKeySetUrl);
-  if (!response.ok) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  const value: unknown = await response.json();
+function googleSigningKeys(value: unknown): ReadonlyMap<string, JsonWebKey> {
   if (!isUnknownRecord(value) || !Array.isArray(value.keys)) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
@@ -140,9 +140,19 @@ async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
   if (keys.size === 0) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
+  return keys;
+}
+
+async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
+  const response = await fetch(googleJsonWebKeySetUrl, {
+    signal: AbortSignal.timeout(googleSigningKeyFetchTimeoutMs),
+  });
+  if (!response.ok) {
+    throw new Error('Gmail mailbox ownership proof rejected');
+  }
   return {
     expiresAt: Date.now() + googleSigningKeyLifetimeMs(response),
-    keys,
+    keys: googleSigningKeys(await response.json()),
   };
 }
 
@@ -183,45 +193,36 @@ async function hasValidGoogleSignature(
   );
 }
 
-async function verifyGoogleIdentityToken(
+function googleIdentityTokenSegments(
   identityToken: string,
-): Promise<VerifiedGoogleIdentity> {
-  // oxlint-disable-next-line node/no-process-env -- The deployment owns the expected Google OAuth audience.
-  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
-  if (clientId === undefined || clientId.length === 0) {
-    throw new Error('Gmail mailbox ownership proof is not configured');
-  }
-  if (identityToken.length === 0) {
-    throw new Error('Gmail mailbox ownership proof required');
-  }
+): readonly [string, string, string] {
   const segments = identityToken.split('.');
-  if (segments.length !== 3) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  const headerSegment = segments.at(0);
-  const claimsSegment = segments.at(1);
-  const signatureSegment = segments.at(2);
+  const [headerSegment, claimsSegment, signatureSegment] = segments;
   if (
+    segments.length !== 3 ||
     headerSegment === undefined ||
     claimsSegment === undefined ||
     signatureSegment === undefined
   ) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
+  return [headerSegment, claimsSegment, signatureSegment];
+}
+
+function googleIdentityTokenKeyId(headerSegment: string): string {
   const header = decodeJwtRecord(headerSegment);
   const algorithm = stringField(header, 'alg');
   const keyId = stringField(header, 'kid');
-  if (
-    algorithm !== 'RS256' ||
-    keyId === null ||
-    !(await hasValidGoogleSignature(
-      `${headerSegment}.${claimsSegment}`,
-      decodeBase64Url(signatureSegment),
-      keyId,
-    ))
-  ) {
+  if (algorithm !== 'RS256' || keyId === null) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
+  return keyId;
+}
+
+function verifiedGoogleIdentity(
+  claimsSegment: string,
+  clientId: string,
+): VerifiedGoogleIdentity {
   const claims = decodeJwtRecord(claimsSegment);
   const audience = stringField(claims, 'aud');
   const emailAddress = stringField(claims, 'email');
@@ -245,6 +246,31 @@ async function verifyGoogleIdentityToken(
     throw new Error('Gmail mailbox ownership proof rejected');
   }
   return { emailAddress, providerAccountIdentifier };
+}
+
+async function verifyGoogleIdentityToken(
+  identityToken: string,
+): Promise<VerifiedGoogleIdentity> {
+  // oxlint-disable-next-line node/no-process-env -- The deployment owns the expected Google OAuth audience.
+  const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
+  if (clientId === undefined || clientId.length === 0) {
+    throw new Error('Gmail mailbox ownership proof is not configured');
+  }
+  if (identityToken.length === 0) {
+    throw new Error('Gmail mailbox ownership proof required');
+  }
+  const [headerSegment, claimsSegment, signatureSegment] =
+    googleIdentityTokenSegments(identityToken);
+  if (
+    !(await hasValidGoogleSignature(
+      `${headerSegment}.${claimsSegment}`,
+      decodeBase64Url(signatureSegment),
+      googleIdentityTokenKeyId(headerSegment),
+    ))
+  ) {
+    throw new Error('Gmail mailbox ownership proof rejected');
+  }
+  return verifiedGoogleIdentity(claimsSegment, clientId);
 }
 
 function gmailHistoryIdAtOrAfter(
