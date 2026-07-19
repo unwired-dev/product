@@ -191,7 +191,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       try refreshCache(
         nil,
         productAccountId: session.productAccountId,
-        failuresAreFatal: cacheFailuresAreFatal
+        failuresAreFatal: true
       )
       throw error
     }
