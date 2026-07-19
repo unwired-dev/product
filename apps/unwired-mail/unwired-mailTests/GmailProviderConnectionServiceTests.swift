@@ -13,6 +13,23 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  func testGmailIdentityTokenIsExcludedFromTokenPersistence() throws {
+    let encoded = try JSONEncoder().encode(
+      GmailProviderTokens(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        idToken: "transient-id-token"
+      )
+    )
+    let decoded = try JSONDecoder().decode(GmailProviderTokens.self, from: encoded)
+
+    XCTAssertNil(encoded.range(of: Data("transient-id-token".utf8)))
+    XCTAssertEqual(
+      decoded,
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+    )
+  }
+
   func testCompleteConnectionStoresTokensLocallyAndSendsOnlyMetadataToBackend() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     let transport = RecordingGmailConnectionTransport()
@@ -936,7 +953,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
       return (
         Self.httpResponse(for: request, statusCode: 200),
-        Data(#"{"access_token":"access-token","refresh_token":"refresh-token"}"#.utf8)
+        Data(
+          #"{"access_token":"access-token","id_token":"gmail-identity-token","refresh_token":"refresh-token"}"#
+            .utf8
+        )
       )
     }
     let service = GoogleGmailOAuthService(
@@ -957,7 +977,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(
       tokens,
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+      GmailProviderTokens(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        idToken: "gmail-identity-token"
+      )
     )
   }
 

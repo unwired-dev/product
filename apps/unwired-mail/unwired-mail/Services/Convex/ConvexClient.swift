@@ -139,13 +139,15 @@ final class ConvexClient {
   }
 
   func verifyGmailPushWatch(
+    gmailIdentityToken: String,
     historyId: String,
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> GmailPushVerificationResponse {
-    try await performMutation(
+    try await performAction(
       path: "pushRelay:verifyGmailWatch",
       args: VerifyGmailPushWatchArgs(
+        gmailIdentityToken: gmailIdentityToken,
         historyId: historyId,
         trustedDeviceId: trustedDeviceId
       ),
@@ -259,13 +261,14 @@ final class ConvexClient {
 
   private func performAction<Response: Decodable>(
     path: String,
-    args: some Encodable = EmptyConvexArgs()
+    args: some Encodable = EmptyConvexArgs(),
+    identityToken: String? = nil
   ) async throws -> Response {
     try await performRequest(
       endpoint: "api/action",
       path: path,
       args: args,
-      identityToken: nil
+      identityToken: identityToken
     )
   }
 
@@ -429,6 +432,7 @@ private struct UnregisterDevicePushArgs: Encodable {
 }
 
 private struct VerifyGmailPushWatchArgs: Encodable {
+  let gmailIdentityToken: String
   let historyId: String
   let trustedDeviceId: String
 }

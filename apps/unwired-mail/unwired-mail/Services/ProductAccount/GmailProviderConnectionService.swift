@@ -4,7 +4,32 @@ import Foundation
 
 struct GmailProviderTokens: Codable, Equatable {
   let accessToken: String
+  let idToken: String?
   let refreshToken: String
+
+  init(accessToken: String, refreshToken: String, idToken: String? = nil) {
+    self.accessToken = accessToken
+    self.idToken = idToken
+    self.refreshToken = refreshToken
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    accessToken = try container.decode(String.self, forKey: .accessToken)
+    idToken = nil
+    refreshToken = try container.decode(String.self, forKey: .refreshToken)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(accessToken, forKey: .accessToken)
+    try container.encode(refreshToken, forKey: .refreshToken)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case accessToken
+    case refreshToken
+  }
 }
 
 struct GmailProviderConnectionStatus: Codable, Equatable {

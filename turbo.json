@@ -6,6 +6,7 @@
     "APNS_PRIVATE_KEY",
     "APNS_TEAM_ID",
     "APNS_TOPIC",
+    "GMAIL_OAUTH_CLIENT_ID",
     "GMAIL_PUSH_VERIFICATION_TOKEN"
   ],
   "tasks": {

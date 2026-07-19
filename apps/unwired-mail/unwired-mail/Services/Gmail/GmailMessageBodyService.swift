@@ -345,7 +345,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let refreshedTokens = GmailProviderTokens(
       accessToken: responseBody.accessToken,
-      refreshToken: tokens.refreshToken
+      refreshToken: tokens.refreshToken,
+      idToken: responseBody.idToken ?? tokens.idToken
     )
     try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
     return refreshedTokens
@@ -602,8 +603,12 @@ private struct GmailMessageBodyAttachment: Decodable {
 
 private struct GmailMessageBodyTokenResponse: Decodable {
   let accessToken: String
+  let idToken: String?
 
-  enum CodingKeys: String, CodingKey { case accessToken = "access_token" }
+  enum CodingKeys: String, CodingKey {
+    case accessToken = "access_token"
+    case idToken = "id_token"
+  }
 }
 
 private struct GmailMessageBodyTokenInfo: Decodable {

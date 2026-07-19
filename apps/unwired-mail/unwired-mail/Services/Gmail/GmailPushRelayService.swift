@@ -145,6 +145,7 @@ extension GmailPushWatchStopping {
 
 protocol GmailPushVerificationTransport {
   func verifyGmailPushWatch(
+    gmailIdentityToken: String,
     historyId: String,
     identityToken: String,
     trustedDeviceId: String
@@ -366,24 +367,24 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       connection: connection,
       productSession: productSession
     )
+    let tokens = try await verifiedTokens(
+      connection: connection,
+      productSession: productSession
+    )
     if let existing {
-      let verification = try await verifyWatch(existing, productSession: productSession)
-      let verifiedStatus = statusWithRoute(existing, routeId: verification.routeId)
-      try store.save(
-        verifiedStatus,
-        productAccountId: productSession.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
+      let verification = try await verifyWatch(
+        existing,
+        gmailIdentityToken: try requiredIdentityToken(tokens),
+        productSession: productSession
       )
+      let verifiedStatus = statusWithRoute(existing, routeId: verification.routeId)
+      try saveWatch(verifiedStatus, connection: connection, session: productSession)
       if verification.verified {
         return verifiedStatus
       }
     }
 
     let topicName = try requiredTopicName()
-    let tokens = try await verifiedTokens(
-      connection: connection,
-      productSession: productSession
-    )
     let registeredStatus = try await registerWatch(
       accessToken: tokens.accessToken,
       topicName: topicName
@@ -393,18 +394,14 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       historyId: registeredStatus.historyId,
       latestSyncedHistoryId: previousWatch?.latestSyncedHistoryId ?? previousWatch?.historyId
     )
-    try store.save(
+    try saveWatch(status, connection: connection, session: productSession)
+    let verification = try await verifyWatch(
       status,
-      productAccountId: productSession.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
+      gmailIdentityToken: try requiredIdentityToken(tokens),
+      productSession: productSession
     )
-    let verification = try await verifyWatch(status, productSession: productSession)
     let verifiedStatus = statusWithRoute(status, routeId: verification.routeId)
-    try store.save(
-      verifiedStatus,
-      productAccountId: productSession.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
+    try saveWatch(verifiedStatus, connection: connection, session: productSession)
     return verifiedStatus
   }
 
@@ -441,9 +438,11 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
 
   private func verifyWatch(
     _ status: GmailPushWatchStatus,
+    gmailIdentityToken: String,
     productSession: ProductAccountSessionSnapshot
   ) async throws -> GmailPushVerificationResponse {
     try await verificationTransport.verifyGmailPushWatch(
+      gmailIdentityToken: gmailIdentityToken,
       historyId: status.historyId,
       identityToken: productSession.identityToken,
       trustedDeviceId: productSession.trustedDeviceId
@@ -459,6 +458,18 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       historyId: status.historyId,
       latestSyncedHistoryId: status.latestSyncedHistoryId,
       routeId: routeId
+    )
+  }
+
+  private func saveWatch(
+    _ status: GmailPushWatchStatus,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try store.save(
+      status,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
     )
   }
 
@@ -484,6 +495,13 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       throw GmailPushRelayError.missingTopicName
     }
     return topicName
+  }
+
+  private func requiredIdentityToken(_ tokens: GmailProviderTokens) throws -> String {
+    guard let idToken = tokens.idToken, !idToken.isEmpty else {
+      throw GmailPushRelayError.missingMailboxOwnershipProof
+    }
+    return idToken
   }
 
   private func verifiedTokens(
@@ -1011,6 +1029,7 @@ enum GmailPushTopicConfiguration {
 
 enum GmailPushRelayError: LocalizedError, Equatable {
   case invalidWatchResponse
+  case missingMailboxOwnershipProof
   case missingTopicName
   case watchRegistrationFailed
   case watchStopFailed
@@ -1019,6 +1038,8 @@ enum GmailPushRelayError: LocalizedError, Equatable {
     switch self {
     case .invalidWatchResponse:
       return "Gmail returned an invalid push watch response."
+    case .missingMailboxOwnershipProof:
+      return "Gmail did not return a mailbox ownership proof."
     case .missingTopicName:
       return "Gmail Pub/Sub topic is not configured."
     case .watchRegistrationFailed:

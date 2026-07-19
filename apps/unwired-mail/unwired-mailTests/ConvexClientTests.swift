@@ -283,13 +283,14 @@ final class ConvexClientTests: XCTestCase {
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.url?.path, "/api/action")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
         )
         XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:verifyGmailWatch")
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["gmailIdentityToken"] as? String, "gmail-identity-token")
         XCTAssertEqual(args["historyId"] as? String, "history-123")
         XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
         XCTAssertNil(args["accessToken"])
@@ -299,6 +300,7 @@ final class ConvexClientTests: XCTestCase {
     )
 
     let response = try await client.verifyGmailPushWatch(
+      gmailIdentityToken: "gmail-identity-token",
       historyId: "history-123",
       identityToken: "apple-token",
       trustedDeviceId: "trustedDeviceFixtureId"
