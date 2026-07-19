@@ -214,7 +214,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         try cacheStore.save(payload, productAccountId: productAccountId)
       }
     } else {
-      try? cacheStore.clear(productAccountId: productAccountId)
+      try cacheStore.clear(productAccountId: productAccountId)
       if let payload {
         try? cacheStore.save(payload, productAccountId: productAccountId)
       }
@@ -256,14 +256,14 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       expectedUpdatedAt: expectedUpdatedAt
     )
     guard writtenPayload.encryptedPayload == encryptedPayload else {
-      try? refreshCache(
+      try refreshCache(
         writtenPayload,
         productAccountId: session.productAccountId,
         failuresAreFatal: false
       )
       throw NotificationRuleSyncError.concurrentModification
     }
-    try? refreshCache(
+    try refreshCache(
       writtenPayload,
       productAccountId: session.productAccountId,
       failuresAreFatal: false

@@ -263,6 +263,32 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     XCTAssertNil(cacheStore.payloads[session.productAccountId])
   }
 
+  func testSaveFailsWhenCachedRulesCannotClear() async throws {
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let service = NotificationRuleSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: try seededKeyMaterialStore(for: session),
+      transport: RecordingRuleSyncTransport()
+    )
+    let initialSnapshot = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    cacheStore.clearError = NotificationRuleCacheTestError.writeFailed
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:invoices"]),
+        expectedUpdatedAt: initialSnapshot.updatedAt,
+        session: session
+      )
+      XCTFail("Expected cache-clear failure to prevent a stale background cache")
+    } catch let error as NotificationRuleCacheTestError {
+      XCTAssertEqual(error, .writeFailed)
+    }
+  }
+
   func testForegroundLoadSucceedsWhenCacheRefreshFails() async throws {
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let transport = RecordingRuleSyncTransport()
