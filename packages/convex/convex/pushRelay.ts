@@ -72,6 +72,13 @@ function stringField(
     : null;
 }
 
+function requiredString(value: string | null | undefined): string {
+  if (value === null || value === undefined) {
+    throw new Error('Gmail mailbox ownership proof rejected');
+  }
+  return value;
+}
+
 function isUnknownRecord(
   value: unknown,
 ): value is Readonly<Record<string, unknown>> {
@@ -103,40 +110,84 @@ function decodeJwtRecord(value: string): Readonly<Record<string, unknown>> {
   throw new Error('Gmail mailbox ownership proof rejected');
 }
 
+function googleCacheMaxAge(cacheControl: string): string | undefined {
+  return /(?:^|,)\s*max-age=(?<seconds>\d+)/u.exec(cacheControl)?.groups
+    ?.seconds;
+}
+
 function googleSigningKeyLifetimeMs(response: Response): number {
   const cacheControl = response.headers.get('cache-control') ?? '';
-  if (/\bno-(?:cache|store)\b/u.test(cacheControl)) {
-    return googleSigningKeyFallbackLifetimeMs;
+  const maxAge = googleCacheMaxAge(cacheControl);
+  const fallbackSeconds = googleSigningKeyFallbackLifetimeMs / 1000;
+  const secondsByCacheability = new Map<boolean, number>([
+    [true, fallbackSeconds],
+    [false, Number(maxAge ?? fallbackSeconds)],
+  ]);
+  return Math.min(
+    (secondsByCacheability.get(/\bno-(?:cache|store)\b/u.test(cacheControl)) ??
+      fallbackSeconds) * 1000,
+    googleSigningKeyMaximumLifetimeMs,
+  );
+}
+
+function googleSigningKeyFields(candidate: unknown): Readonly<{
+  algorithm: string | null;
+  keyId: string;
+  keyType: string | null;
+  keyUse: string;
+}> | null {
+  if (!isUnknownRecord(candidate)) {
+    return null;
   }
-  const maxAge = /(?:^|,)\s*max-age=(?<seconds>\d+)/u.exec(cacheControl)?.groups
-    ?.seconds;
-  if (maxAge === undefined) {
-    return googleSigningKeyFallbackLifetimeMs;
+  const algorithm = stringField(candidate, 'alg');
+  const keyId = stringField(candidate, 'kid');
+  const keyType = stringField(candidate, 'kty');
+  const keyUse = stringField(candidate, 'use');
+  if (keyId === null) {
+    return null;
   }
-  return Math.min(Number(maxAge) * 1000, googleSigningKeyMaximumLifetimeMs);
+  return {
+    algorithm,
+    keyId,
+    keyType,
+    keyUse: keyUse ?? '',
+  };
+}
+
+function googleSigningKeyEntry(
+  candidate: unknown,
+): readonly [string, JsonWebKey] | null {
+  const fields = googleSigningKeyFields(candidate);
+  if (fields === null) {
+    return null;
+  }
+  const validKey = [
+    fields.algorithm === 'RS256',
+    fields.keyType === 'RSA',
+    ['', 'sig'].includes(fields.keyUse),
+  ].every(Boolean);
+  if (!validKey) {
+    return null;
+  }
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- The accepted JWK fields are validated above.
+  return [fields.keyId, candidate as JsonWebKey];
+}
+
+function googleSigningKeyCandidates(value: unknown): readonly unknown[] {
+  const candidates = isUnknownRecord(value) ? value.keys : undefined;
+  if (!Array.isArray(candidates)) {
+    // oxlint-disable-next-line unicorn/prefer-type-error -- Preserve the proof rejection error contract.
+    throw new Error('Gmail mailbox ownership proof rejected');
+  }
+  return candidates;
 }
 
 function googleSigningKeys(value: unknown): ReadonlyMap<string, JsonWebKey> {
-  if (!isUnknownRecord(value) || !Array.isArray(value.keys)) {
-    throw new Error('Gmail mailbox ownership proof rejected');
-  }
-  const keys = new Map<string, JsonWebKey>();
-  for (const candidate of value.keys) {
-    if (isUnknownRecord(candidate)) {
-      const algorithm = stringField(candidate, 'alg');
-      const keyId = stringField(candidate, 'kid');
-      const keyType = stringField(candidate, 'kty');
-      const keyUse = stringField(candidate, 'use');
-      if (
-        algorithm === 'RS256' &&
-        keyId !== null &&
-        keyType === 'RSA' &&
-        (keyUse === null || keyUse === 'sig')
-      ) {
-        keys.set(keyId, candidate as JsonWebKey);
-      }
-    }
-  }
+  const entries = googleSigningKeyCandidates(value).flatMap((candidate) => {
+    const entry = googleSigningKeyEntry(candidate);
+    return entry === null ? [] : [entry];
+  });
+  const keys = new Map(entries);
   if (keys.size === 0) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
@@ -156,13 +207,18 @@ async function fetchGoogleSigningKeys(): Promise<CachedGoogleSigningKeys> {
   };
 }
 
-async function googleSigningKey(keyId: string): Promise<JsonWebKey> {
+function cachedGoogleSigningKey(keyId: string): JsonWebKey | undefined {
   const cached = cachedGoogleSigningKeys;
-  if (cached !== null && cached.expiresAt > Date.now()) {
-    const key = cached.keys.get(keyId);
-    if (key !== undefined) {
-      return key;
-    }
+  if (cached === null || cached.expiresAt <= Date.now()) {
+    return undefined;
+  }
+  return cached.keys.get(keyId);
+}
+
+async function googleSigningKey(keyId: string): Promise<JsonWebKey> {
+  const cachedKey = cachedGoogleSigningKey(keyId);
+  if (cachedKey !== undefined) {
+    return cachedKey;
   }
   const refreshed = await fetchGoogleSigningKeys();
   cachedGoogleSigningKeys = refreshed;
@@ -197,16 +253,14 @@ function googleIdentityTokenSegments(
   identityToken: string,
 ): readonly [string, string, string] {
   const segments = identityToken.split('.');
-  const [headerSegment, claimsSegment, signatureSegment] = segments;
-  if (
-    segments.length !== 3 ||
-    headerSegment === undefined ||
-    claimsSegment === undefined ||
-    signatureSegment === undefined
-  ) {
+  if (segments.length !== 3) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
-  return [headerSegment, claimsSegment, signatureSegment];
+  return [
+    requiredString(segments.at(0)),
+    requiredString(segments.at(1)),
+    requiredString(segments.at(2)),
+  ];
 }
 
 function googleIdentityTokenKeyId(headerSegment: string): string {
@@ -225,37 +279,44 @@ function verifiedGoogleIdentity(
 ): VerifiedGoogleIdentity {
   const claims = decodeJwtRecord(claimsSegment);
   const audience = stringField(claims, 'aud');
-  const emailAddress = stringField(claims, 'email');
+  const emailAddress = requiredString(stringField(claims, 'email'));
   const expiresAt = Number(claims.exp);
   const issuer = stringField(claims, 'iss');
-  const providerAccountIdentifier = stringField(claims, 'sub');
+  const providerAccountIdentifier = requiredString(stringField(claims, 'sub'));
   const emailVerified =
     claims.email_verified === true || claims.email_verified === 'true';
   const validIssuer =
     issuer === 'accounts.google.com' ||
     issuer === 'https://accounts.google.com';
-  if (
-    audience !== clientId ||
-    emailAddress === null ||
-    !emailVerified ||
-    !Number.isFinite(expiresAt) ||
-    expiresAt <= Math.floor(Date.now() / 1000) ||
-    !validIssuer ||
-    providerAccountIdentifier === null
-  ) {
+  const validClaims = [
+    audience === clientId,
+    emailVerified,
+    Number.isFinite(expiresAt),
+    expiresAt > Math.floor(Date.now() / 1000),
+    validIssuer,
+  ].every(Boolean);
+  if (!validClaims) {
     throw new Error('Gmail mailbox ownership proof rejected');
   }
-  return { emailAddress, providerAccountIdentifier };
+  return {
+    emailAddress,
+    providerAccountIdentifier,
+  };
 }
 
-async function verifyGoogleIdentityToken(
-  identityToken: string,
-): Promise<VerifiedGoogleIdentity> {
+function gmailOauthClientId(): string {
   // oxlint-disable-next-line node/no-process-env -- The deployment owns the expected Google OAuth audience.
   const clientId = process.env.GMAIL_OAUTH_CLIENT_ID;
   if (clientId === undefined || clientId.length === 0) {
     throw new Error('Gmail mailbox ownership proof is not configured');
   }
+  return clientId;
+}
+
+async function verifyGoogleIdentityToken(
+  identityToken: string,
+): Promise<VerifiedGoogleIdentity> {
+  const clientId = gmailOauthClientId();
   if (identityToken.length === 0) {
     throw new Error('Gmail mailbox ownership proof required');
   }
@@ -337,12 +398,11 @@ async function apnsRecipientForDevice(
   if (!hasActiveApnsRoute(device)) {
     return null;
   }
-  if (request.pushVerifiedAt <= (device.gmailPushProofsInvalidatedAt ?? 0)) {
-    return null;
-  }
-  if (
-    request.ownershipVerifiedAt <= (device.gmailPushProofsInvalidatedAt ?? 0)
-  ) {
+  const proofTimestamp = Math.min(
+    request.ownershipVerifiedAt,
+    request.pushVerifiedAt,
+  );
+  if (proofTimestamp <= (device.gmailPushProofsInvalidatedAt ?? 0)) {
     return null;
   }
   // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the recipient after route validation.
