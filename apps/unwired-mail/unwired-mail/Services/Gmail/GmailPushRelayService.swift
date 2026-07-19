@@ -974,6 +974,8 @@ struct GmailPushWakeupHandler {
       }
       do {
         try await notificationDelivery.deliver(message: message)
+        // Persist successful delivery even if the route changed during the await. A replacement
+        // route can then advance its own watermark without showing the same message again.
         try notificationReceiptStore.complete(
           message,
           productAccountId: productAccountId,
