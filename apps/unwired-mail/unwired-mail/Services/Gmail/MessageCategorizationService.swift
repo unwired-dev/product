@@ -1,5 +1,6 @@
 import CryptoKit
 import Foundation
+import os
 
 // swiftlint:disable file_length
 
@@ -773,6 +774,10 @@ protocol GmailMessageCategorizing {
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
   private static let assignmentPrefetchBatchSize = 4_000
+  private static let logger = Logger(
+    subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail",
+    category: "MessageCategorization"
+  )
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let bodyReader: GmailCachedMessageBodyReading
   private let categorySync: CustomCategorySyncing
@@ -905,6 +910,9 @@ extension GmailMessageCategorizationService {
       } catch is CancellationError {
         throw CancellationError()
       } catch {
+        Self.logger.error(
+          "Unable to persist inferred message category: \(String(describing: error), privacy: .public)"
+        )
         return message.assigningCategory(categoryId)
       }
     } catch {

@@ -177,19 +177,24 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       try refreshCache(
         nil,
         productAccountId: session.productAccountId,
-        failuresAreFatal: cacheFailuresAreFatal
+        failuresAreFatal: true
       )
       return NotificationRuleSyncSnapshot(
         rules: NotificationRules(categoryIds: []),
         updatedAt: nil
       )
     }
-    try refreshCache(
-      nil,
-      productAccountId: session.productAccountId,
-      failuresAreFatal: cacheFailuresAreFatal
-    )
-    let snapshot = try decrypt(syncedPayload, session: session)
+    let snapshot: NotificationRuleSyncSnapshot
+    do {
+      snapshot = try decrypt(syncedPayload, session: session)
+    } catch {
+      try refreshCache(
+        nil,
+        productAccountId: session.productAccountId,
+        failuresAreFatal: cacheFailuresAreFatal
+      )
+      throw error
+    }
     try refreshCache(
       syncedPayload,
       productAccountId: session.productAccountId,
