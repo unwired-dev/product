@@ -171,6 +171,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
         updatedAt: nil
       )
     }
+    try cacheStore.clear(productAccountId: session.productAccountId)
     let snapshot = try decrypt(syncedPayload, session: session)
     try cacheStore.save(syncedPayload, productAccountId: session.productAccountId)
     return snapshot
@@ -213,7 +214,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     guard writtenPayload.encryptedPayload == encryptedPayload else {
       throw NotificationRuleSyncError.concurrentModification
     }
-    try cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
+    try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 

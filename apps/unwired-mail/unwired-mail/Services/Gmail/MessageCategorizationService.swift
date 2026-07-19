@@ -1029,7 +1029,14 @@ extension GmailMessageCategorizationService {
     learningSignalSenderAddresses: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
-    let customCategory = try await categorySync.loadCategory(session: session)
+    let customCategory: CustomCategory?
+    do {
+      customCategory = try await categorySync.loadCategory(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return MessageClassificationCategory.systemCategories
+    }
     let customClassificationCategory = customCategory.map { category in
       MessageClassificationCategory(
         id: category.id,

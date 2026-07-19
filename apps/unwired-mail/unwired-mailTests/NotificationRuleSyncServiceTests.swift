@@ -160,8 +160,28 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       _ = try await service.loadRulesForBackground(session: session)
       XCTFail("Expected current undecryptable rules to fail closed")
     } catch {
-      XCTAssertNotNil(cacheStore.payloads[session.productAccountId])
+      XCTAssertNil(cacheStore.payloads[session.productAccountId])
     }
+  }
+
+  func testSaveSucceedsWhenBackgroundCacheWriteFails() async throws {
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    cacheStore.saveError = NotificationRuleCacheTestError.writeFailed
+    let service = NotificationRuleSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: try seededKeyMaterialStore(for: session),
+      transport: RecordingRuleSyncTransport()
+    )
+    let rules = NotificationRules(categoryIds: ["system:flights"])
+
+    let savedRules = try await service.saveRules(
+      rules,
+      expectedUpdatedAt: nil,
+      session: session
+    )
+
+    XCTAssertEqual(savedRules.rules, rules)
+    XCTAssertNil(cacheStore.payloads[session.productAccountId])
   }
 
   func testBackgroundLoadFailsClosedWhenEncryptedCacheCannotRefresh() async throws {

@@ -1540,6 +1540,26 @@ extension MessageCategorizationServiceTests {
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
+  func testCategorizationUsesSystemCategoriesWhenCustomCategoryLoadFails() async throws {
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryId: "system:flights")]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: FailingCustomCategorySync(),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
+    XCTAssertEqual(categorized[0].categoryId, "system:flights")
+    XCTAssertEqual(engine.inputs.count, 1)
+  }
+
   func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -1682,6 +1702,21 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 
   func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
     nil
+  }
+
+  func saveCategory(
+    _ category: CustomCategory,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> CustomCategory {
+    category
+  }
+}
+
+private struct FailingCustomCategorySync: CustomCategorySyncing {
+  func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {}
+
+  func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
+    throw URLError(.userAuthenticationRequired)
   }
 
   func saveCategory(
