@@ -1540,7 +1540,7 @@ extension MessageCategorizationServiceTests {
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
-  func testCategorizationUsesSystemCategoriesWhenCustomCategoryLoadFails() async throws {
+  func testCategorizationStopsWhenCustomCategoryLoadFails() async throws {
     let engine = RecordingClassificationEngine(
       decisions: [.assigned(categoryId: "system:flights")]
     )
@@ -1556,17 +1556,17 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "system:flights")
-    XCTAssertEqual(engine.inputs.count, 1)
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertTrue(engine.inputs.isEmpty)
   }
 
-  func testCategorizationRetainsClassifiedCategoryWhenAssignmentSaveFails() async throws {
+  func testCategorizationStopsWhenAssignmentSaveFails() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.saveError = URLError(.userAuthenticationRequired)
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
       bodyReader: RecordingCachedBodyReader(bodyText: nil),
-      categorySync: FailingCustomCategorySync(),
+      categorySync: StubCustomCategorySync(),
       engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
     )
 
@@ -1575,7 +1575,7 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertEqual(categorized[0].categoryId, "system:flights")
+    XCTAssertNil(categorized[0].categoryId)
   }
 
   func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {

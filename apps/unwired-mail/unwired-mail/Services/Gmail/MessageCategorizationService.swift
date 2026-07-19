@@ -1,6 +1,5 @@
 import CryptoKit
 import Foundation
-import os
 
 // swiftlint:disable file_length
 
@@ -774,10 +773,6 @@ protocol GmailMessageCategorizing {
 
 struct GmailMessageCategorizationService: GmailMessageCategorizing {
   private static let assignmentPrefetchBatchSize = 4_000
-  private static let logger = Logger(
-    subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail",
-    category: "MessageCategorization"
-  )
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let bodyReader: GmailCachedMessageBodyReading
   private let categorySync: CustomCategorySyncing
@@ -898,23 +893,14 @@ extension GmailMessageCategorizationService {
       else {
         return message
       }
-      do {
-        let savedAssignment = try await assignmentSync.saveAssignment(
-          MessageCategoryAssignment(
-            categoryId: categoryId,
-            stableProviderMessageId: message.stableProviderMessageId
-          ),
-          session: session
-        )
-        return message.assigningCategory(savedAssignment.categoryId)
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
-        Self.logger.error(
-          "Unable to persist inferred message category: \(String(describing: error), privacy: .public)"
-        )
-        return message.assigningCategory(categoryId)
-      }
+      let savedAssignment = try await assignmentSync.saveAssignment(
+        MessageCategoryAssignment(
+          categoryId: categoryId,
+          stableProviderMessageId: message.stableProviderMessageId
+        ),
+        session: session
+      )
+      return message.assigningCategory(savedAssignment.categoryId)
     } catch {
       try Task.checkCancellation()
       return message
@@ -1043,14 +1029,7 @@ extension GmailMessageCategorizationService {
     learningSignalSenderAddresses: [String],
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
-    let customCategory: CustomCategory?
-    do {
-      customCategory = try await categorySync.loadCategory(session: session)
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch {
-      return MessageClassificationCategory.systemCategories
-    }
+    let customCategory = try await categorySync.loadCategory(session: session)
     let customClassificationCategory = customCategory.map { category in
       MessageClassificationCategory(
         id: category.id,
