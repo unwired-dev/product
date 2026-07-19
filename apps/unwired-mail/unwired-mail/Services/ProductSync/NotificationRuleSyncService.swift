@@ -47,12 +47,24 @@ protocol NotificationRuleSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot
 
+  func loadRulesForBackground(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot
+
   @discardableResult
   func saveRules(
     _ rules: NotificationRules,
     expectedUpdatedAt: Int64?,
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot
+}
+
+extension NotificationRuleSyncing {
+  func loadRulesForBackground(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    try await loadRules(session: session)
+  }
 }
 
 enum NotificationRuleSyncError: LocalizedError, Equatable {
@@ -69,16 +81,56 @@ enum NotificationRuleSyncError: LocalizedError, Equatable {
   }
 }
 
+protocol NotificationRuleCachePersisting {
+  func clear(productAccountId: String) throws
+  func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
+}
+
+struct KeychainNotificationRuleCacheStore: NotificationRuleCachePersisting {
+  private let service = "dev.unwired.mail.notification-rule-cache"
+
+  func clear(productAccountId: String) throws {
+    try KeychainStore.delete(service: service, account: productAccountId)
+  }
+
+  func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
+    guard
+      let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+      let data = rawValue.data(using: .utf8)
+    else {
+      return nil
+    }
+    return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
+  }
+
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    let data = try JSONEncoder().encode(payload)
+    guard let rawValue = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
+    try KeychainStore.writeString(
+      rawValue,
+      service: service,
+      account: productAccountId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+}
+
 final class NotificationRuleSyncService: NotificationRuleSyncing {
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
+  private let cacheStore: NotificationRuleCachePersisting
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let transport: ProductSyncPayloadTransport
 
   init(
+    cacheStore: NotificationRuleCachePersisting = KeychainNotificationRuleCacheStore(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
+    self.cacheStore = cacheStore
     self.keyMaterialStore = keyMaterialStore
     self.transport = transport
   }
@@ -86,12 +138,93 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
   func loadRules(
     session: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
-    guard let syncedPayload = try await loadRemotePayload(session: session) else {
+    let syncedPayload = try await loadRemotePayload(session: session)
+    return try refreshCacheAndDecrypt(
+      syncedPayload,
+      session: session,
+      cacheFailuresAreFatal: false
+    )
+  }
+
+  func loadRulesForBackground(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> NotificationRuleSyncSnapshot {
+    let syncedPayload: EncryptedProductSyncPayload?
+    do {
+      syncedPayload = try await loadRemotePayload(session: session)
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      guard let cachedPayload = try cacheStore.load(productAccountId: session.productAccountId)
+      else {
+        throw error
+      }
+      return try decrypt(cachedPayload, session: session)
+    }
+    return try refreshCacheAndDecrypt(
+      syncedPayload,
+      session: session,
+      cacheFailuresAreFatal: true
+    )
+  }
+
+  private func refreshCacheAndDecrypt(
+    _ syncedPayload: EncryptedProductSyncPayload?,
+    session: ProductAccountSessionSnapshot,
+    cacheFailuresAreFatal: Bool
+  ) throws -> NotificationRuleSyncSnapshot {
+    guard let syncedPayload else {
+      try refreshCache(
+        nil,
+        productAccountId: session.productAccountId,
+        failuresAreFatal: true
+      )
       return NotificationRuleSyncSnapshot(
         rules: NotificationRules(categoryIds: []),
         updatedAt: nil
       )
     }
+    let snapshot: NotificationRuleSyncSnapshot
+    do {
+      snapshot = try decrypt(syncedPayload, session: session)
+    } catch {
+      try refreshCache(
+        nil,
+        productAccountId: session.productAccountId,
+        failuresAreFatal: true
+      )
+      throw error
+    }
+    try refreshCache(
+      syncedPayload,
+      productAccountId: session.productAccountId,
+      failuresAreFatal: cacheFailuresAreFatal
+    )
+    return snapshot
+  }
+
+  private func refreshCache(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String,
+    failuresAreFatal: Bool
+  ) throws {
+    if failuresAreFatal {
+      try cacheStore.clear(productAccountId: productAccountId)
+      if let payload {
+        try cacheStore.save(payload, productAccountId: productAccountId)
+      }
+    } else {
+      try cacheStore.clear(productAccountId: productAccountId)
+      if let payload {
+        try? cacheStore.save(payload, productAccountId: productAccountId)
+      }
+    }
+  }
+
+  private func decrypt(
+    _ syncedPayload: EncryptedProductSyncPayload,
+    session: ProductAccountSessionSnapshot
+  ) throws -> NotificationRuleSyncSnapshot {
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw NotificationRuleSyncError.missingProductSyncKeyMaterial
@@ -115,6 +248,7 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     let material = try await keyMaterialForWrite(session: session)
     let plaintext = try encoder.encode(rules)
     let encryptedPayload = try material.encryptPayload(plaintext, associatedData: associatedData)
+    try cacheStore.clear(productAccountId: session.productAccountId)
     let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
       identityToken: session.identityToken,
       payloadIdentifier: NotificationRules.primaryIdentifier,
@@ -123,8 +257,10 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
       expectedUpdatedAt: expectedUpdatedAt
     )
     guard writtenPayload.encryptedPayload == encryptedPayload else {
+      try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
       throw NotificationRuleSyncError.concurrentModification
     }
+    try? cacheStore.save(writtenPayload, productAccountId: session.productAccountId)
     return NotificationRuleSyncSnapshot(rules: rules, updatedAt: writtenPayload.updatedAt)
   }
 

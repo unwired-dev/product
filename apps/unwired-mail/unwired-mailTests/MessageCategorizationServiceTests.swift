@@ -1540,6 +1540,44 @@ extension MessageCategorizationServiceTests {
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
   }
 
+  func testCategorizationStopsWhenCustomCategoryLoadFails() async throws {
+    let engine = RecordingClassificationEngine(
+      decisions: [.assigned(categoryId: "system:flights")]
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: FailingCustomCategorySync(),
+      engine: engine
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertTrue(engine.inputs.isEmpty)
+  }
+
+  func testCategorizationStopsWhenAssignmentSaveFails() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.saveError = URLError(.userAuthenticationRequired)
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
+    )
+
+    let categorized = try await service.categorize(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+  }
+
   func testCategorizationLoadsSignalsOnlyForEligibleCurrentSenders() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -1622,6 +1660,7 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
   private(set) var loadedMessageIds: [String] = []
   private(set) var savedAssignments: [MessageCategoryAssignment] = []
   private(set) var savedUserOverrides: [MessageCategoryAssignment] = []
+  var saveError: Error?
 
   func loadAssignments(
     stableProviderMessageIds: [String],
@@ -1662,6 +1701,9 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     _ assignment: MessageCategoryAssignment,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MessageCategoryAssignment {
+    if let saveError {
+      throw saveError
+    }
     savedAssignments.append(assignment)
     assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
     return assignment
@@ -1682,6 +1724,21 @@ private struct StubCustomCategorySync: CustomCategorySyncing {
 
   func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
     nil
+  }
+
+  func saveCategory(
+    _ category: CustomCategory,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> CustomCategory {
+    category
+  }
+}
+
+private struct FailingCustomCategorySync: CustomCategorySyncing {
+  func deleteCategory(session _: ProductAccountSessionSnapshot) async throws {}
+
+  func loadCategory(session _: ProductAccountSessionSnapshot) async throws -> CustomCategory? {
+    throw URLError(.userAuthenticationRequired)
   }
 
   func saveCategory(
