@@ -99,12 +99,15 @@ export default defineSchema({
       'provider',
       'trustedDeviceId',
     ])
-    .index('by_account_provider_device_identifier', [
-      'productAccountId',
-      'provider',
-      'trustedDeviceId',
-      'providerAccountIdentifier',
-    ])
+    .index(
+      'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+      [
+        'productAccountId',
+        'provider',
+        'trustedDeviceId',
+        'providerAccountIdentifier',
+      ],
+    )
     .index('by_productAccountId_and_providerAccountIdentifier', [
       'productAccountId',
       'providerAccountIdentifier',

@@ -1350,7 +1350,14 @@ private struct GmailInboxPanel: View {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
               do {
-                try messageReader.clearCachedMessageBodies(session: session)
+                if let connection {
+                  try messageReader.clearCachedMessageBodies(
+                    connection: connection,
+                    session: session
+                  )
+                } else {
+                  try messageReader.clearCachedMessageBodies(session: session)
+                }
                 cacheErrorMessage = nil
               } catch {
                 cacheErrorMessage = error.localizedDescription

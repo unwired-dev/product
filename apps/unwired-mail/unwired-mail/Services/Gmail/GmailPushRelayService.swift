@@ -353,7 +353,25 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
   private func receipts(_ productAccountId: String, _ providerAccountIdentifier: String) -> Set<
     String
   > {
-    Set(defaults.stringArray(forKey: key(productAccountId, providerAccountIdentifier)) ?? [])
+    let key = key(productAccountId, providerAccountIdentifier)
+    if let receipts = defaults.stringArray(forKey: key) {
+      return Set(receipts)
+    }
+    let legacyKey = legacyKey(productAccountId, providerAccountIdentifier)
+    guard let receipts = defaults.stringArray(forKey: legacyKey) else {
+      return []
+    }
+    defaults.set(receipts, forKey: key)
+    defaults.removeObject(forKey: legacyKey)
+    return Set(receipts)
+  }
+
+  private func legacyKey(
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) -> String {
+    "gmail-push-notification-receipts.\(legacyGmailSafeFileComponent(productAccountId))."
+      + legacyGmailSafeFileComponent(providerAccountIdentifier)
   }
 }
 
@@ -434,10 +452,26 @@ struct GmailPushEligibilityStore: GmailPushEligibilityPersisting {
     _ productAccountId: String,
     _ providerAccountIdentifier: String
   ) throws -> [Record] {
-    guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier)) else {
+    let key = key(productAccountId, providerAccountIdentifier)
+    if let data = defaults.data(forKey: key) {
+      return try JSONDecoder().decode([Record].self, from: data)
+    }
+    let legacyKey = legacyKey(productAccountId, providerAccountIdentifier)
+    guard let data = defaults.data(forKey: legacyKey) else {
       return []
     }
-    return try JSONDecoder().decode([Record].self, from: data)
+    let records = try JSONDecoder().decode([Record].self, from: data)
+    defaults.set(data, forKey: key)
+    defaults.removeObject(forKey: legacyKey)
+    return records
+  }
+
+  private func legacyKey(
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) -> String {
+    "gmail-push-notification-eligibility.\(legacyGmailSafeFileComponent(productAccountId))."
+      + legacyGmailSafeFileComponent(providerAccountIdentifier)
   }
 
   private func save(
@@ -597,7 +631,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   }
 
   private func legacyKey(_ productAccountId: String) -> String {
-    "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))"
+    "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
   }
 
   private func manifestKey(_ productAccountId: String) -> String {

@@ -510,12 +510,14 @@ async function gmailConnection(
 ): Promise<Doc<'mailProviderConnections'> | null> {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_account_provider_device_identifier', (q) =>
-      q
-        .eq('productAccountId', request.productAccountId)
-        .eq('provider', 'gmail')
-        .eq('trustedDeviceId', request.trustedDeviceId)
-        .eq('providerAccountIdentifier', request.providerAccountIdentifier),
+    .withIndex(
+      'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+      (q) =>
+        q
+          .eq('productAccountId', request.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', request.trustedDeviceId)
+          .eq('providerAccountIdentifier', request.providerAccountIdentifier),
     )
     .unique();
 }
@@ -1036,7 +1038,7 @@ export const unregisterDevice = mutation({
 
 export const shouldStopGmailWatch = query({
   args: {
-    providerAccountIdentifier: v.string(),
+    providerAccountIdentifier: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -1044,11 +1046,21 @@ export const shouldStopGmailWatch = query({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await requireGmailConnection(ctx, {
-      productAccountId: account.productAccountId,
-      providerAccountIdentifier: args.providerAccountIdentifier,
-      trustedDeviceId: args.trustedDeviceId,
-    });
+    const connection =
+      args.providerAccountIdentifier === undefined
+        ? await gmailConnectionsForDevice(
+            ctx,
+            account.productAccountId,
+            args.trustedDeviceId,
+          ).first()
+        : await requireGmailConnection(ctx, {
+            productAccountId: account.productAccountId,
+            providerAccountIdentifier: args.providerAccountIdentifier,
+            trustedDeviceId: args.trustedDeviceId,
+          });
+    if (connection === null) {
+      throw new Error('Gmail connection required');
+    }
     return !(await hasOtherActiveGmailRoute(ctx, {
       emailAddress: connection.emailAddress,
       trustedDeviceId: args.trustedDeviceId,

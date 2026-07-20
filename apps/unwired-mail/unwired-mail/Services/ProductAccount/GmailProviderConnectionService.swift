@@ -442,8 +442,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    var cleanupError: Error?
-    await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
     do {
       try await transport.removeGmailProviderConnection(
         identityToken: session.identityToken,
@@ -451,12 +449,25 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         trustedDeviceId: session.trustedDeviceId
       )
     } catch {
-      cleanupError = error
+      throw error
     }
+    await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
+    let remainingConnections = try await transport.listGmailProviderConnections(
+      identityToken: session.identityToken,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    var cleanupError: Error?
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
     } catch {
       cleanupError = cleanupError ?? error
+    }
+    if remainingConnections.isEmpty {
+      do {
+        try bodyReader.clearCachedMessageBodies(session: session)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
     }
     do {
       try tokenStore.clear(
