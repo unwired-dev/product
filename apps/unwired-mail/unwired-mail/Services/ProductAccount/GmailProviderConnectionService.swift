@@ -867,6 +867,7 @@ private struct GoogleRefreshTokenResponse: Decodable {
 #if DEBUG
   final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
     private var tokensByConnectionKey: [String: GmailProviderTokens] = [:]
+    private var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
 
     func load(
       productAccountId: String,
@@ -893,6 +894,19 @@ private struct GoogleRefreshTokenResponse: Decodable {
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId):"
       tokensByConnectionKey = tokensByConnectionKey.filter { !$0.key.hasPrefix(prefix) }
+      legacyTokensByProductAccountId[productAccountId] = nil
+    }
+
+    func clearLegacy(productAccountId: String) throws {
+      legacyTokensByProductAccountId[productAccountId] = nil
+    }
+
+    func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+      legacyTokensByProductAccountId[productAccountId]
+    }
+
+    func saveLegacy(_ tokens: GmailProviderTokens, productAccountId: String) {
+      legacyTokensByProductAccountId[productAccountId] = tokens
     }
 
     func load(productAccountId: String) throws -> GmailProviderTokens? {

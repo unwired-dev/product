@@ -83,6 +83,64 @@ final class GmailPushRelayServiceTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
+  func testTokenRefresherMigratesLegacyTokensWhenStoppingAnUpgradedWatch() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "expired-access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let requestSession = ConvexClientTesting.makeSession { request in
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+      )!
+      if request.url?.path == "/token" {
+        return (
+          response,
+          Data(
+            #"{"access_token":"refreshed-access-token","id_token":"gmail-identity-token"}"#.utf8
+          )
+        )
+      }
+      return (
+        response,
+        Data(
+          #"""
+          {
+            "email": "user@example.com",
+            "scope": "https://www.googleapis.com/auth/gmail.readonly",
+            "sub": "gmail-user-001"
+          }
+          """#.utf8
+        )
+      )
+    }
+    let service = GmailMessageMetadataService(
+      oauthClientId: "gmail-client-id",
+      session: requestSession,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://example.test/token")!
+    )
+
+    let tokens = try await service.refreshProviderTokens(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      tokens
+    )
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+  }
+
+  // swiftlint:disable:next function_body_length
   func testRegisterOrRenewWatchUsesDeviceHeldTokenAndStoresExpiration() async throws {
     let connectionStore = RecordingGmailPushConnectionStore()
     let tokenRefresher = RecordingGmailPushTokenRefresher(

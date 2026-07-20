@@ -94,7 +94,7 @@ struct AccountView: View {
 
         GmailProviderConnectionPanel(
           viewModel: gmailViewModel,
-          isMailboxBusy: inboxViewModel.isBusy
+          isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
         )
 
         GmailInboxPanel(
