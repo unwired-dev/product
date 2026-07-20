@@ -297,14 +297,12 @@ export const connectGmailProvider = mutation({
     const now = Date.now();
     const existingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_product_provider_device_account', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
 
@@ -337,11 +335,15 @@ export const getGmailProviderConnection = query({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const [connection] = await gmailConnectionsForTrustedDevice(
+    const connections = await gmailConnectionsForTrustedDevice(
       ctx,
       args.trustedDeviceId,
-      1,
+      2,
     );
+    if (connections.length > 1) {
+      return null;
+    }
+    const [connection] = connections;
 
     return connection === undefined ? null : gmailConnectionStatus(connection);
   },
@@ -386,14 +388,12 @@ export const removeGmailProviderConnection = mutation({
     );
     const connection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_product_provider_device_account', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (connection !== null) {

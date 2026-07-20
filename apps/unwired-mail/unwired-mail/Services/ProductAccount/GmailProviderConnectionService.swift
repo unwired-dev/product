@@ -83,15 +83,22 @@ protocol GmailProviderTokenPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
+  func clearLegacy(productAccountId: String) throws
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens?
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens?
   func save(
     _ tokens: GmailProviderTokens,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
+}
+
+extension GmailProviderTokenPersisting {
+  func clearLegacy(productAccountId _: String) throws {}
+  func loadLegacy(productAccountId _: String) throws -> GmailProviderTokens? { nil }
 }
 
 protocol GmailProviderConnectionTransport {
@@ -202,23 +209,15 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens? {
-    let scopedAccount = accountName(
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
-    )
-    if let tokens = try tokens(account: scopedAccount) {
-      return tokens
-    }
-    guard let legacyTokens = try tokens(account: legacyAccountName(productAccountId)) else {
-      return nil
-    }
-    try save(
-      legacyTokens,
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
-    )
-    try? KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
-    return legacyTokens
+    try tokens(
+      account: accountName(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ))
+  }
+
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+    try tokens(account: legacyAccountName(productAccountId))
   }
 
   func save(
@@ -283,6 +282,10 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
       )
     }
     try KeychainStore.delete(service: service, account: manifestName(productAccountId))
+    try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
+  }
+
+  func clearLegacy(productAccountId: String) throws {
     try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
   }
 
@@ -437,11 +440,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
     do {
       try await transport.removeGmailProviderConnection(
         identityToken: session.identityToken,
@@ -451,20 +455,33 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       throw error
     }
-    await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
-    let remainingConnections = try await transport.listGmailProviderConnections(
-      identityToken: session.identityToken,
-      trustedDeviceId: session.trustedDeviceId
-    )
+    if shouldStopWatch {
+      try? await pushWatchStopper.stop(connection: connection, session: session)
+    }
     var cleanupError: Error?
+    let remainingConnections: [GmailProviderConnectionStatus]?
+    do {
+      remainingConnections = try await transport.listGmailProviderConnections(
+        identityToken: session.identityToken,
+        trustedDeviceId: session.trustedDeviceId
+      )
+    } catch {
+      remainingConnections = nil
+      cleanupError = error
+    }
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if remainingConnections.isEmpty {
+    if remainingConnections?.isEmpty == true {
       do {
         try bodyReader.clearCachedMessageBodies(session: session)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+      do {
+        try metadataStore.clearMessages(productAccountId: session.productAccountId)
       } catch {
         cleanupError = cleanupError ?? error
       }
@@ -510,13 +527,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async {
-    guard
-      (try? await transport.shouldStopGmailPushWatch(
-        identityToken: session.identityToken,
-        providerAccountIdentifier: connection.providerAccountIdentifier,
-        trustedDeviceId: session.trustedDeviceId
-      )) == true
-    else {
+    guard await shouldStopPushWatch(connection: connection, session: session) else {
       return
     }
 
@@ -565,13 +576,45 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       identityToken: session.identityToken,
       trustedDeviceId: session.trustedDeviceId
     )
-    return try statuses.filter { status in
-      guard status.trustedDeviceId == session.trustedDeviceId else { return false }
-      return try tokenStore.load(
+    var tokensByIdentifier: [String: GmailProviderTokens] = [:]
+    for status in statuses {
+      if let tokensForStatus = try? tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: status.providerAccountIdentifier
-      ) != nil
+      ) {
+        tokensByIdentifier[status.providerAccountIdentifier] = tokensForStatus
+      }
     }
+    if statuses.count == 1,
+      let status = statuses.first,
+      tokensByIdentifier[status.providerAccountIdentifier] == nil,
+      let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    {
+      try tokenStore.save(
+        legacyTokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: status.providerAccountIdentifier
+      )
+      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+      return [status]
+    }
+    return statuses.filter { status in
+      guard status.trustedDeviceId == session.trustedDeviceId else { return false }
+      return tokensByIdentifier[status.providerAccountIdentifier] != nil
+    }
+  }
+}
+
+extension GmailProviderConnectionService {
+  fileprivate func shouldStopPushWatch(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async -> Bool {
+    (try? await transport.shouldStopGmailPushWatch(
+      identityToken: session.identityToken,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: session.trustedDeviceId
+    )) == true
   }
 }
 

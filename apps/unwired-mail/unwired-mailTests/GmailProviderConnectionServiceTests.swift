@@ -114,7 +114,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
-  func testTokenStoreMigratesLegacyCredentialToMailboxIdentity() throws {
+  func testTokenStoreKeepsLegacyCredentialSeparateFromMailboxIdentity() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let providerAccountIdentifier = "gmail/user"
     let service = "private-email.gmail-provider-tokens"
@@ -132,13 +132,15 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     try KeychainStore.writeString(json, service: service, account: legacyAccount)
 
     XCTAssertEqual(
+      try store.loadLegacy(productAccountId: productAccountId),
+      tokens
+    )
+    XCTAssertNil(
       try store.load(
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
-      ),
-      tokens
+      )
     )
-    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
   func testCompleteConnectionStoresTokensLocallyAndSendsOnlyMetadataToBackend() async throws {

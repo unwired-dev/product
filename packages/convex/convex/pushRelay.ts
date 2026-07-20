@@ -510,14 +510,12 @@ async function gmailConnection(
 ): Promise<Doc<'mailProviderConnections'> | null> {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex(
-      'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-      (q) =>
-        q
-          .eq('productAccountId', request.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', request.trustedDeviceId)
-          .eq('providerAccountIdentifier', request.providerAccountIdentifier),
+    .withIndex('by_product_provider_device_account', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', request.trustedDeviceId)
+        .eq('providerAccountIdentifier', request.providerAccountIdentifier),
     )
     .unique();
 }
