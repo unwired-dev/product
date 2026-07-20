@@ -1812,49 +1812,45 @@ final class GmailPushRelayServiceTests: XCTestCase {
   }
 
   func testOverlappingGmailWakeupsDeliverMatchingMessageOnce() async throws {
-    let fixture = try gmailPushOverlapFixture()
+    let overlappingWake = try await startOverlappingFirstWake()
+    let fixture = overlappingWake.fixture
     defer { fixture.cleanup() }
-    let notificationCenter = SuspendingUserNotificationCenter()
-    let handler = fixture.handler(notificationCenter: notificationCenter)
-    let userInfo = fixture.userInfo()
 
-    let firstWake = Task { try await handler.handle(userInfo: userInfo) }
-    await notificationCenter.waitUntilDeliveryStarts()
-
-    let overlappingWakeHandled = try await handler.handle(userInfo: userInfo)
+    let overlappingWakeHandled = try await overlappingWake.handler.handle(
+      userInfo: overlappingWake.userInfo
+    )
 
     XCTAssertFalse(overlappingWakeHandled)
     XCTAssertNil(fixture.watchStore.savedStatus)
-    notificationCenter.resumeDelivery()
-    let firstWakeHandled = try await firstWake.value
+    overlappingWake.notificationCenter.resumeDelivery()
+    let firstWakeHandled = try await overlappingWake.firstWake.value
     XCTAssertTrue(firstWakeHandled)
     XCTAssertEqual(
-      notificationCenter.requests.map(\.identifier),
+      overlappingWake.notificationCenter.requests.map(\.identifier),
       [fixture.message.stableProviderMessageId]
     )
     XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
   func testCancelledOverlappingGmailWakeupReleasesMessageForRetry() async throws {
-    let fixture = try gmailPushOverlapFixture()
+    let overlappingWake = try await startOverlappingFirstWake()
+    let fixture = overlappingWake.fixture
     defer { fixture.cleanup() }
-    let notificationCenter = SuspendingUserNotificationCenter()
-    let handler = fixture.handler(notificationCenter: notificationCenter)
-    let userInfo = fixture.userInfo()
-    let firstWake = Task { try await handler.handle(userInfo: userInfo) }
-    await notificationCenter.waitUntilDeliveryStarts()
-    let overlappingWakeHandled = try await handler.handle(userInfo: userInfo)
+
+    let overlappingWakeHandled = try await overlappingWake.handler.handle(
+      userInfo: overlappingWake.userInfo
+    )
     XCTAssertFalse(overlappingWakeHandled)
-    notificationCenter.failDelivery(with: CancellationError())
+    overlappingWake.notificationCenter.failDelivery(with: CancellationError())
     do {
-      _ = try await firstWake.value
+      _ = try await overlappingWake.firstWake.value
       XCTFail("Expected cancellation")
     } catch is CancellationError {}
     XCTAssertNil(fixture.watchStore.savedStatus)
 
     let retryCenter = RecordingUserNotificationCenter()
     let retryHandler = fixture.handler(notificationCenter: retryCenter)
-    let retryHandled = try await retryHandler.handle(userInfo: userInfo)
+    let retryHandled = try await retryHandler.handle(userInfo: overlappingWake.userInfo)
     XCTAssertTrue(retryHandled)
     XCTAssertEqual(retryCenter.request?.identifier, fixture.message.stableProviderMessageId)
     XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
@@ -1984,6 +1980,30 @@ final class GmailPushRelayServiceTests: XCTestCase {
       connection: connection,
       message: pushMessage(categoryId: "system:flights"),
       session: session
+    )
+  }
+
+  private struct OverlappingGmailWake {
+    let fixture: GmailPushOverlapFixture
+    let notificationCenter: SuspendingUserNotificationCenter
+    let handler: GmailPushWakeupHandler
+    let userInfo: [AnyHashable: Any]
+    let firstWake: Task<Bool, Error>
+  }
+
+  private func startOverlappingFirstWake() async throws -> OverlappingGmailWake {
+    let fixture = try gmailPushOverlapFixture()
+    let notificationCenter = SuspendingUserNotificationCenter()
+    let handler = fixture.handler(notificationCenter: notificationCenter)
+    let userInfo = fixture.userInfo()
+    let firstWake = Task { try await handler.handle(userInfo: userInfo) }
+    await notificationCenter.waitUntilDeliveryStarts()
+    return OverlappingGmailWake(
+      fixture: fixture,
+      notificationCenter: notificationCenter,
+      handler: handler,
+      userInfo: userInfo,
+      firstWake: firstWake
     )
   }
 }
@@ -2438,6 +2458,10 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
   private(set) var requests: [UNNotificationRequest] = []
 
   func add(_ request: UNNotificationRequest) async throws {
+    guard deliveryContinuation == nil else {
+      XCTFail("Unexpected overlapping notification delivery")
+      throw CancellationError()
+    }
     requests.append(request)
     deliveryStartedContinuation?.resume()
     deliveryStartedContinuation = nil
