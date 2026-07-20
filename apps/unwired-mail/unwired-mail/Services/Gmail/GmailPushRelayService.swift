@@ -1013,7 +1013,8 @@ struct GmailPushWakeupHandler {
       syncResult.newMessageIds == nil && notificationCandidateIds.isEmpty
       ? nil : notificationCandidateIds
     let canAdvanceWatermark =
-      currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
+      currentNotificationRules.categoryIds.isEmpty
+      || (syncResult.newMessageIds != nil && !syncResult.hasUnlistedNewMessages)
     let categoryProcessingIsIncomplete =
       !currentNotificationRules.categoryIds.isEmpty
       && (syncResult.historyIsExpired
