@@ -408,18 +408,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         switchedConnection.providerAccountIdentifier: switchedMessage,
       ]
     )
-    let viewModel = GmailInboxViewModel(service: service, session: session)
-    await viewModel.loadAfterConnectionChange(connection: connection)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    await viewModel.loadAfterConnectionChange(
+      connection: connection.mailboxConnection(productAccountId: session.productAccountId)
+    )
 
     let overrideTask = Task {
-      await viewModel.overrideCategory("system:invoices", for: originalMessage)
+      await viewModel.overrideCategory(
+        "system:invoices",
+        for: originalMessage.mailboxMetadata(connectionId: originalMessage.mailboxConnectionId)
+      )
     }
     await service.waitUntilOverrideStarts()
-    await viewModel.loadAfterConnectionChange(connection: switchedConnection)
+    await viewModel.loadAfterConnectionChange(
+      connection: switchedConnection.mailboxConnection(productAccountId: session.productAccountId)
+    )
     await service.releaseOverride()
     await overrideTask.value
 
-    XCTAssertEqual(viewModel.threads, GmailInboxThread.group([switchedMessage]))
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        switchedMessage.mailboxMetadata(connectionId: switchedMessage.mailboxConnectionId)
+      ])
+    )
   }
 
   @MainActor
@@ -445,20 +461,29 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       searchService: searchService,
       session: session
     )
-    await viewModel.loadAfterConnectionChange(connection: connection)
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
     viewModel.searchQuery = "subject"
     viewModel.searchLocal(categoryNamesById: [:])
 
     XCTAssertEqual(viewModel.searchResult?.source, .localMetadata)
-    XCTAssertEqual(viewModel.searchResult?.messages, [localMessage])
+    XCTAssertEqual(
+      viewModel.searchResult?.messages,
+      [localMessage.mailboxMetadata(connectionId: mailboxConnection.id)]
+    )
 
     viewModel.searchQuery = "private body phrase"
-    await viewModel.searchProvider(connection: connection)
+    await viewModel.searchProvider(connection: mailboxConnection)
 
     XCTAssertEqual(searchService.receivedQueries, ["private body phrase"])
     XCTAssertEqual(viewModel.searchResult?.source, .providerFullText)
-    XCTAssertEqual(viewModel.searchResult?.messages, [providerMessage])
+    XCTAssertEqual(
+      viewModel.searchResult?.messages,
+      [providerMessage.mailboxMetadata(connectionId: mailboxConnection.id)]
+    )
   }
 
   @MainActor
@@ -477,11 +502,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       searchService: searchService,
       session: session
     )
-    await viewModel.loadAfterConnectionChange(connection: connection)
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
     viewModel.searchQuery = "invoice"
     let searchTask = Task {
-      await viewModel.searchProvider(connection: connection)
+      await viewModel.searchProvider(connection: mailboxConnection)
     }
     await searchService.waitUntilSearchStarts()
     viewModel.searchQuery = "flight"
@@ -503,20 +531,29 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       updatedAt: connection.updatedAt
     )
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
-    let viewModel = GmailInboxViewModel(service: service, session: session)
-    await viewModel.loadAfterConnectionChange(connection: connection)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
     let categorizationTask = Task {
       await viewModel.categorizeHistorical(
-        scope: GmailHistoricalCategorizationScope(
+        scope: HistoricalCategorizationScope(
           receivedAtOrAfterMilliseconds: 0,
           receivedBeforeMilliseconds: 100
         ),
-        connection: connection
+        connection: mailboxConnection
       )
     }
     await service.waitUntilHistoricalCategorizationStarts()
-    await viewModel.loadAfterConnectionChange(connection: switchedConnection)
+    await viewModel.loadAfterConnectionChange(
+      connection: switchedConnection.mailboxConnection(productAccountId: session.productAccountId)
+    )
     await service.releaseHistoricalCategorization()
     await categorizationTask.value
 
@@ -1570,53 +1607,63 @@ private actor OverrideGate {
   }
 }
 
-private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
+private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMessageSearching {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   private let historicalCategorizationGate = OverrideGate()
   private let overrideGate = OverrideGate()
 
   func categorizeHistorical(
-    scope _: GmailHistoricalCategorizationScope,
-    connection _: GmailProviderConnectionStatus,
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     await historicalCategorizationGate.waitForRelease()
     throw MailboxSwitchingError.historicalCategorizationFailed
   }
 
   func loadInbox(
-    connection: GmailProviderConnectionStatus,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     result(for: connection)
   }
 
   func syncInbox(
-    connection: GmailProviderConnectionStatus,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     result(for: connection)
   }
 
   // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
-    connection: GmailProviderConnectionStatus,
+    connection: MailboxConnection,
     includingHistoryCandidates _: Bool,
     session _: ProductAccountSessionSnapshot,
     sinceHistoryId _: String?,
     throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     result(for: connection)
   }
 
   func overrideCategory(
     _ categoryId: String,
-    for message: GmailMessageMetadata,
+    for message: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMessageMetadata {
+  ) async throws -> MailboxMessageMetadata {
     await overrideGate.waitForRelease()
-    return message.assigningCategory(categoryId)
+    return message.gmailMetadata.assigningCategory(categoryId).mailboxMetadata(
+      connectionId: message.connectionId
+    )
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxMessageMetadata] {
+    []
   }
 
   func waitUntilOverrideStarts() async {
@@ -1635,18 +1682,24 @@ private struct DelayedMailboxSwitchingService: GmailMessageMetadataSyncing {
     await historicalCategorizationGate.release()
   }
 
-  private func result(for connection: GmailProviderConnectionStatus) -> GmailMetadataSyncResult {
+  private func result(for connection: MailboxConnection) -> MailboxMetadataSyncResult {
     guard
       let message = messagesByProviderAccountIdentifier[
-        connection.providerAccountIdentifier
+        connection.providerMailboxIdentity.value
       ]
     else {
-      return GmailMetadataSyncResult(messages: [], threads: [])
+      return MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: []
+      )
     }
     return GmailMetadataSyncResult(
       messages: [message],
       threads: GmailInboxThread.group([message])
-    )
+    ).mailboxResult(connectionId: connection.id)
   }
 }
 
@@ -1834,37 +1887,37 @@ private enum GmailMessageMetadataTestError: Error {
   case interruptedPersistence
 }
 
-private final class RecordingGmailMessageSearchService: GmailMessageSearching {
-  private let messages: [GmailMessageMetadata]
+private final class RecordingGmailMessageSearchService: MailboxMessageSearching {
+  private let messages: [MailboxMessageMetadata]
   private(set) var receivedQueries: [String] = []
 
   init(messages: [GmailMessageMetadata]) {
-    self.messages = messages
+    self.messages = messages.map { $0.mailboxMetadata(connectionId: $0.mailboxConnectionId) }
   }
 
   func searchProvider(
     query: String,
-    connection _: GmailProviderConnectionStatus,
+    connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> [GmailMessageMetadata] {
+  ) async throws -> [MailboxMessageMetadata] {
     receivedQueries.append(query)
     return messages
   }
 }
 
-private final class DelayedGmailMessageSearchService: GmailMessageSearching {
-  private let messages: [GmailMessageMetadata]
+private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
+  private let messages: [MailboxMessageMetadata]
   private let searchGate = OverrideGate()
 
   init(messages: [GmailMessageMetadata]) {
-    self.messages = messages
+    self.messages = messages.map { $0.mailboxMetadata(connectionId: $0.mailboxConnectionId) }
   }
 
   func searchProvider(
     query _: String,
-    connection _: GmailProviderConnectionStatus,
+    connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> [GmailMessageMetadata] {
+  ) async throws -> [MailboxMessageMetadata] {
     await searchGate.waitForRelease()
     return messages
   }
