@@ -656,7 +656,7 @@ struct GmailMessageMetadataService:
     }
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: !deferPersistence,
+      persist: scopedTokens != nil && !deferPersistence,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
@@ -690,6 +690,7 @@ struct GmailMessageMetadataService:
 
     let tokens = try await refreshedTokens(
       storedTokens,
+      persist: scopedTokens != nil,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )

@@ -344,6 +344,38 @@ describe('productAccount Gmail provider connection', () => {
     );
   });
 
+  it('replaces the Gmail connection for clients without multi-mailbox support', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'first@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    const replacement = await asUser.mutation(
+      api.productAccount.connectGmailProvider,
+      {
+        emailAddress: 'second@example.com',
+        providerAccountIdentifier: 'gmail-user-002',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+
+    expect(replacement.providerAccountIdentifier).toBe('gmail-user-002');
+    await expect(
+      asUser.query(api.productAccount.listGmailProviderConnections, {
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject([{ providerAccountIdentifier: 'gmail-user-002' }]);
+  });
+
   it('keeps two Gmail connections on one trusted device without duplicating either identity', async () => {
     expect.assertions(5);
 
@@ -359,12 +391,14 @@ describe('productAccount Gmail provider connection', () => {
       {
         emailAddress: 'first@example.com',
         providerAccountIdentifier: 'gmail-user-001',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       },
     );
     await asUser.mutation(api.productAccount.connectGmailProvider, {
       emailAddress: 'second@example.com',
       providerAccountIdentifier: 'gmail-user-002',
+      supportsMultipleConnections: true,
       trustedDeviceId: connect.trustedDeviceId,
     });
     const repairedFirstStatus = await asUser.mutation(
@@ -372,6 +406,7 @@ describe('productAccount Gmail provider connection', () => {
       {
         emailAddress: 'renamed-first@example.com',
         providerAccountIdentifier: 'gmail-user-001',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       },
     );
@@ -410,6 +445,7 @@ describe('productAccount Gmail provider connection', () => {
       await asUser.mutation(api.productAccount.connectGmailProvider, {
         emailAddress: `user-${String(index)}@example.com`,
         providerAccountIdentifier: `gmail-user-${String(index)}`,
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       });
     }
@@ -418,6 +454,7 @@ describe('productAccount Gmail provider connection', () => {
       asUser.mutation(api.productAccount.connectGmailProvider, {
         emailAddress: 'overflow@example.com',
         providerAccountIdentifier: 'gmail-user-overflow',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       }),
     ).rejects.toThrow('Gmail connection limit reached');
@@ -444,6 +481,7 @@ describe('productAccount Gmail provider connection', () => {
       await asUser.mutation(api.productAccount.connectGmailProvider, {
         emailAddress: `${providerAccountIdentifier}@example.com`,
         providerAccountIdentifier,
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       });
     }
@@ -476,6 +514,7 @@ describe('productAccount Gmail provider connection', () => {
       {
         emailAddress: 'user@example.com',
         providerAccountIdentifier: 'gmail-user-001',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       },
     );
@@ -484,6 +523,7 @@ describe('productAccount Gmail provider connection', () => {
       {
         emailAddress: 'other@example.com',
         providerAccountIdentifier: 'gmail-user-002',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       },
     );
@@ -510,6 +550,7 @@ describe('productAccount Gmail provider connection', () => {
     await asUser.mutation(api.productAccount.connectGmailProvider, {
       emailAddress: 'user@example.com',
       providerAccountIdentifier: 'gmail-user-001',
+      supportsMultipleConnections: true,
       trustedDeviceId: connect.trustedDeviceId,
     });
     const firstRoute = await asUser.action(api.pushRelay.verifyGmailWatch, {
@@ -521,6 +562,7 @@ describe('productAccount Gmail provider connection', () => {
     await asUser.mutation(api.productAccount.connectGmailProvider, {
       emailAddress: 'other@example.com',
       providerAccountIdentifier: 'gmail-user-002',
+      supportsMultipleConnections: true,
       trustedDeviceId: connect.trustedDeviceId,
     });
     const secondRoute = await asUser.action(api.pushRelay.verifyGmailWatch, {

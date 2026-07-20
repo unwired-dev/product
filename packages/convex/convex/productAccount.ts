@@ -285,6 +285,7 @@ export const markProductSyncMaterialInitialized = mutation({
 export const connectGmailProvider = mutation({
   args: {
     emailAddress: v.string(),
+    supportsMultipleConnections: v.optional(v.boolean()),
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -320,6 +321,13 @@ export const connectGmailProvider = mutation({
               .eq('trustedDeviceId', args.trustedDeviceId),
         )
         .take(gmailConnectionLimitPerTrustedDevice);
+      const [legacyConnection] = connections;
+      if (
+        args.supportsMultipleConnections !== true &&
+        legacyConnection !== undefined
+      ) {
+        return updateGmailConnection(ctx, legacyConnection, connection);
+      }
       if (connections.length === gmailConnectionLimitPerTrustedDevice) {
         throw new Error('Gmail connection limit reached');
       }

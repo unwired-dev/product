@@ -600,9 +600,15 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     let identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
     if !identifiers.isEmpty {
-      return identifiers.compactMap {
+      var connections = identifiers.compactMap {
         try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
       }
+      if let legacyConnection = try connection(account: legacyKey(productAccountId)) {
+        try save(legacyConnection, productAccountId: productAccountId)
+        try? KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+        connections.append(legacyConnection)
+      }
+      return connections
     }
     guard let legacyConnection = try connection(account: legacyKey(productAccountId)) else {
       return []

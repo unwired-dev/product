@@ -494,6 +494,13 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    if remainingConnections?.isEmpty == true {
+      do {
+        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+    }
     do {
       try metadataStore.clearMessages(
         productAccountId: session.productAccountId,

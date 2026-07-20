@@ -82,6 +82,7 @@ final class ConvexClient {
       args: ConnectGmailProviderArgs(
         emailAddress: emailAddress,
         providerAccountIdentifier: providerAccountIdentifier,
+        supportsMultipleConnections: true,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -440,6 +441,7 @@ private struct ConnectProductAccountArgs: Encodable {
 private struct ConnectGmailProviderArgs: Encodable {
   let emailAddress: String
   let providerAccountIdentifier: String
+  let supportsMultipleConnections: Bool
   let trustedDeviceId: String
 }
 

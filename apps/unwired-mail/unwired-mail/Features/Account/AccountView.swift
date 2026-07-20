@@ -793,6 +793,17 @@ private final class GmailProviderConnectionViewModel {
       }
       errorMessage = nil
     } catch {
+      if let refreshedConnections = try? await service.loadConnections(session: session) {
+        connections = refreshedConnections.sorted {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+          connections.contains { $0.id == connectionId }
+        }
+        if selectedConnectionId == connection.id {
+          selectedConnectionId = connections.first?.id
+        }
+      }
       errorMessage = error.localizedDescription
     }
   }
