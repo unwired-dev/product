@@ -98,6 +98,25 @@ protocol GmailPushNotificationReceiptPersisting {
   ) throws
 }
 
+protocol GmailPushEligibilityPersisting {
+  func record(
+    _ messages: [GmailMessageMetadata],
+    throughHistoryId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+  func eligibleStableMessageIds(
+    after historyId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Set<String>
+  func discard(
+    through historyId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+}
+
 enum GmailPushNotificationReceiptClaim {
   case claimed
   case completed
@@ -262,6 +281,103 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
   }
 }
 
+struct GmailPushEligibilityStore: GmailPushEligibilityPersisting {
+  private struct Record: Codable {
+    let stableProviderMessageId: String
+    let throughHistoryId: String
+  }
+
+  private let defaults: UserDefaults
+  private static let lock = NSLock()
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func record(
+    _ messages: [GmailMessageMetadata],
+    throughHistoryId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    Self.lock.lock()
+    defer { Self.lock.unlock() }
+    guard !messages.isEmpty else { return }
+    var recordsByMessageId: [String: Record] = [:]
+    for record in try records(productAccountId, providerAccountIdentifier) {
+      recordsByMessageId[record.stableProviderMessageId] = record
+    }
+    for message in messages {
+      if let existing = recordsByMessageId[message.stableProviderMessageId],
+        !gmailHistoryIdIsNewer(throughHistoryId, than: existing.throughHistoryId)
+      {
+        continue
+      }
+      recordsByMessageId[message.stableProviderMessageId] = Record(
+        stableProviderMessageId: message.stableProviderMessageId,
+        throughHistoryId: throughHistoryId
+      )
+    }
+    try save(Array(recordsByMessageId.values), productAccountId, providerAccountIdentifier)
+  }
+
+  func eligibleStableMessageIds(
+    after historyId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Set<String> {
+    Self.lock.lock()
+    defer { Self.lock.unlock() }
+    return Set(
+      try records(productAccountId, providerAccountIdentifier).compactMap { record in
+        gmailHistoryIdIsNewer(record.throughHistoryId, than: historyId)
+          ? record.stableProviderMessageId : nil
+      }
+    )
+  }
+
+  func discard(
+    through historyId: String,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    Self.lock.lock()
+    defer { Self.lock.unlock() }
+    let remainingRecords = try records(productAccountId, providerAccountIdentifier).filter {
+      gmailHistoryIdIsNewer($0.throughHistoryId, than: historyId)
+    }
+    try save(remainingRecords, productAccountId, providerAccountIdentifier)
+  }
+
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    "gmail-push-notification-eligibility.\(gmailSafeFileComponent(productAccountId))."
+      + gmailSafeFileComponent(providerAccountIdentifier)
+  }
+
+  private func records(
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) throws -> [Record] {
+    guard let data = defaults.data(forKey: key(productAccountId, providerAccountIdentifier)) else {
+      return []
+    }
+    return try JSONDecoder().decode([Record].self, from: data)
+  }
+
+  private func save(
+    _ records: [Record],
+    _ productAccountId: String,
+    _ providerAccountIdentifier: String
+  ) throws {
+    let key = key(productAccountId, providerAccountIdentifier)
+    guard !records.isEmpty else {
+      defaults.removeObject(forKey: key)
+      return
+    }
+    defaults.set(try JSONEncoder().encode(records), forKey: key)
+  }
+}
+
 private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
   func claim(
     _: GmailMessageMetadata,
@@ -277,6 +393,27 @@ private struct NoopGmailPushNotificationReceiptStore: GmailPushNotificationRecei
 
   func release(
     _: GmailMessageMetadata,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+}
+
+private struct NoopGmailPushEligibilityStore: GmailPushEligibilityPersisting {
+  func record(
+    _: [GmailMessageMetadata],
+    throughHistoryId _: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+
+  func eligibleStableMessageIds(
+    after _: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Set<String> { [] }
+
+  func discard(
+    through _: String,
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {}
@@ -670,6 +807,7 @@ struct GmailPushWakeupHandler {
   private let hasProcessingTimeRemaining: @MainActor () -> Bool
   private let notificationAuthorization: NotificationAuthorizationRequesting
   private let notificationDelivery: CategoryAwareNotificationDelivering
+  private let notificationEligibilityStore: GmailPushEligibilityPersisting
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
@@ -690,6 +828,7 @@ struct GmailPushWakeupHandler {
     },
     notificationDelivery: CategoryAwareNotificationDelivering = UserNotificationService(),
     notificationAuthorization: NotificationAuthorizationRequesting? = nil,
+    notificationEligibilityStore: GmailPushEligibilityPersisting? = nil,
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
@@ -708,6 +847,11 @@ struct GmailPushWakeupHandler {
       notificationAuthorization
       ?? (notificationDelivery as? NotificationAuthorizationRequesting)
       ?? UserNotificationService()
+    self.notificationEligibilityStore =
+      notificationEligibilityStore
+      ?? (notificationDelivery is UserNotificationService
+        ? GmailPushEligibilityStore()
+        : NoopGmailPushEligibilityStore())
     self.notificationReceiptStore =
       notificationReceiptStore
       ?? (notificationDelivery is UserNotificationService
@@ -800,6 +944,11 @@ struct GmailPushWakeupHandler {
         productAccountId: productSession.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
+      try? notificationEligibilityStore.discard(
+        through: nextWatermark,
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
       return true
     }
     let completeWithGenericFallback: () async throws -> Bool = {
@@ -845,8 +994,27 @@ struct GmailPushWakeupHandler {
     }
     guard let currentNotificationRules else { return false }
     guard currentWatchForRoute() != nil else { return false }
+    let durableEligibleMessageIds = try notificationEligibilityStore.eligibleStableMessageIds(
+      after: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
+      productAccountId: productSession.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let notificationCandidateIds = Set(
+      syncResult.messages.compactMap { message in
+        if durableEligibleMessageIds.contains(message.stableProviderMessageId)
+          || syncResult.newMessageIds?.contains(message.providerMessageId) == true
+        {
+          return message.providerMessageId
+        }
+        return nil
+      }
+    )
+    let deliverableNotificationCandidateIds =
+      syncResult.newMessageIds == nil && notificationCandidateIds.isEmpty
+      ? nil : notificationCandidateIds
     let canAdvanceWatermark =
-      currentNotificationRules.categoryIds.isEmpty || !syncResult.hasUnlistedNewMessages
+      currentNotificationRules.categoryIds.isEmpty
+      || (syncResult.newMessageIds != nil && !syncResult.hasUnlistedNewMessages)
     let categoryProcessingIsIncomplete =
       !currentNotificationRules.categoryIds.isEmpty
       && (syncResult.historyIsExpired
@@ -854,12 +1022,12 @@ struct GmailPushWakeupHandler {
         || syncResult.newMessageIds == nil
         || syncResult.messages.contains { message in
           !message.isHistorical
-            && syncResult.newMessageIds?.contains(message.providerMessageId) == true
+            && notificationCandidateIds.contains(message.providerMessageId)
             && message.categoryId == nil
         })
     let notificationDeliveryResult = try await deliverCategoryAwareNotifications(
       for: syncResult.messages,
-      including: syncResult.newMessageIds,
+      including: deliverableNotificationCandidateIds,
       connection: connection,
       productAccountId: productSession.productAccountId,
       rules: currentNotificationRules,
