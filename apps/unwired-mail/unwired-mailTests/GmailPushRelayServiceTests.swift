@@ -512,6 +512,41 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testClearingNotificationStateDoesNotDeleteCollidingLegacyState() {
+    let suiteName = "PushNotificationStateTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let firstIdentifier = "gmail/user"
+    let secondIdentifier = "gmail:user"
+    let currentSuffix =
+      "\(gmailSafeFileComponent(session.productAccountId)).\(gmailSafeFileComponent(firstIdentifier))"
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacySuffix = "\(legacyProductAccount).\(legacyGmailSafeFileComponent(secondIdentifier))"
+    let receiptPrefix = "gmail-push-notification-receipts."
+    let eligibilityPrefix = "gmail-push-notification-eligibility."
+    defaults.set(["current"], forKey: "\(receiptPrefix)\(currentSuffix)")
+    defaults.set(Data("current".utf8), forKey: "\(eligibilityPrefix)\(currentSuffix)")
+    defaults.set(["legacy"], forKey: "\(receiptPrefix)\(legacySuffix)")
+    defaults.set(Data("legacy".utf8), forKey: "\(eligibilityPrefix)\(legacySuffix)")
+
+    clearGmailPushNotificationState(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: firstIdentifier,
+      defaults: defaults
+    )
+
+    XCTAssertNil(defaults.object(forKey: "\(receiptPrefix)\(currentSuffix)"))
+    XCTAssertNil(defaults.object(forKey: "\(eligibilityPrefix)\(currentSuffix)"))
+    XCTAssertEqual(
+      defaults.stringArray(forKey: "\(receiptPrefix)\(legacySuffix)"),
+      ["legacy"]
+    )
+    XCTAssertEqual(
+      defaults.data(forKey: "\(eligibilityPrefix)\(legacySuffix)"),
+      Data("legacy".utf8)
+    )
+  }
+
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
