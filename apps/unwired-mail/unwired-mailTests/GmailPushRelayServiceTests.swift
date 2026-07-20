@@ -458,6 +458,30 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testPushConnectionStoreClearingLegacyMailboxPreventsResurrection() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+      try? KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    try store.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [])
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
   func testPushWatchStoreMigratesLegacyStatusAndKeepsCollidingIdentitiesIsolated() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

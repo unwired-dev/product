@@ -576,7 +576,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     )
     var tokensByIdentifier: [String: GmailProviderTokens] = [:]
     for status in statuses {
-      if let tokensForStatus = try? tokenStore.load(
+      if let tokensForStatus = try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: status.providerAccountIdentifier
       ) {

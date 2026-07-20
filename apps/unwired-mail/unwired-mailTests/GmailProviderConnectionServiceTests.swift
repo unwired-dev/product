@@ -434,6 +434,21 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(status)
   }
 
+  func testLoadConnectionsPropagatesTokenLoadFailure() async throws {
+    let service = GmailProviderConnectionService(
+      tokenStore: FailingLoadGmailProviderTokenStore(),
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    do {
+      _ = try await service.loadConnections(session: session)
+      XCTFail("Expected token load failure")
+    } catch GmailProviderConnectionTestError.tokenLoadFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testLoadConnectionRequiresCurrentTrustedDevice() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -1094,6 +1109,7 @@ private enum GmailProviderConnectionTestError: Error {
   case metadataCleanupFailed
   case registrationFailed
   case tokenCleanupFailed
+  case tokenLoadFailed
   case watchStopFailed
 }
 
@@ -1264,6 +1280,25 @@ private final class FailingClearGmailProviderTokenStore: GmailProviderTokenPersi
   ) throws {
     try save(tokens, productAccountId: productAccountId)
   }
+}
+
+private final class FailingLoadGmailProviderTokenStore: GmailProviderTokenPersisting {
+  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {}
+
+  func clearAll(productAccountId _: String) throws {}
+
+  func load(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailProviderTokens? {
+    throw GmailProviderConnectionTestError.tokenLoadFailed
+  }
+
+  func save(
+    _: GmailProviderTokens,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 }
 
 private final class RecordingPushConnectionStore: GmailPushConnectionPersisting {

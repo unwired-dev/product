@@ -555,6 +555,11 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       service: service,
       account: key(productAccountId, providerAccountIdentifier)
     )
+    if let legacyConnection = try connection(account: legacyKey(productAccountId)),
+      legacyConnection.providerAccountIdentifier == providerAccountIdentifier
+    {
+      try KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+    }
     var identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
     identifiers.remove(providerAccountIdentifier)
     try saveProviderAccountIdentifiers(identifiers, productAccountId: productAccountId)
