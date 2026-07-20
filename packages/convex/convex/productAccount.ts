@@ -6,7 +6,7 @@ import {
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
-import type { MutationCtx } from './_generated/server.js';
+import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
@@ -49,6 +49,38 @@ function gmailConnectionDetails(
     trustedDeviceId: args.trustedDeviceId,
     updatedAt: now,
   };
+}
+
+function gmailConnectionStatus(
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+) {
+  return {
+    connectedAt: connection.connectedAt,
+    emailAddress: connection.emailAddress,
+    lastVerifiedAt: connection.lastVerifiedAt,
+    provider: connection.provider,
+    providerAccountIdentifier: connection.providerAccountIdentifier,
+    trustedDeviceId: connection.trustedDeviceId,
+    updatedAt: connection.updatedAt,
+  };
+}
+
+async function gmailConnectionsForTrustedDevice(
+  ctx: MutationCtx | QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs here.
+  trustedDeviceId: Id<'trustedDevices'>,
+  limit: number,
+): Promise<Array<Doc<'mailProviderConnections'>>> {
+  const account = await requireProductAccount(ctx);
+  await requireTrustedDevice(ctx, account.productAccountId, trustedDeviceId);
+  return ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', account.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', trustedDeviceId),
+    )
+    .take(limit);
 }
 
 async function createGmailConnection(
@@ -305,33 +337,13 @@ export const getGmailProviderConnection = query({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireProductAccount(ctx);
-    await requireTrustedDevice(
+    const [connection] = await gmailConnectionsForTrustedDevice(
       ctx,
-      account.productAccountId,
       args.trustedDeviceId,
+      1,
     );
-    const connection = await ctx.db
-      .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId),
-      )
-      .first();
 
-    return connection === null
-      ? null
-      : {
-          connectedAt: connection.connectedAt,
-          emailAddress: connection.emailAddress,
-          lastVerifiedAt: connection.lastVerifiedAt,
-          provider: connection.provider,
-          providerAccountIdentifier: connection.providerAccountIdentifier,
-          trustedDeviceId: connection.trustedDeviceId,
-          updatedAt: connection.updatedAt,
-        };
+    return connection === undefined ? null : gmailConnectionStatus(connection);
   },
   returns: v.union(v.null(), gmailProviderConnectionStatusValidator),
 });
@@ -341,36 +353,18 @@ export const listGmailProviderConnections = query({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireProductAccount(ctx);
-    await requireTrustedDevice(
+    const connections = await gmailConnectionsForTrustedDevice(
       ctx,
-      account.productAccountId,
       args.trustedDeviceId,
+      gmailConnectionLimitPerTrustedDevice + 1,
     );
-    const connections = await ctx.db
-      .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId),
-      )
-      .take(gmailConnectionLimitPerTrustedDevice + 1);
 
     if (connections.length > gmailConnectionLimitPerTrustedDevice) {
       throw new Error('Gmail connection limit exceeded');
     }
 
     return connections
-      .map((connection) => ({
-        connectedAt: connection.connectedAt,
-        emailAddress: connection.emailAddress,
-        lastVerifiedAt: connection.lastVerifiedAt,
-        provider: connection.provider,
-        providerAccountIdentifier: connection.providerAccountIdentifier,
-        trustedDeviceId: connection.trustedDeviceId,
-        updatedAt: connection.updatedAt,
-      }))
+      .map(gmailConnectionStatus)
       .toSorted((left, right) =>
         left.providerAccountIdentifier.localeCompare(
           right.providerAccountIdentifier,

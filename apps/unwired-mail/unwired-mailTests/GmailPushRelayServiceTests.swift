@@ -423,7 +423,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
     let service = "private-email.gmail-push-connection"
     let legacyAccount =
-      "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))"
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
     let legacyJSON = try XCTUnwrap(
       String(data: JSONEncoder().encode(first), encoding: .utf8)
     )
