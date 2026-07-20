@@ -597,7 +597,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   }
 
   private func legacyKey(_ productAccountId: String) -> String {
-    "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))"
   }
 
   private func manifestKey(_ productAccountId: String) -> String {
@@ -1068,11 +1068,11 @@ struct GmailPushWakeupHandler {
     }
     let connections = try connectionStore.loadAll(productAccountId: productSession.productAccountId)
     guard
-      let connection = try connections.first(where: { connection in
-        try watchStore.load(
+      let connection = connections.first(where: { connection in
+        (try? watchStore.load(
           productAccountId: productSession.productAccountId,
           providerAccountIdentifier: connection.providerAccountIdentifier
-        )?.routeId == routeId
+        ))?.routeId == routeId
       }),
       connection.provider == "gmail",
       connection.trustedDeviceId == productSession.trustedDeviceId,

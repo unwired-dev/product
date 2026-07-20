@@ -679,7 +679,8 @@ private final class GmailProviderConnectionViewModel {
   var isLoading = false
   var isRemoving = false
   var pushStatusMessage: String? {
-    pushStatusMessages.values.first
+    let messages = connections.compactMap { pushStatusMessages[$0.id] }
+    return messages.isEmpty ? nil : messages.joined(separator: "\n")
   }
   var selectedConnectionId: MailboxConnectionId?
 
