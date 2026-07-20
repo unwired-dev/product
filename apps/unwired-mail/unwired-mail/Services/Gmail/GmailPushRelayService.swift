@@ -309,7 +309,7 @@ struct GmailPushEligibilityStore: GmailPushEligibilityPersisting {
     }
     for message in messages {
       if let existing = recordsByMessageId[message.stableProviderMessageId],
-        !gmailHistoryIdIsNewer(existing.throughHistoryId, than: throughHistoryId)
+        !gmailHistoryIdIsNewer(throughHistoryId, than: existing.throughHistoryId)
       {
         continue
       }

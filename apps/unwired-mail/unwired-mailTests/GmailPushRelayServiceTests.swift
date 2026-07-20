@@ -1980,6 +1980,36 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testNotificationEligibilityRetainsLatestBoundaryForRepeatedMessages() throws {
+    let suiteName = "GmailPushEligibilityTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let store = GmailPushEligibilityStore(defaults: defaults)
+    let message = pushMessage(categoryId: "system:flights")
+
+    try store.record(
+      [message],
+      throughHistoryId: "124",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.record(
+      [message],
+      throughHistoryId: "130",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    XCTAssertEqual(
+      try store.eligibleStableMessageIds(
+        after: "126",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [message.stableProviderMessageId]
+    )
+  }
+
   func testRouteReplacementDuringDeliveryDoesNotRedeliverMessage() async throws {
     let fixture = try gmailPushOverlapFixture()
     defer { fixture.cleanup() }
@@ -2553,7 +2583,12 @@ private final class RecordingGmailPushEligibilityStore: GmailPushEligibilityPers
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {
-    for message in messages where records[message.stableProviderMessageId] == nil {
+    for message in messages {
+      if let historyId = records[message.stableProviderMessageId],
+        !gmailHistoryIdIsNewer(throughHistoryId, than: historyId)
+      {
+        continue
+      }
       records[message.stableProviderMessageId] = throughHistoryId
     }
   }

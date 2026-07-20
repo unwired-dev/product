@@ -1803,7 +1803,12 @@ private final class RecordingGmailPushEligibilityStore: GmailPushEligibilityPers
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {
-    for message in messages where records[message.stableProviderMessageId] == nil {
+    for message in messages {
+      if let historyId = records[message.stableProviderMessageId],
+        !gmailHistoryIdIsNewer(throughHistoryId, than: historyId)
+      {
+        continue
+      }
       records[message.stableProviderMessageId] = throughHistoryId
     }
   }
