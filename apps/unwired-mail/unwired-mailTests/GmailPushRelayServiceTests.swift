@@ -1856,6 +1856,88 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
+  func testGmailWakeupRetriesDurableEligibilityAfterInboxPersistenceWasInterrupted()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: "system:flights")
+    let eligibilityStore = RecordingGmailPushEligibilityStore()
+    try eligibilityStore.record(
+      [message],
+      throughHistoryId: "124",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = []
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationEligibilityStore: eligibilityStore,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124", "provider": "gmail", "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.messages, [message])
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    XCTAssertTrue(
+      try eligibilityStore.eligibleStableMessageIds(
+        after: "124",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ).isEmpty
+    )
+  }
+
+  func testNotificationEligibilityPersistsUntilItsWatermarkAdvances() throws {
+    let suiteName = "GmailPushEligibilityTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let message = pushMessage(categoryId: "system:flights")
+    try GmailPushEligibilityStore(defaults: defaults).record(
+      [message],
+      throughHistoryId: "124",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let restartedStore = GmailPushEligibilityStore(defaults: defaults)
+    XCTAssertEqual(
+      try restartedStore.eligibleStableMessageIds(
+        after: "123",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [message.stableProviderMessageId]
+    )
+    XCTAssertTrue(
+      try restartedStore.eligibleStableMessageIds(
+        after: "124",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ).isEmpty
+    )
+  }
+
   func testRouteReplacementDuringDeliveryDoesNotRedeliverMessage() async throws {
     let fixture = try gmailPushOverlapFixture()
     defer { fixture.cleanup() }
@@ -2414,6 +2496,37 @@ private final class RecordingGmailPushReceiptStore:
     providerAccountIdentifier _: String
   ) throws {
     receipts.remove(message.stableProviderMessageId)
+  }
+}
+
+private final class RecordingGmailPushEligibilityStore: GmailPushEligibilityPersisting {
+  private var records: [String: String] = [:]
+
+  func record(
+    _ messages: [GmailMessageMetadata],
+    throughHistoryId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    for message in messages where records[message.stableProviderMessageId] == nil {
+      records[message.stableProviderMessageId] = throughHistoryId
+    }
+  }
+
+  func eligibleStableMessageIds(
+    after historyId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Set<String> {
+    Set(records.compactMap { gmailHistoryIdIsNewer($0.value, than: historyId) ? $0.key : nil })
+  }
+
+  func discard(
+    through historyId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    records = records.filter { gmailHistoryIdIsNewer($0.value, than: historyId) }
   }
 }
 

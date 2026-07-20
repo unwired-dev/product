@@ -323,6 +323,7 @@ struct GmailMessageMetadataService:
 
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
+  private let notificationEligibilityStore: GmailPushEligibilityPersisting
   private let oauthClientId: String?
   private let session: URLSession
   private let store: GmailMessageMetadataPersisting
@@ -333,6 +334,7 @@ struct GmailMessageMetadataService:
   init(
     categorizer: GmailMessageCategorizing = GmailMessageCategorizationService(),
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
+    notificationEligibilityStore: GmailPushEligibilityPersisting = GmailPushEligibilityStore(),
     oauthClientId: String? =
       ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
       ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
@@ -345,6 +347,7 @@ struct GmailMessageMetadataService:
   ) {
     self.categorizer = categorizer
     self.gmailBaseURL = gmailBaseURL
+    self.notificationEligibilityStore = notificationEligibilityStore
     self.oauthClientId = oauthClientId
     self.session = session
     self.store = store
@@ -550,6 +553,22 @@ struct GmailMessageMetadataService:
     try Task.checkCancellation()
     guard shouldPersist?() ?? true else {
       throw GmailMessageMetadataSyncError.staleLocalConnection
+    }
+    if includingHistoryCandidates,
+      let throughHistoryId,
+      let addedMessageIds = inboxHistoryChanges?.addedMessageIds
+    {
+      let eligibleMessages = fetchedMessages.filter { message in
+        !message.isHistorical
+          && currentInboxMessageIds.contains(message.providerMessageId)
+          && addedMessageIds.contains(message.providerMessageId)
+      }
+      try notificationEligibilityStore.record(
+        eligibleMessages,
+        throughHistoryId: throughHistoryId,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
     }
     if shouldPersist != nil {
       try tokenStore.save(tokens, productAccountId: session.productAccountId)

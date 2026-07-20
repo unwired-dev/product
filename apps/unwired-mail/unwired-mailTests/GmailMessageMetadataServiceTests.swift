@@ -1040,6 +1040,48 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(result.newMessageIds, ["message-001"])
   }
 
+  func testSyncRecentInboxPreservesNotificationEligibilityWhenInboxPersistenceFails()
+    async throws
+  {
+    let notificationConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_190_000_000,
+      emailAddress: "user@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_190_000_000
+    )
+    let fixture = try makeSyncFixture(
+      historyResponseData: Data(
+        #"{"history":[{"id":"124","messagesAdded":[{"message":{"id":"message-002"}}]}]}"#
+          .utf8
+      )
+    )
+    fixture.store.saveError = GmailMessageMetadataTestError.interruptedPersistence
+
+    do {
+      _ = try await fixture.service.syncRecentInbox(
+        connection: notificationConnection,
+        includingHistoryCandidates: true,
+        session: session,
+        sinceHistoryId: "123",
+        throughHistoryId: "124",
+        shouldPersist: { true }
+      )
+      XCTFail("Expected interrupted inbox persistence")
+    } catch GmailMessageMetadataTestError.interruptedPersistence {
+      XCTAssertEqual(
+        try fixture.eligibilityStore.eligibleStableMessageIds(
+          after: "123",
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ),
+        ["gmail:gmail-user-001:message-002"]
+      )
+    }
+  }
+
   func testSyncRecentInboxDoesNotPersistWhenConnectionChanges() async throws {
     let fixture = try makeSyncFixture()
     let originalTokens = try XCTUnwrap(
@@ -1332,6 +1374,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8)
   ) throws -> GmailMessageMetadataSyncFixture {
+    let eligibilityStore = RecordingGmailPushEligibilityStore()
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
     let requestRecorder = GmailMetadataRequestRecorder()
@@ -1353,6 +1396,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let service = GmailMessageMetadataService(
       categorizer: categorizer,
       gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+      notificationEligibilityStore: eligibilityStore,
       oauthClientId: "gmail-client-id",
       session: urlSession,
       store: store,
@@ -1361,6 +1405,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
     )
     return GmailMessageMetadataSyncFixture(
+      eligibilityStore: eligibilityStore,
       requestRecorder: requestRecorder,
       service: service,
       store: store,
@@ -1610,6 +1655,7 @@ private enum MailboxSwitchingError: Error {
 }
 
 private struct GmailMessageMetadataSyncFixture {
+  let eligibilityStore: RecordingGmailPushEligibilityStore
   let requestRecorder: GmailMetadataRequestRecorder
   let service: GmailMessageMetadataService
   let store: RecordingGmailMessageMetadataStore
@@ -1719,6 +1765,7 @@ private struct GmailMailActionRequest {
 private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPersisting {
   var didClear = false
   var messages: [GmailMessageMetadata] = []
+  var saveError: Error?
   var savedMessages: [GmailMessageMetadata] = []
 
   func clearMessages(productAccountId _: String) throws {
@@ -1739,9 +1786,47 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {
+    if let saveError {
+      throw saveError
+    }
     savedMessages = messages
     self.messages = messages
   }
+}
+
+private final class RecordingGmailPushEligibilityStore: GmailPushEligibilityPersisting {
+  private var records: [String: String] = [:]
+
+  func record(
+    _ messages: [GmailMessageMetadata],
+    throughHistoryId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    for message in messages where records[message.stableProviderMessageId] == nil {
+      records[message.stableProviderMessageId] = throughHistoryId
+    }
+  }
+
+  func eligibleStableMessageIds(
+    after historyId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Set<String> {
+    Set(records.compactMap { gmailHistoryIdIsNewer($0.value, than: historyId) ? $0.key : nil })
+  }
+
+  func discard(
+    through historyId: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    records = records.filter { gmailHistoryIdIsNewer($0.value, than: historyId) }
+  }
+}
+
+private enum GmailMessageMetadataTestError: Error {
+  case interruptedPersistence
 }
 
 private final class RecordingGmailMessageSearchService: GmailMessageSearching {
