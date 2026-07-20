@@ -294,6 +294,19 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
   }
 }
 
+func clearGmailPushNotificationState(
+  productAccountId: String,
+  providerAccountIdentifier: String,
+  defaults: UserDefaults = .standard
+) {
+  let encodings = [gmailSafeFileComponent, legacyGmailSafeFileComponent]
+  for encode in encodings {
+    let suffix = "\(encode(productAccountId)).\(encode(providerAccountIdentifier))"
+    defaults.removeObject(forKey: "gmail-push-notification-receipts.\(suffix)")
+    defaults.removeObject(forKey: "gmail-push-notification-eligibility.\(suffix)")
+  }
+}
+
 struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
   private let defaults: UserDefaults
 

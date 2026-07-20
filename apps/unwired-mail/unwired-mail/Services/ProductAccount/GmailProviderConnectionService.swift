@@ -518,6 +518,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    clearGmailPushNotificationState(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     if let cleanupError {
       throw cleanupError
     }
@@ -563,12 +567,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus? {
-    try await loadConnections(session: session).first
-  }
-
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
@@ -606,6 +604,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
 }
 
 extension GmailProviderConnectionService {
+  func loadConnection(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    try await loadConnections(session: session).first
+  }
+
   fileprivate func shouldStopPushWatch(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot

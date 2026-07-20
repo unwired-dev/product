@@ -92,7 +92,10 @@ struct AccountView: View {
           viewModel: notificationRuleViewModel
         )
 
-        GmailProviderConnectionPanel(viewModel: gmailViewModel)
+        GmailProviderConnectionPanel(
+          viewModel: gmailViewModel,
+          isMailboxBusy: inboxViewModel.isBusy
+        )
 
         GmailInboxPanel(
           categoryChoices: MessageCategoryChoice.available(
@@ -478,6 +481,10 @@ final class GmailInboxViewModel {
     isCategorizingHistorical || isLoading || isSearching || isSyncing
   }
 
+  var isBusy: Bool {
+    isAssigningCategory || isCategorizingHistorical || isLoading || isSearching || isSyncing
+  }
+
   var messageCount: Int {
     threads.reduce(0) { count, thread in
       count + thread.messages.count
@@ -767,6 +774,7 @@ private final class GmailProviderConnectionViewModel {
   }
 
   func renewPushWatch() async {
+    guard !isRemoving else { return }
     for connection in connections {
       await refreshPushWatch(connection: connection)
     }
@@ -1104,6 +1112,7 @@ private struct NotificationRulePanel: View {
 
 private struct GmailProviderConnectionPanel: View {
   @Bindable var viewModel: GmailProviderConnectionViewModel
+  let isMailboxBusy: Bool
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -1163,7 +1172,7 @@ private struct GmailProviderConnectionPanel: View {
             }
           }
           .buttonStyle(.bordered)
-          .disabled(viewModel.isEditingDisabled)
+          .disabled(viewModel.isEditingDisabled || isMailboxBusy)
         }
       }
 
