@@ -1811,6 +1811,75 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
   }
 
+  func testOverlappingGmailWakeupsDeliverMatchingMessageOnce() async throws {
+    let overlappingWake = try await startOverlappingFirstWake()
+    let fixture = overlappingWake.fixture
+    defer { fixture.cleanup() }
+
+    let overlappingWakeHandled = try await overlappingWake.handler.handle(
+      userInfo: overlappingWake.userInfo
+    )
+
+    XCTAssertFalse(overlappingWakeHandled)
+    XCTAssertNil(fixture.watchStore.savedStatus)
+    overlappingWake.notificationCenter.resumeDelivery()
+    let firstWakeHandled = try await overlappingWake.firstWake.value
+    XCTAssertTrue(firstWakeHandled)
+    XCTAssertEqual(
+      overlappingWake.notificationCenter.requests.map(\.identifier),
+      [fixture.message.stableProviderMessageId]
+    )
+    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+  }
+
+  func testCancelledOverlappingGmailWakeupReleasesMessageForRetry() async throws {
+    let overlappingWake = try await startOverlappingFirstWake()
+    let fixture = overlappingWake.fixture
+    defer { fixture.cleanup() }
+
+    let overlappingWakeHandled = try await overlappingWake.handler.handle(
+      userInfo: overlappingWake.userInfo
+    )
+    XCTAssertFalse(overlappingWakeHandled)
+    overlappingWake.notificationCenter.failDelivery(with: CancellationError())
+    do {
+      _ = try await overlappingWake.firstWake.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {}
+    XCTAssertNil(fixture.watchStore.savedStatus)
+
+    let retryCenter = RecordingUserNotificationCenter()
+    let retryHandler = fixture.handler(notificationCenter: retryCenter)
+    let retryHandled = try await retryHandler.handle(userInfo: overlappingWake.userInfo)
+    XCTAssertTrue(retryHandled)
+    XCTAssertEqual(retryCenter.request?.identifier, fixture.message.stableProviderMessageId)
+    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+  }
+
+  func testRouteReplacementDuringDeliveryDoesNotRedeliverMessage() async throws {
+    let fixture = try gmailPushOverlapFixture()
+    defer { fixture.cleanup() }
+    let originalCenter = SuspendingUserNotificationCenter()
+    let originalHandler = fixture.handler(notificationCenter: originalCenter)
+    let originalUserInfo = fixture.userInfo()
+    let originalWake = Task { try await originalHandler.handle(userInfo: originalUserInfo) }
+    await originalCenter.waitUntilDeliveryStarts()
+    try fixture.replaceRoute(with: "route-002")
+    originalCenter.resumeDelivery()
+    let originalWakeHandled = try await originalWake.value
+    XCTAssertFalse(originalWakeHandled)
+
+    let replacementCenter = RecordingUserNotificationCenter()
+    let replacementHandler = fixture.handler(notificationCenter: replacementCenter)
+    let replacementWakeHandled = try await replacementHandler.handle(
+      userInfo: fixture.userInfo(routeId: "route-002")
+    )
+    XCTAssertTrue(replacementWakeHandled)
+    XCTAssertEqual(originalCenter.requests.count, 1)
+    XCTAssertNil(replacementCenter.request)
+    XCTAssertEqual(fixture.watchStore.savedStatus?.latestSyncedHistoryId, "124")
+  }
+
   func testGmailWakeupIgnoresStaleConnectionRoute() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -1904,6 +1973,112 @@ final class GmailPushRelayServiceTests: XCTestCase {
       subject: "Flight confirmation",
       rfcMessageId: "<message-001@example.com>"
     )
+  }
+
+  private func gmailPushOverlapFixture() throws -> GmailPushOverlapFixture {
+    try GmailPushOverlapFixture(
+      connection: connection,
+      message: pushMessage(categoryId: "system:flights"),
+      session: session
+    )
+  }
+
+  private struct OverlappingGmailWake {
+    let fixture: GmailPushOverlapFixture
+    let notificationCenter: SuspendingUserNotificationCenter
+    let handler: GmailPushWakeupHandler
+    let userInfo: [AnyHashable: Any]
+    let firstWake: Task<Bool, Error>
+  }
+
+  private func startOverlappingFirstWake() async throws -> OverlappingGmailWake {
+    let fixture = try gmailPushOverlapFixture()
+    let notificationCenter = SuspendingUserNotificationCenter()
+    let handler = fixture.handler(notificationCenter: notificationCenter)
+    let userInfo = fixture.userInfo()
+    let firstWake = Task { try await handler.handle(userInfo: userInfo) }
+    await notificationCenter.waitUntilDeliveryStarts()
+    return OverlappingGmailWake(
+      fixture: fixture,
+      notificationCenter: notificationCenter,
+      handler: handler,
+      userInfo: userInfo,
+      firstWake: firstWake
+    )
+  }
+}
+
+@MainActor
+private final class GmailPushOverlapFixture {
+  let message: GmailMessageMetadata
+  let watchStore: RecordingGmailPushWatchStore
+
+  private let connection: GmailProviderConnectionStatus
+  private let defaults: UserDefaults
+  private let receiptStore: GmailPushNotificationReceiptStore
+  private let session: ProductAccountSessionSnapshot
+  private let sessionStore = InMemoryProductAccountSessionStore()
+  private let suiteName: String
+  private let syncService = RecordingPushGmailMetadataSyncService()
+
+  init(
+    connection: GmailProviderConnectionStatus,
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    self.connection = connection
+    self.message = message
+    self.session = session
+    let suiteName = "GmailPushOverlapTests.\(UUID().uuidString)"
+    self.suiteName = suiteName
+    defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    receiptStore = GmailPushNotificationReceiptStore(defaults: defaults)
+    watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    try sessionStore.save(session)
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+  }
+
+  func cleanup() {
+    defaults.removePersistentDomain(forName: suiteName)
+  }
+
+  func handler(
+    notificationCenter: UserNotificationCenterClient
+  ) -> GmailPushWakeupHandler {
+    GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: UserNotificationService(center: notificationCenter),
+      notificationReceiptStore: receiptStore,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+  }
+
+  func replaceRoute(with routeId: String) throws {
+    try watchStore.save(
+      GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: routeId
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+  }
+
+  func userInfo(routeId: String = "route-001") -> [AnyHashable: Any] {
+    ["historyId": "124", "provider": "gmail", "routeId": routeId]
   }
 }
 
@@ -2273,6 +2448,47 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
   func requestAuthorization(options: UNAuthorizationOptions) async throws -> Bool {
     authorizationOptions = options
     return true
+  }
+}
+
+@MainActor
+private final class SuspendingUserNotificationCenter: UserNotificationCenterClient {
+  private var deliveryContinuation: CheckedContinuation<Void, Error>?
+  private var deliveryStartedContinuation: CheckedContinuation<Void, Never>?
+  private(set) var requests: [UNNotificationRequest] = []
+
+  func add(_ request: UNNotificationRequest) async throws {
+    guard deliveryContinuation == nil else {
+      XCTFail("Unexpected overlapping notification delivery")
+      throw CancellationError()
+    }
+    requests.append(request)
+    deliveryStartedContinuation?.resume()
+    deliveryStartedContinuation = nil
+    try await withCheckedThrowingContinuation { continuation in
+      deliveryContinuation = continuation
+    }
+  }
+
+  func requestAuthorization(options _: UNAuthorizationOptions) async throws -> Bool {
+    true
+  }
+
+  func waitUntilDeliveryStarts() async {
+    guard deliveryContinuation == nil else { return }
+    await withCheckedContinuation { continuation in
+      deliveryStartedContinuation = continuation
+    }
+  }
+
+  func resumeDelivery() {
+    deliveryContinuation?.resume()
+    deliveryContinuation = nil
+  }
+
+  func failDelivery(with error: Error) {
+    deliveryContinuation?.resume(throwing: error)
+    deliveryContinuation = nil
   }
 }
 
