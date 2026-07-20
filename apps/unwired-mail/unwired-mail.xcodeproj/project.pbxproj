@@ -48,6 +48,8 @@
 		71A6A0992C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09A2C0B000100000001 /* Services/Gmail/CategoryAwareNotificationService.swift */; };
 		71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */; };
 		71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */; };
+		71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */; };
+		71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -107,6 +109,8 @@
 		71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationRuleViewModelTests.swift; sourceTree = "<group>"; };
 		71A6A0A02C0B000100000001 /* Shared.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Shared.xcconfig; sourceTree = "<group>"; };
 		71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GoogleGmailOAuthService.swift; sourceTree = "<group>"; };
+		71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailboxConnection.swift; sourceTree = "<group>"; };
+		71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -154,6 +158,7 @@
 				71A6A08E2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift */,
 				71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */,
 				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
+				71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
 				71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */,
 				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
@@ -183,6 +188,7 @@
 				71A6A08B2C0B000100000001 /* GmailMessageBodyServiceTests.swift */,
 				71A6A0932C0B000100000001 /* GmailPushRelayServiceTests.swift */,
 				71A6A08F2C0B000100000001 /* MessageCategorizationServiceTests.swift */,
+				71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */,
 				71A6A0962C0B000100000001 /* NotificationRuleSyncServiceTests.swift */,
 				71A6A09C2C0B000100000001 /* NotificationRuleViewModelTests.swift */,
 				71A6A0832C0B000100000001 /* GmailProviderConnectionServiceTests.swift */,
@@ -315,6 +321,7 @@
 				71A6A08C2C0B000100000001 /* Services/Gmail/MessageCategorizationService.swift in Sources */,
 				71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */,
 				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
+				71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
 				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
@@ -342,6 +349,7 @@
 				71A6A0892C0B000100000001 /* GmailMessageBodyServiceTests.swift in Sources */,
 				71A6A0912C0B000100000001 /* GmailPushRelayServiceTests.swift in Sources */,
 				71A6A08D2C0B000100000001 /* MessageCategorizationServiceTests.swift in Sources */,
+				71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */,
 				71A6A0952C0B000100000001 /* NotificationRuleSyncServiceTests.swift in Sources */,
 				71A6A09B2C0B000100000001 /* NotificationRuleViewModelTests.swift in Sources */,
 				71A6A0812C0B000100000001 /* GmailProviderConnectionServiceTests.swift in Sources */,

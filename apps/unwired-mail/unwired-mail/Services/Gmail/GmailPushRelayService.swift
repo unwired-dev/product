@@ -811,7 +811,7 @@ struct GmailPushWakeupHandler {
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
-  private let syncService: GmailMessageMetadataSyncing
+  private let syncService: MailboxMetadataSyncing
   private let watchStore: GmailPushWatchPersisting
 
   init(
@@ -832,7 +832,7 @@ struct GmailPushWakeupHandler {
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
-    syncService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
+    syncService: MailboxMetadataSyncing = GmailMailboxConnectionAdapter(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.connectionStore = connectionStore
@@ -967,10 +967,13 @@ struct GmailPushWakeupHandler {
       return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
-    let syncResult: GmailMetadataSyncResult
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: productSession.productAccountId
+    )
+    let syncResult: MailboxMetadataSyncResult
     do {
       syncResult = try await syncService.syncRecentInbox(
-        connection: connection,
+        connection: mailboxConnection,
         includingHistoryCandidates: !notificationRules.categoryIds.isEmpty,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
@@ -1017,7 +1020,7 @@ struct GmailPushWakeupHandler {
       || (syncResult.newMessageIds != nil && !syncResult.hasUnlistedNewMessages)
     let categoryProcessingIsIncomplete =
       !currentNotificationRules.categoryIds.isEmpty
-      && (syncResult.historyIsExpired
+      && (syncResult.providerCursorIsExpired
         || syncResult.hasUnlistedNewMessages
         || syncResult.newMessageIds == nil
         || syncResult.messages.contains { message in
@@ -1026,7 +1029,7 @@ struct GmailPushWakeupHandler {
             && message.categoryId == nil
         })
     let notificationDeliveryResult = try await deliverCategoryAwareNotifications(
-      for: syncResult.messages,
+      for: syncResult.messages.map(\.gmailMetadata),
       including: deliverableNotificationCandidateIds,
       connection: connection,
       productAccountId: productSession.productAccountId,

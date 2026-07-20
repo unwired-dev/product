@@ -3,8 +3,8 @@ import Foundation
 // swiftlint:disable file_length type_body_length
 
 struct GmailMessageMetadata: Codable, Equatable, Identifiable {
-  var id: String {
-    stableProviderMessageId
+  var id: StableProviderMessageIdentity {
+    stableIdentity
   }
 
   let categoryId: String?
@@ -29,61 +29,17 @@ struct GmailLocalMetadataSearch {
     matching query: String,
     categoryNamesById: [String: String]
   ) -> [GmailMessageMetadata] {
-    let terms = normalized(query).split(whereSeparator: \Character.isWhitespace)
-    guard !terms.isEmpty else { return [] }
-
-    return messages.filter { message in
-      let searchableText = normalized(
-        [
-          message.from,
-          message.recipientHeaders?.joined(separator: " "),
-          message.subject,
-          dateText(for: message.providerInternalDateMilliseconds),
-          message.categoryId,
-          message.categoryId.flatMap { categoryNamesById[$0] },
-        ]
-        .compactMap { $0 }
-        .joined(separator: " ")
-      )
-      let providerStates = message.providerLabelIds.map(providerStates(for:)) ?? []
-      return terms.allSatisfy { term in
-        searchableText.contains(term) || providerStates.contains(String(term))
-      }
-    }
-  }
-
-  private static func dateText(for milliseconds: Int64) -> String {
-    let formatter = DateFormatter()
-    formatter.calendar = .current
-    formatter.dateFormat = "yyyy-MM-dd"
-    formatter.locale = Locale(identifier: "en_US_POSIX")
-    formatter.timeZone = .current
-    return formatter.string(
-      from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
-    )
-  }
-
-  private static func normalized(_ value: String) -> String {
-    value
-      .folding(
-        options: [.caseInsensitive, .diacriticInsensitive],
-        locale: Locale(identifier: "en_US_POSIX")
-      )
-      .lowercased()
-  }
-
-  private static func providerStates(for labelIds: [String]) -> Set<String> {
-    let states = Set(labelIds.map { normalized($0) })
-    return states.union([
-      states.contains("unread") ? "unread" : "read",
-      states.contains("starred") ? "starred" : "unstarred",
-    ])
+    MailboxLocalMetadataSearch.messages(
+      in: messages.map { $0.mailboxMetadata(connectionId: $0.mailboxConnectionId) },
+      matching: query,
+      categoryNamesById: categoryNamesById
+    ).map(\.gmailMetadata)
   }
 }
 
 struct GmailInboxThread: Equatable, Identifiable {
-  var id: String {
-    providerThreadId
+  var id: MailboxThreadIdentity {
+    latestMessage.threadIdentity
   }
 
   let latestMessage: GmailMessageMetadata

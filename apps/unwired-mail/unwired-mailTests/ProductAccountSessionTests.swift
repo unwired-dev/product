@@ -55,7 +55,9 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: GmailMailboxConnectionAdapter(
+        connectionService: gmailConnectionService
+      ),
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -96,7 +98,7 @@ final class ProductAccountSessionTests: XCTestCase {
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -135,7 +137,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: SuspendingGmailProviderConnecting(
+      mailboxConnectionService: SuspendingGmailProviderConnecting(
         gate: gmailCleanupGate
       ),
       productSyncKeyMaterialStore: keyMaterialStore
@@ -176,7 +178,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -210,7 +212,9 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: GmailMailboxConnectionAdapter(
+        connectionService: gmailConnectionService
+      ),
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -289,7 +293,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -320,7 +324,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -356,7 +360,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: sessionStore,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -390,7 +394,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -447,7 +451,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -473,7 +477,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: RevokedAppleSignInService(),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -504,7 +508,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -540,7 +544,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
-      gmailProviderConnectionService: gmailConnectionService,
+      mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -746,7 +750,9 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   }
 }
 
-private final class RecordingGmailProviderConnecting: GmailProviderConnecting {
+private final class RecordingGmailProviderConnecting:
+  GmailProviderConnecting, MailboxConnectionClearing
+{
   var clearedSession: ProductAccountSessionSnapshot?
   var clearedSessions: [ProductAccountSessionSnapshot] = []
   var clearError: Error?
@@ -828,7 +834,9 @@ private struct SuspendingDevicePushUnregisterer: DevicePushUnregistering {
   }
 }
 
-private struct SuspendingGmailProviderConnecting: GmailProviderConnecting {
+private struct SuspendingGmailProviderConnecting:
+  GmailProviderConnecting, MailboxConnectionClearing
+{
   let gate: SignOutUnregistrationGate
 
   func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {

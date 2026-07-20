@@ -403,7 +403,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertTrue(handled)
     XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)
-    XCTAssertEqual(syncService.syncedConnection, connection)
+    XCTAssertEqual(
+      syncService.syncedConnection,
+      connection.mailboxConnection(productAccountId: session.productAccountId)
+    )
     XCTAssertEqual(syncService.syncedSession, session)
     XCTAssertEqual(syncService.sinceHistoryId, "123")
     XCTAssertEqual(
@@ -2451,7 +2454,7 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
   }
 }
 
-private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataSyncing {
+private final class RecordingPushGmailMetadataSyncService: MailboxMetadataSyncing {
   var existingMessages: [GmailMessageMetadata] = []
   var historyIsExpired = false
   var onSync: (() -> Void)?
@@ -2461,42 +2464,43 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
   var hasUnlistedNewMessages = false
   var includesHistoryCandidates: Bool?
   var newMessageIds: Set<String>?
-  var syncedConnection: GmailProviderConnectionStatus?
+  var syncedConnection: MailboxConnection?
   var syncedSession: ProductAccountSessionSnapshot?
   var syncError: Error?
   var usesUnavailableHistoryDelta = false
 
   func categorizeHistorical(
-    scope _: GmailHistoricalCategorizationScope,
-    connection _: GmailProviderConnectionStatus,
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     throw GmailPushRelayTestError.unexpectedCall
   }
 
   func loadInbox(
-    connection _: GmailProviderConnectionStatus,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     GmailMetadataSyncResult(messages: existingMessages, threads: [])
+      .mailboxResult(connectionId: connection.id)
   }
 
   func syncInbox(
-    connection _: GmailProviderConnectionStatus,
+    connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     throw GmailPushRelayTestError.unexpectedCall
   }
 
   // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
-    connection: GmailProviderConnectionStatus,
+    connection: MailboxConnection,
     includingHistoryCandidates: Bool,
     session: ProductAccountSessionSnapshot,
     sinceHistoryId: String?,
     throughHistoryId _: String?,
     shouldPersist: @escaping () -> Bool
-  ) async throws -> GmailMetadataSyncResult {
+  ) async throws -> MailboxMetadataSyncResult {
     syncedConnection = connection
     includesHistoryCandidates = includingHistoryCandidates
     syncedSession = session
@@ -2518,14 +2522,14 @@ private final class RecordingPushGmailMetadataSyncService: GmailMessageMetadataS
         ? nil
         : newMessageIds ?? Set(syncedMessages.map(\.providerMessageId)),
       threads: []
-    )
+    ).mailboxResult(connectionId: connection.id)
   }
 
   func overrideCategory(
     _: String,
-    for _: GmailMessageMetadata,
+    for _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailMessageMetadata {
+  ) async throws -> MailboxMessageMetadata {
     throw GmailPushRelayTestError.unexpectedCall
   }
 }

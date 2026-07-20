@@ -13,6 +13,90 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  func testGmailConnectionExposesProviderNeutralIdentityAndExplicitCapabilities() {
+    let status = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "user@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-001",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+
+    let connection = status.mailboxConnection(productAccountId: session.productAccountId)
+
+    XCTAssertEqual(connection.productAccountId, ProductAccountId(session.productAccountId))
+    XCTAssertEqual(connection.providerId, .gmail)
+    XCTAssertEqual(
+      connection.providerMailboxIdentity,
+      StableProviderMailboxIdentity(providerId: .gmail, value: "gmail-user-001")
+    )
+    XCTAssertEqual(
+      connection.id,
+      MailboxConnectionId(
+        providerMailboxIdentity: connection.providerMailboxIdentity
+      )
+    )
+    XCTAssertEqual(connection.displayName, "user@example.com")
+    XCTAssertTrue(connection.capabilities.canSynchronizeMetadata)
+    XCTAssertTrue(connection.capabilities.canReadMessages)
+    XCTAssertTrue(connection.capabilities.canRegisterPush)
+    XCTAssertTrue(connection.capabilities.canSearchProvider)
+    XCTAssertTrue(connection.capabilities.canSend)
+    XCTAssertEqual(connection.capabilities.providerActions, Set(ProviderMailAction.allCases))
+  }
+
+  func testGmailMessageIdentitiesRemainScopedToTheirMailboxConnection() {
+    let message = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Sender <sender@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: 1_781_200_000_000,
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      replyTo: nil,
+      snippet: "Private message",
+      stableProviderMessageId: "gmail:gmail-user-001:message-001",
+      subject: "Subject",
+      rfcMessageId: "<message-001@example.com>"
+    )
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-001"
+      )
+    )
+
+    XCTAssertEqual(message.mailboxConnectionId, connectionId)
+    XCTAssertEqual(message.id, message.stableIdentity)
+    XCTAssertEqual(
+      message.threadIdentity,
+      MailboxThreadIdentity(connectionId: connectionId, providerThreadId: "thread-001")
+    )
+    XCTAssertEqual(
+      message.stableIdentity,
+      StableProviderMessageIdentity(
+        connectionId: connectionId,
+        providerMessageId: "message-001"
+      )
+    )
+    XCTAssertEqual(GmailInboxThread.group([message])[0].id, message.threadIdentity)
+
+    let otherConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let mailboxMessage = message.mailboxMetadata(connectionId: connectionId)
+    let otherMailboxMessage = message.mailboxMetadata(connectionId: otherConnectionId)
+
+    XCTAssertEqual(mailboxMessage.stableProviderMessageId, "gmail:gmail-user-001:message-001")
+    XCTAssertEqual(MailboxThread.group([mailboxMessage, otherMailboxMessage]).count, 2)
+  }
+
   func testGmailIdentityTokenIsExcludedFromTokenPersistence() throws {
     let encoded = try JSONEncoder().encode(
       GmailProviderTokens(
