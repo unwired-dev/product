@@ -1908,6 +1908,48 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testGmailWakeupDoesNotAdvanceWatermarkForStaleDurableEligibilityWithoutHistoryDelta()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let eligibilityStore = RecordingGmailPushEligibilityStore()
+    try eligibilityStore.record(
+      [pushMessage(id: "stale-message", categoryId: "system:flights")],
+      throughHistoryId: "124",
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [pushMessage(id: "current-message", categoryId: "system:flights")]
+    syncService.usesUnavailableHistoryDelta = true
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: RecordingNotificationDelivery(),
+      notificationEligibilityStore: eligibilityStore,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124", "provider": "gmail", "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testNotificationEligibilityPersistsUntilItsWatermarkAdvances() throws {
     let suiteName = "GmailPushEligibilityTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -2040,20 +2082,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
     return data
   }
 
-  private func pushMessage(categoryId: String?) -> GmailMessageMetadata {
+  private func pushMessage(
+    id: String = "message-001",
+    categoryId: String?
+  ) -> GmailMessageMetadata {
     GmailMessageMetadata(
       categoryId: categoryId,
       from: "Airline <updates@example.com>",
       isHistorical: false,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       providerInternalDateMilliseconds: 1_781_300_000_000,
-      providerMessageId: "message-001",
+      providerMessageId: id,
       providerThreadId: "thread-001",
       replyTo: nil,
       snippet: "Your itinerary is ready",
-      stableProviderMessageId: "gmail:gmail-user-001:message-001",
+      stableProviderMessageId: "gmail:gmail-user-001:\(id)",
       subject: "Flight confirmation",
-      rfcMessageId: "<message-001@example.com>"
+      rfcMessageId: "<\(id)@example.com>"
     )
   }
 
