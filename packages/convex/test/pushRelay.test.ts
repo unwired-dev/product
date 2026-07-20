@@ -230,6 +230,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
@@ -239,6 +240,7 @@ describe('gmail push relay', () => {
     });
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -289,6 +291,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: connection.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
@@ -325,6 +328,7 @@ describe('gmail push relay', () => {
     });
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -382,6 +386,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -462,6 +467,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.

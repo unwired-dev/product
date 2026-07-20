@@ -142,6 +142,12 @@ struct AccountView: View {
         await gmailViewModel.renewPushWatch()
       }
     }
+    .onChange(of: gmailViewModel.connection?.id) { _, _ in
+      guard let connection = gmailViewModel.connection else { return }
+      Task {
+        await inboxViewModel.load(connection: connection)
+      }
+    }
   }
 }
 
@@ -667,11 +673,13 @@ final class GmailInboxViewModel {
 @MainActor
 @Observable
 private final class GmailProviderConnectionViewModel {
-  var connection: MailboxConnection?
+  var connections: [MailboxConnection] = []
   var errorMessage: String?
   var isConnecting = false
   var isLoading = false
+  var isRemoving = false
   var pushStatusMessage: String?
+  var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let service: MailboxConnectionAdapter
@@ -688,11 +696,15 @@ private final class GmailProviderConnectionViewModel {
   }
 
   var canConnect: Bool {
-    !isConnecting && !isLoading
+    !isConnecting && !isLoading && !isRemoving
   }
 
   var isEditingDisabled: Bool {
-    isConnecting || isLoading
+    isConnecting || isLoading || isRemoving
+  }
+
+  var connection: MailboxConnection? {
+    connections.first { $0.id == selectedConnectionId } ?? connections.first
   }
 
   func load() async {
@@ -702,9 +714,15 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
-      connection = try await service.loadConnection(session: session)
+      connections = try await service.loadConnections(session: session)
+        .sorted {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+      if !connections.contains(where: { $0.id == selectedConnectionId }) {
+        selectedConnectionId = connections.first?.id
+      }
       errorMessage = nil
-      if let connection {
+      for connection in connections {
         await refreshPushWatch(connection: connection)
       }
     } catch {
@@ -721,13 +739,19 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
-      connection = try await service.connect(
+      let connected = try await service.connect(
         session: session,
         isSessionCurrent: isSessionCurrent
       )
       errorMessage = nil
-      if let connection {
-        await refreshPushWatch(connection: connection)
+      if let connected {
+        connections.removeAll { $0.id == connected.id }
+        connections.append(connected)
+        connections.sort {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        selectedConnectionId = connected.id
+        await refreshPushWatch(connection: connected)
       }
     } catch is CancellationError {
     } catch {
@@ -736,9 +760,25 @@ private final class GmailProviderConnectionViewModel {
   }
 
   func renewPushWatch() async {
-    guard let connection else { return }
+    for connection in connections {
+      await refreshPushWatch(connection: connection)
+    }
+  }
 
-    await refreshPushWatch(connection: connection)
+  func removeLocalAuthorization(_ connection: MailboxConnection) async {
+    guard !isEditingDisabled else { return }
+    isRemoving = true
+    defer { isRemoving = false }
+    do {
+      try await service.clearLocalConnection(connection, session: session)
+      connections.removeAll { $0.id == connection.id }
+      if selectedConnectionId == connection.id {
+        selectedConnectionId = connections.first?.id
+      }
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
@@ -748,7 +788,7 @@ private final class GmailProviderConnectionViewModel {
     }
     do {
       try Task.checkCancellation()
-      guard isSessionCurrent(session), self.connection == connection else {
+      guard isSessionCurrent(session), connections.contains(connection) else {
         return
       }
       try await service.registerOrRenewPush(
@@ -1064,17 +1104,16 @@ private struct GmailProviderConnectionPanel: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Gmail")
             .font(.headline)
-          if let connection = viewModel.connection {
-            Label(connection.displayName, systemImage: "checkmark.circle.fill")
-              .foregroundStyle(.green)
-              .font(.subheadline)
-            Text("Provider account: \(connection.providerMailboxIdentity.value)")
-              .font(.footnote)
-              .foregroundStyle(.secondary)
-          } else {
+          if viewModel.connections.isEmpty {
             Text("Not connected")
               .font(.subheadline)
               .foregroundStyle(.secondary)
+          } else {
+            Text(
+              "\(viewModel.connections.count) mailbox connection\(viewModel.connections.count == 1 ? "" : "s")"
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
           }
         }
 
@@ -1091,20 +1130,56 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      ForEach(viewModel.connections) { connection in
+        HStack {
+          Button {
+            viewModel.selectedConnectionId = connection.id
+          } label: {
+            VStack(alignment: .leading, spacing: 2) {
+              Label(
+                connection.displayName,
+                systemImage: viewModel.connection?.id == connection.id
+                  ? "checkmark.circle.fill" : "circle"
+              )
+              Text(connection.providerMailboxIdentity.value)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+
+          Button("Remove", role: .destructive) {
+            Task {
+              await viewModel.removeLocalAuthorization(connection)
+            }
+          }
+          .buttonStyle(.bordered)
+          .disabled(viewModel.isEditingDisabled)
+        }
+      }
+
       Button {
         connectTask?.cancel()
         connectTask = Task {
           await viewModel.connect()
         }
       } label: {
-        Label("Sign in with Google", systemImage: "person.crop.circle.badge.checkmark")
-          .frame(minHeight: 32)
+        Label(
+          viewModel.connections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
+          systemImage: "person.crop.circle.badge.checkmark"
+        )
+        .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
       .disabled(!viewModel.canConnect)
 
-      if viewModel.isLoading || viewModel.isConnecting {
-        ProgressView(viewModel.isConnecting ? "Connecting Gmail..." : "Loading Gmail...")
+      if viewModel.isLoading || viewModel.isConnecting || viewModel.isRemoving {
+        ProgressView(
+          viewModel.isConnecting
+            ? "Connecting Gmail..."
+            : (viewModel.isRemoving ? "Removing Gmail..." : "Loading Gmail...")
+        )
       }
 
       if let errorMessage = viewModel.errorMessage {

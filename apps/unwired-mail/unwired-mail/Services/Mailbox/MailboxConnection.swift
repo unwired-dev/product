@@ -411,6 +411,19 @@ struct OutgoingMessage: Equatable, Sendable {
 
 protocol MailboxConnectionClearing {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws
+  func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
+extension MailboxConnectionClearing {
+  func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await clearLocalConnection(session: session)
+  }
 }
 
 protocol MailboxConnectionManaging: MailboxConnectionClearing {
@@ -423,6 +436,21 @@ protocol MailboxConnectionManaging: MailboxConnectionClearing {
   func loadConnection(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnection?
+
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection]
+}
+
+extension MailboxConnectionManaging {
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    if let connection = try await loadConnection(session: session) {
+      return [connection]
+    }
+    return []
+  }
 }
 
 protocol MailboxMetadataSyncing {
@@ -470,6 +498,11 @@ protocol MailboxMessageSearching {
 protocol MailboxMessageReading {
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws
 
+  func clearCachedMessageBodies(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws
+
   func loadMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -479,6 +512,15 @@ protocol MailboxMessageReading {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws
+}
+
+extension MailboxMessageReading {
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try clearCachedMessageBodies(session: session)
+  }
 }
 
 protocol MailboxPushRegistering {
@@ -522,6 +564,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
@@ -555,6 +598,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await connectionService.clearLocalConnection(session: session)
+  }
+
+  func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await connectionService.clearLocalConnection(
+      try gmailConnection(connection, session: session),
+      session: session
+    )
   }
 
   @MainActor
@@ -593,6 +646,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await connectionService.loadConnection(session: session)?.mailboxConnection(
       productAccountId: session.productAccountId
     )
+  }
+
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    try await connectionService.loadConnections(session: session).map {
+      $0.mailboxConnection(productAccountId: session.productAccountId)
+    }
   }
 
   func categorizeHistorical(
@@ -676,6 +737,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
     try bodyReader.clearCachedMessageBodies(session: session)
+  }
+
+  func clearCachedMessageBodies(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try bodyReader.clearCachedMessageBodies(
+      connection: try gmailConnection(connection, session: session),
+      session: session
+    )
   }
 
   func loadMessageBody(

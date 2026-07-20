@@ -150,7 +150,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(message.subject, "Trip details")
   }
 
-  func testFileCacheStoresEncryptedPayloadAndRemovesIt() throws {
+  func testFileCacheClearsOnlySelectedMailboxPayload() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
@@ -164,35 +164,60 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       tagBase64: "tag"
     )
 
-    XCTAssertNil(
-      try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
+    let firstProviderAccountIdentifier = "gmail/user"
+    let firstStableMessageId = "gmail:\(firstProviderAccountIdentifier):message-001"
+    let secondProviderAccountIdentifier = "gmail:user"
+    let secondStableMessageId = "gmail:\(secondProviderAccountIdentifier):message-002"
+    try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+    let legacyFirstURL = legacyBodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: firstStableMessageId
     )
+    try JSONEncoder().encode(payload).write(to: legacyFirstURL)
     try cache.saveMessageBody(
       payload,
       productAccountId: session.productAccountId,
-      stableProviderMessageId: message.stableProviderMessageId
+      stableProviderMessageId: secondStableMessageId
     )
-    XCTAssertEqual(
+    XCTAssertNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      ),
-      payload
+        stableProviderMessageId: firstStableMessageId
+      )
     )
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
-    try cache.removeMessageBody(
+    try cache.clearMessageBodies(
       productAccountId: session.productAccountId,
-      stableProviderMessageId: message.stableProviderMessageId
+      providerAccountIdentifier: secondProviderAccountIdentifier
     )
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
     XCTAssertNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
+        stableProviderMessageId: firstStableMessageId
       )
+    )
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: secondStableMessageId
+      )
+    )
+
+    try cache.clearMessageBodies(productAccountId: session.productAccountId)
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+  }
+
+  private func legacyBodyCacheURL(
+    rootDirectory: URL,
+    stableProviderMessageId: String
+  ) -> URL {
+    let productAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let stableMessage = legacyGmailSafeFileComponent(stableProviderMessageId)
+    return rootDirectory.appendingPathComponent(
+      "\(productAccount)-\(stableMessage).json"
     )
   }
 
@@ -401,11 +426,34 @@ private final class RecordingBodyCacheTokenStore: GmailProviderTokenPersisting {
     tokens = nil
   }
 
+  func clear(productAccountId: String, providerAccountIdentifier _: String) throws {
+    try clear(productAccountId: productAccountId)
+  }
+
+  func clearAll(productAccountId: String) throws {
+    try clear(productAccountId: productAccountId)
+  }
+
   func load(productAccountId _: String) throws -> GmailProviderTokens? {
     tokens
   }
 
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailProviderTokens? {
+    try load(productAccountId: productAccountId)
+  }
+
   func save(_ tokens: GmailProviderTokens, productAccountId _: String) throws {
     self.tokens = tokens
+  }
+
+  func save(
+    _ tokens: GmailProviderTokens,
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    try save(tokens, productAccountId: productAccountId)
   }
 }

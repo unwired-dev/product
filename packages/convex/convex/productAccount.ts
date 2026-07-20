@@ -15,6 +15,8 @@ import {
   requireTrustedDevice,
 } from './productAccountAuth.js';
 
+const gmailConnectionLimitPerTrustedDevice = 20;
+
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
   now: number;
@@ -263,17 +265,34 @@ export const connectGmailProvider = mutation({
     const now = Date.now();
     const existingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId),
+      .withIndex(
+        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+        (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', args.trustedDeviceId)
+            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
 
     const connection = gmailConnectionDetails(args, now);
 
     if (existingConnection === null) {
+      const connections = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId',
+          (q) =>
+            q
+              .eq('productAccountId', account.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', args.trustedDeviceId),
+        )
+        .take(gmailConnectionLimitPerTrustedDevice);
+      if (connections.length === gmailConnectionLimitPerTrustedDevice) {
+        throw new Error('Gmail connection limit reached');
+      }
       return createGmailConnection(ctx, account.productAccountId, connection);
     }
     return updateGmailConnection(ctx, existingConnection, connection);
@@ -300,7 +319,7 @@ export const getGmailProviderConnection = query({
           .eq('provider', 'gmail')
           .eq('trustedDeviceId', args.trustedDeviceId),
       )
-      .unique();
+      .first();
 
     return connection === null
       ? null
@@ -315,4 +334,79 @@ export const getGmailProviderConnection = query({
         };
   },
   returns: v.union(v.null(), gmailProviderConnectionStatusValidator),
+});
+
+export const listGmailProviderConnections = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    const connections = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .take(gmailConnectionLimitPerTrustedDevice + 1);
+
+    if (connections.length > gmailConnectionLimitPerTrustedDevice) {
+      throw new Error('Gmail connection limit exceeded');
+    }
+
+    return connections
+      .map((connection) => ({
+        connectedAt: connection.connectedAt,
+        emailAddress: connection.emailAddress,
+        lastVerifiedAt: connection.lastVerifiedAt,
+        provider: connection.provider,
+        providerAccountIdentifier: connection.providerAccountIdentifier,
+        trustedDeviceId: connection.trustedDeviceId,
+        updatedAt: connection.updatedAt,
+      }))
+      .toSorted((left, right) =>
+        left.providerAccountIdentifier.localeCompare(
+          right.providerAccountIdentifier,
+        ),
+      );
+  },
+  returns: v.array(gmailProviderConnectionStatusValidator),
+});
+
+export const removeGmailProviderConnection = mutation({
+  args: {
+    providerAccountIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const connection = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex(
+        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+        (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', args.trustedDeviceId)
+            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      )
+      .unique();
+    if (connection !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+    return { removed: connection !== null };
+  },
+  returns: v.object({ removed: v.boolean() }),
 });

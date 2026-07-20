@@ -118,6 +118,73 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testFileMetadataStoreClearsOnlySelectedMailbox() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = FileGmailMessageMetadataStore(rootDirectory: rootDirectory)
+    let first = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 1,
+      providerAccountIdentifier: "gmail/user"
+    )
+    let second = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 2,
+      providerAccountIdentifier: "gmail:user"
+    )
+    try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacyProviderAccount = legacyGmailSafeFileComponent(first.providerAccountIdentifier)
+    let legacyFirstURL = rootDirectory.appendingPathComponent(
+      "\(legacyProductAccount)-\(legacyProviderAccount).json"
+    )
+    let firstData = try JSONEncoder().encode([first])
+    try firstData.write(to: legacyFirstURL)
+    try store.saveMessages(
+      [second],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: second.providerAccountIdentifier
+    )
+    try store.clearMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: second.providerAccountIdentifier
+    )
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: second.providerAccountIdentifier
+      ),
+      []
+    )
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: first.providerAccountIdentifier
+      ),
+      [first]
+    )
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+
+    try firstData.write(to: legacyFirstURL)
+    try store.clearMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: first.providerAccountIdentifier
+    )
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: first.providerAccountIdentifier
+      ),
+      []
+    )
+  }
+
   func testSyncInboxStoresMetadataWithStableProviderIdentityAndNoCategory() async throws {
     let fixture = try makeSyncFixture()
 
@@ -1560,19 +1627,20 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   private func metadata(
     messageId: String,
     threadId: String,
-    internalDateMilliseconds: Int64
+    internalDateMilliseconds: Int64,
+    providerAccountIdentifier: String = "gmail-user-001"
   ) -> GmailMessageMetadata {
     GmailMessageMetadata(
       categoryId: nil,
       from: "Sender <sender@example.com>",
       isHistorical: true,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
+      providerAccountIdentifier: providerAccountIdentifier,
       providerInternalDateMilliseconds: internalDateMilliseconds,
       providerMessageId: messageId,
       providerThreadId: threadId,
       replyTo: nil,
       snippet: "Snippet",
-      stableProviderMessageId: "gmail:gmail-user-001:\(messageId)",
+      stableProviderMessageId: "gmail:\(providerAccountIdentifier):\(messageId)",
       subject: "Subject",
       rfcMessageId: nil
     )
@@ -1944,8 +2012,26 @@ private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisti
     tokensByProductAccountId[productAccountId] = nil
   }
 
+  func clear(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    try clear(productAccountId: productAccountId)
+  }
+
+  func clearAll(productAccountId: String) throws {
+    try clear(productAccountId: productAccountId)
+  }
+
   func load(productAccountId: String) throws -> GmailProviderTokens? {
     tokensByProductAccountId[productAccountId]
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws -> GmailProviderTokens? {
+    try load(productAccountId: productAccountId)
   }
 
   func save(
@@ -1953,5 +2039,13 @@ private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisti
     productAccountId: String
   ) throws {
     tokensByProductAccountId[productAccountId] = tokens
+  }
+
+  func save(
+    _ tokens: GmailProviderTokens,
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    try save(tokens, productAccountId: productAccountId)
   }
 }
