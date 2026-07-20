@@ -65,6 +65,20 @@ function gmailConnectionStatus(
   };
 }
 
+function gmailConnectionToUpdate(
+  existingConnection: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  supportsMultipleConnections: boolean | undefined,
+): Doc<'mailProviderConnections'> | null {
+  if (existingConnection !== null) {
+    return existingConnection;
+  }
+  if (supportsMultipleConnections === true) {
+    return null;
+  }
+  return connections[0] ?? null;
+}
+
 async function gmailConnectionsForTrustedDevice(
   ctx: MutationCtx | QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs here.
   trustedDeviceId: Id<'trustedDevices'>,
@@ -307,33 +321,29 @@ export const connectGmailProvider = mutation({
       )
       .unique();
 
+    const connections = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .take(gmailConnectionLimitPerTrustedDevice);
+    const connectionToUpdate = gmailConnectionToUpdate(
+      existingConnection,
+      connections,
+      args.supportsMultipleConnections,
+    );
     const connection = gmailConnectionDetails(args, now);
 
-    if (existingConnection === null) {
-      const connections = await ctx.db
-        .query('mailProviderConnections')
-        .withIndex(
-          'by_productAccountId_and_provider_and_trustedDeviceId',
-          (q) =>
-            q
-              .eq('productAccountId', account.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', args.trustedDeviceId),
-        )
-        .take(gmailConnectionLimitPerTrustedDevice);
-      const [legacyConnection] = connections;
-      if (
-        args.supportsMultipleConnections !== true &&
-        legacyConnection !== undefined
-      ) {
-        return updateGmailConnection(ctx, legacyConnection, connection);
-      }
-      if (connections.length === gmailConnectionLimitPerTrustedDevice) {
-        throw new Error('Gmail connection limit reached');
-      }
-      return createGmailConnection(ctx, account.productAccountId, connection);
+    if (connectionToUpdate !== null) {
+      return updateGmailConnection(ctx, connectionToUpdate, connection);
     }
-    return updateGmailConnection(ctx, existingConnection, connection);
+    if (connections.length === gmailConnectionLimitPerTrustedDevice) {
+      throw new Error('Gmail connection limit reached');
+    }
+    return createGmailConnection(ctx, account.productAccountId, connection);
   },
   returns: gmailProviderConnectionStatusValidator,
 });
