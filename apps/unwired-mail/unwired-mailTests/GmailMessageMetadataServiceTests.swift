@@ -479,6 +479,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await viewModel.searchProvider(connection: mailboxConnection)
 
     XCTAssertEqual(searchService.receivedQueries, ["private body phrase"])
+    XCTAssertEqual(searchService.receivedConnections, [mailboxConnection])
     XCTAssertEqual(viewModel.searchResult?.source, .providerFullText)
     XCTAssertEqual(
       viewModel.searchResult?.messages,
@@ -512,6 +513,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       await viewModel.searchProvider(connection: mailboxConnection)
     }
     await searchService.waitUntilSearchStarts()
+    XCTAssertEqual(searchService.receivedConnections, [mailboxConnection])
     viewModel.searchQuery = "flight"
     await searchService.releaseSearch()
     await searchTask.value
@@ -1890,6 +1892,7 @@ private enum GmailMessageMetadataTestError: Error {
 private final class RecordingGmailMessageSearchService: MailboxMessageSearching {
   private let messages: [MailboxMessageMetadata]
   private(set) var receivedQueries: [String] = []
+  private(set) var receivedConnections: [MailboxConnection] = []
 
   init(messages: [GmailMessageMetadata]) {
     self.messages = messages.map { $0.mailboxMetadata(connectionId: $0.mailboxConnectionId) }
@@ -1897,10 +1900,11 @@ private final class RecordingGmailMessageSearchService: MailboxMessageSearching 
 
   func searchProvider(
     query: String,
-    connection _: MailboxConnection,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [MailboxMessageMetadata] {
     receivedQueries.append(query)
+    receivedConnections.append(connection)
     return messages
   }
 }
@@ -1908,6 +1912,7 @@ private final class RecordingGmailMessageSearchService: MailboxMessageSearching 
 private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
   private let messages: [MailboxMessageMetadata]
   private let searchGate = OverrideGate()
+  private(set) var receivedConnections: [MailboxConnection] = []
 
   init(messages: [GmailMessageMetadata]) {
     self.messages = messages.map { $0.mailboxMetadata(connectionId: $0.mailboxConnectionId) }
@@ -1915,9 +1920,10 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
   func searchProvider(
     query _: String,
-    connection _: MailboxConnection,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> [MailboxMessageMetadata] {
+    receivedConnections.append(connection)
     await searchGate.waitForRelease()
     return messages
   }

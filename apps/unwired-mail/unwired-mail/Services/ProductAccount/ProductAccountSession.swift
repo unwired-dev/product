@@ -18,7 +18,6 @@ final class ProductAccountSession {
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
-  private let gmailMessageBodyReader: GmailMessageReading
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
@@ -28,7 +27,6 @@ final class ProductAccountSession {
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = GmailMailboxConnectionAdapter(),
-    gmailMessageBodyReader: GmailMessageReading = GmailMessageBodyService(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -37,7 +35,6 @@ final class ProductAccountSession {
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
-    self.gmailMessageBodyReader = gmailMessageBodyReader
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 

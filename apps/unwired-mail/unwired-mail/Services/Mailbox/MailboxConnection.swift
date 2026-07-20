@@ -247,13 +247,17 @@ struct MailboxLocalMetadataSearch {
     }
   }
 
-  private static func dateText(for milliseconds: Int64) -> String {
+  private static let dateFormatter: DateFormatter = {
     let formatter = DateFormatter()
     formatter.calendar = .current
     formatter.dateFormat = "yyyy-MM-dd"
     formatter.locale = Locale(identifier: "en_US_POSIX")
     formatter.timeZone = .current
-    return formatter.string(
+    return formatter
+  }()
+
+  private static func dateText(for milliseconds: Int64) -> String {
+    dateFormatter.string(
       from: Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
     )
   }
