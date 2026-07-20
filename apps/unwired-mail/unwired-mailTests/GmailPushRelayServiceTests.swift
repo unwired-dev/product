@@ -271,6 +271,44 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(status.historyId, "history-renewed")
   }
 
+  func testRegisterOrRenewWatchPersistsConnectionBeforeVerification() async throws {
+    let connectionStore = RecordingGmailPushConnectionStore()
+    let service = GmailPushWatchService(
+      connectionStore: connectionStore,
+      nowMilliseconds: { 1_781_200_000_000 },
+      session: ConvexClientTesting.makeSession { request in
+        (
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(#"{"expiration":"1781900000000","historyId":"history-new"}"#.utf8)
+        )
+      },
+      store: RecordingGmailPushWatchStore(),
+      tokenRefresher: RecordingGmailPushTokenRefresher(
+        tokens: GmailProviderTokens(
+          accessToken: "fresh-access-token",
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
+        )
+      ),
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: ThrowingGmailPushVerificationTransport()
+    )
+
+    do {
+      _ = try await service.registerOrRenew(connection: connection, session: session)
+      XCTFail("Expected watch verification to fail")
+    } catch {
+    }
+
+    XCTAssertEqual(connectionStore.savedConnection, connection)
+    XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
+  }
+
   func testStopWatchUsesDeviceHeldToken() async throws {
     let tokenRefresher = RecordingGmailPushTokenRefresher(
       tokens: GmailProviderTokens(
@@ -2550,6 +2588,17 @@ private final class RecordingGmailPushVerificationTransport: GmailPushVerificati
       trustedDeviceId: trustedDeviceId
     )
     return GmailPushVerificationResponse(routeId: routeId, verified: verified)
+  }
+}
+
+private final class ThrowingGmailPushVerificationTransport: GmailPushVerificationTransport {
+  func verifyGmailPushWatch(
+    gmailIdentityToken _: String,
+    historyId _: String,
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> GmailPushVerificationResponse {
+    throw GmailPushRelayError.invalidWatchResponse
   }
 }
 

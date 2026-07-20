@@ -678,12 +678,15 @@ private final class GmailProviderConnectionViewModel {
   var isConnecting = false
   var isLoading = false
   var isRemoving = false
-  var pushStatusMessage: String?
+  var pushStatusMessage: String? {
+    pushStatusMessages.values.first
+  }
   var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let service: MailboxConnectionAdapter
   private let session: ProductAccountSessionSnapshot
+  private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
     service: MailboxConnectionAdapter,
@@ -720,6 +723,9 @@ private final class GmailProviderConnectionViewModel {
         }
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
         selectedConnectionId = connections.first?.id
+      }
+      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+        connections.contains { $0.id == connectionId }
       }
       errorMessage = nil
       for connection in connections {
@@ -772,6 +778,7 @@ private final class GmailProviderConnectionViewModel {
     do {
       try await service.clearLocalConnection(connection, session: session)
       connections.removeAll { $0.id == connection.id }
+      pushStatusMessages[connection.id] = nil
       if selectedConnectionId == connection.id {
         selectedConnectionId = connections.first?.id
       }
@@ -783,7 +790,7 @@ private final class GmailProviderConnectionViewModel {
 
   private func refreshPushWatch(connection: MailboxConnection) async {
     guard connection.capabilities.canRegisterPush else {
-      pushStatusMessage = nil
+      pushStatusMessages[connection.id] = nil
       return
     }
     do {
@@ -795,11 +802,11 @@ private final class GmailProviderConnectionViewModel {
         connection: connection,
         session: session
       )
-      pushStatusMessage = nil
+      pushStatusMessages[connection.id] = nil
     } catch is CancellationError {
     } catch {
       let providerName = connection.providerId.rawValue.capitalized
-      pushStatusMessage =
+      pushStatusMessages[connection.id] =
         "\(providerName) is connected, but push wakeups are unavailable: \(error.localizedDescription)"
     }
   }

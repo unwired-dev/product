@@ -798,9 +798,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    if status.routeId != nil {
-      try connectionStore.save(connection, productAccountId: session.productAccountId)
-    }
+    try connectionStore.save(connection, productAccountId: session.productAccountId)
   }
 
   private func currentWatch(

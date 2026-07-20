@@ -265,14 +265,12 @@ export const connectGmailProvider = mutation({
     const now = Date.now();
     const existingConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_account_provider_device_identifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
 
@@ -392,14 +390,12 @@ export const removeGmailProviderConnection = mutation({
     );
     const connection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_account_provider_device_identifier', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (connection !== null) {
