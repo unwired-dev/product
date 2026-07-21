@@ -456,7 +456,11 @@ final class GmailInboxViewModel {
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
-  var isLoadingMessageBody = false
+  private var loadingMessageBodyCount = 0
+
+  var isLoadingMessageBody: Bool {
+    loadingMessageBodyCount > 0
+  }
   var isSearching = false
   var isSyncing = false
   var searchQuery = ""
@@ -491,8 +495,8 @@ final class GmailInboxViewModel {
     _ message: MailboxMessageMetadata,
     using reader: MailboxMessageReading
   ) async throws -> MailboxMessageBody {
-    isLoadingMessageBody = true
-    defer { isLoadingMessageBody = false }
+    loadingMessageBodyCount += 1
+    defer { loadingMessageBodyCount -= 1 }
     return try await reader.loadMessageBody(message: message, session: session)
   }
 

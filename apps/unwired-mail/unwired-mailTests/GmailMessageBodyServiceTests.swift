@@ -177,9 +177,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     try cache.saveMessageBody(
       payload,
       productAccountId: session.productAccountId,
+      stableProviderMessageId: firstStableMessageId
+    )
+    try cache.saveMessageBody(
+      payload,
+      productAccountId: session.productAccountId,
       stableProviderMessageId: secondStableMessageId
     )
-    XCTAssertNil(
+    XCTAssertNotNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: firstStableMessageId
@@ -204,7 +209,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
     XCTAssertTrue(FileManager.default.fileExists(atPath: legacySecondURL.path))
 
-    XCTAssertNil(
+    XCTAssertNotNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: firstStableMessageId
