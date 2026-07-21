@@ -1036,7 +1036,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") },
-      ["maxResults=25&labelIds=INBOX"]
+      ["labelIds=INBOX&maxResults=25"]
     )
   }
 
