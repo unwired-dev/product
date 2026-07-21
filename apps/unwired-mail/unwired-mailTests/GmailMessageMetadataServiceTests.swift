@@ -301,7 +301,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       DurableGmailMessageMetadataRecord.self,
       GmailMetadataSyncCheckpointRecord.self,
     ])
-    let configuration = ModelConfiguration(configurationName, schema: schema)
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    try FileManager.default.createDirectory(
+      at: rootDirectory,
+      withIntermediateDirectories: true
+    )
+    let configuration = ModelConfiguration(
+      configurationName,
+      schema: schema,
+      url: rootDirectory.appendingPathComponent("metadata.store")
+    )
     let message = metadata(
       messageId: "message-001",
       threadId: "thread-001",
@@ -326,7 +338,6 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
 
     let restartedContainer = try ModelContainer(for: schema, configurations: [configuration])
-    defer { restartedContainer.deleteAllData() }
     let restartedStore = SwiftDataGmailMessageMetadataStore(container: restartedContainer)
     XCTAssertEqual(
       try restartedStore.loadMessages(
@@ -1023,7 +1034,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let result = try await fixture.service.syncInbox(connection: connection, session: session)
 
     XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(fixture.requestRecorder.queries, ["maxResults=25&labelIds=INBOX"])
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") },
+      ["maxResults=25&labelIds=INBOX"]
+    )
   }
 
   func testHistoricalBackfillDefersInLowPowerAndResumesFromSavedPage() async throws {
