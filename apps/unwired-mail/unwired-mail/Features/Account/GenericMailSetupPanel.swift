@@ -27,6 +27,7 @@ final class GenericMailSetupViewModel {
     uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, "") }
   )
   var rolesRequiringMapping: [CanonicalMailboxRole] = []
+  private var selectedSyncedConnectionId: MailboxConnectionId?
   var syncedDefinitions: [GenericMailConnectionDefinition] = []
   var username = ""
 
@@ -61,6 +62,7 @@ final class GenericMailSetupViewModel {
   func discover() {
     let trimmedEmail = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     connectedDefinition = nil
+    selectedSyncedConnectionId = nil
     credential = ""
     resetRoleMappingState()
     username = trimmedEmail
@@ -109,6 +111,7 @@ final class GenericMailSetupViewModel {
       discoveredIncomingEndpoints = []
       apply(authorization.definition)
       connectedDefinition = authorization.definition
+      selectedSyncedConnectionId = nil
       credential = ""
       discoverySource = "Loaded saved settings. Re-enter authorization to verify changes."
       errorMessage = nil
@@ -142,24 +145,26 @@ final class GenericMailSetupViewModel {
     if roleMappingEndpoint != incomingEndpoint {
       resetRoleMappingState()
     }
+    let draft = GenericMailSetupDraft(
+      authorizationMethod: authorizationMethod,
+      emailAddress: emailAddress,
+      incomingEndpoint: incomingEndpoint,
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: outgoingHostname,
+        port: Int(outgoingPort) ?? 0,
+        security: outgoingSecurity
+      ),
+      roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
+      username: username
+    )
+    guard matchesSelectedSyncedConnection(draft) else { return }
     isConnecting = true
     defer { isConnecting = false }
 
     do {
       connectedDefinition = try await service.authorize(
-        draft: GenericMailSetupDraft(
-          authorizationMethod: authorizationMethod,
-          emailAddress: emailAddress,
-          incomingEndpoint: incomingEndpoint,
-          outgoingEndpoint: GenericMailEndpoint(
-            mailProtocol: .smtp,
-            hostname: outgoingHostname,
-            port: Int(outgoingPort) ?? 0,
-            security: outgoingSecurity
-          ),
-          roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
-          username: username
-        ),
+        draft: draft,
         credential: credential,
         productAccountId: productAccountId,
         syncSession: syncSession,
@@ -226,6 +231,21 @@ final class GenericMailSetupViewModel {
     discoverySource = nil
   }
 
+  private func matchesSelectedSyncedConnection(_ draft: GenericMailSetupDraft) -> Bool {
+    do {
+      let draftConnectionId = try service.connectionId(for: draft)
+      guard selectedSyncedConnectionId == nil || draftConnectionId == selectedSyncedConnectionId
+      else {
+        errorMessage = "The mailbox settings no longer match the selected synced connection."
+        return false
+      }
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
   private func applyMissingRoleMappings(
     _ discovered: [CanonicalMailboxRole: String],
     missing: [CanonicalMailboxRole],
@@ -269,7 +289,12 @@ extension GenericMailSetupViewModel {
           ) ? definition.connectionId : nil
         }
       )
-      if connectedDefinition == nil,
+      if let selectedSyncedConnectionId,
+        !definitions.contains(where: { $0.connectionId == selectedSyncedConnectionId })
+      {
+        clearLoadedSetup()
+      }
+      if selectedSyncedConnectionId == nil,
         let selected = definitions.first(where: { $0.connectionId == defaultSendingConnectionId })
           ?? definitions.first
       {
@@ -315,6 +340,7 @@ extension GenericMailSetupViewModel {
 
   func selectSyncedDefinition(_ definition: GenericMailConnectionDefinition) {
     apply(definition)
+    selectedSyncedConnectionId = definition.connectionId
     connectedDefinition = isAuthorized(definition) ? definition : nil
     credential = ""
     discoverySource =

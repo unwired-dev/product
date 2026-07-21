@@ -355,6 +355,10 @@ struct GenericMailSetupService {
     return verifiedDefinition
   }
 
+  func connectionId(for draft: GenericMailSetupDraft) throws -> MailboxConnectionId {
+    try validatedDefinition(draft).connectionId
+  }
+
   private func verifyEndpoints(
     definition: GenericMailConnectionDefinition,
     credential: String,

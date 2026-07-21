@@ -157,6 +157,7 @@ struct AccountView: View {
       guard phase == .active else { return }
       Task {
         await gmailViewModel.renewPushWatch()
+        await genericMailSetupViewModel.loadSyncedDefinitions()
       }
     }
     .onChange(of: gmailViewModel.connection?.id) { _, _ in
@@ -774,7 +775,8 @@ final class GmailProviderConnectionViewModel {
       try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
         selectedConnectionId =
-          connections.first { $0.id == defaultSendingConnectionId }?.id ?? connections.first?.id
+          connections.first { $0.id == defaultSendingConnectionId }?.id
+          ?? (defaultSendingConnectionId == nil ? connections.first?.id : nil)
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }
@@ -784,6 +786,7 @@ final class GmailProviderConnectionViewModel {
         await refreshPushWatch(connection: connection)
       }
     } catch {
+      try? await refreshConnections()
       errorMessage = error.localizedDescription
     }
   }

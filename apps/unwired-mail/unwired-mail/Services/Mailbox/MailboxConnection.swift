@@ -719,10 +719,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     let localConnections = localStatuses.map {
       $0.mailboxConnection(productAccountId: session.productAccountId)
     }
-    let snapshot = try await definitionSyncService.reconcileConnections(
-      localConnections.map(\.definition),
-      session: session
-    )
     let localStatusesById = Dictionary(
       localStatuses.map { status in
         (
@@ -732,11 +728,25 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       },
       uniquingKeysWith: { first, _ in first }
     )
+    guard
+      let (snapshot, usedCachedSnapshot) = try await reconciledSnapshot(
+        localConnections: localConnections,
+        session: session
+      )
+    else { return localConnections }
     for removedConnectionId in snapshot.removedConnectionIds {
       guard let localStatus = localStatusesById[removedConnectionId] else { continue }
       try await connectionService.clearLocalConnection(localStatus, session: session)
     }
-    return snapshot.connections
+    var definitions = snapshot.connections
+    if usedCachedSnapshot {
+      definitions += localConnections.map(\.definition).filter { definition in
+        !definitions.contains(where: { $0.id == definition.id })
+          && !snapshot.removedConnectionIds.contains(definition.id)
+      }
+    }
+    return
+      definitions
       .filter { $0.provider == MailProviderId.gmail.rawValue }
       .map { definition in
         if let localStatus = localStatusesById[definition.id] {
@@ -747,6 +757,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func reconciledSnapshot(
+    localConnections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> (MailboxConnectionSyncSnapshot, Bool)? {
+    do {
+      return (
+        try await definitionSyncService.reconcileConnections(
+          localConnections.map(\.definition),
+          session: session
+        ),
+        false
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      guard
+        let snapshot = try? await definitionSyncService.loadSnapshotForProviderAccess(
+          session: session
+        )
+      else { return nil }
+      return (snapshot, true)
+    }
   }
 
   func loadDefaultSendingConnectionId(
