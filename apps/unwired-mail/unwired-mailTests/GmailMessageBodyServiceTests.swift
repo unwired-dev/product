@@ -193,6 +193,17 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
     XCTAssertTrue(FileManager.default.fileExists(atPath: legacyFirstURL.path))
 
+    let legacySecondURL = legacyBodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: secondStableMessageId
+    )
+    try JSONEncoder().encode(payload).write(to: legacySecondURL)
+    try cache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: secondProviderAccountIdentifier
+    )
+    XCTAssertFalse(FileManager.default.fileExists(atPath: legacySecondURL.path))
+
     XCTAssertNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,

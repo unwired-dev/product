@@ -125,16 +125,20 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     guard fileManager.fileExists(atPath: rootDirectory.path) else {
       return
     }
-    // Exact cleanup cannot establish ownership of colliding legacy filenames. Account-wide cleanup
-    // removes those files after every mailbox has been disconnected.
-    let prefix = [
-      gmailSafeFileComponent(productAccountId),
-      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
-    ].joined(separator: "-")
+    let prefixes = [
+      [
+        gmailSafeFileComponent(productAccountId),
+        gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+      ].joined(separator: "-"),
+      [
+        legacyGmailSafeFileComponent(productAccountId),
+        legacyGmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+      ].joined(separator: "-"),
+    ]
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: nil
-    ) where fileURL.lastPathComponent.hasPrefix(prefix) {
+    ) where prefixes.contains(where: { fileURL.lastPathComponent.hasPrefix($0) }) {
       try fileManager.removeItem(at: fileURL)
     }
   }
