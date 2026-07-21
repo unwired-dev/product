@@ -99,8 +99,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     let remotePayload = try await loadRemotePayload(session: session)
-    let payload = try decrypt(remotePayload, session: session)
-    try refreshCache(remotePayload, productAccountId: session.productAccountId)
+    let payload: MailboxConnectionSyncPayload
+    do {
+      payload = try decrypt(remotePayload, session: session)
+    } catch {
+      try? cacheStore.clear(productAccountId: session.productAccountId)
+      throw error
+    }
+    try? refreshCache(remotePayload, productAccountId: session.productAccountId)
     return snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 

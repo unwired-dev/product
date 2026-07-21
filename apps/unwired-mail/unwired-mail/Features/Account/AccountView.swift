@@ -183,6 +183,16 @@ struct AccountView: View {
         await inboxViewModel.loadAfterConnectionChange(connection: connection)
       }
     }
+    .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
+      Task {
+        await genericMailSetupViewModel.loadSyncedDefinitions()
+      }
+    }
+    .onChange(of: genericMailSetupViewModel.defaultSendingConnectionId) { _, _ in
+      Task {
+        await gmailViewModel.load()
+      }
+    }
   }
 }
 

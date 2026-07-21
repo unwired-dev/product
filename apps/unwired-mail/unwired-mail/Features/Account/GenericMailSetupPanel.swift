@@ -325,6 +325,9 @@ extension GenericMailSetupViewModel {
       await loadSyncedDefinitions()
     } catch {
       await loadSyncedDefinitions()
+      if !isAuthorized(definition) {
+        connectedDefinition = nil
+      }
       errorMessage = error.localizedDescription
     }
   }
@@ -352,6 +355,7 @@ extension GenericMailSetupViewModel {
   }
 
   func selectSyncedDefinition(_ definition: GenericMailConnectionDefinition) {
+    discoveredIncomingEndpoints = []
     apply(definition)
     selectedSyncedConnectionId = definition.connectionId
     connectedDefinition = isAuthorized(definition) ? definition : nil
