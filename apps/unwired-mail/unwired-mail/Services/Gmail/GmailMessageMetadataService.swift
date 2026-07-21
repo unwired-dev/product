@@ -663,7 +663,7 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     for message in messages {
       if let record = existingByStableId[message.stableProviderMessageId] {
         record.encodedMessage = try JSONEncoder().encode(
-          message.preservingCategoryStateAndHistoricalBoundary(from: try record.message())
+          message.preservingHistoricalBoundary(from: try record.message())
         )
         record.pendingRemovalScanId = nil
       } else {
@@ -2152,6 +2152,27 @@ extension GmailInboxThread {
 }
 
 extension GmailMessageMetadata {
+  fileprivate func preservingHistoricalBoundary(
+    from existingMessage: GmailMessageMetadata
+  ) -> GmailMessageMetadata {
+    GmailMessageMetadata(
+      categoryId: categoryId,
+      from: from,
+      isHistorical: existingMessage.isHistorical,
+      providerAccountIdentifier: providerAccountIdentifier,
+      providerInternalDateMilliseconds: providerInternalDateMilliseconds,
+      providerLabelIds: providerLabelIds,
+      providerMessageId: providerMessageId,
+      providerThreadId: providerThreadId,
+      replyTo: replyTo,
+      snippet: snippet,
+      stableProviderMessageId: stableProviderMessageId,
+      subject: subject,
+      recipientHeaders: recipientHeaders,
+      rfcMessageId: rfcMessageId
+    )
+  }
+
   fileprivate func preservingCategoryStateAndHistoricalBoundary(
     from existingMessage: GmailMessageMetadata
   ) -> GmailMessageMetadata {

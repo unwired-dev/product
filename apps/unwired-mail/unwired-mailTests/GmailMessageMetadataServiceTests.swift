@@ -361,6 +361,43 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSwiftDataMetadataStorePersistsRecategorizedExistingMessage() throws {
+    let store = try SwiftDataGmailMessageMetadataStore.inMemory()
+    let existing = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 1
+    )
+    let state = GmailMetadataSyncState(
+      historicalMetadataBackfillIsComplete: true,
+      nextPageToken: nil,
+      scanId: "scan-001"
+    )
+    try store.saveSyncPage(
+      [existing],
+      state: state,
+      isFirstPage: true,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    try store.saveSyncPage(
+      [existing.assigningCategory("system:promotions")],
+      state: state,
+      isFirstPage: false,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ).first?.categoryId,
+      "system:promotions"
+    )
+  }
+
   func testSwiftDataMetadataStoreMigratesExistingFileMetadata() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString
