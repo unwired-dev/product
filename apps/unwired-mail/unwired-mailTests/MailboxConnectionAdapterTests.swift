@@ -363,6 +363,32 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGmailAdapterDoesNotClearUnreconciledLocalAuthorization() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let metadataService = RecordingAdapterMetadataService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      metadataService: metadataService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(metadataService.syncedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertNil(connectionService.clearedConnection)
+  }
+
   func testGmailAdapterRoutesExistingMailOperationsWithoutChangingResults() async throws {
     let bodyReader = RecordingAdapterMessageReader()
     let mailActionService = RecordingAdapterMailActionService()

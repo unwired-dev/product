@@ -150,7 +150,7 @@ struct AccountView: View {
       if let connection = gmailViewModel.connection,
         connection.authorizationState == .authorized
       {
-        await inboxViewModel.load(connection: connection)
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
       }
     }
     .onChange(of: scenePhase) { _, phase in
@@ -165,7 +165,19 @@ struct AccountView: View {
         connection.authorizationState == .authorized
       else { return }
       Task {
-        await inboxViewModel.load(connection: connection)
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
+      }
+    }
+    .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
+      guard
+        let connection = gmailViewModel.connection,
+        authorizationState == .authorized
+      else {
+        inboxViewModel.clear()
+        return
+      }
+      Task {
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
       }
     }
   }
@@ -761,7 +773,8 @@ final class GmailProviderConnectionViewModel {
     do {
       try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        selectedConnectionId = defaultSendingConnectionId ?? connections.first?.id
+        selectedConnectionId =
+          connections.first { $0.id == defaultSendingConnectionId }?.id ?? connections.first?.id
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }

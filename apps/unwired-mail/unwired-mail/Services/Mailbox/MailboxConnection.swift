@@ -984,10 +984,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
       session: session
     )
-    if snapshot.removedConnectionIds.contains(connectionId)
-      || (snapshot.hasAuthoritativeState
-        && !snapshot.connections.contains(where: { $0.id == connectionId }))
-    {
+    if snapshot.removedConnectionIds.contains(connectionId) {
       if let localConnection = try await connectionService.loadConnections(session: session)
         .first(where: { status in
           status.provider == connectionId.providerId.rawValue

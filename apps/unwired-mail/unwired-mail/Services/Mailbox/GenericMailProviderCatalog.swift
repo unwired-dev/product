@@ -99,6 +99,9 @@ struct KeychainGenericMailAuthorizationStore: GenericMailAuthorizationPersisting
     productAccountId: ProductAccountId
   ) throws {
     var authorizations = try loadAll(productAccountId: productAccountId)
+    authorizations = authorizations.filter {
+      $0.value.definition.connectionId != authorization.definition.connectionId
+    }
     authorizations[authorization.definition.connectionId.rawValue] = authorization
     try saveAll(authorizations, productAccountId: productAccountId)
   }
