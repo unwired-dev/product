@@ -28,6 +28,7 @@ final class GenericMailSetupViewModel {
   private let isSessionCurrent: () -> Bool
   private var isValid = true
   private var roleMappingEmailAddress: String?
+  private var roleMappingEndpoint: GenericMailEndpoint?
   private let service: GenericMailSetupService
 
   init(
@@ -51,6 +52,7 @@ final class GenericMailSetupViewModel {
   func discover() {
     let trimmedEmail = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     connectedDefinition = nil
+    credential = ""
     resetRoleMappingState()
     if username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
       username = trimmedEmail
@@ -121,6 +123,15 @@ final class GenericMailSetupViewModel {
 
   func connect() async {
     guard !isConnecting, isValid, isSessionCurrent() else { return }
+    let incomingEndpoint = GenericMailEndpoint(
+      mailProtocol: incomingProtocol,
+      hostname: incomingHostname,
+      port: Int(incomingPort) ?? 0,
+      security: incomingSecurity
+    )
+    if roleMappingEndpoint != incomingEndpoint {
+      resetRoleMappingState()
+    }
     isConnecting = true
     defer { isConnecting = false }
 
@@ -129,12 +140,7 @@ final class GenericMailSetupViewModel {
         draft: GenericMailSetupDraft(
           authorizationMethod: authorizationMethod,
           emailAddress: emailAddress,
-          incomingEndpoint: GenericMailEndpoint(
-            mailProtocol: incomingProtocol,
-            hostname: incomingHostname,
-            port: Int(incomingPort) ?? 0,
-            security: incomingSecurity
-          ),
+          incomingEndpoint: incomingEndpoint,
           outgoingEndpoint: GenericMailEndpoint(
             mailProtocol: .smtp,
             hostname: outgoingHostname,
@@ -156,6 +162,7 @@ final class GenericMailSetupViewModel {
         roleMappings[role] = mailbox
       }
       roleMappingEmailAddress = normalizedEmailAddress
+      roleMappingEndpoint = incomingEndpoint
       rolesRequiringMapping = missing
       let names = missing.map(\.displayName).joined(separator: ", ")
       errorMessage = "Map the remaining provider mailboxes: \(names)."
@@ -181,6 +188,7 @@ final class GenericMailSetupViewModel {
     outgoingSecurity = definition.outgoingEndpoint.security
     roleMappings = definition.roleMappings
     roleMappingEmailAddress = definition.emailAddress
+    roleMappingEndpoint = definition.incomingEndpoint
     rolesRequiringMapping = CanonicalMailboxRole.allCases
     username = definition.username
   }
@@ -191,6 +199,7 @@ final class GenericMailSetupViewModel {
 
   private func resetRoleMappingState() {
     roleMappingEmailAddress = nil
+    roleMappingEndpoint = nil
     roleMappings = [:]
     rolesRequiringMapping = []
   }

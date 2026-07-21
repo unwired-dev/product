@@ -531,6 +531,30 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(factory.minimumTransportVersion, .tls12OrNewer)
   }
 
+  func testSystemVerifierBuffersFragmentedPOP3Responses() async throws {
+    let stream = ScriptedGenericMailStreamTask(responses: [
+      .success("+"), .success("OK ready\r\n"),
+      .success("+O"), .success("K user\r\n"),
+      .success("+OK authenticated\r\n"),
+      .success("+OK authenticated\r\n"),
+    ])
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+
+    _ = try await verifier.verify(
+      endpoint: GenericMailEndpoint(
+        mailProtocol: .pop3,
+        hostname: "pop.example.com",
+        port: 110,
+        security: .startTLS
+      ),
+      username: "reader@example.com",
+      credential: "secret",
+      authorizationMethod: .password
+    )
+  }
+
   func testSystemVerifierSurfacesCertificateFailureBeforeAuthorization() async {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .failure(URLError(.serverCertificateUntrusted))

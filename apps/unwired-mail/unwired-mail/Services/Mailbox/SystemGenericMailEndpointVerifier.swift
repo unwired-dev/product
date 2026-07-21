@@ -55,12 +55,27 @@ final class SystemGenericMailEndpointVerifier: NSObject, GenericMailEndpointVeri
   }
 }
 
-private struct MailEndpointConversation {
+private final class MailEndpointConversation {
   let authorizationMethod: MailAuthorizationMethod
   let credential: String
   let endpoint: GenericMailEndpoint
   let task: GenericMailStreamTasking
   let username: String
+  private var unreadResponse = ""
+
+  init(
+    authorizationMethod: MailAuthorizationMethod,
+    credential: String,
+    endpoint: GenericMailEndpoint,
+    task: GenericMailStreamTasking,
+    username: String
+  ) {
+    self.authorizationMethod = authorizationMethod
+    self.credential = credential
+    self.endpoint = endpoint
+    self.task = task
+    self.username = username
+  }
 
   func verify() async throws -> [CanonicalMailboxRole: String] {
     if endpoint.security == .implicitTLS {
@@ -243,7 +258,13 @@ private struct MailEndpointConversation {
   }
 
   private func readResponse() async throws -> String {
-    try await task.read()
+    while !unreadResponse.contains("\r\n") {
+      unreadResponse += try await task.read()
+    }
+    let range = unreadResponse.range(of: "\r\n")!
+    let response = String(unreadResponse[..<range.upperBound])
+    unreadResponse.removeSubrange(..<range.upperBound)
+    return response
   }
 
   private func write(_ value: String) async throws {
