@@ -1039,9 +1039,11 @@ struct GmailMessageMetadataService:
       var state = try store.loadSyncState(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      !state.historicalMetadataBackfillIsComplete
+      )
     else {
+      return try await syncInbox(connection: connection, session: session)
+    }
+    guard !state.historicalMetadataBackfillIsComplete else {
       let messages = try store.loadMessages(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
@@ -1108,6 +1110,7 @@ struct GmailMessageMetadataService:
         session: session
       )
       try Task.checkCancellation()
+      guard shouldContinueHistoricalBackfill() else { break }
       state = GmailMetadataSyncState(
         historicalMetadataBackfillIsComplete: page.nextPageToken == nil,
         initialHistoricalCutoffMilliseconds: state.initialHistoricalCutoffMilliseconds,

@@ -1074,6 +1074,29 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
   }
 
+  func testCheckpointlessCachedMessagesStartWithNewestPageSync() async throws {
+    let fixture = try makeSyncFixture()
+    fixture.store.messages = [
+      metadata(
+        messageId: "cached-message",
+        threadId: "cached-thread",
+        internalDateMilliseconds: 1
+      )
+    ]
+
+    let result = try await fixture.service.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(result.hasInitialMailboxAvailability)
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
+      ["maxResults=50"]
+    )
+    XCTAssertNotNil(fixture.store.syncState)
+  }
+
   func testSyncInboxRefreshesNewestMessagesBeforeResumingBackfill() async throws {
     let fixture = try makeSyncFixture(usesPagination: true)
 
