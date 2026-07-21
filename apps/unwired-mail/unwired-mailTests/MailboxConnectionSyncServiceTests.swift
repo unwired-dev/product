@@ -3,6 +3,7 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable type_body_length
 final class MailboxConnectionSyncServiceTests: XCTestCase {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -264,9 +265,44 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     roleMappings: [.sent: "Sent"],
     username: "reader@example.com"
   )
+  func testFirstMailboxWriteRejectsMissingKeyWhenAnotherProductSyncPayloadExists()
+    async throws
+  {
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let transport = RecordingMailboxConnectionSyncTransport()
+    transport.additionalPayloads = [
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "ciphertext",
+          keyVersion: 1,
+          nonceBase64: "nonce",
+          schemaVersion: 1,
+          tagBase64: "tag"
+        ),
+        payloadIdentifier: "custom-categories-primary",
+        updatedAt: 1
+      )
+    ]
+    let service = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      keyMaterialStore: keyMaterialStore,
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveConnection(Self.connection, session: firstDeviceSession)
+      XCTFail("Expected the missing Product Sync key to prevent a new mailbox write")
+    } catch let error as MailboxConnectionSyncError {
+      XCTAssertEqual(error, .missingProductSyncKeyMaterial)
+    }
+    XCTAssertNil(transport.payload)
+  }
 }
+// swiftlint:enable type_body_length
 
 private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
+  var additionalPayloads: [EncryptedProductSyncPayload] = []
   var loadError: Error?
   var payload: EncryptedProductSyncPayload?
   private var updatedAt: Int64 = 1_781_200_000_000
@@ -275,7 +311,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     identityToken _: String,
     payloadIdentifierPrefix _: String?
   ) async throws -> [EncryptedProductSyncPayload] {
-    payload.map { [$0] } ?? []
+    additionalPayloads + (payload.map { [$0] } ?? [])
   }
 
   func getEncryptedProductSyncPayload(

@@ -163,13 +163,15 @@ final class GenericMailSetupViewModel {
     defer { isConnecting = false }
 
     do {
-      connectedDefinition = try await service.authorize(
+      let definition = try await service.authorize(
         draft: draft,
         credential: credential,
         productAccountId: productAccountId,
         syncSession: syncSession,
         isSessionCurrent: { self.isValid && self.isSessionCurrent() }
       )
+      connectedDefinition = definition
+      selectedSyncedConnectionId = definition.connectionId
       credential = ""
       rolesRequiringMapping = []
       errorMessage = nil

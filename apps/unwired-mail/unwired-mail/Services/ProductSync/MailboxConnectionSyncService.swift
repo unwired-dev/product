@@ -219,7 +219,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       }
       payload.sort()
 
-      let material = try keyMaterialForWrite(
+      let material = try await keyMaterialForWrite(
         session: session,
         remotePayloadExists: remotePayload != nil
       )
@@ -268,11 +268,18 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private func keyMaterialForWrite(
     session: ProductAccountSessionSnapshot,
     remotePayloadExists: Bool
-  ) throws -> ProductSyncKeyMaterial {
+  ) async throws -> ProductSyncKeyMaterial {
     if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
       return material
     }
     guard !remotePayloadExists else {
+      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
+    }
+    let existingPayloads = try await transport.listEncryptedProductSyncPayloads(
+      identityToken: session.identityToken,
+      payloadIdentifierPrefix: nil
+    )
+    guard existingPayloads.isEmpty else {
       throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
     }
     return try keyMaterialStore.ensureMaterial(

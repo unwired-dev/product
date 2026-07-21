@@ -64,6 +64,26 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailAdapterKeepsExistingAuthorizationWhenDefinitionSyncFails() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.saveError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+
+    do {
+      _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
+      XCTFail("Expected Product Sync failure")
+    } catch is AdapterTestError {
+    }
+
+    XCTAssertNil(connectionService.clearedConnection)
+  }
+
   func testGmailAdapterRejectsAuthorizationForDifferentMailboxDefinition() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -535,6 +555,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   var removedConnectionIds: [MailboxConnectionId] = []
+  var saveError: Error?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   init(snapshot: MailboxConnectionSyncSnapshot) {
@@ -591,6 +612,7 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
     _ definition: MailboxConnectionDefinition,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    if let saveError { throw saveError }
     snapshot = MailboxConnectionSyncSnapshot(
       connections: snapshot.connections.filter { $0.id != definition.id } + [definition],
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
@@ -612,6 +634,10 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
     )
     return snapshot
   }
+}
+
+private enum AdapterTestError: Error {
+  case unavailable
 }
 
 extension MailboxConnectionSyncSnapshot {

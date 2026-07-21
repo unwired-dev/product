@@ -683,6 +683,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let expectedConnectionId, expectedConnectionId != verifiedConnectionId {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
+    let hadExistingConnection = try await connectionService.loadConnections(session: session)
+      .contains {
+        $0.mailboxConnection(productAccountId: session.productAccountId).id == verifiedConnectionId
+      }
 
     let status = try await connectionService.completeConnection(
       verifiedAccount: VerifiedGmailAccount(
@@ -701,7 +705,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       _ = try await definitionSyncService.saveConnection(connection, session: session)
       return connection
     } catch {
-      try? await connectionService.clearLocalConnection(status, session: session)
+      if !hadExistingConnection {
+        try? await connectionService.clearLocalConnection(status, session: session)
+      }
       throw error
     }
   }
