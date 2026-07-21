@@ -158,7 +158,6 @@ struct AccountView: View {
       guard phase == .active else { return }
       Task {
         await gmailViewModel.load()
-        await gmailViewModel.renewPushWatch()
         await genericMailSetupViewModel.loadSyncedDefinitions()
       }
     }
@@ -786,8 +785,11 @@ final class GmailProviderConnectionViewModel {
     do {
       try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        let defaultConnection = connections.first { $0.id == defaultSendingConnectionId }
-        selectedConnectionId = defaultConnection?.id ?? connections.first?.id
+        if let defaultSendingConnectionId {
+          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
+        } else {
+          selectedConnectionId = connections.first?.id
+        }
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }

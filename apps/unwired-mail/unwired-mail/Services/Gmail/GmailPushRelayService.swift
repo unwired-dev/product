@@ -1319,6 +1319,8 @@ struct GmailPushWakeupHandler {
       throw CancellationError()
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       return false
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      return false
     } catch {
       let currentNotificationRules = try await failClosed {
         try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
