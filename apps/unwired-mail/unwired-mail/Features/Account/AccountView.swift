@@ -630,10 +630,15 @@ final class GmailInboxViewModel {
           connection: connection,
           session: session
         )
-        guard currentConnectionId == connection.id else { return }
+        guard
+          !Task.isCancelled,
+          backfillTaskId == taskId,
+          currentConnectionId == connection.id
+        else { return }
         threads = backfill.threads
       } catch is CancellationError {
       } catch {
+        guard !Task.isCancelled, backfillTaskId == taskId else { return }
         errorMessage = error.localizedDescription
       }
     }

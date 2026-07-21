@@ -1123,6 +1123,10 @@ struct GmailMessageMetadataService:
       )
       storedMessages = mergedMessages(pageMessages, with: storedMessages)
     }
+    storedMessages = try store.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     let visibleMessages = inboxMessages(storedMessages)
     return GmailMetadataSyncResult(
       historicalMetadataBackfillIsComplete: state.historicalMetadataBackfillIsComplete,
