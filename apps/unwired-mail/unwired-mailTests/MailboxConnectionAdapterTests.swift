@@ -329,6 +329,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
   }
 
+  func testGmailRemovalRetainsLocalAuthorizationWhenSyncRemovalFails() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.removeError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    do {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected Product Sync failure")
+    } catch is AdapterTestError {
+    }
+
+    XCTAssertNil(connectionService.clearedConnection)
+  }
+
   func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(
@@ -555,6 +576,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   var removedConnectionIds: [MailboxConnectionId] = []
+  var removeError: Error?
   var saveError: Error?
   private var snapshot: MailboxConnectionSyncSnapshot
 
@@ -590,6 +612,7 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
     _ connectionId: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    if let removeError { throw removeError }
     removedConnectionIds.append(connectionId)
     snapshot = MailboxConnectionSyncSnapshot(
       connections: snapshot.connections.filter { $0.id != connectionId },

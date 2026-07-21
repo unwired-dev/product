@@ -20,6 +20,7 @@ final class GenericMailSetupViewModel {
   var incomingSecurity = MailTransportSecurity.implicitTLS
   var isConnecting = false
   var isLoadingSyncedDefinitions = false
+  private var hasLoadedSyncedDefinitions = false
   var outgoingHostname = ""
   var outgoingPort = "465"
   var outgoingSecurity = MailTransportSecurity.implicitTLS
@@ -297,12 +298,14 @@ extension GenericMailSetupViewModel {
       {
         clearLoadedSetup()
       }
-      if selectedSyncedConnectionId == nil,
+      if !hasLoadedSyncedDefinitions,
+        selectedSyncedConnectionId == nil,
         let selected = definitions.first(where: { $0.connectionId == defaultSendingConnectionId })
           ?? definitions.first
       {
         selectSyncedDefinition(selected)
       }
+      hasLoadedSyncedDefinitions = true
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription

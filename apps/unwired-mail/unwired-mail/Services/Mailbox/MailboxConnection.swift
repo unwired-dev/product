@@ -802,8 +802,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     let gmailStatus = try gmailConnection(
       connection, session: session, requiresAuthorization: false)
-    try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    try await connectionService.clearLocalConnection(gmailStatus, session: session)
   }
 
   func setDefaultSendingConnection(

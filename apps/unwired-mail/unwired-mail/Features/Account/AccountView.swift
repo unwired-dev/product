@@ -777,7 +777,7 @@ final class GmailProviderConnectionViewModel {
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
         selectedConnectionId =
           connections.first { $0.id == defaultSendingConnectionId }?.id
-          ?? (defaultSendingConnectionId == nil ? connections.first?.id : nil)
+          ?? connections.first?.id
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }

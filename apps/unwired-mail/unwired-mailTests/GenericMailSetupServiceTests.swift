@@ -272,6 +272,42 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertNil(viewModel.connectedDefinition)
   }
 
+  @MainActor
+  func testRefreshingSyncedDefinitionsPreservesManualSetupDraft() async {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "synced@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap, hostname: "imap.example.com", port: 993, security: .implicitTLS),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp, hostname: "smtp.example.com", port: 465, security: .implicitTLS),
+      roleMappings: [.sent: "Sent"],
+      username: "synced@example.com"
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001", identityToken: "product-token",
+      productAccountId: "product-account-001", trustedDeviceId: "trusted-device-001"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: RecordingGenericSyncService(definitions: [definition]),
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+
+    await viewModel.loadSyncedDefinitions()
+    viewModel.emailAddress = "draft@example.com"
+    viewModel.incomingHostname = "draft.imap.example.com"
+    await viewModel.loadSyncedDefinitions()
+
+    XCTAssertEqual(viewModel.emailAddress, "draft@example.com")
+    XCTAssertEqual(viewModel.incomingHostname, "draft.imap.example.com")
+  }
+
   func testSyncedRemovalPurgesDeviceLocalGenericAuthorization() async throws {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -396,6 +432,33 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
     XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
     XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
+  }
+
+  func testGenericRemovalRetainsLocalAuthorizationWhenSyncRemovalFails() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001", identityToken: "product-token",
+      productAccountId: "product-account-001", trustedDeviceId: "trusted-device-001"
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(), credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId), syncSession: session
+    )
+    sync.removeError = GenericMailSetupTestError.syncUnavailable
+
+    do {
+      try await service.removeEverywhere(definition, session: session)
+      XCTFail("Expected Product Sync failure")
+    } catch is GenericMailSetupTestError {
+    }
+
+    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {
@@ -1205,6 +1268,7 @@ private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
   var saveError: Error?
+  var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
   private var snapshot: MailboxConnectionSyncSnapshot
 
@@ -1242,6 +1306,7 @@ private final class RecordingGenericSyncService:
     _ connectionId: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    if let removeError { throw removeError }
     snapshot = MailboxConnectionSyncSnapshot(
       connections: snapshot.connections.filter { $0.id != connectionId },
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId == connectionId
