@@ -1014,6 +1014,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       ])
   }
 
+  func testSyncInboxRefreshesNewestMessagesBeforeResumingBackfill() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+
+    _ = try await fixture.service.syncInbox(connection: connection, session: session)
+    fixture.requestRecorder.queries = []
+
+    let result = try await fixture.service.syncInbox(connection: connection, session: session)
+
+    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(fixture.requestRecorder.queries, ["maxResults=25&labelIds=INBOX"])
+  }
+
   func testHistoricalBackfillDefersInLowPowerAndResumesFromSavedPage() async throws {
     var shouldContinueBackfill = false
     let fixture = try makeSyncFixture(
@@ -1282,7 +1294,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
-    let fixture = try makeSyncFixture(usesPagination: true, historyStatusCode: 404)
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      historyStatusCode: 404,
+      labelIdsByMessageId: ["message-001": ["ARCHIVED"]]
+    )
     fixture.store.messages = [
       metadata(
         messageId: "message-stale", threadId: "thread-stale", internalDateMilliseconds: 1)
@@ -1310,6 +1326,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-001"))
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
     XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
+    XCTAssertTrue(fixture.store.savedMessages.contains { $0.providerMessageId == "message-001" })
     XCTAssertEqual(fixture.store.syncState?.historicalMetadataBackfillIsComplete, true)
     XCTAssertNil(fixture.store.syncState?.nextPageToken)
   }

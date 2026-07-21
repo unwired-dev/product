@@ -941,15 +941,21 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     ), !state.historicalMetadataBackfillIsComplete {
-      let messages = try store.loadMessages(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
+      let result = try await syncInbox(
+        connection: connection,
+        includingHistoryCandidates: false,
+        listingAllMessages: false,
+        maximumPages: 1,
+        preservingUnlistedMessages: true,
+        sinceHistoryId: nil,
+        throughHistoryId: nil,
+        session: session,
+        shouldPersist: nil
       )
-      let visibleMessages = inboxMessages(messages)
       return GmailMetadataSyncResult(
         historicalMetadataBackfillIsComplete: false,
-        messages: visibleMessages,
-        threads: GmailInboxThread.group(visibleMessages)
+        messages: result.messages,
+        threads: result.threads
       )
     }
 
@@ -1129,7 +1135,10 @@ struct GmailMessageMetadataService:
         shouldPersist: shouldPersist
       )
       let storedMessages = try store.saveSyncPage(
-        result.messages,
+        try store.loadMessages(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ),
         state: GmailMetadataSyncState(
           historicalMetadataBackfillIsComplete: true,
           nextPageToken: nil,
