@@ -499,6 +499,28 @@ function gmailConnectionsForDevice(
     );
 }
 
+async function singleGmailConnectionForDevice(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+) {
+  const [connection, additionalConnection] = await gmailConnectionsForDevice(
+    ctx,
+    request.productAccountId,
+    request.trustedDeviceId,
+  ).take(2);
+  if (connection === undefined) {
+    throw new Error('Gmail connection required');
+  }
+  if (additionalConnection !== undefined) {
+    throw new Error('Gmail connection selection required');
+  }
+  return connection;
+}
+
 async function gmailConnection(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -1046,11 +1068,10 @@ export const shouldStopGmailWatch = query({
     );
     const connection =
       args.providerAccountIdentifier === undefined
-        ? await gmailConnectionsForDevice(
-            ctx,
-            account.productAccountId,
-            args.trustedDeviceId,
-          ).first()
+        ? await singleGmailConnectionForDevice(ctx, {
+            productAccountId: account.productAccountId,
+            trustedDeviceId: args.trustedDeviceId,
+          })
         : await requireGmailConnection(ctx, {
             productAccountId: account.productAccountId,
             providerAccountIdentifier: args.providerAccountIdentifier,

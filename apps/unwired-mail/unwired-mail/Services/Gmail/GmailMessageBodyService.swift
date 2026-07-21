@@ -129,11 +129,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       [
         gmailSafeFileComponent(productAccountId),
         gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
-      ].joined(separator: "-"),
-      [
-        legacyGmailSafeFileComponent(productAccountId),
-        legacyGmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
-      ].joined(separator: "-"),
+      ].joined(separator: "-")
     ]
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,

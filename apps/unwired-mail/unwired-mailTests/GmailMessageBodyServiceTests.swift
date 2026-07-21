@@ -202,7 +202,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: secondProviderAccountIdentifier
     )
-    XCTAssertFalse(FileManager.default.fileExists(atPath: legacySecondURL.path))
+    XCTAssertTrue(FileManager.default.fileExists(atPath: legacySecondURL.path))
 
     XCTAssertNil(
       try cache.loadMessageBody(
