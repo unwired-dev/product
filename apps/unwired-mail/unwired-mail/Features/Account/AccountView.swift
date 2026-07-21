@@ -501,7 +501,7 @@ final class GmailInboxViewModel {
 
   var isBusy: Bool {
     isAssigningCategory || isCategorizingHistorical || isLoading || isLoadingMessageBody
-      || isSearching || isSyncing
+      || isSearching || isSyncing || backfillTask != nil
   }
 
   func loadMessageBody(
@@ -546,7 +546,7 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
-      if !result.historicalMetadataBackfillIsComplete {
+      if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
         startHistoricalBackfill(connection: connection)
       }
     } catch is CancellationError {

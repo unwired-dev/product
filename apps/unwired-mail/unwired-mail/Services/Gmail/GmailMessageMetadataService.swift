@@ -683,7 +683,12 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       }
     }
     if state.historicalMetadataBackfillIsComplete {
-      for record in existingRecords where record.pendingRemovalScanId == state.scanId {
+      let pendingRemovalRecords = try fetchRecords(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier,
+        context: context
+      )
+      for record in pendingRemovalRecords where record.pendingRemovalScanId == state.scanId {
         context.delete(record)
       }
     }
@@ -901,7 +906,7 @@ struct GmailMessageMetadataService:
     return GmailMetadataSyncResult(
       hasInitialMailboxAvailability: state != nil || !messages.isEmpty,
       historicalMetadataBackfillIsComplete:
-        state?.historicalMetadataBackfillIsComplete ?? !messages.isEmpty,
+        state?.historicalMetadataBackfillIsComplete ?? false,
       messages: visibleMessages,
       threads: GmailInboxThread.group(visibleMessages)
     )

@@ -944,11 +944,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       provider: connection.provider,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       trustedDeviceId: connection.trustedDeviceId,
-      updatedAt: 1_781_200_000_000
+      updatedAt: 1_781_180_000_000
     )
 
     _ = try await fixture.service.syncInbox(
-      connection: reconnectedConnection,
+      connection: connection,
       session: session
     )
     let result = try await fixture.service.continueHistoricalBackfill(
@@ -1056,6 +1056,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "message-002",
         "message-001",
       ])
+  }
+
+  func testLoadInboxDoesNotTreatCheckpointlessCachedMessagesAsComplete() async throws {
+    let fixture = try makeSyncFixture()
+    fixture.store.messages = [
+      metadata(
+        messageId: "message-001",
+        threadId: "thread-001",
+        internalDateMilliseconds: 1
+      )
+    ]
+
+    let result = try await fixture.service.loadInbox(connection: connection, session: session)
+
+    XCTAssertTrue(result.hasInitialMailboxAvailability)
+    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
   }
 
   func testSyncInboxRefreshesNewestMessagesBeforeResumingBackfill() async throws {
