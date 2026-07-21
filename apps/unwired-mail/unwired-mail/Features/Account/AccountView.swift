@@ -496,7 +496,7 @@ final class GmailInboxViewModel {
   }
 
   var isRefreshDisabled: Bool {
-    isCategorizingHistorical || isLoading || isSearching || isSyncing
+    isCategorizingHistorical || isLoading || isSearching || isSyncing || backfillTask != nil
   }
 
   var isBusy: Bool {

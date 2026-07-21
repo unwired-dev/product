@@ -849,6 +849,42 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelDisablesRefreshWhileHistoricalBackfillRuns() async {
+    let cachedMessage = metadata(
+      messageId: "message-cached",
+      threadId: "thread-cached",
+      internalDateMilliseconds: 1
+    )
+    let historicalMessage = metadata(
+      messageId: "message-historical",
+      threadId: "thread-historical",
+      internalDateMilliseconds: 2
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: cachedMessage
+      ],
+      historicalMessagesByProviderAccount: [
+        connection.providerAccountIdentifier: historicalMessage
+      ],
+      delaysHistoricalBackfill: true
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(productAccountId: session.productAccountId)
+
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+    await service.waitUntilHistoricalBackfillStarts()
+
+    XCTAssertTrue(viewModel.isRefreshDisabled)
+
+    await service.releaseHistoricalBackfill()
+  }
+
+  @MainActor
   func testInboxViewModelIsBusyWhileForwardBodyLoads() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -2230,6 +2266,8 @@ private actor OverrideGate {
 private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMessageSearching {
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
+  var delaysHistoricalBackfill = false
+  private let historicalBackfillGate = OverrideGate()
   private let historicalCategorizationGate = OverrideGate()
   private let overrideGate = OverrideGate()
 
@@ -2267,7 +2305,10 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    result(
+    if delaysHistoricalBackfill {
+      await historicalBackfillGate.waitForRelease()
+    }
+    return result(
       for: connection,
       using: historicalMessagesByProviderAccount
     )
@@ -2316,8 +2357,16 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     await historicalCategorizationGate.waitUntilStarted()
   }
 
+  func waitUntilHistoricalBackfillStarts() async {
+    await historicalBackfillGate.waitUntilStarted()
+  }
+
   func releaseHistoricalCategorization() async {
     await historicalCategorizationGate.release()
+  }
+
+  func releaseHistoricalBackfill() async {
+    await historicalBackfillGate.release()
   }
 
   private func result(
