@@ -432,6 +432,44 @@ describe('productAccount Gmail provider connection', () => {
     ).toHaveLength(1);
   });
 
+  it('rejects an ambiguous legacy Gmail connection without overwriting a mailbox', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    for (const providerAccountIdentifier of [
+      'gmail-user-001',
+      'gmail-user-002',
+    ]) {
+      await asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: `${providerAccountIdentifier}@example.com`,
+        providerAccountIdentifier,
+        supportsMultipleConnections: true,
+        trustedDeviceId: connect.trustedDeviceId,
+      });
+    }
+
+    await expect(
+      asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'third@example.com',
+        providerAccountIdentifier: 'gmail-user-003',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail connection is ambiguous for this client version');
+    await expect(
+      asUser.query(api.productAccount.listGmailProviderConnections, {
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject([
+      { providerAccountIdentifier: 'gmail-user-001' },
+      { providerAccountIdentifier: 'gmail-user-002' },
+    ]);
+  });
+
   it('rejects a new Gmail identity when the trusted-device limit is reached', async () => {
     expect.assertions(2);
 

@@ -76,6 +76,9 @@ function gmailConnectionToUpdate(
   if (supportsMultipleConnections === true) {
     return null;
   }
+  if (connections.length > 1) {
+    throw new Error('Gmail connection is ambiguous for this client version');
+  }
   return connections[0] ?? null;
 }
 
