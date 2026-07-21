@@ -670,6 +670,91 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(verification.discoveredRoleMappings[.trash], "Deleted")
   }
 
+  func testSystemVerifierReadsUnquotedIMAPSpecialUseRole() async throws {
+    let stream = ScriptedGenericMailStreamTask(responses: [
+      .success("* OK ready\r\n"),
+      .success("a2 OK authenticated\r\n"),
+      .success("* LIST (\\Sent) \"/\" Sent\r\na3 OK listed\r\n"),
+    ])
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+
+    let verification = try await verifier.verify(
+      endpoint: GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      username: "reader@example.com",
+      credential: "secret",
+      authorizationMethod: .password
+    )
+
+    XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Sent")
+  }
+
+  func testSystemVerifierRespondsToIMAPOAuthContinuation() async {
+    let stream = ScriptedGenericMailStreamTask(responses: [
+      .success("* OK ready\r\n"),
+      .success("+ token expired\r\n"),
+      .success("a2 NO authentication failed\r\n"),
+    ])
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+
+    do {
+      _ = try await verifier.verify(
+        endpoint: GenericMailEndpoint(
+          mailProtocol: .imap,
+          hostname: "imap.example.com",
+          port: 993,
+          security: .implicitTLS
+        ),
+        username: "reader@example.com",
+        credential: "expired-token",
+        authorizationMethod: .oauth
+      )
+      XCTFail("Expected authentication failure")
+    } catch GenericMailSetupError.authenticationFailed(.imap) {
+      XCTAssertTrue(stream.events.contains(.write("\r\n")))
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testSystemVerifierClosesStreamWhenCancelled() async {
+    let stream = BlockingGenericMailStreamTask()
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+    let verification = Task {
+      try await verifier.verify(
+        endpoint: GenericMailEndpoint(
+          mailProtocol: .imap,
+          hostname: "imap.example.com",
+          port: 993,
+          security: .implicitTLS
+        ),
+        username: "reader@example.com",
+        credential: "secret",
+        authorizationMethod: .password
+      )
+    }
+
+    await fulfillment(of: [stream.readStarted], timeout: 1)
+    verification.cancel()
+    do {
+      _ = try await verification.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {} catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    XCTAssertGreaterThanOrEqual(stream.closeCount, 1)
+  }
+
   func testSensitiveSetupDataStaysInsideDeviceLocalCollaborators() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -820,6 +905,29 @@ private final class ScriptedGenericMailStreamTask: GenericMailStreamTasking {
   func write(_ value: String) async throws {
     events.append(.write(value))
   }
+}
+
+private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
+  let readStarted = XCTestExpectation(description: "stream read started")
+  private var readContinuation: CheckedContinuation<String, Error>?
+  private(set) var closeCount = 0
+
+  func close() {
+    closeCount += 1
+    readContinuation?.resume(throwing: CancellationError())
+    readContinuation = nil
+  }
+
+  func read() async throws -> String {
+    readStarted.fulfill()
+    return try await withCheckedThrowingContinuation { continuation in
+      readContinuation = continuation
+    }
+  }
+
+  func resume() {}
+  func startSecureConnection() {}
+  func write(_: String) async throws {}
 }
 
 private final class RecordingGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {

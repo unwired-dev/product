@@ -39,14 +39,18 @@ final class SystemGenericMailEndpointVerifier: NSObject, GenericMailEndpointVeri
     task.resume()
     defer { task.close() }
 
-    let conversation = MailEndpointConversation(
-      authorizationMethod: authorizationMethod,
-      credential: credential,
-      endpoint: endpoint,
-      task: task,
-      username: username
-    )
-    let discoveredRoleMappings = try await conversation.verify()
+    let discoveredRoleMappings = try await withTaskCancellationHandler {
+      let conversation = MailEndpointConversation(
+        authorizationMethod: authorizationMethod,
+        credential: credential,
+        endpoint: endpoint,
+        task: task,
+        username: username
+      )
+      return try await conversation.verify()
+    } onCancel: {
+      task.close()
+    }
     return GenericMailEndpointVerification(
       authenticated: true,
       discoveredRoleMappings: discoveredRoleMappings,
@@ -141,7 +145,11 @@ private final class MailEndpointConversation {
     } else {
       try await write("a2 LOGIN \(quoted(username)) \(quoted(credential))\r\n")
     }
-    guard try await readIMAPResponse(tag: "A2").uppercased().contains("A2 OK") else {
+    let response = try await readIMAPResponse(
+      tag: "A2",
+      respondsToContinuation: authorizationMethod == .oauth
+    )
+    guard response.uppercased().contains("A2 OK") else {
       throw GenericMailSetupError.authenticationFailed(.imap)
     }
   }
@@ -173,12 +181,11 @@ private final class MailEndpointConversation {
   }
 
   private func listedMailbox(in line: String) -> String? {
-    if let closingQuote = line.lastIndex(of: "\"") {
-      let prefix = line[..<closingQuote]
-      guard let openingQuote = prefix.lastIndex(of: "\"") else { return nil }
-      return String(line[line.index(after: openingQuote)..<closingQuote])
+    guard let flagsEnd = line.range(of: ") ") else { return nil }
+    guard let (_, afterDelimiter) = imapListToken(in: line[flagsEnd.upperBound...]) else {
+      return nil
     }
-    return line.split(whereSeparator: \Character.isWhitespace).last.map(String.init)
+    return imapListToken(in: afterDelimiter)?.value
   }
 
   private func authenticatePOP3() async throws {
@@ -230,13 +237,21 @@ private final class MailEndpointConversation {
     return try await readResponse()
   }
 
-  private func readIMAPResponse(tag: String) async throws -> String {
+  private func readIMAPResponse(
+    tag: String,
+    respondsToContinuation: Bool = false
+  ) async throws -> String {
     var response = ""
-    repeat {
-      response += try await readResponse()
-    } while !response.uppercased().contains("\r\n\(tag.uppercased()) ")
-      && !response.uppercased().hasPrefix("\(tag.uppercased()) ")
-    return response
+    while true {
+      let line = try await readResponse()
+      response += line
+      if line.uppercased().hasPrefix("\(tag.uppercased()) ") {
+        return response
+      }
+      if respondsToContinuation, line.hasPrefix("+") {
+        try await write("\r\n")
+      }
+    }
   }
 
   private func readSMTPResponse(code: String) async throws -> String {
@@ -256,6 +271,21 @@ private final class MailEndpointConversation {
 
   private func quoted(_ value: String) -> String {
     "\"\(value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+  }
+
+  private func imapListToken(in value: Substring) -> (value: String, remainder: Substring)? {
+    let trimmed = value.drop(while: \Character.isWhitespace)
+    guard let first = trimmed.first else { return nil }
+    if first != "\"" {
+      let end = trimmed.firstIndex(where: \Character.isWhitespace) ?? trimmed.endIndex
+      return (String(trimmed[..<end]), trimmed[end...])
+    }
+    let contentStart = trimmed.index(after: trimmed.startIndex)
+    guard let closingQuote = trimmed[contentStart...].firstIndex(of: "\"") else { return nil }
+    return (
+      String(trimmed[contentStart..<closingQuote]),
+      trimmed[trimmed.index(after: closingQuote)...]
+    )
   }
 
   private func readResponse() async throws -> String {
