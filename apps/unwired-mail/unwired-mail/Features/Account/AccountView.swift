@@ -10,6 +10,7 @@ struct AccountView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   @State private var categoryViewModel: CustomCategoryViewModel
+  @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var mailActionViewModel: GmailMailActionViewModel
@@ -31,6 +32,12 @@ struct AccountView: View {
       initialValue: CustomCategoryViewModel(
         service: categorySyncService,
         session: snapshot
+      )
+    )
+    _genericMailSetupViewModel = State(
+      initialValue: GenericMailSetupViewModel(
+        productAccountId: ProductAccountId(snapshot.productAccountId),
+        isSessionCurrent: { session.isCurrent(snapshot) }
       )
     )
     _gmailViewModel = State(
@@ -97,6 +104,8 @@ struct AccountView: View {
           isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
         )
 
+        GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
+
         GmailInboxPanel(
           categoryChoices: MessageCategoryChoice.available(
             customCategory: categoryViewModel.category
@@ -112,6 +121,7 @@ struct AccountView: View {
         SmokeView(service: ConvexBackendHealthService())
 
         Button("Sign Out", role: .destructive) {
+          genericMailSetupViewModel.invalidate()
           Task {
             await session.signOut()
           }

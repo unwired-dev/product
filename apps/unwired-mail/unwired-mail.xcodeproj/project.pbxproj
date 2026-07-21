@@ -50,6 +50,11 @@
 		71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */; };
 		71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */; };
 		71A6A0C22C0B000100000001 /* MailboxConnectionAdapterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */; };
+		71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */; };
+		71A6A0D22C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D32C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift */; };
+		71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */; };
+		71A6A0D62C0B000100000001 /* GenericMailSetupServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D72C0B000100000001 /* GenericMailSetupServiceTests.swift */; };
+		71A6A0D82C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -111,6 +116,11 @@
 		71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/ProductAccount/GoogleGmailOAuthService.swift; sourceTree = "<group>"; };
 		71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MailboxConnection.swift; sourceTree = "<group>"; };
 		71A6A0C32C0B000100000001 /* MailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
+		71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/GenericMailSetupPanel.swift; sourceTree = "<group>"; };
+		71A6A0D32C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/GenericMailSetupService.swift; sourceTree = "<group>"; };
+		71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/SystemGenericMailEndpointVerifier.swift; sourceTree = "<group>"; };
+		71A6A0D72C0B000100000001 /* GenericMailSetupServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GenericMailSetupServiceTests.swift; sourceTree = "<group>"; };
+		71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/GenericMailProviderCatalog.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -147,6 +157,7 @@
 				71A6A0112C0B000100000001 /* App/UnwiredMailApp.swift */,
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
+				71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */,
 				71A6A0632C0B000100000001 /* Features/Account/SignInView.swift */,
 				71A6A0122C0B000100000001 /* Features/Smoke/SmokeView.swift */,
 				71A6A0162C0B000100000001 /* Services/BackendEnvironment.swift */,
@@ -159,6 +170,9 @@
 				71A6A01B2C0B000100000001 /* Services/Keychain/KeychainStore.swift */,
 				71A6A0172C0B000100000001 /* Services/Convex/ConvexClient.swift */,
 				71A6A0C12C0B000100000001 /* Services/Mailbox/MailboxConnection.swift */,
+				71A6A0D32C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift */,
+				71A6A0D92C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift */,
+				71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
 				71A6A0B02C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift */,
 				71A6A01F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift */,
@@ -185,6 +199,7 @@
 				71A6A07B2C0B000100000001 /* CustomCategorySyncServiceTests.swift */,
 				71A6A01A2C0B000100000001 /* DotEnvFileTests.swift */,
 				71A6A0872C0B000100000001 /* GmailMessageMetadataServiceTests.swift */,
+				71A6A0D72C0B000100000001 /* GenericMailSetupServiceTests.swift */,
 				71A6A08B2C0B000100000001 /* GmailMessageBodyServiceTests.swift */,
 				71A6A0932C0B000100000001 /* GmailPushRelayServiceTests.swift */,
 				71A6A08F2C0B000100000001 /* MessageCategorizationServiceTests.swift */,
@@ -310,6 +325,7 @@
 				71A6A0012C0B000100000001 /* App/UnwiredMailApp.swift in Sources */,
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
+				71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */,
 				71A6A0622C0B000100000001 /* Features/Account/SignInView.swift in Sources */,
 				71A6A0022C0B000100000001 /* Features/Smoke/SmokeView.swift in Sources */,
 				71A6A0062C0B000100000001 /* Services/BackendEnvironment.swift in Sources */,
@@ -322,6 +338,9 @@
 				71A6A00B2C0B000100000001 /* Services/Keychain/KeychainStore.swift in Sources */,
 				71A6A0072C0B000100000001 /* Services/Convex/ConvexClient.swift in Sources */,
 				71A6A0C02C0B000100000001 /* Services/Mailbox/MailboxConnection.swift in Sources */,
+				71A6A0D22C0B000100000001 /* Services/Mailbox/GenericMailSetupService.swift in Sources */,
+				71A6A0D82C0B000100000001 /* Services/Mailbox/GenericMailProviderCatalog.swift in Sources */,
+				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,
 				71A6A0B12C0B000100000001 /* Services/ProductAccount/GoogleGmailOAuthService.swift in Sources */,
 				71A6A00F2C0B000100000001 /* Services/ProductAccount/ProductAccountService.swift in Sources */,
@@ -346,6 +365,7 @@
 				71A6A0792C0B000100000001 /* CustomCategorySyncServiceTests.swift in Sources */,
 				71A6A00A2C0B000100000001 /* DotEnvFileTests.swift in Sources */,
 				71A6A0852C0B000100000001 /* GmailMessageMetadataServiceTests.swift in Sources */,
+				71A6A0D62C0B000100000001 /* GenericMailSetupServiceTests.swift in Sources */,
 				71A6A0892C0B000100000001 /* GmailMessageBodyServiceTests.swift in Sources */,
 				71A6A0912C0B000100000001 /* GmailPushRelayServiceTests.swift in Sources */,
 				71A6A08D2C0B000100000001 /* MessageCategorizationServiceTests.swift in Sources */,
