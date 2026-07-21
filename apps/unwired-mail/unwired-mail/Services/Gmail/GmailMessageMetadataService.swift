@@ -72,6 +72,11 @@ struct GmailMetadataSyncResult: Equatable {
 protocol GmailMessageMetadataPersisting {
   func clearMessages(productAccountId: String) throws
 
+  func clearMessages(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+
   func loadMessages(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -82,6 +87,15 @@ protocol GmailMessageMetadataPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
+}
+
+extension GmailMessageMetadataPersisting {
+  func clearMessages(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    try clearMessages(productAccountId: productAccountId)
+  }
 }
 
 protocol GmailMessageMetadataSyncing {
@@ -208,14 +222,49 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       return
     }
 
-    let prefix = "\(gmailSafeFileComponent(productAccountId))-"
+    let prefixes = [
+      "\(gmailSafeFileComponent(productAccountId))-",
+      "\(legacyGmailSafeFileComponent(productAccountId))-",
+    ]
     let fileURLs = try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: nil
     )
-    for fileURL in fileURLs where fileURL.lastPathComponent.hasPrefix(prefix) {
+    for fileURL in fileURLs
+    where prefixes.contains(where: { fileURL.lastPathComponent.hasPrefix($0) }) {
       try fileManager.removeItem(at: fileURL)
     }
+  }
+
+  func clearMessages(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    let fileURL = metadataFileURL(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    if fileManager.fileExists(atPath: fileURL.path) {
+      try fileManager.removeItem(at: fileURL)
+    }
+
+    // Legacy sanitized filenames can collide, so only remove one after its contents prove ownership.
+    let legacyFileURL = legacyMetadataFileURL(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    guard
+      fileManager.fileExists(atPath: legacyFileURL.path),
+      let messages = try? JSONDecoder().decode(
+        [GmailMessageMetadata].self,
+        from: Data(contentsOf: legacyFileURL)
+      ),
+      !messages.isEmpty,
+      messages.allSatisfy({ $0.providerAccountIdentifier == providerAccountIdentifier })
+    else {
+      return
+    }
+    try fileManager.removeItem(at: legacyFileURL)
   }
 
   func loadMessages(
@@ -226,12 +275,34 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
-    guard fileManager.fileExists(atPath: fileURL.path) else {
+    if fileManager.fileExists(atPath: fileURL.path) {
+      let data = try Data(contentsOf: fileURL)
+      return try JSONDecoder().decode([GmailMessageMetadata].self, from: data)
+    }
+    let legacyFileURL = legacyMetadataFileURL(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    guard fileManager.fileExists(atPath: legacyFileURL.path) else {
       return []
     }
-
-    let data = try Data(contentsOf: fileURL)
-    return try JSONDecoder().decode([GmailMessageMetadata].self, from: data)
+    let messages = try JSONDecoder().decode(
+      [GmailMessageMetadata].self,
+      from: Data(contentsOf: legacyFileURL)
+    )
+    guard
+      !messages.isEmpty,
+      messages.allSatisfy({ $0.providerAccountIdentifier == providerAccountIdentifier })
+    else {
+      return []
+    }
+    try saveMessages(
+      messages,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    try fileManager.removeItem(at: legacyFileURL)
+    return messages
   }
 
   func saveMessages(
@@ -255,13 +326,28 @@ struct FileGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) -> URL {
-    rootDirectory.appendingPathComponent(
+    return rootDirectory.appendingPathComponent(
       "\(gmailSafeFileComponent(productAccountId))-\(gmailSafeFileComponent(providerAccountIdentifier)).json"
+    )
+  }
+
+  private func legacyMetadataFileURL(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) -> URL {
+    let productAccount = legacyGmailSafeFileComponent(productAccountId)
+    let providerAccount = legacyGmailSafeFileComponent(providerAccountIdentifier)
+    return rootDirectory.appendingPathComponent(
+      "\(productAccount)-\(providerAccount).json"
     )
   }
 }
 
 func gmailSafeFileComponent(_ value: String) -> String {
+  Data(value.utf8).map { String(format: "%02x", $0) }.joined()
+}
+
+func legacyGmailSafeFileComponent(_ value: String) -> String {
   value
     .map { character in
       character.isLetter || character.isNumber || character == "-" ? character : "_"
@@ -527,7 +613,11 @@ struct GmailMessageMetadataService:
       )
     }
     if shouldPersist != nil {
-      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
     }
     try store.saveMessages(
       fetchedMessages,
@@ -551,15 +641,34 @@ struct GmailMessageMetadataService:
     deferPersistence: Bool,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+    let scopedTokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    var storedTokens = scopedTokens
+    if storedTokens == nil {
+      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    }
+
+    guard let storedTokens else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: !deferPersistence,
-      productAccountId: session.productAccountId
+      persist: scopedTokens != nil && !deferPersistence,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    if scopedTokens == nil {
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+    }
     return tokens
   }
 
@@ -567,15 +676,33 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+    let scopedTokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    var storedTokens = scopedTokens
+    if storedTokens == nil {
+      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    }
+    guard let storedTokens else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
 
     let tokens = try await refreshedTokens(
       storedTokens,
-      productAccountId: session.productAccountId
+      persist: scopedTokens != nil,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    if scopedTokens == nil {
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+    }
     return tokens
   }
 
@@ -717,10 +844,19 @@ struct GmailMessageMetadataService:
     session: ProductAccountSessionSnapshot,
     requiredScopes: Set<String>
   ) async throws -> String {
-    guard let storedTokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+    guard
+      let storedTokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
-    let tokens = try await refreshedTokens(storedTokens, productAccountId: session.productAccountId)
+    let tokens = try await refreshedTokens(
+      storedTokens,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     try await validateRefreshedToken(
       tokens.accessToken,
       matches: connection,
@@ -1144,7 +1280,8 @@ struct GmailMessageMetadataService:
   private func refreshedTokens(
     _ tokens: GmailProviderTokens,
     persist: Bool = true,
-    productAccountId: String
+    productAccountId: String,
+    providerAccountIdentifier: String
   ) async throws -> GmailProviderTokens {
     guard let oauthClientId, !oauthClientId.isEmpty else {
       throw GmailMessageMetadataSyncError.missingOAuthClientId
@@ -1177,7 +1314,11 @@ struct GmailMessageMetadataService:
       idToken: tokenResponse.idToken ?? tokens.idToken
     )
     if persist {
-      try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+      try tokenStore.save(
+        refreshedTokens,
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
     }
     return refreshedTokens
   }

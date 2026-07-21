@@ -499,16 +499,59 @@ function gmailConnectionsForDevice(
     );
 }
 
+async function singleGmailConnectionForDevice(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    productAccountId: Id<'productAccounts'>;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+) {
+  const [connection, additionalConnection] = await gmailConnectionsForDevice(
+    ctx,
+    request.productAccountId,
+    request.trustedDeviceId,
+  ).take(2);
+  if (connection === undefined) {
+    throw new Error('Gmail connection required');
+  }
+  if (additionalConnection !== undefined) {
+    throw new Error('Gmail connection selection required');
+  }
+  return connection;
+}
+
+async function gmailConnection(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    productAccountId: Id<'productAccounts'>;
+    providerAccountIdentifier: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
+): Promise<Doc<'mailProviderConnections'> | null> {
+  return ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_product_provider_device_account', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', request.trustedDeviceId)
+        .eq('providerAccountIdentifier', request.providerAccountIdentifier),
+    )
+    .unique();
+}
+
 async function requireGmailConnection(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  productAccountId: Id<'productAccounts'>,
-  trustedDeviceId: Id<'trustedDevices'>,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    productAccountId: Id<'productAccounts'>;
+    providerAccountIdentifier: string;
+    trustedDeviceId: Id<'trustedDevices'>;
+  }>,
 ): Promise<Doc<'mailProviderConnections'>> {
-  const connection = await gmailConnectionsForDevice(
-    ctx,
-    productAccountId,
-    trustedDeviceId,
-  ).unique();
+  const connection = await gmailConnection(ctx, request);
   if (connection === null) {
     throw new Error('Gmail connection required');
   }
@@ -1015,6 +1058,7 @@ export const unregisterDevice = mutation({
 
 export const shouldStopGmailWatch = query({
   args: {
+    providerAccountIdentifier: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -1022,11 +1066,20 @@ export const shouldStopGmailWatch = query({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await requireGmailConnection(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
+    const connection =
+      args.providerAccountIdentifier === undefined
+        ? await singleGmailConnectionForDevice(ctx, {
+            productAccountId: account.productAccountId,
+            trustedDeviceId: args.trustedDeviceId,
+          })
+        : await requireGmailConnection(ctx, {
+            productAccountId: account.productAccountId,
+            providerAccountIdentifier: args.providerAccountIdentifier,
+            trustedDeviceId: args.trustedDeviceId,
+          });
+    if (connection === null) {
+      throw new Error('Gmail connection required');
+    }
     return !(await hasOtherActiveGmailRoute(ctx, {
       emailAddress: connection.emailAddress,
       trustedDeviceId: args.trustedDeviceId,
@@ -1042,18 +1095,10 @@ export const verifyGmailWatch = action({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const expectedIdentity: VerifiedGoogleIdentity = await ctx.runQuery(
-      internal.pushRelay.gmailWatchExpectedIdentity,
-      { trustedDeviceId: args.trustedDeviceId },
-    );
+    await ctx.runQuery(internal.pushRelay.authenticateGmailWatch, {
+      trustedDeviceId: args.trustedDeviceId,
+    });
     const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    if (
-      expectedIdentity.emailAddress !== identity.emailAddress ||
-      expectedIdentity.providerAccountIdentifier !==
-        identity.providerAccountIdentifier
-    ) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
     const result: Infer<typeof gmailPushVerificationResponseValidator> =
       await ctx.runMutation(internal.pushRelay.verifyGmailWatchForIdentity, {
         emailAddress: identity.emailAddress,
@@ -1066,27 +1111,15 @@ export const verifyGmailWatch = action({
   returns: gmailPushVerificationResponseValidator,
 });
 
-export const gmailWatchExpectedIdentity = internalQuery({
-  args: { trustedDeviceId: v.id('trustedDevices') },
-  handler: async (ctx, args) => {
-    const account = await requireAuthenticatedTrustedDevice(
-      ctx,
-      args.trustedDeviceId,
-    );
-    const connection = await requireGmailConnection(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
-    return {
-      emailAddress: connection.emailAddress,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
-    };
+export const authenticateGmailWatch = internalQuery({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
   },
-  returns: v.object({
-    emailAddress: v.string(),
-    providerAccountIdentifier: v.string(),
-  }),
+  handler: async (ctx, args) => {
+    await requireAuthenticatedTrustedDevice(ctx, args.trustedDeviceId);
+    return null;
+  },
+  returns: v.null(),
 });
 
 export const verifyGmailWatchForIdentity = internalMutation({
@@ -1107,11 +1140,14 @@ export const verifyGmailWatchForIdentity = internalMutation({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await requireGmailConnection(
-      ctx,
-      account.productAccountId,
-      args.trustedDeviceId,
-    );
+    const connection = await gmailConnection(ctx, {
+      productAccountId: account.productAccountId,
+      providerAccountIdentifier: args.providerAccountIdentifier,
+      trustedDeviceId: args.trustedDeviceId,
+    });
+    if (connection === null) {
+      throw new Error('Gmail mailbox ownership proof rejected');
+    }
     if (
       connection.emailAddress !== args.emailAddress ||
       connection.providerAccountIdentifier !== args.providerAccountIdentifier

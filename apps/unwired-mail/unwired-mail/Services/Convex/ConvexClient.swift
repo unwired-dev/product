@@ -82,6 +82,7 @@ final class ConvexClient {
       args: ConnectGmailProviderArgs(
         emailAddress: emailAddress,
         providerAccountIdentifier: providerAccountIdentifier,
+        supportsMultipleConnections: true,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -99,13 +100,44 @@ final class ConvexClient {
     )
   }
 
+  func listGmailProviderConnections(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try await performQuery(
+      path: "productAccount:listGmailProviderConnections",
+      args: GetGmailProviderConnectionArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func removeGmailProviderConnection(
+    identityToken: String,
+    providerAccountIdentifier: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    let response: RemoveGmailProviderConnectionResponse = try await performMutation(
+      path: "productAccount:removeGmailProviderConnection",
+      args: RemoveGmailProviderConnectionArgs(
+        providerAccountIdentifier: providerAccountIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+    return response.hasRemainingGmailConnections
+  }
+
   func shouldStopGmailPushWatch(
     identityToken: String,
+    providerAccountIdentifier: String,
     trustedDeviceId: String
   ) async throws -> Bool {
     try await performQuery(
       path: "pushRelay:shouldStopGmailWatch",
-      args: ShouldStopGmailPushWatchArgs(trustedDeviceId: trustedDeviceId),
+      args: ShouldStopGmailPushWatchArgs(
+        providerAccountIdentifier: providerAccountIdentifier,
+        trustedDeviceId: trustedDeviceId
+      ),
       identityToken: identityToken
     )
   }
@@ -410,6 +442,7 @@ private struct ConnectProductAccountArgs: Encodable {
 private struct ConnectGmailProviderArgs: Encodable {
   let emailAddress: String
   let providerAccountIdentifier: String
+  let supportsMultipleConnections: Bool
   let trustedDeviceId: String
 }
 
@@ -424,7 +457,18 @@ private struct RegisterDevicePushArgs: Encodable {
 }
 
 private struct ShouldStopGmailPushWatchArgs: Encodable {
+  let providerAccountIdentifier: String
   let trustedDeviceId: String
+}
+
+private struct RemoveGmailProviderConnectionArgs: Encodable {
+  let providerAccountIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct RemoveGmailProviderConnectionResponse: Decodable {
+  let hasRemainingGmailConnections: Bool
+  let removed: Bool
 }
 
 private struct UnregisterDevicePushArgs: Encodable {

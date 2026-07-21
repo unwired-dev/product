@@ -67,6 +67,7 @@ jobs:
     name: Apple
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
     runs-on: blacksmith-6vcpu-macos-26
+    timeout-minutes: 15
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -88,5 +89,10 @@ jobs:
       - name: Swift format and lint
         run: mise exec -- zsh scripts/check-apple-lint.zsh
 
+      - name: Boot iPhone simulator
+        run: |
+          xcrun simctl boot 'iPhone 17' || true
+          xcrun simctl bootstatus 'iPhone 17' -b
+
       - name: Test
-        run: xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
+        run: xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17' -parallel-testing-enabled NO

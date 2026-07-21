@@ -83,6 +83,64 @@ final class GmailPushRelayServiceTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
+  func testTokenRefresherMigratesLegacyTokensWhenStoppingAnUpgradedWatch() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "expired-access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let requestSession = ConvexClientTesting.makeSession { request in
+      let response = HTTPURLResponse(
+        url: request.url!,
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: nil
+      )!
+      if request.url?.path == "/token" {
+        return (
+          response,
+          Data(
+            #"{"access_token":"refreshed-access-token","id_token":"gmail-identity-token"}"#.utf8
+          )
+        )
+      }
+      return (
+        response,
+        Data(
+          #"""
+          {
+            "email": "user@example.com",
+            "scope": "https://www.googleapis.com/auth/gmail.readonly",
+            "sub": "gmail-user-001"
+          }
+          """#.utf8
+        )
+      )
+    }
+    let service = GmailMessageMetadataService(
+      oauthClientId: "gmail-client-id",
+      session: requestSession,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://example.test/token")!
+    )
+
+    let tokens = try await service.refreshProviderTokens(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      tokens
+    )
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+  }
+
+  // swiftlint:disable:next function_body_length
   func testRegisterOrRenewWatchUsesDeviceHeldTokenAndStoresExpiration() async throws {
     let connectionStore = RecordingGmailPushConnectionStore()
     let tokenRefresher = RecordingGmailPushTokenRefresher(
@@ -271,6 +329,44 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(status.historyId, "history-renewed")
   }
 
+  func testRegisterOrRenewWatchPersistsConnectionBeforeVerification() async throws {
+    let connectionStore = RecordingGmailPushConnectionStore()
+    let service = GmailPushWatchService(
+      connectionStore: connectionStore,
+      nowMilliseconds: { 1_781_200_000_000 },
+      session: ConvexClientTesting.makeSession { request in
+        (
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(#"{"expiration":"1781900000000","historyId":"history-new"}"#.utf8)
+        )
+      },
+      store: RecordingGmailPushWatchStore(),
+      tokenRefresher: RecordingGmailPushTokenRefresher(
+        tokens: GmailProviderTokens(
+          accessToken: "fresh-access-token",
+          refreshToken: "refresh-token",
+          idToken: "gmail-identity-token"
+        )
+      ),
+      topicName: "projects/private-email/topics/gmail-push",
+      verificationTransport: ThrowingGmailPushVerificationTransport()
+    )
+
+    do {
+      _ = try await service.registerOrRenew(connection: connection, session: session)
+      XCTFail("Expected watch verification to fail")
+    } catch {
+    }
+
+    XCTAssertEqual(connectionStore.savedConnection, connection)
+    XCTAssertEqual(connectionStore.productAccountId, session.productAccountId)
+  }
+
   func testStopWatchUsesDeviceHeldToken() async throws {
     let tokenRefresher = RecordingGmailPushTokenRefresher(
       tokens: GmailProviderTokens(
@@ -362,17 +458,257 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(transport.unregisteredSession, session)
   }
 
-  func testPushConnectionStoreKeepsAccountMetadataInKeychain() throws {
+  // swiftlint:disable:next function_body_length
+  func testPushConnectionStoreMigratesLegacyMetadataAndKeepsMailboxesIsolated() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let first = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail/user",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let second = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail:user",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(first), encoding: .utf8)
+    )
     let store = KeychainGmailPushConnectionStore()
-    defer { try? store.clear(productAccountId: productAccountId) }
-    try store.save(connection, productAccountId: productAccountId)
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+      try? KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
-    XCTAssertEqual(try store.load(productAccountId: productAccountId), connection)
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [first])
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+    try store.save(second, productAccountId: productAccountId)
 
-    try store.clear(productAccountId: productAccountId)
+    try store.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: first.providerAccountIdentifier
+    )
 
-    XCTAssertNil(try store.load(productAccountId: productAccountId))
+    XCTAssertNil(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: first.providerAccountIdentifier
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: second.providerAccountIdentifier
+      ),
+      second
+    )
+  }
+
+  func testPushConnectionStoreClearingLegacyMailboxPreventsResurrection() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+      try? KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    try store.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [])
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
+  func testPushConnectionStoreDoesNotReplaceScopedConnectionWithLegacyDuplicate() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let current = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "current@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt + 1
+    )
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+      try? KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    try store.save(current, productAccountId: productAccountId)
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [current])
+    XCTAssertNotNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
+  func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
+    let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let otherIdentifier = "gmail-user-002"
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacyProviderAccount = legacyGmailSafeFileComponent(
+      otherIdentifier
+    )
+    let legacySuffix = "\(legacyProductAccount).\(legacyProviderAccount)"
+    let receiptKey = "gmail-push-notification-receipts.\(legacySuffix)"
+    let eligibilityKey = "gmail-push-notification-eligibility.\(legacySuffix)"
+    let otherMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Sender <sender@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: otherIdentifier,
+      providerInternalDateMilliseconds: 1,
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      replyTo: nil,
+      snippet: "Private message",
+      stableProviderMessageId: "gmail:\(otherIdentifier):message-001",
+      subject: "Subject",
+      rfcMessageId: "<message-001@example.com>"
+    )
+    defaults.set([otherMessage.stableProviderMessageId], forKey: receiptKey)
+    let eligibilityJSON = """
+      [{"stableProviderMessageId":"\(otherMessage.stableProviderMessageId)","throughHistoryId":"124"}]
+      """
+    defaults.set(Data(eligibilityJSON.utf8), forKey: eligibilityKey)
+
+    let receiptStore = GmailPushNotificationReceiptStore(defaults: defaults)
+    let eligibilityStore = GmailPushEligibilityStore(defaults: defaults)
+
+    XCTAssertEqual(
+      try claimAndReleaseReceipt(
+        pushMessage(categoryId: nil),
+        from: receiptStore
+      ),
+      .claimed
+    )
+    XCTAssertTrue(
+      try eligibilityStore.eligibleStableMessageIds(
+        after: "123",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ).isEmpty
+    )
+    XCTAssertNotNil(defaults.object(forKey: receiptKey))
+    XCTAssertNotNil(defaults.object(forKey: eligibilityKey))
+  }
+
+  func testPushWatchStoreMigratesLegacyStatusAndKeepsCollidingIdentitiesIsolated() throws {
+    let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let firstIdentifier = "gmail/user"
+    let secondIdentifier = "gmail:user"
+    let first = GmailPushWatchStatus(
+      expirationMilliseconds: 100,
+      historyId: "10",
+      routeId: "route-001"
+    )
+    let second = GmailPushWatchStatus(
+      expirationMilliseconds: 200,
+      historyId: "20",
+      routeId: "route-002"
+    )
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacyProviderAccount = legacyGmailSafeFileComponent(firstIdentifier)
+    let legacyKey = "gmail-push-watch.\(legacyProductAccount).\(legacyProviderAccount)"
+    defaults.set(try JSONEncoder().encode(first), forKey: legacyKey)
+    let store = UserDefaultsGmailPushWatchStore(defaults: defaults)
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: firstIdentifier
+      ),
+      first
+    )
+    try store.save(
+      second,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: secondIdentifier
+    )
+    try store.clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: firstIdentifier
+    )
+
+    XCTAssertNil(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: firstIdentifier
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: secondIdentifier
+      ),
+      second
+    )
+  }
+
+  func testClearingNotificationStateDoesNotDeleteCollidingLegacyState() {
+    let suiteName = "PushNotificationStateTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let firstIdentifier = "gmail/user"
+    let secondIdentifier = "gmail:user"
+    let currentSuffix =
+      "\(gmailSafeFileComponent(session.productAccountId)).\(gmailSafeFileComponent(firstIdentifier))"
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacySuffix = "\(legacyProductAccount).\(legacyGmailSafeFileComponent(secondIdentifier))"
+    let receiptPrefix = "gmail-push-notification-receipts."
+    let eligibilityPrefix = "gmail-push-notification-eligibility."
+    defaults.set(["current"], forKey: "\(receiptPrefix)\(currentSuffix)")
+    defaults.set(Data("current".utf8), forKey: "\(eligibilityPrefix)\(currentSuffix)")
+    defaults.set(["legacy"], forKey: "\(receiptPrefix)\(legacySuffix)")
+    defaults.set(Data("legacy".utf8), forKey: "\(eligibilityPrefix)\(legacySuffix)")
+
+    clearGmailPushNotificationState(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: firstIdentifier,
+      defaults: defaults
+    )
+
+    XCTAssertNil(defaults.object(forKey: "\(receiptPrefix)\(currentSuffix)"))
+    XCTAssertNil(defaults.object(forKey: "\(eligibilityPrefix)\(currentSuffix)"))
+    XCTAssertEqual(
+      defaults.stringArray(forKey: "\(receiptPrefix)\(legacySuffix)"),
+      ["legacy"]
+    )
+    XCTAssertEqual(
+      defaults.data(forKey: "\(eligibilityPrefix)\(legacySuffix)"),
+      Data("legacy".utf8)
+    )
   }
 
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
@@ -417,6 +753,97 @@ final class GmailPushRelayServiceTests: XCTestCase {
         latestSyncedHistoryId: "124",
         routeId: "route-001"
       )
+    )
+  }
+
+  func testGmailWakeupRoutesToMatchingMailboxWhenTwoConnectionsExist() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let second = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    let watchStore = RecordingGmailPushWatchStore(statuses: [
+      connection.providerAccountIdentifier: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      ),
+      second.providerAccountIdentifier: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "456",
+        routeId: "route-002"
+      ),
+    ])
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connections: [connection, second]),
+      notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "457",
+      "provider": "gmail",
+      "routeId": "route-002",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(
+      syncService.syncedConnection,
+      second.mailboxConnection(productAccountId: session.productAccountId)
+    )
+    XCTAssertEqual(syncService.sinceHistoryId, "456")
+  }
+
+  func testGmailWakeupSkipsUnreadableWatchForAnotherMailbox() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let second = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let syncService = RecordingPushGmailMetadataSyncService()
+    let watchStore = RecordingGmailPushWatchStore(
+      statuses: [
+        second.providerAccountIdentifier: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "456",
+          routeId: "route-002"
+        )
+      ],
+      failingProviderAccountIdentifiers: [connection.providerAccountIdentifier]
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connections: [connection, second]),
+      notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "457",
+      "provider": "gmail",
+      "routeId": "route-002",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(
+      syncService.syncedConnection,
+      second.mailboxConnection(productAccountId: session.productAccountId)
     )
   }
 
@@ -2188,6 +2615,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  private func claimAndReleaseReceipt(
+    _ message: GmailMessageMetadata,
+    from store: GmailPushNotificationReceiptStore
+  ) throws -> GmailPushNotificationReceiptClaim {
+    let claim = try store.claim(
+      message,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.release(
+      message,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    return claim
+  }
+
   private struct OverlappingGmailWake {
     let fixture: GmailPushOverlapFixture
     let notificationCenter: SuspendingUserNotificationCenter
@@ -2291,9 +2735,22 @@ private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
   var clearedProductAccountId: String?
   var savedStatus: GmailPushWatchStatus?
   private var status: GmailPushWatchStatus?
+  private var statuses: [String: GmailPushWatchStatus]
+  private let failingProviderAccountIdentifiers: Set<String>
 
   init(status: GmailPushWatchStatus? = nil) {
     self.status = status
+    statuses = [:]
+    failingProviderAccountIdentifiers = []
+  }
+
+  init(
+    statuses: [String: GmailPushWatchStatus],
+    failingProviderAccountIdentifiers: Set<String> = []
+  ) {
+    status = nil
+    self.statuses = statuses
+    self.failingProviderAccountIdentifiers = failingProviderAccountIdentifiers
   }
 
   func clear(
@@ -2305,18 +2762,22 @@ private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
 
   func load(
     productAccountId _: String,
-    providerAccountIdentifier _: String
+    providerAccountIdentifier: String
   ) throws -> GmailPushWatchStatus? {
-    status
+    if failingProviderAccountIdentifiers.contains(providerAccountIdentifier) {
+      throw GmailPushRelayTestError.unexpectedCall
+    }
+    return statuses[providerAccountIdentifier] ?? status
   }
 
   func save(
     _ status: GmailPushWatchStatus,
     productAccountId _: String,
-    providerAccountIdentifier _: String
+    providerAccountIdentifier: String
   ) throws {
     savedStatus = status
     self.status = status
+    statuses[providerAccountIdentifier] = status
   }
 }
 
@@ -2326,9 +2787,16 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
   var productAccountId: String?
   var savedConnection: GmailProviderConnectionStatus?
   private let connection: GmailProviderConnectionStatus?
+  private let connections: [GmailProviderConnectionStatus]
 
   init(connection: GmailProviderConnectionStatus? = nil) {
     self.connection = connection
+    connections = connection.map { [$0] } ?? []
+  }
+
+  init(connections: [GmailProviderConnectionStatus]) {
+    connection = connections.first
+    self.connections = connections
   }
 
   func clear(productAccountId: String) throws {
@@ -2338,6 +2806,19 @@ private final class RecordingGmailPushConnectionStore: GmailPushConnectionPersis
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
     loadedProductAccountId = productAccountId
     return connection
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailProviderConnectionStatus? {
+    loadedProductAccountId = productAccountId
+    return connections.first { $0.providerAccountIdentifier == providerAccountIdentifier }
+  }
+
+  func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
+    loadedProductAccountId = productAccountId
+    return connections
   }
 
   func save(
@@ -2376,6 +2857,17 @@ private final class RecordingGmailPushVerificationTransport: GmailPushVerificati
       trustedDeviceId: trustedDeviceId
     )
     return GmailPushVerificationResponse(routeId: routeId, verified: verified)
+  }
+}
+
+private final class ThrowingGmailPushVerificationTransport: GmailPushVerificationTransport {
+  func verifyGmailPushWatch(
+    gmailIdentityToken _: String,
+    historyId _: String,
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> GmailPushVerificationResponse {
+    throw GmailPushRelayError.invalidWatchResponse
   }
 }
 
@@ -2697,6 +3189,7 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
 private final class SuspendingUserNotificationCenter: UserNotificationCenterClient {
   private var deliveryContinuation: CheckedContinuation<Void, Error>?
   private var deliveryStartedContinuation: CheckedContinuation<Void, Never>?
+  private var didStartDelivery = false
   private(set) var requests: [UNNotificationRequest] = []
 
   func add(_ request: UNNotificationRequest) async throws {
@@ -2705,6 +3198,7 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
       throw CancellationError()
     }
     requests.append(request)
+    didStartDelivery = true
     deliveryStartedContinuation?.resume()
     deliveryStartedContinuation = nil
     try await withCheckedThrowingContinuation { continuation in
@@ -2717,7 +3211,7 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
   }
 
   func waitUntilDeliveryStarts() async {
-    guard deliveryContinuation == nil else { return }
+    guard !didStartDelivery else { return }
     await withCheckedContinuation { continuation in
       deliveryStartedContinuation = continuation
     }

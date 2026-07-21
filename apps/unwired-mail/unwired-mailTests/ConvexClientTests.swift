@@ -246,6 +246,73 @@ final class ConvexClientTests: XCTestCase {
     XCTAssertEqual(response?.emailAddress, "user@example.com")
   }
 
+  func testListGmailProviderConnectionsSendsAuthenticatedQuery() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": [
+          {
+            "connectedAt": 1781200000000,
+            "emailAddress": "user@example.com",
+            "lastVerifiedAt": 1781200000000,
+            "provider": "gmail",
+            "providerAccountIdentifier": "gmail-user-001",
+            "trustedDeviceId": "trustedDeviceFixtureId",
+            "updatedAt": 1781200000000
+          }
+        ]
+      }
+      """.data(using: .utf8)!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String, "productAccount:listGmailProviderConnections")
+        XCTAssertEqual(request.url?.path, "/api/query")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.listGmailProviderConnections(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(response.map(\.providerAccountIdentifier), ["gmail-user-001"])
+  }
+
+  func testRemoveGmailProviderConnectionSendsScopedMutation() async throws {
+    let fixtureEnvelope = """
+      {"status":"success","value":{"hasRemainingGmailConnections":false,"removed":true}}
+      """.data(using: .utf8)!
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String, "productAccount:removeGmailProviderConnection")
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["providerAccountIdentifier"] as? String, "gmail-user-001")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let hasRemainingGmailConnections = try await client.removeGmailProviderConnection(
+      identityToken: "apple-token",
+      providerAccountIdentifier: "gmail-user-001",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertFalse(hasRemainingGmailConnections)
+  }
+
   func testUnregisterDevicePushSendsAuthenticatedMutation() async throws {
     let fixtureEnvelope = #"{"status":"success","value":{"registered":false}}"#.data(
       using: .utf8

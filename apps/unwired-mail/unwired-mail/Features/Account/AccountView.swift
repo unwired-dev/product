@@ -92,7 +92,10 @@ struct AccountView: View {
           viewModel: notificationRuleViewModel
         )
 
-        GmailProviderConnectionPanel(viewModel: gmailViewModel)
+        GmailProviderConnectionPanel(
+          viewModel: gmailViewModel,
+          isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+        )
 
         GmailInboxPanel(
           categoryChoices: MessageCategoryChoice.available(
@@ -140,6 +143,12 @@ struct AccountView: View {
       guard phase == .active else { return }
       Task {
         await gmailViewModel.renewPushWatch()
+      }
+    }
+    .onChange(of: gmailViewModel.connection?.id) { _, _ in
+      guard let connection = gmailViewModel.connection else { return }
+      Task {
+        await inboxViewModel.load(connection: connection)
       }
     }
   }
@@ -447,6 +456,11 @@ final class GmailInboxViewModel {
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
+  private var loadingMessageBodyCount = 0
+
+  var isLoadingMessageBody: Bool {
+    loadingMessageBodyCount > 0
+  }
   var isSearching = false
   var isSyncing = false
   var searchQuery = ""
@@ -470,6 +484,20 @@ final class GmailInboxViewModel {
 
   var isRefreshDisabled: Bool {
     isCategorizingHistorical || isLoading || isSearching || isSyncing
+  }
+
+  var isBusy: Bool {
+    isAssigningCategory || isCategorizingHistorical || isLoading || isLoadingMessageBody
+      || isSearching || isSyncing
+  }
+
+  func loadMessageBody(
+    _ message: MailboxMessageMetadata,
+    using reader: MailboxMessageReading
+  ) async throws -> MailboxMessageBody {
+    loadingMessageBodyCount += 1
+    defer { loadingMessageBodyCount -= 1 }
+    return try await reader.loadMessageBody(message: message, session: session)
   }
 
   var messageCount: Int {
@@ -667,15 +695,22 @@ final class GmailInboxViewModel {
 @MainActor
 @Observable
 private final class GmailProviderConnectionViewModel {
-  var connection: MailboxConnection?
+  var connections: [MailboxConnection] = []
   var errorMessage: String?
   var isConnecting = false
   var isLoading = false
-  var pushStatusMessage: String?
+  var isRemoving = false
+  var isRenewingPushWatch = false
+  var pushStatusMessage: String? {
+    let messages = connections.compactMap { pushStatusMessages[$0.id] }
+    return messages.isEmpty ? nil : messages.joined(separator: "\n")
+  }
+  var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let service: MailboxConnectionAdapter
   private let session: ProductAccountSessionSnapshot
+  private var pushStatusMessages: [MailboxConnectionId: String] = [:]
 
   init(
     service: MailboxConnectionAdapter,
@@ -688,11 +723,15 @@ private final class GmailProviderConnectionViewModel {
   }
 
   var canConnect: Bool {
-    !isConnecting && !isLoading
+    !isConnecting && !isLoading && !isRemoving && !isRenewingPushWatch
   }
 
   var isEditingDisabled: Bool {
-    isConnecting || isLoading
+    isConnecting || isLoading || isRemoving || isRenewingPushWatch
+  }
+
+  var connection: MailboxConnection? {
+    connections.first { $0.id == selectedConnectionId } ?? connections.first
   }
 
   func load() async {
@@ -702,9 +741,18 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
-      connection = try await service.loadConnection(session: session)
+      connections = try await service.loadConnections(session: session)
+        .sorted {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+      if !connections.contains(where: { $0.id == selectedConnectionId }) {
+        selectedConnectionId = connections.first?.id
+      }
+      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+        connections.contains { $0.id == connectionId }
+      }
       errorMessage = nil
-      if let connection {
+      for connection in connections {
         await refreshPushWatch(connection: connection)
       }
     } catch {
@@ -721,13 +769,19 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
-      connection = try await service.connect(
+      let connected = try await service.connect(
         session: session,
         isSessionCurrent: isSessionCurrent
       )
       errorMessage = nil
-      if let connection {
-        await refreshPushWatch(connection: connection)
+      if let connected {
+        connections.removeAll { $0.id == connected.id }
+        connections.append(connected)
+        connections.sort {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        selectedConnectionId = connected.id
+        await refreshPushWatch(connection: connected)
       }
     } catch is CancellationError {
     } catch {
@@ -736,30 +790,61 @@ private final class GmailProviderConnectionViewModel {
   }
 
   func renewPushWatch() async {
-    guard let connection else { return }
+    guard !isEditingDisabled else { return }
+    isRenewingPushWatch = true
+    defer { isRenewingPushWatch = false }
+    for connection in connections {
+      await refreshPushWatch(connection: connection)
+    }
+  }
 
-    await refreshPushWatch(connection: connection)
+  func removeLocalAuthorization(_ connection: MailboxConnection) async {
+    guard !isEditingDisabled else { return }
+    isRemoving = true
+    defer { isRemoving = false }
+    do {
+      try await service.clearLocalConnection(connection, session: session)
+      connections.removeAll { $0.id == connection.id }
+      pushStatusMessages[connection.id] = nil
+      if selectedConnectionId == connection.id {
+        selectedConnectionId = connections.first?.id
+      }
+      errorMessage = nil
+    } catch {
+      if let refreshedConnections = try? await service.loadConnections(session: session) {
+        connections = refreshedConnections.sorted {
+          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+        }
+        pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+          connections.contains { $0.id == connectionId }
+        }
+        if selectedConnectionId == connection.id {
+          selectedConnectionId = connections.first?.id
+        }
+      }
+      errorMessage = error.localizedDescription
+    }
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
     guard connection.capabilities.canRegisterPush else {
-      pushStatusMessage = nil
+      pushStatusMessages[connection.id] = nil
       return
     }
     do {
       try Task.checkCancellation()
-      guard isSessionCurrent(session), self.connection == connection else {
+      guard isSessionCurrent(session), connections.contains(connection) else {
         return
       }
       try await service.registerOrRenewPush(
         connection: connection,
         session: session
       )
-      pushStatusMessage = nil
+      pushStatusMessages[connection.id] = nil
     } catch is CancellationError {
     } catch {
       let providerName = connection.providerId.rawValue.capitalized
-      pushStatusMessage =
+      pushStatusMessages[connection.id] =
         "\(providerName) is connected, but push wakeups are unavailable: \(error.localizedDescription)"
     }
   }
@@ -1056,6 +1141,7 @@ private struct NotificationRulePanel: View {
 
 private struct GmailProviderConnectionPanel: View {
   @Bindable var viewModel: GmailProviderConnectionViewModel
+  let isMailboxBusy: Bool
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -1064,17 +1150,16 @@ private struct GmailProviderConnectionPanel: View {
         VStack(alignment: .leading, spacing: 4) {
           Text("Gmail")
             .font(.headline)
-          if let connection = viewModel.connection {
-            Label(connection.displayName, systemImage: "checkmark.circle.fill")
-              .foregroundStyle(.green)
-              .font(.subheadline)
-            Text("Provider account: \(connection.providerMailboxIdentity.value)")
-              .font(.footnote)
-              .foregroundStyle(.secondary)
-          } else {
+          if viewModel.connections.isEmpty {
             Text("Not connected")
               .font(.subheadline)
               .foregroundStyle(.secondary)
+          } else {
+            Text(
+              "\(viewModel.connections.count) mailbox connection\(viewModel.connections.count == 1 ? "" : "s")"
+            )
+            .font(.subheadline)
+            .foregroundStyle(.secondary)
           }
         }
 
@@ -1091,20 +1176,60 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
+      ForEach(viewModel.connections) { connection in
+        HStack {
+          Button {
+            viewModel.selectedConnectionId = connection.id
+          } label: {
+            VStack(alignment: .leading, spacing: 2) {
+              Label(
+                connection.displayName,
+                systemImage: viewModel.connection?.id == connection.id
+                  ? "checkmark.circle.fill" : "circle"
+              )
+              Text(connection.providerMailboxIdentity.value)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+          }
+          .buttonStyle(.plain)
+
+          Button("Remove", role: .destructive) {
+            Task {
+              await viewModel.removeLocalAuthorization(connection)
+            }
+          }
+          .buttonStyle(.bordered)
+          .disabled(viewModel.isEditingDisabled || isMailboxBusy)
+        }
+      }
+
       Button {
         connectTask?.cancel()
         connectTask = Task {
           await viewModel.connect()
         }
       } label: {
-        Label("Sign in with Google", systemImage: "person.crop.circle.badge.checkmark")
-          .frame(minHeight: 32)
+        Label(
+          viewModel.connections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
+          systemImage: "person.crop.circle.badge.checkmark"
+        )
+        .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
       .disabled(!viewModel.canConnect)
 
-      if viewModel.isLoading || viewModel.isConnecting {
-        ProgressView(viewModel.isConnecting ? "Connecting Gmail..." : "Loading Gmail...")
+      if viewModel.isLoading || viewModel.isConnecting || viewModel.isRemoving
+        || viewModel.isRenewingPushWatch
+      {
+        ProgressView(
+          viewModel.isConnecting
+            ? "Connecting Gmail..."
+            : (viewModel.isRemoving
+              ? "Removing Gmail..."
+              : (viewModel.isRenewingPushWatch ? "Renewing Gmail push..." : "Loading Gmail..."))
+        )
       }
 
       if let errorMessage = viewModel.errorMessage {
@@ -1267,7 +1392,14 @@ private struct GmailInboxPanel: View {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
               do {
-                try messageReader.clearCachedMessageBodies(session: session)
+                if let connection {
+                  try messageReader.clearCachedMessageBodies(
+                    connection: connection,
+                    session: session
+                  )
+                } else {
+                  try messageReader.clearCachedMessageBodies(session: session)
+                }
                 cacheErrorMessage = nil
               } catch {
                 cacheErrorMessage = error.localizedDescription
@@ -1411,9 +1543,9 @@ private struct GmailInboxPanel: View {
                 thread: thread,
                 forward: { message in
                   do {
-                    let body = try await messageReader.loadMessageBody(
-                      message: message,
-                      session: session
+                    let body = try await viewModel.loadMessageBody(
+                      message,
+                      using: messageReader
                     )
                     guard !Task.isCancelled else { return }
                     cacheErrorMessage = nil
@@ -1503,7 +1635,10 @@ private struct GmailInboxPanel: View {
       GmailMessageBodySheet(
         message: message,
         reader: messageReader,
-        session: session
+        session: session,
+        loadMessageBody: {
+          try await viewModel.loadMessageBody(message, using: messageReader)
+        }
       )
     }
   }
@@ -1580,11 +1715,17 @@ private struct GmailMessageBodySheet: View {
   init(
     message: MailboxMessageMetadata,
     reader: MailboxMessageReading,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    loadMessageBody: @escaping () async throws -> MailboxMessageBody
   ) {
     self.message = message
     _viewModel = State(
-      initialValue: GmailMessageBodyViewModel(message: message, reader: reader, session: session)
+      initialValue: GmailMessageBodyViewModel(
+        message: message,
+        reader: reader,
+        session: session,
+        loadMessageBody: loadMessageBody
+      )
     )
   }
 
@@ -1642,14 +1783,17 @@ private final class GmailMessageBodyViewModel {
   var isLoading = false
 
   private let message: MailboxMessageMetadata
+  private let loadMessageBody: () async throws -> MailboxMessageBody
   private let reader: MailboxMessageReading
   private let session: ProductAccountSessionSnapshot
 
   init(
     message: MailboxMessageMetadata,
     reader: MailboxMessageReading,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    loadMessageBody: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.loadMessageBody = loadMessageBody
     self.message = message
     self.reader = reader
     self.session = session
@@ -1659,7 +1803,7 @@ private final class GmailMessageBodyViewModel {
     isLoading = true
     defer { isLoading = false }
     do {
-      body = try await reader.loadMessageBody(message: message, session: session)
+      body = try await loadMessageBody()
       didRemoveCachedBody = false
       errorMessage = nil
     } catch {

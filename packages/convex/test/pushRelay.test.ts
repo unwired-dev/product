@@ -182,6 +182,52 @@ describe('gmail push relay', () => {
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
   });
 
+  it('rejects a watch-stop check without a mailbox when multiple mailboxes exist', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.productAccount.connectGmailProvider, {
+      emailAddress: 'gmail-user-001@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const connection = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId',
+          (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId),
+        )
+        .unique();
+      expect(connection).not.toBeNull();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: connection!.connectedAt,
+        emailAddress: 'gmail-user-002@example.com',
+        lastVerifiedAt: connection!.lastVerifiedAt,
+        productAccountId: connection!.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'gmail-user-002',
+        trustedDeviceId: connection!.trustedDeviceId,
+        updatedAt: connection!.updatedAt,
+      });
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail connection selection required');
+  });
+
   it('stops a mailbox watch only after its last active device route', async () => {
     expect.assertions(3);
 
@@ -230,6 +276,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
@@ -239,6 +286,7 @@ describe('gmail push relay', () => {
     });
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -289,6 +337,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: connection.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
@@ -325,6 +374,7 @@ describe('gmail push relay', () => {
     });
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -382,6 +432,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
     ).resolves.toBe(true);
@@ -462,6 +513,7 @@ describe('gmail push relay', () => {
 
     await expect(
       asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: firstDevice.trustedDeviceId,
       }),
       // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.

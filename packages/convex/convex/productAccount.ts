@@ -6,7 +6,7 @@ import {
 import { v } from 'convex/values';
 
 import type { Doc, Id } from './_generated/dataModel.js';
-import type { MutationCtx } from './_generated/server.js';
+import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
@@ -14,6 +14,8 @@ import {
   requireProductAccount,
   requireTrustedDevice,
 } from './productAccountAuth.js';
+
+const gmailConnectionLimitPerTrustedDevice = 20;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
@@ -47,6 +49,61 @@ function gmailConnectionDetails(
     trustedDeviceId: args.trustedDeviceId,
     updatedAt: now,
   };
+}
+
+function gmailConnectionStatus(
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+) {
+  return {
+    connectedAt: connection.connectedAt,
+    emailAddress: connection.emailAddress,
+    lastVerifiedAt: connection.lastVerifiedAt,
+    provider: connection.provider,
+    providerAccountIdentifier: connection.providerAccountIdentifier,
+    trustedDeviceId: connection.trustedDeviceId,
+    updatedAt: connection.updatedAt,
+  };
+}
+
+function legacyGmailConnectionToUpdate(
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Doc<'mailProviderConnections'> | null {
+  if (connections.length > 1) {
+    throw new Error('Gmail connection is ambiguous for this client version');
+  }
+  return connections[0] ?? null;
+}
+
+function gmailConnectionToUpdate(
+  existingConnection: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  supportsMultipleConnections: boolean | undefined,
+): Doc<'mailProviderConnections'> | null {
+  if (existingConnection !== null) {
+    return existingConnection;
+  }
+  if (supportsMultipleConnections === true) {
+    return null;
+  }
+  return legacyGmailConnectionToUpdate(connections);
+}
+
+async function gmailConnectionsForTrustedDevice(
+  ctx: MutationCtx | QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs here.
+  trustedDeviceId: Id<'trustedDevices'>,
+  limit: number,
+): Promise<Array<Doc<'mailProviderConnections'>>> {
+  const account = await requireProductAccount(ctx);
+  await requireTrustedDevice(ctx, account.productAccountId, trustedDeviceId);
+  return ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', account.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', trustedDeviceId),
+    )
+    .take(limit);
 }
 
 async function createGmailConnection(
@@ -251,6 +308,7 @@ export const markProductSyncMaterialInitialized = mutation({
 export const connectGmailProvider = mutation({
   args: {
     emailAddress: v.string(),
+    supportsMultipleConnections: v.optional(v.boolean()),
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -263,20 +321,38 @@ export const connectGmailProvider = mutation({
     const now = Date.now();
     const existingConnection = await ctx.db
       .query('mailProviderConnections')
+      .withIndex('by_product_provider_device_account', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      )
+      .unique();
+
+    const connections = await ctx.db
+      .query('mailProviderConnections')
       .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
           .eq('provider', 'gmail')
           .eq('trustedDeviceId', args.trustedDeviceId),
       )
-      .unique();
-
+      .take(gmailConnectionLimitPerTrustedDevice);
+    const connectionToUpdate = gmailConnectionToUpdate(
+      existingConnection,
+      connections,
+      args.supportsMultipleConnections,
+    );
     const connection = gmailConnectionDetails(args, now);
 
-    if (existingConnection === null) {
-      return createGmailConnection(ctx, account.productAccountId, connection);
+    if (connectionToUpdate !== null) {
+      return updateGmailConnection(ctx, connectionToUpdate, connection);
     }
-    return updateGmailConnection(ctx, existingConnection, connection);
+    if (connections.length === gmailConnectionLimitPerTrustedDevice) {
+      throw new Error('Gmail connection limit reached');
+    }
+    return createGmailConnection(ctx, account.productAccountId, connection);
   },
   returns: gmailProviderConnectionStatusValidator,
 });
@@ -286,13 +362,72 @@ export const getGmailProviderConnection = query({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireProductAccount(ctx);
-    await requireTrustedDevice(
+    const connections = await gmailConnectionsForTrustedDevice(
       ctx,
-      account.productAccountId,
+      args.trustedDeviceId,
+      2,
+    );
+    if (connections.length > 1) {
+      return null;
+    }
+    const [connection] = connections;
+
+    return connection === undefined ? null : gmailConnectionStatus(connection);
+  },
+  returns: v.union(v.null(), gmailProviderConnectionStatusValidator),
+});
+
+export const listGmailProviderConnections = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const connections = await gmailConnectionsForTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+      gmailConnectionLimitPerTrustedDevice + 1,
+    );
+
+    if (connections.length > gmailConnectionLimitPerTrustedDevice) {
+      throw new Error('Gmail connection limit exceeded');
+    }
+
+    return connections
+      .map(gmailConnectionStatus)
+      .toSorted((left, right) =>
+        left.providerAccountIdentifier.localeCompare(
+          right.providerAccountIdentifier,
+        ),
+      );
+  },
+  returns: v.array(gmailProviderConnectionStatusValidator),
+});
+
+export const removeGmailProviderConnection = mutation({
+  args: {
+    providerAccountIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
       args.trustedDeviceId,
     );
     const connection = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_product_provider_device_account', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      )
+      .unique();
+    if (connection !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+    const remainingConnection = await ctx.db
       .query('mailProviderConnections')
       .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
@@ -300,19 +435,14 @@ export const getGmailProviderConnection = query({
           .eq('provider', 'gmail')
           .eq('trustedDeviceId', args.trustedDeviceId),
       )
-      .unique();
-
-    return connection === null
-      ? null
-      : {
-          connectedAt: connection.connectedAt,
-          emailAddress: connection.emailAddress,
-          lastVerifiedAt: connection.lastVerifiedAt,
-          provider: connection.provider,
-          providerAccountIdentifier: connection.providerAccountIdentifier,
-          trustedDeviceId: connection.trustedDeviceId,
-          updatedAt: connection.updatedAt,
-        };
+      .first();
+    return {
+      hasRemainingGmailConnections: remainingConnection !== null,
+      removed: connection !== null,
+    };
   },
-  returns: v.union(v.null(), gmailProviderConnectionStatusValidator),
+  returns: v.object({
+    hasRemainingGmailConnections: v.boolean(),
+    removed: v.boolean(),
+  }),
 });

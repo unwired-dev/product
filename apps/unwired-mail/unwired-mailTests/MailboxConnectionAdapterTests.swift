@@ -60,6 +60,31 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let second = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    connectionService.statuses = [RecordingAdapterConnectionService.status, second]
+    let adapter = GmailMailboxConnectionAdapter(connectionService: connectionService)
+
+    let connections = try await adapter.loadConnections(session: session)
+    try await adapter.clearLocalConnection(connections[0], session: session)
+
+    XCTAssertEqual(
+      connections.map(\.id.rawValue), ["gmail:gmail-user-001", "gmail:gmail-user-002"])
+    XCTAssertEqual(
+      connectionService.clearedConnection?.providerAccountIdentifier,
+      "gmail-user-001"
+    )
+  }
+
   func testGmailAdapterRoutesExistingMailOperationsWithoutChangingResults() async throws {
     let bodyReader = RecordingAdapterMessageReader()
     let mailActionService = RecordingAdapterMailActionService()
@@ -160,8 +185,17 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   )
 
   var completedAccount: VerifiedGmailAccount?
+  var clearedConnection: GmailProviderConnectionStatus?
+  var statuses = [RecordingAdapterConnectionService.status]
 
   func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {}
+
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    clearedConnection = connection
+  }
 
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
@@ -175,6 +209,12 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus? {
     Self.status
+  }
+
+  func loadConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    statuses
   }
 }
 

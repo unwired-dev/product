@@ -10,6 +10,11 @@ struct GmailMessageBody: Equatable {
 protocol GmailMessageBodyCaching {
   func clearMessageBodies(productAccountId: String) throws
 
+  func clearMessageBodies(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
+
   func loadMessageBody(
     productAccountId: String,
     stableProviderMessageId: String
@@ -27,8 +32,22 @@ protocol GmailMessageBodyCaching {
   ) throws
 }
 
+extension GmailMessageBodyCaching {
+  func clearMessageBodies(
+    productAccountId: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    try clearMessageBodies(productAccountId: productAccountId)
+  }
+}
+
 protocol GmailMessageReading {
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws
+
+  func clearCachedMessageBodies(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws
 
   func loadMessageBody(
     message: GmailMessageMetadata,
@@ -39,6 +58,15 @@ protocol GmailMessageReading {
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws
+}
+
+extension GmailMessageReading {
+  func clearCachedMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try clearCachedMessageBodies(session: session)
+  }
 }
 
 /// Reads only message bodies already present in the encrypted On-Demand Body Cache.
@@ -78,11 +106,35 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     guard fileManager.fileExists(atPath: rootDirectory.path) else {
       return
     }
-    let prefix = "\(gmailSafeFileComponent(productAccountId))-"
+    let prefixes = [
+      "\(gmailSafeFileComponent(productAccountId))-",
+      "\(legacyGmailSafeFileComponent(productAccountId))-",
+    ]
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: nil
-    ) where fileURL.lastPathComponent.hasPrefix(prefix) {
+    ) where prefixes.contains(where: { fileURL.lastPathComponent.hasPrefix($0) }) {
+      try fileManager.removeItem(at: fileURL)
+    }
+  }
+
+  func clearMessageBodies(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    guard fileManager.fileExists(atPath: rootDirectory.path) else {
+      return
+    }
+    let prefixes = [
+      [
+        gmailSafeFileComponent(productAccountId),
+        gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+      ].joined(separator: "-")
+    ]
+    for fileURL in try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: nil
+    ) where prefixes.contains(where: { fileURL.lastPathComponent.hasPrefix($0) }) {
       try fileManager.removeItem(at: fileURL)
     }
   }
@@ -112,10 +164,9 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       productAccountId: productAccountId,
       stableProviderMessageId: stableProviderMessageId
     )
-    guard fileManager.fileExists(atPath: fileURL.path) else {
-      return
+    if fileManager.fileExists(atPath: fileURL.path) {
+      try fileManager.removeItem(at: fileURL)
     }
-    try fileManager.removeItem(at: fileURL)
   }
 
   func saveMessageBody(
@@ -138,6 +189,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       "\(gmailSafeFileComponent(productAccountId))-\(gmailSafeFileComponent(stableProviderMessageId)).json"
     )
   }
+
 }
 
 enum GmailMessageBodyError: LocalizedError, Equatable {
@@ -205,11 +257,19 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
 
-    guard let tokens = try tokenStore.load(productAccountId: session.productAccountId) else {
+    guard
+      let tokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: message.providerAccountIdentifier
+      )
+    else {
       throw GmailMessageBodyError.missingLocalGmailTokens
     }
     let refreshedTokens = try await refreshedTokens(
-      tokens, productAccountId: session.productAccountId)
+      tokens,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
+    )
     try await validateRefreshedToken(
       refreshedTokens.accessToken,
       providerAccountIdentifier: message.providerAccountIdentifier
@@ -275,6 +335,16 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     try cache.clearMessageBodies(productAccountId: session.productAccountId)
   }
 
+  func clearCachedMessageBodies(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try cache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+  }
+
   private func fetchMessageBody(
     message: GmailMessageMetadata,
     accessToken: String
@@ -322,7 +392,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
 
   private func refreshedTokens(
     _ tokens: GmailProviderTokens,
-    productAccountId: String
+    productAccountId: String,
+    providerAccountIdentifier: String
   ) async throws -> GmailProviderTokens {
     guard let oauthClientId, !oauthClientId.isEmpty else {
       throw GmailMessageBodyError.missingOAuthClientId
@@ -348,7 +419,11 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       refreshToken: tokens.refreshToken,
       idToken: responseBody.idToken ?? tokens.idToken
     )
-    try tokenStore.save(refreshedTokens, productAccountId: productAccountId)
+    try tokenStore.save(
+      refreshedTokens,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     return refreshedTokens
   }
 
