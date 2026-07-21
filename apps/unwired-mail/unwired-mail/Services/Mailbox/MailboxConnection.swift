@@ -792,7 +792,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadDefaultSendingConnectionId(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionId? {
-    try await definitionSyncService.loadSnapshot(session: session).defaultSendingConnectionId
+    try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      .defaultSendingConnectionId
   }
 
   func removeMailboxConnectionEverywhere(

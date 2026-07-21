@@ -324,6 +324,7 @@ extension GenericMailSetupViewModel {
     do {
       try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
       connectedDefinition = nil
+      authorizedSyncedConnectionIds.remove(definition.connectionId)
       await loadSyncedDefinitions()
     } catch {
       errorMessage = error.localizedDescription

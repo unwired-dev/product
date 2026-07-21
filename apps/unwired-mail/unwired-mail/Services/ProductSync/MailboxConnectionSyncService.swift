@@ -121,7 +121,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       return snapshot(cached, updatedAt: cachedPayload.updatedAt)
     }
     let payload = try decrypt(remotePayload, session: session)
-    try refreshCache(remotePayload, productAccountId: session.productAccountId)
+    try? refreshCache(remotePayload, productAccountId: session.productAccountId)
     return snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
