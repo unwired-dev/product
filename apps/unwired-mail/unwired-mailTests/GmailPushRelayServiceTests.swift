@@ -3173,6 +3173,7 @@ private final class RecordingUserNotificationCenter: UserNotificationCenterClien
 private final class SuspendingUserNotificationCenter: UserNotificationCenterClient {
   private var deliveryContinuation: CheckedContinuation<Void, Error>?
   private var deliveryStartedContinuation: CheckedContinuation<Void, Never>?
+  private var didStartDelivery = false
   private(set) var requests: [UNNotificationRequest] = []
 
   func add(_ request: UNNotificationRequest) async throws {
@@ -3181,6 +3182,7 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
       throw CancellationError()
     }
     requests.append(request)
+    didStartDelivery = true
     deliveryStartedContinuation?.resume()
     deliveryStartedContinuation = nil
     try await withCheckedThrowingContinuation { continuation in
@@ -3193,7 +3195,7 @@ private final class SuspendingUserNotificationCenter: UserNotificationCenterClie
   }
 
   func waitUntilDeliveryStarts() async {
-    guard deliveryContinuation == nil else { return }
+    guard !didStartDelivery else { return }
     await withCheckedContinuation { continuation in
       deliveryStartedContinuation = continuation
     }
