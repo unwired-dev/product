@@ -427,7 +427,7 @@ export const removeGmailProviderConnection = mutation({
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(connection._id);
     }
-    const remainingConnections = await ctx.db
+    const remainingConnection = await ctx.db
       .query('mailProviderConnections')
       .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
         q
@@ -435,9 +435,9 @@ export const removeGmailProviderConnection = mutation({
           .eq('provider', 'gmail')
           .eq('trustedDeviceId', args.trustedDeviceId),
       )
-      .collect();
+      .first();
     return {
-      hasRemainingGmailConnections: remainingConnections.length > 0,
+      hasRemainingGmailConnections: remainingConnection !== null,
       removed: connection !== null,
     };
   },

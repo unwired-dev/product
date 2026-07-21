@@ -301,8 +301,43 @@ func clearGmailPushNotificationState(
 ) {
   let suffix =
     "\(gmailSafeFileComponent(productAccountId)).\(gmailSafeFileComponent(providerAccountIdentifier))"
+  let legacySuffix =
+    "\(legacyGmailSafeFileComponent(productAccountId))."
+    + legacyGmailSafeFileComponent(providerAccountIdentifier)
   defaults.removeObject(forKey: "gmail-push-notification-receipts.\(suffix)")
   defaults.removeObject(forKey: "gmail-push-notification-eligibility.\(suffix)")
+  clearLegacyNotificationState(
+    forKey: "gmail-push-notification-receipts.\(legacySuffix)",
+    providerAccountIdentifier: providerAccountIdentifier,
+    defaults: defaults
+  )
+  clearLegacyNotificationState(
+    forKey: "gmail-push-notification-eligibility.\(legacySuffix)",
+    providerAccountIdentifier: providerAccountIdentifier,
+    defaults: defaults
+  )
+}
+
+private func clearLegacyNotificationState(
+  forKey key: String,
+  providerAccountIdentifier: String,
+  defaults: UserDefaults
+) {
+  let prefix = "gmail:\(providerAccountIdentifier):"
+  if let receipts = defaults.stringArray(forKey: key),
+    receipts.allSatisfy({ $0.hasPrefix(prefix) })
+  {
+    defaults.removeObject(forKey: key)
+    return
+  }
+  guard
+    let data = defaults.data(forKey: key),
+    let records = try? JSONSerialization.jsonObject(with: data) as? [[String: Any]],
+    records.allSatisfy({ ($0["stableProviderMessageId"] as? String)?.hasPrefix(prefix) == true })
+  else {
+    return
+  }
+  defaults.removeObject(forKey: key)
 }
 
 struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting {
@@ -569,10 +604,12 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       service: service,
       account: key(productAccountId, providerAccountIdentifier)
     )
-    if let legacyConnection = try connection(account: legacyKey(productAccountId)),
+    if let legacyConnection = try legacyConnection(productAccountId: productAccountId),
       legacyConnection.providerAccountIdentifier == providerAccountIdentifier
     {
-      try KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
     }
     var identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
     identifiers.remove(providerAccountIdentifier)
@@ -584,7 +621,9 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       try KeychainStore.delete(service: service, account: key(productAccountId, identifier))
     }
     try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
-    try KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+    for account in legacyKeys(productAccountId) {
+      try KeychainStore.delete(service: service, account: account)
+    }
   }
 
   func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
@@ -601,13 +640,15 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       return connection
     }
     guard
-      let legacyConnection = try connection(account: legacyKey(productAccountId)),
+      let legacyConnection = try legacyConnection(productAccountId: productAccountId),
       legacyConnection.providerAccountIdentifier == providerAccountIdentifier
     else {
       return nil
     }
     try save(legacyConnection, productAccountId: productAccountId)
-    try? KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+    for account in legacyKeys(productAccountId) {
+      try? KeychainStore.delete(service: service, account: account)
+    }
     return legacyConnection
   }
 
@@ -617,20 +658,24 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       var connections = identifiers.compactMap {
         try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
       }
-      if let legacyConnection = try connection(account: legacyKey(productAccountId)),
+      if let legacyConnection = try legacyConnection(productAccountId: productAccountId),
         !identifiers.contains(legacyConnection.providerAccountIdentifier)
       {
         try save(legacyConnection, productAccountId: productAccountId)
-        try? KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+        for account in legacyKeys(productAccountId) {
+          try? KeychainStore.delete(service: service, account: account)
+        }
         connections.append(legacyConnection)
       }
       return connections
     }
-    guard let legacyConnection = try connection(account: legacyKey(productAccountId)) else {
+    guard let legacyConnection = try legacyConnection(productAccountId: productAccountId) else {
       return []
     }
     try save(legacyConnection, productAccountId: productAccountId)
-    try? KeychainStore.delete(service: service, account: legacyKey(productAccountId))
+    for account in legacyKeys(productAccountId) {
+      try? KeychainStore.delete(service: service, account: account)
+    }
     return [legacyConnection]
   }
 
@@ -670,6 +715,24 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   private func legacyKey(_ productAccountId: String) -> String {
     "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+  }
+
+  private func legacyKeys(_ productAccountId: String) -> [String] {
+    [
+      legacyKey(productAccountId),
+      "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))",
+    ]
+  }
+
+  private func legacyConnection(
+    productAccountId: String
+  ) throws -> GmailProviderConnectionStatus? {
+    for account in legacyKeys(productAccountId) {
+      if let connection = try connection(account: account) {
+        return connection
+      }
+    }
+    return nil
   }
 
   private func manifestKey(_ productAccountId: String) -> String {

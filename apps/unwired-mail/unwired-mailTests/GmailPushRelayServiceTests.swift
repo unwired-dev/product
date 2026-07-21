@@ -576,7 +576,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let otherIdentifier = "gmail-user-002"
     let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
     let legacyProviderAccount = legacyGmailSafeFileComponent(
-      connection.providerAccountIdentifier
+      otherIdentifier
     )
     let legacySuffix = "\(legacyProductAccount).\(legacyProviderAccount)"
     let receiptKey = "gmail-push-notification-receipts.\(legacySuffix)"
