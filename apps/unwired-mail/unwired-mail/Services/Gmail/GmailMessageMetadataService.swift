@@ -932,33 +932,10 @@ struct GmailMessageMetadataService:
     )
   }
 
-  // swiftlint:disable:next function_body_length
   func syncInbox(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    if let state = try store.loadSyncState(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    ), !state.historicalMetadataBackfillIsComplete {
-      let result = try await syncInbox(
-        connection: connection,
-        includingHistoryCandidates: false,
-        listingAllMessages: false,
-        maximumPages: 1,
-        preservingUnlistedMessages: true,
-        sinceHistoryId: nil,
-        throughHistoryId: nil,
-        session: session,
-        shouldPersist: nil
-      )
-      return GmailMetadataSyncResult(
-        historicalMetadataBackfillIsComplete: false,
-        messages: result.messages,
-        threads: result.threads
-      )
-    }
-
     let tokens = try await tokensForSync(
       connection: connection,
       deferPersistence: false,
@@ -1057,10 +1034,15 @@ struct GmailMessageMetadataService:
     while let pageToken = state.nextPageToken {
       try Task.checkCancellation()
       guard shouldContinueHistoricalBackfill() else { break }
-      let page = try await listProviderMessagePage(
-        accessToken: tokens.accessToken,
-        pageToken: pageToken
-      )
+      let page: GmailListMessagesResponse
+      do {
+        page = try await listProviderMessagePage(
+          accessToken: tokens.accessToken,
+          pageToken: pageToken
+        )
+      } catch GmailMessageMetadataSyncError.gmailRequestFailed {
+        return try await syncInbox(connection: connection, session: session)
+      }
       let existingMessagesByStableId = Dictionary(
         uniqueKeysWithValues: storedMessages.map { ($0.stableProviderMessageId, $0) }
       )

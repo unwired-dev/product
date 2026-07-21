@@ -462,6 +462,7 @@ private final class GmailMailActionViewModel {
 @MainActor
 @Observable
 final class GmailInboxViewModel {
+  private var backfillTask: Task<Void, Never>?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -590,16 +591,22 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
-      if !result.historicalMetadataBackfillIsComplete {
-        result = try await service.continueHistoricalBackfill(
-          connection: connection,
-          session: session
-        )
-        try Task.checkCancellation()
-        guard currentConnectionId == connection.id else {
-          return false
+      if !result.historicalMetadataBackfillIsComplete, backfillTask == nil {
+        backfillTask = Task { [weak self] in
+          guard let self else { return }
+          defer { backfillTask = nil }
+          do {
+            let backfill = try await service.continueHistoricalBackfill(
+              connection: connection,
+              session: session
+            )
+            guard currentConnectionId == connection.id else { return }
+            threads = backfill.threads
+          } catch is CancellationError {
+          } catch {
+            errorMessage = error.localizedDescription
+          }
         }
-        threads = result.threads
       }
       return true
     } catch is CancellationError {
