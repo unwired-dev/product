@@ -119,7 +119,7 @@ protocol GmailMessageMetadataPersisting {
     isFirstPage: Bool,
     productAccountId: String,
     providerAccountIdentifier: String
-  ) throws -> [GmailMessageMetadata]
+  ) throws
 
   func saveMessages(
     _ messages: [GmailMessageMetadata],
@@ -149,7 +149,7 @@ extension GmailMessageMetadataPersisting {
     isFirstPage: Bool,
     productAccountId: String,
     providerAccountIdentifier: String
-  ) throws -> [GmailMessageMetadata] {
+  ) throws {
     let storedMessages: [GmailMessageMetadata]
     if isFirstPage && state.historicalMetadataBackfillIsComplete {
       storedMessages = messages
@@ -162,7 +162,15 @@ extension GmailMessageMetadataPersisting {
         uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }
       )
       for message in messages {
-        messagesByStableId[message.stableProviderMessageId] = message
+        if let existingMessage = messagesByStableId[message.stableProviderMessageId] {
+          messagesByStableId[message.stableProviderMessageId] =
+            message
+            .preservingCategoryStateAndHistoricalBoundary(
+              from: existingMessage
+            )
+        } else {
+          messagesByStableId[message.stableProviderMessageId] = message
+        }
       }
       storedMessages = messagesByStableId.values.sorted {
         if $0.providerInternalDateMilliseconds == $1.providerInternalDateMilliseconds {
@@ -176,7 +184,6 @@ extension GmailMessageMetadataPersisting {
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
-    return storedMessages
   }
 }
 
@@ -637,11 +644,12 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     isFirstPage: Bool,
     productAccountId: String,
     providerAccountIdentifier: String
-  ) throws -> [GmailMessageMetadata] {
+  ) throws {
     let context = try makeContext()
     let existingRecords = try fetchRecords(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier,
+      stableProviderMessageIds: isFirstPage ? nil : Set(messages.map(\.stableProviderMessageId)),
       context: context
     )
     if isFirstPage {
@@ -654,7 +662,9 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     )
     for message in messages {
       if let record = existingByStableId[message.stableProviderMessageId] {
-        record.encodedMessage = try JSONEncoder().encode(message)
+        record.encodedMessage = try JSONEncoder().encode(
+          message.preservingCategoryStateAndHistoricalBoundary(from: try record.message())
+        )
         record.pendingRemovalScanId = nil
       } else {
         context.insert(
@@ -697,13 +707,6 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
       )
     }
     try context.save()
-    return try fetchRecords(
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier,
-      context: context
-    )
-    .map { try $0.message() }
-    .sorted(by: Self.messagesAreOrdered)
   }
 
   func saveMessages(
@@ -773,14 +776,22 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
   private func fetchRecords(
     productAccountId: String,
     providerAccountIdentifier: String,
+    stableProviderMessageIds: Set<String>? = nil,
     context: ModelContext
   ) throws -> [DurableGmailMessageMetadataRecord] {
-    let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+    var descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
       predicate: #Predicate {
         $0.productAccountId == productAccountId
           && $0.providerAccountIdentifier == providerAccountIdentifier
       }
     )
+    if let stableProviderMessageIds {
+      descriptor.predicate = #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.providerAccountIdentifier == providerAccountIdentifier
+          && stableProviderMessageIds.contains($0.stableProviderMessageId)
+      }
+    }
     return try context.fetch(descriptor)
   }
 
@@ -994,12 +1005,17 @@ struct GmailMessageMetadataService:
       nextPageToken: page.nextPageToken,
       scanId: UUID().uuidString
     )
-    let storedMessages = try store.saveSyncPage(
+    try store.saveSyncPage(
       messages,
       state: state,
       isFirstPage: true,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let storedMessages = mergedMessages(
+      messages,
+      with: existingMessages,
+      replacingAll: state.historicalMetadataBackfillIsComplete
     )
     let visibleMessages = inboxMessages(storedMessages)
     return GmailMetadataSyncResult(
@@ -1093,13 +1109,14 @@ struct GmailMessageMetadataService:
         nextPageToken: page.nextPageToken,
         scanId: state.scanId
       )
-      storedMessages = try store.saveSyncPage(
+      try store.saveSyncPage(
         pageMessages,
         state: state,
         isFirstPage: false,
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
+      storedMessages = mergedMessages(pageMessages, with: storedMessages)
     }
     let visibleMessages = inboxMessages(storedMessages)
     return GmailMetadataSyncResult(
@@ -1141,11 +1158,12 @@ struct GmailMessageMetadataService:
         session: session,
         shouldPersist: shouldPersist
       )
-      let storedMessages = try store.saveSyncPage(
-        try store.loadMessages(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        ),
+      let storedMessages = try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      try store.saveSyncPage(
+        storedMessages,
         state: GmailMetadataSyncState(
           historicalMetadataBackfillIsComplete: true,
           initialHistoricalCutoffMilliseconds: nil,
@@ -1918,6 +1936,26 @@ struct GmailMessageMetadataService:
         }
         return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
       }
+  }
+
+  private func mergedMessages(
+    _ messages: [GmailMessageMetadata],
+    with existingMessages: [GmailMessageMetadata],
+    replacingAll: Bool = false
+  ) -> [GmailMessageMetadata] {
+    guard !replacingAll else { return messages }
+    var messagesByStableId = Dictionary(
+      uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }
+    )
+    for message in messages {
+      messagesByStableId[message.stableProviderMessageId] = message
+    }
+    return messagesByStableId.values.sorted {
+      if $0.providerInternalDateMilliseconds == $1.providerInternalDateMilliseconds {
+        return $0.providerMessageId < $1.providerMessageId
+      }
+      return $0.providerInternalDateMilliseconds > $1.providerInternalDateMilliseconds
+    }
   }
 
   private func historicalCutoffMilliseconds(

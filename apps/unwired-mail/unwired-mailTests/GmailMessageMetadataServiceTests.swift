@@ -256,7 +256,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       scanId: "scan-001"
     )
 
-    _ = try store.saveSyncPage(
+    try store.saveSyncPage(
       [newest],
       state: interruptedState,
       isFirstPage: true,
@@ -277,7 +277,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       nextPageToken: nil,
       scanId: interruptedState.scanId
     )
-    let messages = try store.saveSyncPage(
+    try store.saveSyncPage(
       [older],
       state: completedState,
       isFirstPage: false,
@@ -285,7 +285,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
-    XCTAssertEqual(messages, [newest, older])
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [newest, older]
+    )
     XCTAssertEqual(
       try store.loadSyncState(
         productAccountId: session.productAccountId,
@@ -328,7 +334,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     do {
       let container = try ModelContainer(for: schema, configurations: [configuration])
       let store = SwiftDataGmailMessageMetadataStore(container: container)
-      _ = try store.saveSyncPage(
+      try store.saveSyncPage(
         [message],
         state: interruptedState,
         isFirstPage: true,
@@ -2393,7 +2399,7 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> [GmailMessageMetadata] {
-    messages
+    return messages
   }
 
   func loadSyncState(
@@ -2409,7 +2415,7 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     isFirstPage _: Bool,
     productAccountId _: String,
     providerAccountIdentifier _: String
-  ) throws -> [GmailMessageMetadata] {
+  ) throws {
     if let saveError {
       throw saveError
     }
@@ -2424,7 +2430,6 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     }
     savedMessages = messages
     syncState = state
-    return messages
   }
 
   func saveMessages(

@@ -546,6 +546,9 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
+      if !result.historicalMetadataBackfillIsComplete {
+        startHistoricalBackfill(connection: connection)
+      }
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
@@ -569,10 +572,11 @@ final class GmailInboxViewModel {
     else {
       return
     }
-    _ = await sync(connection: connection)
+    if backfillTask == nil {
+      _ = await sync(connection: connection)
+    }
   }
 
-  // swiftlint:disable:next function_body_length
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
     if currentConnectionId != connection.id {
@@ -597,29 +601,8 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
-      if !result.historicalMetadataBackfillIsComplete, backfillTask == nil {
-        let taskId = UUID()
-        backfillTaskId = taskId
-        backfillTask = Task { [weak self] in
-          guard let self else { return }
-          defer {
-            if backfillTaskId == taskId {
-              backfillTask = nil
-              backfillTaskId = nil
-            }
-          }
-          do {
-            let backfill = try await service.continueHistoricalBackfill(
-              connection: connection,
-              session: session
-            )
-            guard currentConnectionId == connection.id else { return }
-            threads = backfill.threads
-          } catch is CancellationError {
-          } catch {
-            errorMessage = error.localizedDescription
-          }
-        }
+      if !result.historicalMetadataBackfillIsComplete {
+        startHistoricalBackfill(connection: connection)
       }
       return true
     } catch is CancellationError {
@@ -627,6 +610,32 @@ final class GmailInboxViewModel {
     } catch {
       errorMessage = error.localizedDescription
       return false
+    }
+  }
+
+  private func startHistoricalBackfill(connection: MailboxConnection) {
+    guard backfillTask == nil else { return }
+    let taskId = UUID()
+    backfillTaskId = taskId
+    backfillTask = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        if backfillTaskId == taskId {
+          backfillTask = nil
+          backfillTaskId = nil
+        }
+      }
+      do {
+        let backfill = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        guard currentConnectionId == connection.id else { return }
+        threads = backfill.threads
+      } catch is CancellationError {
+      } catch {
+        errorMessage = error.localizedDescription
+      }
     }
   }
 
