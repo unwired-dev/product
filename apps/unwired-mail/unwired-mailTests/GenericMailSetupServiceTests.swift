@@ -434,7 +434,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
   }
 
-  func testGenericRemovalRetainsLocalAuthorizationWhenSyncRemovalFails() async throws {
+  func testGenericRemovalClearsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
     let service = GenericMailSetupService(
@@ -458,7 +458,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     } catch is GenericMailSetupTestError {
     }
 
-    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
+    XCTAssertNil(store.authorization)
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {

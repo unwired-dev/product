@@ -306,13 +306,13 @@ struct GenericMailSetupService {
     _ definition: GenericMailConnectionDefinition,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await definitionSyncService.removeConnection(
-      definition.connectionId,
-      session: session
-    )
     try removeLocalAuthorization(
       definition,
       productAccountId: ProductAccountId(session.productAccountId)
+    )
+    _ = try await definitionSyncService.removeConnection(
+      definition.connectionId,
+      session: session
     )
   }
 
