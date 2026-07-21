@@ -65,6 +65,15 @@ function gmailConnectionStatus(
   };
 }
 
+function legacyGmailConnectionToUpdate(
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Doc<'mailProviderConnections'> | null {
+  if (connections.length > 1) {
+    throw new Error('Gmail connection is ambiguous for this client version');
+  }
+  return connections[0] ?? null;
+}
+
 function gmailConnectionToUpdate(
   existingConnection: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
@@ -76,10 +85,7 @@ function gmailConnectionToUpdate(
   if (supportsMultipleConnections === true) {
     return null;
   }
-  if (connections.length > 1) {
-    throw new Error('Gmail connection is ambiguous for this client version');
-  }
-  return connections[0] ?? null;
+  return legacyGmailConnectionToUpdate(connections);
 }
 
 async function gmailConnectionsForTrustedDevice(
