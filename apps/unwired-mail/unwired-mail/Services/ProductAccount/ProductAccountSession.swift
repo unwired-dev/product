@@ -26,7 +26,7 @@ final class ProductAccountSession {
       DevicePushUnregistrationService(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
-    mailboxConnectionService: MailboxConnectionClearing = GmailMailboxConnectionAdapter(),
+    mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
