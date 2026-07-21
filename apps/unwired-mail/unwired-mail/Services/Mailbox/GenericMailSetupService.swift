@@ -149,6 +149,7 @@ struct GenericMailEndpointVerification: Equatable, Sendable {
 }
 
 enum GenericMailSetupError: LocalizedError, Equatable {
+  case ambiguousSavedSetup
   case authenticationFailed(GenericMailProtocol)
   case invalidEmailAddress
   case invalidEndpoint(GenericMailProtocol)
@@ -162,6 +163,8 @@ enum GenericMailSetupError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .ambiguousSavedSetup:
+      return "Multiple saved setups use this address. Select the mailbox connection to load."
     case .authenticationFailed(let mailProtocol):
       return "\(mailProtocol.displayName) did not accept the mailbox authorization."
     case .invalidEmailAddress:

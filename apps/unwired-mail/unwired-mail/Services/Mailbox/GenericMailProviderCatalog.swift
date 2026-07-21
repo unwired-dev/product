@@ -79,10 +79,13 @@ struct KeychainGenericMailAuthorizationStore: GenericMailAuthorizationPersisting
     productAccountId: ProductAccountId,
     emailAddress: String
   ) throws -> DeviceLocalGenericMailAuthorization? {
-    try loadAll(productAccountId: productAccountId).values
+    let matchingAuthorizations = try loadAll(productAccountId: productAccountId).values
       .filter { $0.definition.emailAddress.lowercased() == emailAddress.lowercased() }
       .sorted { $0.definition.connectionId.rawValue < $1.definition.connectionId.rawValue }
-      .first
+    guard matchingAuthorizations.count < 2 else {
+      throw GenericMailSetupError.ambiguousSavedSetup
+    }
+    return matchingAuthorizations.first
   }
 
   func load(

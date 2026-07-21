@@ -111,7 +111,8 @@ struct AccountView: View {
           categoryChoices: MessageCategoryChoice.available(
             customCategory: categoryViewModel.category
           ),
-          connection: gmailViewModel.connection,
+          connection: gmailViewModel.connection?.authorizationState == .authorized
+            ? gmailViewModel.connection : nil,
           isConnectionBusy: gmailViewModel.isEditingDisabled,
           mailActionViewModel: mailActionViewModel,
           messageReader: messageReader,
@@ -887,7 +888,7 @@ final class GmailProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+    defaultSendingConnectionId = try? await service.loadDefaultSendingConnectionId(
       session: session
     )
   }

@@ -329,7 +329,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
   }
 
-  func testGmailRemovalRetainsLocalAuthorizationWhenSyncRemovalFails() async throws {
+  func testGmailRemovalClearsLocalAuthorizationBeforeSyncRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     definitionSyncService.removeError = AdapterTestError.unavailable
@@ -347,7 +347,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     } catch is AdapterTestError {
     }
 
-    XCTAssertNil(connectionService.clearedConnection)
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
   }
 
   func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
