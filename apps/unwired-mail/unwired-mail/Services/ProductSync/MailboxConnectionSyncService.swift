@@ -210,7 +210,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot,
     mutation: (inout MailboxConnectionSyncPayload) throws -> Bool
   ) async throws -> MailboxConnectionSyncSnapshot {
-    for _ in 0..<Self.maximumWriteAttempts {
+    for attempt in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await loadRemotePayload(session: session)
       var payload = try decrypt(remotePayload, session: session)
       guard try mutation(&payload) else {
@@ -236,6 +236,11 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         expectedUpdatedAt: remotePayload?.updatedAt
       )
       guard writtenPayload.encryptedPayload == encryptedPayload else {
+        let isLastAttempt = (attempt == Self.maximumWriteAttempts - 1)
+        if !isLastAttempt {
+          let jitterNanoseconds = UInt64.random(in: 50_000_000...150_000_000)
+          try await Task.sleep(nanoseconds: jitterNanoseconds)
+        }
         continue
       }
       try? refreshCache(writtenPayload, productAccountId: session.productAccountId)

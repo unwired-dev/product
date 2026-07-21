@@ -493,9 +493,9 @@ extension GenericMailSetupService {
         )
       } catch {
         if let previousAuthorization {
-          try authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
+          try? authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
         } else {
-          try authorizationStore.remove(
+          try? authorizationStore.remove(
             productAccountId: productAccountId,
             connectionId: definition.connectionId
           )

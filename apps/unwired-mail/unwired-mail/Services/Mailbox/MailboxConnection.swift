@@ -724,12 +724,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     )
     let localStatusesById = Dictionary(
-      uniqueKeysWithValues: localStatuses.map { status in
+      localStatuses.map { status in
         (
           status.mailboxConnection(productAccountId: session.productAccountId).id,
           status
         )
-      })
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
     for removedConnectionId in snapshot.removedConnectionIds {
       guard let localStatus = localStatusesById[removedConnectionId] else { continue }
       try await connectionService.clearLocalConnection(localStatus, session: session)

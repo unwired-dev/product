@@ -7,6 +7,8 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
   let genericMailDefinition: GenericMailConnectionDefinition?
   let provider: String
   let providerAccountIdentifier: String
+  /// A versioned hash derived from `provider` and `providerAccountIdentifier`.
+  /// Retained for backward compatibility with persisted/synced connection definitions.
   let stableProviderConnectionKey: String
 
   init(
