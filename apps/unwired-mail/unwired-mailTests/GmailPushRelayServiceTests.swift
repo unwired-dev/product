@@ -605,10 +605,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let eligibilityStore = GmailPushEligibilityStore(defaults: defaults)
 
     XCTAssertEqual(
-      try receiptStore.claim(
+      try claimAndReleaseReceipt(
         pushMessage(categoryId: nil),
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
+        from: receiptStore
       ),
       .claimed
     )
@@ -2614,6 +2613,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
       message: pushMessage(categoryId: "system:flights"),
       session: session
     )
+  }
+
+  private func claimAndReleaseReceipt(
+    _ message: GmailMessageMetadata,
+    from store: GmailPushNotificationReceiptStore
+  ) throws -> GmailPushNotificationReceiptClaim {
+    let claim = try store.claim(
+      message,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.release(
+      message,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    return claim
   }
 
   private struct OverlappingGmailWake {
