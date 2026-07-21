@@ -89,6 +89,7 @@ private final class MailEndpointConversation {
 
     if endpoint.security == .startTLS {
       try await negotiateStartTLS()
+      unreadResponse = ""
       task.startSecureConnection()
     }
 
@@ -243,7 +244,7 @@ private final class MailEndpointConversation {
     repeat {
       response += try await readResponse()
     } while !response.components(separatedBy: "\r\n").contains(where: {
-      $0.hasPrefix("\(code) ")
+      $0.hasPrefix("\(code) ") || $0.range(of: #"^\d{3} "#, options: .regularExpression) != nil
     })
     return response
   }

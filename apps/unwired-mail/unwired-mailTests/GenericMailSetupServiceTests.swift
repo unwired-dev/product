@@ -298,6 +298,23 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testDiscoveringAnotherMailboxReplacesTheUsernameAndCredential() {
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true }
+    )
+    viewModel.emailAddress = "first@example.com"
+    viewModel.username = "first@example.com"
+    viewModel.credential = "first-secret"
+
+    viewModel.emailAddress = "second@example.com"
+    viewModel.discover()
+
+    XCTAssertEqual(viewModel.username, "second@example.com")
+    XCTAssertEqual(viewModel.credential, "")
+  }
+
+  @MainActor
   func testMailboxRoleInputsAppearOnlyAfterVerificationFindsAmbiguity() async {
     let verifier = RecordingGenericMailEndpointVerifier()
     let viewModel = GenericMailSetupViewModel(
@@ -501,7 +518,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("220 ready\r\n"),
       .success("250-example\r\n250 STARTTLS\r\n"),
-      .success("220 begin TLS\r\n"),
+      .success("220 begin TLS\r\n250 injected before TLS\r\n"),
       .success("250 AUTH PLAIN\r\n"),
       .success("235 authenticated\r\n"),
     ])
@@ -529,6 +546,36 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
     XCTAssertLessThan(secureIndex, authorizationIndex)
     XCTAssertEqual(factory.minimumTransportVersion, .tls12OrNewer)
+  }
+
+  func testSystemVerifierReturnsSMTPAuthenticationFailureWithoutWaitingForTimeout() async {
+    let stream = ScriptedGenericMailStreamTask(responses: [
+      .success("220 ready\r\n"),
+      .success("250 AUTH PLAIN\r\n"),
+      .success("535 authentication rejected\r\n"),
+    ])
+    let verifier = SystemGenericMailEndpointVerifier(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+
+    do {
+      _ = try await verifier.verify(
+        endpoint: GenericMailEndpoint(
+          mailProtocol: .smtp,
+          hostname: "smtp.example.com",
+          port: 465,
+          security: .implicitTLS
+        ),
+        username: "reader@example.com",
+        credential: "secret",
+        authorizationMethod: .password
+      )
+      XCTFail("Expected SMTP authentication to fail")
+    } catch let error as GenericMailSetupError {
+      XCTAssertEqual(error, .authenticationFailed(.smtp))
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   func testSystemVerifierBuffersFragmentedPOP3Responses() async throws {

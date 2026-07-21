@@ -54,9 +54,7 @@ final class GenericMailSetupViewModel {
     connectedDefinition = nil
     credential = ""
     resetRoleMappingState()
-    if username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-      username = trimmedEmail
-    }
+    username = trimmedEmail
     guard let result = service.discover(emailAddress: trimmedEmail) else {
       discoveredIncomingEndpoints = []
       authorizationMethod = .password
@@ -123,6 +121,7 @@ final class GenericMailSetupViewModel {
 
   func connect() async {
     guard !isConnecting, isValid, isSessionCurrent() else { return }
+    connectedDefinition = nil
     let incomingEndpoint = GenericMailEndpoint(
       mailProtocol: incomingProtocol,
       hostname: incomingHostname,
