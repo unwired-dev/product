@@ -2,6 +2,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
+
 private let adapterGmailMessage = GmailMessageMetadata(
   categoryId: nil,
   from: "Sender <sender@example.com>",
@@ -41,9 +43,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let connectionService = RecordingAdapterConnectionService()
     let credentialVerifier = RecordingAdapterCredentialVerifier()
     let oauthAuthorizer = RecordingAdapterOAuthAuthorizer()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       credentialVerifier: credentialVerifier,
+      definitionSyncService: definitionSyncService,
       oauthAuthorizer: oauthAuthorizer
     )
 
@@ -60,6 +64,137 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailAdapterRejectsAuthorizationForDifferentMailboxDefinition() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+    let differentConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+
+    do {
+      _ = try await adapter.connect(
+        expectedConnectionId: differentConnectionId,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected authorization for a different Gmail identity to be rejected")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .unexpectedAuthorizedAccount)
+      XCTAssertNil(connectionService.completedAccount)
+    }
+  }
+
+  func testTrustedDevicesAuthorizeSameSyncedDefinitionIndependently() async throws {
+    let secondDeviceSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: "trusted-device-002"
+    )
+    let definition = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).definition
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let firstDeviceConnections = RecordingAdapterConnectionService()
+    let secondDeviceConnections = RecordingAdapterConnectionService()
+    secondDeviceConnections.statuses = []
+    let firstDeviceAdapter = GmailMailboxConnectionAdapter(
+      connectionService: firstDeviceConnections,
+      definitionSyncService: definitionSyncService
+    )
+    let secondDeviceAdapter = GmailMailboxConnectionAdapter(
+      connectionService: secondDeviceConnections,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+
+    let firstDeviceBefore = try await firstDeviceAdapter.loadConnections(session: session)
+    let secondDeviceBefore = try await secondDeviceAdapter.loadConnections(
+      session: secondDeviceSession
+    )
+    _ = try await secondDeviceAdapter.connect(
+      expectedConnectionId: adapterConnectionId,
+      session: secondDeviceSession,
+      isSessionCurrent: { $0 == secondDeviceSession }
+    )
+    let firstDeviceAfter = try await firstDeviceAdapter.loadConnections(session: session)
+    let secondDeviceAfter = try await secondDeviceAdapter.loadConnections(
+      session: secondDeviceSession
+    )
+
+    XCTAssertEqual(firstDeviceBefore.first?.authorizationState, .authorized)
+    XCTAssertEqual(secondDeviceBefore.first?.authorizationState, .required)
+    XCTAssertEqual(firstDeviceAfter.first?.authorizationState, .authorized)
+    XCTAssertEqual(secondDeviceAfter.first?.authorizationState, .authorized)
+    XCTAssertEqual(firstDeviceAfter.first?.trustedDeviceId, session.trustedDeviceId)
+    XCTAssertEqual(secondDeviceAfter.first?.trustedDeviceId, secondDeviceSession.trustedDeviceId)
+  }
+
+  func testViewModelSelectsUnauthorizedSyncedDefaultWithoutSubstitution() async {
+    let localStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "available@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = [localStatus]
+    let defaultDefinition = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).definition
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          defaultDefinition,
+          localStatus.mailboxConnection(
+            productAccountId: session.productAccountId
+          ).definition,
+        ],
+        defaultSendingConnectionId: adapterConnectionId,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let viewModel = GmailProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+
+    XCTAssertEqual(viewModel.selectedConnectionId, adapterConnectionId)
+    XCTAssertEqual(viewModel.connection?.authorizationState, .required)
+    XCTAssertNotEqual(
+      viewModel.connection?.id,
+      localStatus.mailboxConnection(
+        productAccountId: session.productAccountId
+      ).id)
+  }
+
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(
@@ -72,7 +207,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       updatedAt: 1_781_200_000_200
     )
     connectionService.statuses = [RecordingAdapterConnectionService.status, second]
-    let adapter = GmailMailboxConnectionAdapter(connectionService: connectionService)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
 
     let connections = try await adapter.loadConnections(session: session)
     try await adapter.clearLocalConnection(connections[0], session: session)
@@ -85,6 +223,146 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGmailAdapterShowsSynchronizedConnectionThatRequiresDeviceAuthorization() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          RecordingAdapterConnectionService.status.mailboxConnection(
+            productAccountId: session.productAccountId
+          ).definition
+        ],
+        defaultSendingConnectionId: adapterConnectionId,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let defaultSendingConnectionId = try await adapter.loadDefaultSendingConnectionId(
+      session: session
+    )
+
+    XCTAssertEqual(connections.map(\.id), [adapterConnectionId])
+    XCTAssertEqual(connections[0].authorizationState, .required)
+    XCTAssertFalse(connections[0].capabilities.canReadMessages)
+    XCTAssertFalse(connections[0].capabilities.canSend)
+    XCTAssertEqual(defaultSendingConnectionId, adapterConnectionId)
+  }
+
+  func testGmailAdapterKeepsSyncedDefinitionWhenRemovingOnlyDeviceAuthorization() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          RecordingAdapterConnectionService.status.mailboxConnection(
+            productAccountId: session.productAccountId
+          ).definition
+        ],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.clearLocalConnection(connection, session: session)
+
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertTrue(definitionSyncService.removedConnectionIds.isEmpty)
+  }
+
+  func testGmailAdapterRemovesConnectionEverywhereAfterLocalCleanup() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          RecordingAdapterConnectionService.status.mailboxConnection(
+            productAccountId: session.productAccountId
+          ).definition
+        ],
+        defaultSendingConnectionId: adapterConnectionId,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
+  }
+
+  func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [adapterConnectionId],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertTrue(connections.isEmpty)
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+  }
+
+  func testGmailAdapterBlocksProviderAccessAfterSynchronizedRemoval() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let metadataService = RecordingAdapterMetadataService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [adapterConnectionId],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      metadataService: metadataService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    do {
+      _ = try await adapter.syncInbox(connection: connection, session: session)
+      XCTFail("Expected synchronized removal to fence provider access")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+      XCTAssertNil(metadataService.syncedConnection)
+      XCTAssertEqual(
+        connectionService.clearedConnection?.providerAccountIdentifier,
+        "gmail-user-001"
+      )
+    }
+  }
+
   func testGmailAdapterRoutesExistingMailOperationsWithoutChangingResults() async throws {
     let bodyReader = RecordingAdapterMessageReader()
     let mailActionService = RecordingAdapterMailActionService()
@@ -93,6 +371,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let searchService = RecordingAdapterSearchService()
     let adapter = GmailMailboxConnectionAdapter(
       bodyReader: bodyReader,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
       mailActionService: mailActionService,
       metadataService: metadataService,
       pushWatchService: pushService,
@@ -199,10 +478,20 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
-    session _: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
     completedAccount = verifiedAccount
-    return Self.status
+    let status = GmailProviderConnectionStatus(
+      connectedAt: Self.status.connectedAt,
+      emailAddress: verifiedAccount.emailAddress,
+      lastVerifiedAt: Self.status.lastVerifiedAt,
+      provider: Self.status.provider,
+      providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: Self.status.updatedAt
+    )
+    statuses = [status]
+    return status
   }
 
   func loadConnection(
@@ -216,6 +505,96 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   ) async throws -> [GmailProviderConnectionStatus] {
     statuses
   }
+}
+
+private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var removedConnectionIds: [MailboxConnectionId] = []
+  private var snapshot: MailboxConnectionSyncSnapshot
+
+  init(snapshot: MailboxConnectionSyncSnapshot) {
+    self.snapshot = snapshot
+  }
+
+  func loadSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot
+  }
+
+  func reconcileConnections(
+    _ connections: [MailboxConnectionDefinition],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    for connection in connections
+    where !snapshot.connections.contains(where: { $0.id == connection.id })
+      && !snapshot.removedConnectionIds.contains(connection.id)
+    {
+      snapshot = MailboxConnectionSyncSnapshot(
+        connections: snapshot.connections + [connection],
+        defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+        removedConnectionIds: snapshot.removedConnectionIds,
+        updatedAt: snapshot.updatedAt
+      )
+    }
+    return snapshot
+  }
+
+  func removeConnection(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    removedConnectionIds.append(connectionId)
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections.filter { $0.id != connectionId },
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId == connectionId
+        ? nil : snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds + [connectionId],
+      updatedAt: snapshot.updatedAt
+    )
+    return snapshot
+  }
+
+  func saveConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await saveDefinition(connection.definition, session: session)
+  }
+
+  func saveDefinition(
+    _ definition: MailboxConnectionDefinition,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections.filter { $0.id != definition.id } + [definition],
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds.filter { $0 != definition.id },
+      updatedAt: snapshot.updatedAt
+    )
+    return snapshot
+  }
+
+  func setDefaultSendingConnection(
+    _ connectionId: MailboxConnectionId?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: connectionId,
+      removedConnectionIds: snapshot.removedConnectionIds,
+      updatedAt: snapshot.updatedAt
+    )
+    return snapshot
+  }
+}
+
+extension MailboxConnectionSyncSnapshot {
+  fileprivate static let empty = MailboxConnectionSyncSnapshot(
+    connections: [],
+    defaultSendingConnectionId: nil,
+    removedConnectionIds: [],
+    updatedAt: nil
+  )
 }
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {

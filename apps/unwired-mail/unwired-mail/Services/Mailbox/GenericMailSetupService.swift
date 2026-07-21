@@ -1,4 +1,7 @@
+import CryptoKit
 import Foundation
+
+// swiftlint:disable file_length
 
 enum GenericMailProtocol: String, CaseIterable, Codable, Identifiable, Sendable {
   case imap
@@ -94,10 +97,26 @@ struct GenericMailConnectionDefinition: Codable, Equatable, Sendable {
     let provider = MailProviderId(
       rawValue: incomingEndpoint.mailProtocol == .pop3 ? "pop3-smtp" : "imap-smtp"
     )
+    let identityInput = [
+      username,
+      incomingEndpoint.mailProtocol.rawValue,
+      incomingEndpoint.hostname.lowercased(),
+      String(incomingEndpoint.port),
+      incomingEndpoint.security.rawValue,
+      outgoingEndpoint.mailProtocol.rawValue,
+      outgoingEndpoint.hostname.lowercased(),
+      String(outgoingEndpoint.port),
+      outgoingEndpoint.security.rawValue,
+    ].joined(separator: "\0")
+    let stableIdentity = Data(SHA256.hash(data: Data(identityInput.utf8)))
+      .base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
     return MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: provider,
-        value: emailAddress.lowercased()
+        value: stableIdentity
       )
     )
   }
@@ -181,6 +200,14 @@ protocol GenericMailAuthorizationPersisting {
     productAccountId: ProductAccountId,
     emailAddress: String
   ) throws -> DeviceLocalGenericMailAuthorization?
+  func load(
+    productAccountId: ProductAccountId,
+    connectionId: MailboxConnectionId
+  ) throws -> DeviceLocalGenericMailAuthorization?
+  func remove(
+    productAccountId: ProductAccountId,
+    connectionId: MailboxConnectionId
+  ) throws
   func save(
     _ authorization: DeviceLocalGenericMailAuthorization,
     productAccountId: ProductAccountId
@@ -189,16 +216,25 @@ protocol GenericMailAuthorizationPersisting {
 
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
+  private let clock: () -> Int64
+  private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
   private let verifier: GenericMailEndpointVerifying
 
   init(
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
+    clock: @escaping () -> Int64 = {
+      Int64(Date().timeIntervalSince1970 * 1_000)
+    },
+    definitionSyncService: MailboxConnectionDefinitionSyncing =
+      MailboxConnectionSyncService(),
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
+    self.clock = clock
+    self.definitionSyncService = definitionSyncService
     self.discovery = discovery
     self.verifier = verifier
   }
@@ -221,10 +257,77 @@ struct GenericMailSetupService {
     try authorizationStore.clearAll(productAccountId: productAccountId)
   }
 
+  func hasLocalAuthorization(
+    _ definition: GenericMailConnectionDefinition,
+    productAccountId: ProductAccountId
+  ) throws -> Bool {
+    try authorizationStore.load(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    ) != nil
+  }
+
+  func loadSyncedDefinitions(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GenericMailConnectionDefinition] {
+    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
+    for connectionId in snapshot.removedConnectionIds
+    where connectionId.providerId.rawValue == "imap-smtp"
+      || connectionId.providerId.rawValue == "pop3-smtp"
+    {
+      try authorizationStore.remove(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )
+    }
+    return snapshot.connections.compactMap(\.genericMailDefinition)
+  }
+
+  func loadDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    try await definitionSyncService.loadSnapshot(session: session).defaultSendingConnectionId
+  }
+
+  func removeLocalAuthorization(
+    _ definition: GenericMailConnectionDefinition,
+    productAccountId: ProductAccountId
+  ) throws {
+    try authorizationStore.remove(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+  }
+
+  func removeEverywhere(
+    _ definition: GenericMailConnectionDefinition,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try removeLocalAuthorization(
+      definition,
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    _ = try await definitionSyncService.removeConnection(
+      definition.connectionId,
+      session: session
+    )
+  }
+
+  func setDefaultSendingConnection(
+    _ definition: GenericMailConnectionDefinition,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = try await definitionSyncService.setDefaultSendingConnection(
+      definition.connectionId,
+      session: session
+    )
+  }
+
   func authorize(
     draft: GenericMailSetupDraft,
     credential: String,
     productAccountId: ProductAccountId,
+    syncSession: ProductAccountSessionSnapshot? = nil,
     isSessionCurrent: () -> Bool = { true }
   ) async throws -> GenericMailConnectionDefinition {
     guard isSessionCurrent() else { throw CancellationError() }
@@ -243,12 +346,11 @@ struct GenericMailSetupService {
 
     try Task.checkCancellation()
     guard isSessionCurrent() else { throw CancellationError() }
-    try authorizationStore.save(
-      DeviceLocalGenericMailAuthorization(
-        credential: credential,
-        definition: verifiedDefinition
-      ),
-      productAccountId: productAccountId
+    try await persistAuthorizationAndDefinition(
+      verifiedDefinition,
+      credential: credential,
+      productAccountId: productAccountId,
+      syncSession: syncSession
     )
     return verifiedDefinition
   }
@@ -365,6 +467,42 @@ struct GenericMailSetupService {
       port: endpoint.port,
       security: endpoint.security
     )
+  }
+}
+
+extension GenericMailSetupService {
+  fileprivate func persistAuthorizationAndDefinition(
+    _ definition: GenericMailConnectionDefinition,
+    credential: String,
+    productAccountId: ProductAccountId,
+    syncSession: ProductAccountSessionSnapshot?
+  ) async throws {
+    let previousAuthorization = try authorizationStore.load(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+    try authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
+      productAccountId: productAccountId
+    )
+    if let syncSession {
+      do {
+        _ = try await definitionSyncService.saveDefinition(
+          definition.synchronizedDefinition(connectedAt: clock()),
+          session: syncSession
+        )
+      } catch {
+        if let previousAuthorization {
+          try authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
+        } else {
+          try authorizationStore.remove(
+            productAccountId: productAccountId,
+            connectionId: definition.connectionId
+          )
+        }
+        throw error
+      }
+    }
   }
 }
 

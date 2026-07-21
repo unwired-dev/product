@@ -76,10 +76,326 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(verifier.endpoints.map(\.mailProtocol), [.imap, .smtp])
-    XCTAssertEqual(definition.connectionId.rawValue, "imap-smtp:reader@example.com")
+    XCTAssertEqual(definition.connectionId.providerId.rawValue, "imap-smtp")
     XCTAssertEqual(store.productAccountId, ProductAccountId("product-account-001"))
     XCTAssertEqual(store.authorization?.credential, "device-only-secret")
     XCTAssertEqual(store.authorization?.definition, definition)
+  }
+
+  func testVerifiedDefinitionSynchronizesWhileCredentialRemainsDeviceLocal() async throws {
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      clock: { 1_781_200_000_600 },
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+
+    XCTAssertEqual(store.authorization?.credential, "device-only-secret")
+    XCTAssertEqual(sync.savedDefinition?.genericMailDefinition, definition)
+    XCTAssertEqual(sync.savedDefinition?.connectedAt, 1_781_200_000_600)
+  }
+
+  func testSyncFailureRollsBackNewDeviceAuthorization() async {
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    sync.saveError = GenericMailSetupTestError.syncUnavailable
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    do {
+      _ = try await service.authorize(
+        draft: manualDraft(),
+        credential: "device-only-secret",
+        productAccountId: ProductAccountId(session.productAccountId),
+        syncSession: session
+      )
+      XCTFail("Expected Product Sync failure")
+    } catch GenericMailSetupTestError.syncUnavailable {
+      XCTAssertNil(store.authorization)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testSyncFailureRestoresPreviousDeviceAuthorization() async throws {
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    _ = try await service.authorize(
+      draft: manualDraft(),
+      credential: "previous-secret",
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    sync.saveError = GenericMailSetupTestError.syncUnavailable
+
+    do {
+      _ = try await service.authorize(
+        draft: manualDraft(),
+        credential: "replacement-secret",
+        productAccountId: ProductAccountId(session.productAccountId),
+        syncSession: session
+      )
+      XCTFail("Expected Product Sync failure")
+    } catch GenericMailSetupTestError.syncUnavailable {
+      XCTAssertEqual(store.authorization?.credential, "previous-secret")
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testAuthenticatedUsernamesAtSameAddressAndEndpointsRemainDistinct() async throws {
+    let service = GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    var firstDraft = manualDraft()
+    firstDraft.username = "first-user"
+    var secondDraft = manualDraft()
+    secondDraft.username = "second-user"
+
+    let first = try await service.authorize(
+      draft: firstDraft,
+      credential: "first-secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+    let second = try await service.authorize(
+      draft: secondDraft,
+      credential: "second-secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+
+    XCTAssertNotEqual(first.connectionId, second.connectionId)
+  }
+
+  func testDisplayAliasesForSameAuthenticatedMailboxConverge() async throws {
+    let service = GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    var firstDraft = manualDraft()
+    firstDraft.emailAddress = "first-alias@example.com"
+    var secondDraft = manualDraft()
+    secondDraft.emailAddress = "second-alias@example.com"
+
+    let first = try await service.authorize(
+      draft: firstDraft,
+      credential: "first-secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+    let second = try await service.authorize(
+      draft: secondDraft,
+      credential: "second-secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+
+    XCTAssertEqual(first.connectionId, second.connectionId)
+  }
+
+  @MainActor
+  func testSyncedGenericDefinitionAppearsAuthorizationRequiredOnAnotherDevice() async {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: "smtp.example.com",
+        port: 465,
+        security: .implicitTLS
+      ),
+      roleMappings: [.sent: "Sent"],
+      username: "reader@example.com"
+    )
+    let sync = RecordingGenericSyncService(definitions: [definition])
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "second-device-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+
+    await viewModel.loadSyncedDefinitions()
+
+    XCTAssertEqual(viewModel.syncedDefinitions, [definition])
+    XCTAssertFalse(viewModel.isAuthorized(definition))
+    XCTAssertEqual(viewModel.emailAddress, definition.emailAddress)
+    XCTAssertNil(viewModel.connectedDefinition)
+  }
+
+  func testSyncedRemovalPurgesDeviceLocalGenericAuthorization() async throws {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: "smtp.example.com",
+        port: 465,
+        security: .implicitTLS
+      ),
+      roleMappings: [.sent: "Sent"],
+      username: "reader@example.com"
+    )
+    let store = RecordingGenericMailAuthorizationStore()
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      credential: "device-only-secret",
+      definition: definition
+    )
+    let sync = RecordingGenericSyncService(removedConnectionIds: [definition.connectionId])
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+
+    _ = try await service.loadSyncedDefinitions(session: session)
+
+    XCTAssertNil(store.authorization)
+  }
+
+  func testTrustedDevicesAuthorizeGenericDefinitionIndependently() async throws {
+    let sync = RecordingGenericSyncService()
+    let firstStore = RecordingGenericMailAuthorizationStore()
+    let secondStore = RecordingGenericMailAuthorizationStore()
+    let firstService = GenericMailSetupService(
+      authorizationStore: firstStore,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let secondService = GenericMailSetupService(
+      authorizationStore: secondStore,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let firstSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "first-device-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let secondSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "second-device-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+
+    let firstDefinition = try await firstService.authorize(
+      draft: manualDraft(),
+      credential: "first-device-secret",
+      productAccountId: ProductAccountId(firstSession.productAccountId),
+      syncSession: firstSession
+    )
+    let secondDefinition = try await secondService.authorize(
+      draft: manualDraft(),
+      credential: "second-device-secret",
+      productAccountId: ProductAccountId(secondSession.productAccountId),
+      syncSession: secondSession
+    )
+
+    XCTAssertEqual(firstDefinition.connectionId, secondDefinition.connectionId)
+    XCTAssertEqual(firstStore.authorization?.credential, "first-device-secret")
+    XCTAssertEqual(secondStore.authorization?.credential, "second-device-secret")
+    XCTAssertEqual(sync.currentSnapshot.connections.count, 1)
+  }
+
+  func testGenericRemovalScopesAndDefaultUseSharedDefinition() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+
+    try await service.setDefaultSendingConnection(definition, session: session)
+    try service.removeLocalAuthorization(
+      definition,
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+
+    XCTAssertNil(store.authorization)
+    XCTAssertEqual(sync.currentSnapshot.connections.count, 1)
+    XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
+
+    try await service.removeEverywhere(definition, session: session)
+
+    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
+    XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
+    XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {
@@ -262,7 +578,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: ProductAccountId("product-account-001")
     )
 
-    XCTAssertEqual(definition.connectionId.rawValue, "pop3-smtp:reader@example.com")
+    XCTAssertEqual(definition.connectionId.providerId.rawValue, "pop3-smtp")
     XCTAssertTrue(definition.roleMappings.isEmpty)
   }
 
@@ -861,6 +1177,21 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
     authorization
   }
 
+  func load(
+    productAccountId _: ProductAccountId,
+    connectionId: MailboxConnectionId
+  ) throws -> DeviceLocalGenericMailAuthorization? {
+    authorization?.definition.connectionId == connectionId ? authorization : nil
+  }
+
+  func remove(
+    productAccountId: ProductAccountId,
+    connectionId _: MailboxConnectionId
+  ) throws {
+    authorization = nil
+    self.productAccountId = productAccountId
+  }
+
   func save(
     _ authorization: DeviceLocalGenericMailAuthorization,
     productAccountId: ProductAccountId
@@ -870,8 +1201,104 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
   }
 }
 
+private final class RecordingGenericSyncService:
+  MailboxConnectionDefinitionSyncing
+{
+  var saveError: Error?
+  var savedDefinition: MailboxConnectionDefinition?
+  private var snapshot: MailboxConnectionSyncSnapshot
+
+  var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
+
+  init(
+    definitions: [GenericMailConnectionDefinition] = [],
+    removedConnectionIds: [MailboxConnectionId] = []
+  ) {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: definitions.map { $0.synchronizedDefinition(connectedAt: 1) },
+      defaultSendingConnectionId: nil,
+      removedConnectionIds: removedConnectionIds,
+      updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1
+    )
+  }
+
+  func loadSnapshot(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot
+  }
+
+  func reconcileConnections(
+    _ connections: [MailboxConnectionDefinition],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    for connection in connections where !snapshot.connections.contains(connection) {
+      snapshot = replacingConnections(snapshot.connections + [connection])
+    }
+    return snapshot
+  }
+
+  func removeConnection(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections.filter { $0.id != connectionId },
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId == connectionId
+        ? nil : snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds + [connectionId],
+      updatedAt: 1
+    )
+    return snapshot
+  }
+
+  func saveConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await saveDefinition(connection.definition, session: session)
+  }
+
+  func saveDefinition(
+    _ definition: MailboxConnectionDefinition,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    if let saveError { throw saveError }
+    savedDefinition = definition
+    snapshot = replacingConnections(
+      snapshot.connections.filter { $0.id != definition.id } + [definition]
+    )
+    return snapshot
+  }
+
+  func setDefaultSendingConnection(
+    _ connectionId: MailboxConnectionId?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: connectionId,
+      removedConnectionIds: snapshot.removedConnectionIds,
+      updatedAt: snapshot.updatedAt
+    )
+    return snapshot
+  }
+
+  private func replacingConnections(
+    _ connections: [MailboxConnectionDefinition]
+  ) -> MailboxConnectionSyncSnapshot {
+    MailboxConnectionSyncSnapshot(
+      connections: connections,
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds,
+      updatedAt: 1
+    )
+  }
+}
+
 private enum GenericMailSetupTestError: Error {
   case invalidCertificate
+  case syncUnavailable
 }
 
 private enum GenericMailStreamEvent: Equatable {
