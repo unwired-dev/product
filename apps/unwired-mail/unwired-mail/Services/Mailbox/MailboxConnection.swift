@@ -706,7 +706,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       return connection
     } catch {
       if !hadExistingConnection {
-        try? await connectionService.clearLocalConnection(status, session: session)
+        try await connectionService.clearLocalConnection(status, session: session)
       }
       throw error
     }

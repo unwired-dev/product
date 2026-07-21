@@ -121,7 +121,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       return snapshot(cached, updatedAt: cachedPayload.updatedAt)
     }
     let payload = try decrypt(remotePayload, session: session)
-    try? refreshCache(remotePayload, productAccountId: session.productAccountId)
+    try refreshCache(remotePayload, productAccountId: session.productAccountId)
     return snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
@@ -243,7 +243,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         }
         continue
       }
-      try? refreshCache(writtenPayload, productAccountId: session.productAccountId)
+      try refreshCache(writtenPayload, productAccountId: session.productAccountId)
       return snapshot(payload, updatedAt: writtenPayload.updatedAt)
     }
     throw MailboxConnectionSyncError.concurrentModification

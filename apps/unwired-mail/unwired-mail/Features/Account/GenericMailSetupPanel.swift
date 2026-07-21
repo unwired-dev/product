@@ -210,6 +210,10 @@ final class GenericMailSetupViewModel {
     emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
+  private var hasManualSetupDraft: Bool {
+    !emailAddress.isEmpty || !incomingHostname.isEmpty || !outgoingHostname.isEmpty
+  }
+
   private func resetRoleMappingState() {
     roleMappingEmailAddress = nil
     roleMappingEndpoint = nil
@@ -300,6 +304,7 @@ extension GenericMailSetupViewModel {
       }
       if !hasLoadedSyncedDefinitions,
         selectedSyncedConnectionId == nil,
+        !hasManualSetupDraft,
         let selected = definitions.first(where: { $0.connectionId == defaultSendingConnectionId })
           ?? definitions.first
       {
@@ -319,6 +324,7 @@ extension GenericMailSetupViewModel {
       connectedDefinition = nil
       await loadSyncedDefinitions()
     } catch {
+      await loadSyncedDefinitions()
       errorMessage = error.localizedDescription
     }
   }
