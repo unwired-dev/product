@@ -887,6 +887,7 @@ final class GmailProviderConnectionViewModel {
     do {
       try await service.setDefaultSendingConnection(connection, session: session)
       defaultSendingConnectionId = connection.id
+      selectedConnectionId = connection.id
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription

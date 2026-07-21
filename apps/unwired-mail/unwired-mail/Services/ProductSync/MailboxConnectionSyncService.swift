@@ -249,7 +249,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         }
         continue
       }
-      try refreshCache(writtenPayload, productAccountId: session.productAccountId)
+      try? refreshCache(writtenPayload, productAccountId: session.productAccountId)
       return snapshot(payload, updatedAt: writtenPayload.updatedAt)
     }
     throw MailboxConnectionSyncError.concurrentModification

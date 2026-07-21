@@ -413,11 +413,6 @@ struct GenericMailSetupPanel: View {
 
               Menu("Manage") {
                 if viewModel.isAuthorized(definition) {
-                  Button("Set as Default Sending Connection") {
-                    Task { await viewModel.setDefaultSendingConnection(definition) }
-                  }
-                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
-
                   Button("Remove Device Authorization", role: .destructive) {
                     Task { await viewModel.removeLocalAuthorization(definition) }
                   }
