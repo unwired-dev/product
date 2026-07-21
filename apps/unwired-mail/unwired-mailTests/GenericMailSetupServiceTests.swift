@@ -917,6 +917,7 @@ private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
   private let lock = NSLock()
   private var readContinuation: CheckedContinuation<String, Error>?
   private var recordedCloseCount = 0
+  private var isClosed = false
 
   var closeCount: Int {
     lock.lock()
@@ -927,6 +928,7 @@ private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
   func close() {
     lock.lock()
     recordedCloseCount += 1
+    isClosed = true
     let continuation = readContinuation
     readContinuation = nil
     lock.unlock()
@@ -934,11 +936,19 @@ private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
   }
 
   func read() async throws -> String {
-    readStarted.fulfill()
     return try await withCheckedThrowingContinuation { continuation in
       lock.lock()
-      readContinuation = continuation
+      let wasClosed = isClosed
+      if wasClosed {
+        readContinuation = nil
+      } else {
+        readContinuation = continuation
+      }
       lock.unlock()
+      if wasClosed {
+        continuation.resume(throwing: CancellationError())
+      }
+      readStarted.fulfill()
     }
   }
 

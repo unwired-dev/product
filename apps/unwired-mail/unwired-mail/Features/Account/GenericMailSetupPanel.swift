@@ -93,6 +93,7 @@ final class GenericMailSetupViewModel {
           productAccountId: productAccountId
         )
       else {
+        clearLoadedSetup()
         errorMessage = "No device-local setup is saved for this address."
         return
       }
@@ -158,14 +159,7 @@ final class GenericMailSetupViewModel {
       rolesRequiringMapping = []
       errorMessage = nil
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
-      for (role, mailbox) in discovered {
-        roleMappings[role] = mailbox
-      }
-      roleMappingEmailAddress = normalizedEmailAddress
-      roleMappingEndpoint = incomingEndpoint
-      rolesRequiringMapping = missing
-      let names = missing.map(\.displayName).joined(separator: ", ")
-      errorMessage = "Map the remaining provider mailboxes: \(names)."
+      applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
@@ -202,6 +196,41 @@ final class GenericMailSetupViewModel {
     roleMappingEndpoint = nil
     roleMappings = [:]
     rolesRequiringMapping = []
+  }
+
+  private func clearLoadedSetup() {
+    connectedDefinition = nil
+    credential = ""
+    discoveredIncomingEndpoints = []
+    authorizationMethod = .password
+    incomingHostname = ""
+    incomingPort = ""
+    incomingProtocol = .imap
+    incomingSecurity = .implicitTLS
+    outgoingHostname = ""
+    outgoingPort = ""
+    outgoingSecurity = .implicitTLS
+    resetRoleMappingState()
+    username = ""
+    discoverySource = nil
+  }
+
+  private func applyMissingRoleMappings(
+    _ discovered: [CanonicalMailboxRole: String],
+    missing: [CanonicalMailboxRole],
+    endpoint: GenericMailEndpoint
+  ) {
+    if roleMappingEmailAddress != normalizedEmailAddress {
+      resetRoleMappingState()
+    }
+    for (role, mailbox) in discovered {
+      roleMappings[role] = mailbox
+    }
+    roleMappingEmailAddress = normalizedEmailAddress
+    roleMappingEndpoint = endpoint
+    rolesRequiringMapping = missing
+    let names = missing.map(\.displayName).joined(separator: ", ")
+    errorMessage = "Map the remaining provider mailboxes: \(names)."
   }
 }
 
@@ -337,6 +366,7 @@ struct GenericMailSetupPanel: View {
           .font(.footnote)
       }
     }
+    .disabled(viewModel.isConnecting)
     .onDisappear {
       connectTask?.cancel()
     }
