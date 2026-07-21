@@ -215,6 +215,51 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       ).id)
   }
 
+  func testViewModelFallsBackToGmailWhenDefaultUsesAnotherProvider() async {
+    let localStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "available@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let genericDefaultConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: MailProviderId(rawValue: "imap-smtp"), value: "generic-user-001"
+      )
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = [localStatus]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          localStatus.mailboxConnection(productAccountId: session.productAccountId).definition
+        ],
+        defaultSendingConnectionId: genericDefaultConnectionId,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let viewModel = GmailProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+
+    XCTAssertEqual(
+      viewModel.selectedConnectionId,
+      localStatus.mailboxConnection(productAccountId: session.productAccountId).id
+    )
+  }
+
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(

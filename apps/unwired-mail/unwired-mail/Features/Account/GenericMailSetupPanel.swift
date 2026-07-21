@@ -321,13 +321,16 @@ extension GenericMailSetupViewModel {
     guard let syncSession else { return }
     do {
       try await service.removeEverywhere(definition, session: syncSession)
-      connectedDefinition = nil
-      await loadSyncedDefinitions()
-    } catch {
-      await loadSyncedDefinitions()
-      if !isAuthorized(definition) {
+      if connectedDefinition?.connectionId == definition.connectionId {
         connectedDefinition = nil
       }
+      await loadSyncedDefinitions()
+    } catch {
+      authorizedSyncedConnectionIds.remove(definition.connectionId)
+      if connectedDefinition?.connectionId == definition.connectionId {
+        connectedDefinition = nil
+      }
+      await loadSyncedDefinitions()
       errorMessage = error.localizedDescription
     }
   }
@@ -335,7 +338,9 @@ extension GenericMailSetupViewModel {
   func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async {
     do {
       try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
-      connectedDefinition = nil
+      if connectedDefinition?.connectionId == definition.connectionId {
+        connectedDefinition = nil
+      }
       authorizedSyncedConnectionIds.remove(definition.connectionId)
       await loadSyncedDefinitions()
     } catch {
