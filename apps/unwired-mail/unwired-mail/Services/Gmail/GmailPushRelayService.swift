@@ -372,6 +372,13 @@ struct GmailPushNotificationReceiptStore: GmailPushNotificationReceiptPersisting
     guard let receipts = defaults.stringArray(forKey: legacyKey) else {
       return []
     }
+    guard
+      receipts.allSatisfy({
+        $0.hasPrefix("gmail:\(providerAccountIdentifier):")
+      })
+    else {
+      return []
+    }
     defaults.set(receipts, forKey: key)
     defaults.removeObject(forKey: legacyKey)
     return Set(receipts)
@@ -472,6 +479,13 @@ struct GmailPushEligibilityStore: GmailPushEligibilityPersisting {
       return []
     }
     let records = try JSONDecoder().decode([Record].self, from: data)
+    guard
+      records.allSatisfy({
+        $0.stableProviderMessageId.hasPrefix("gmail:\(providerAccountIdentifier):")
+      })
+    else {
+      return []
+    }
     defaults.set(data, forKey: key)
     defaults.removeObject(forKey: legacyKey)
     return records
@@ -603,7 +617,9 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       var connections = identifiers.compactMap {
         try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
       }
-      if let legacyConnection = try connection(account: legacyKey(productAccountId)) {
+      if let legacyConnection = try connection(account: legacyKey(productAccountId)),
+        !identifiers.contains(legacyConnection.providerAccountIdentifier)
+      {
         try save(legacyConnection, productAccountId: productAccountId)
         try? KeychainStore.delete(service: service, account: legacyKey(productAccountId))
         connections.append(legacyConnection)
@@ -849,12 +865,12 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) throws {
+    try connectionStore.save(connection, productAccountId: session.productAccountId)
     try store.save(
       status,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    try connectionStore.save(connection, productAccountId: session.productAccountId)
   }
 
   private func currentWatch(

@@ -529,7 +529,10 @@ describe('productAccount Gmail provider connection', () => {
         providerAccountIdentifier: 'gmail-user-001',
         trustedDeviceId: connect.trustedDeviceId,
       }),
-    ).resolves.toStrictEqual({ removed: true });
+    ).resolves.toStrictEqual({
+      hasRemainingGmailConnections: true,
+      removed: true,
+    });
     await expect(
       asUser.query(api.productAccount.listGmailProviderConnections, {
         trustedDeviceId: connect.trustedDeviceId,

@@ -540,6 +540,89 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
+  func testPushConnectionStoreDoesNotReplaceScopedConnectionWithLegacyDuplicate() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let current = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "current@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt + 1
+    )
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+      try? KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    try store.save(current, productAccountId: productAccountId)
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [current])
+    XCTAssertNotNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
+  func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
+    let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let otherIdentifier = "gmail-user-002"
+    let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
+    let legacyProviderAccount = legacyGmailSafeFileComponent(
+      connection.providerAccountIdentifier
+    )
+    let legacySuffix = "\(legacyProductAccount).\(legacyProviderAccount)"
+    let receiptKey = "gmail-push-notification-receipts.\(legacySuffix)"
+    let eligibilityKey = "gmail-push-notification-eligibility.\(legacySuffix)"
+    let otherMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Sender <sender@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: otherIdentifier,
+      providerInternalDateMilliseconds: 1,
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      replyTo: nil,
+      snippet: "Private message",
+      stableProviderMessageId: "gmail:\(otherIdentifier):message-001",
+      subject: "Subject",
+      rfcMessageId: "<message-001@example.com>"
+    )
+    defaults.set([otherMessage.stableProviderMessageId], forKey: receiptKey)
+    let eligibilityJSON = """
+      [{"stableProviderMessageId":"\(otherMessage.stableProviderMessageId)","throughHistoryId":"124"}]
+      """
+    defaults.set(Data(eligibilityJSON.utf8), forKey: eligibilityKey)
+
+    let receiptStore = GmailPushNotificationReceiptStore(defaults: defaults)
+    let eligibilityStore = GmailPushEligibilityStore(defaults: defaults)
+
+    XCTAssertEqual(
+      try receiptStore.claim(
+        pushMessage(categoryId: nil),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      .claimed
+    )
+    XCTAssertTrue(
+      try eligibilityStore.eligibleStableMessageIds(
+        after: "123",
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ).isEmpty
+    )
+    XCTAssertNotNil(defaults.object(forKey: receiptKey))
+    XCTAssertNotNil(defaults.object(forKey: eligibilityKey))
+  }
+
   func testPushWatchStoreMigratesLegacyStatusAndKeepsCollidingIdentitiesIsolated() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

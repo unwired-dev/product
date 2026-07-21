@@ -123,7 +123,7 @@ protocol GmailProviderConnectionTransport {
     identityToken: String,
     providerAccountIdentifier: String,
     trustedDeviceId: String
-  ) async throws
+  ) async throws -> Bool
 
   func shouldStopGmailPushWatch(
     identityToken: String,
@@ -150,7 +150,7 @@ extension GmailProviderConnectionTransport {
     identityToken _: String,
     providerAccountIdentifier _: String,
     trustedDeviceId _: String
-  ) async throws {}
+  ) async throws -> Bool { false }
 }
 
 protocol GmailProviderConnecting {
@@ -446,8 +446,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
+    let hasRemainingGmailConnections: Bool
     do {
-      try await transport.removeGmailProviderConnection(
+      hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
         identityToken: session.identityToken,
         providerAccountIdentifier: connection.providerAccountIdentifier,
         trustedDeviceId: session.trustedDeviceId
@@ -459,22 +460,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
     var cleanupError: Error?
-    let remainingConnections: [GmailProviderConnectionStatus]?
-    do {
-      remainingConnections = try await transport.listGmailProviderConnections(
-        identityToken: session.identityToken,
-        trustedDeviceId: session.trustedDeviceId
-      )
-    } catch {
-      remainingConnections = nil
-      cleanupError = error
-    }
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if remainingConnections?.isEmpty == true {
+    if !hasRemainingGmailConnections {
       do {
         try bodyReader.clearCachedMessageBodies(session: session)
       } catch {
@@ -494,7 +485,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if remainingConnections?.isEmpty == true {
+    if !hasRemainingGmailConnections {
       do {
         try tokenStore.clearLegacy(productAccountId: session.productAccountId)
       } catch {

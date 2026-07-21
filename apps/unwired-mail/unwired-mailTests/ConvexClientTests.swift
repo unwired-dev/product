@@ -285,9 +285,9 @@ final class ConvexClientTests: XCTestCase {
   }
 
   func testRemoveGmailProviderConnectionSendsScopedMutation() async throws {
-    let fixtureEnvelope = #"{"status":"success","value":{"removed":true}}"#.data(
-      using: .utf8
-    )!
+    let fixtureEnvelope = """
+      {"status":"success","value":{"hasRemainingGmailConnections":false,"removed":true}}
+      """.data(using: .utf8)!
     let client = ConvexClient(
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
@@ -304,11 +304,13 @@ final class ConvexClientTests: XCTestCase {
       }
     )
 
-    try await client.removeGmailProviderConnection(
+    let hasRemainingGmailConnections = try await client.removeGmailProviderConnection(
       identityToken: "apple-token",
       providerAccountIdentifier: "gmail-user-001",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
+
+    XCTAssertFalse(hasRemainingGmailConnections)
   }
 
   func testUnregisterDevicePushSendsAuthenticatedMutation() async throws {

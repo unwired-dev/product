@@ -115,8 +115,8 @@ final class ConvexClient {
     identityToken: String,
     providerAccountIdentifier: String,
     trustedDeviceId: String
-  ) async throws {
-    let _: RemoveGmailProviderConnectionResponse = try await performMutation(
+  ) async throws -> Bool {
+    let response: RemoveGmailProviderConnectionResponse = try await performMutation(
       path: "productAccount:removeGmailProviderConnection",
       args: RemoveGmailProviderConnectionArgs(
         providerAccountIdentifier: providerAccountIdentifier,
@@ -124,6 +124,7 @@ final class ConvexClient {
       ),
       identityToken: identityToken
     )
+    return response.hasRemainingGmailConnections
   }
 
   func shouldStopGmailPushWatch(
@@ -466,6 +467,7 @@ private struct RemoveGmailProviderConnectionArgs: Encodable {
 }
 
 private struct RemoveGmailProviderConnectionResponse: Decodable {
+  let hasRemainingGmailConnections: Bool
   let removed: Bool
 }
 

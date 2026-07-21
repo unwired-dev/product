@@ -427,7 +427,22 @@ export const removeGmailProviderConnection = mutation({
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(connection._id);
     }
-    return { removed: connection !== null };
+    const remainingConnections = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .collect();
+    return {
+      hasRemainingGmailConnections: remainingConnections.length > 0,
+      removed: connection !== null,
+    };
   },
-  returns: v.object({ removed: v.boolean() }),
+  returns: v.object({
+    hasRemainingGmailConnections: v.boolean(),
+    removed: v.boolean(),
+  }),
 });

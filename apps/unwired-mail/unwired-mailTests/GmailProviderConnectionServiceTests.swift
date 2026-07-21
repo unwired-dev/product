@@ -512,6 +512,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(pushWatchStopper.stoppedSession, session)
     XCTAssertTrue(pushWatchStopper.tokensWereAvailable)
     XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
     XCTAssertEqual(bodyReader.clearedSessions, [session])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
@@ -1242,8 +1243,9 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     identityToken _: String,
     providerAccountIdentifier: String,
     trustedDeviceId _: String
-  ) async throws {
+  ) async throws -> Bool {
     removedProviderAccountIdentifiers.append(providerAccountIdentifier)
+    return false
   }
 }
 
