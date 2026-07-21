@@ -455,6 +455,7 @@ final class GmailInboxViewModel {
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
+  var isLoadingMessageBody = false
   var isLoading = false
   var isLoadingMessageBody = false
   var isSearching = false
@@ -1538,6 +1539,8 @@ private struct GmailInboxPanel: View {
                 },
                 thread: thread,
                 forward: { message in
+                  viewModel.isLoadingMessageBody = true
+                  defer { viewModel.isLoadingMessageBody = false }
                   do {
                     let body = try await viewModel.loadMessageBody(
                       message,
