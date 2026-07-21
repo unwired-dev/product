@@ -216,6 +216,7 @@ final class GenericMailSetupViewModel {
 
   private func clearLoadedSetup() {
     connectedDefinition = nil
+    selectedSyncedConnectionId = nil
     credential = ""
     discoveredIncomingEndpoints = []
     authorizationMethod = .password
