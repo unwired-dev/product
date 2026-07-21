@@ -555,6 +555,35 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelIsBusyWhileForwardBodyLoads() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(productAccountId: session.productAccountId).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+
+    XCTAssertTrue(viewModel.isBusy)
+    await reader.releaseLoad()
+    let body = try await loadTask.value
+    XCTAssertEqual(body, MailboxMessageBody(text: "Body"))
+    XCTAssertFalse(viewModel.isBusy)
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
     let providerMessage = metadata(
       messageId: "message-001",
@@ -2002,6 +2031,33 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
   func releaseSearch() async {
     await searchGate.release()
+  }
+}
+
+private final class DelayedMailboxMessageReader: MailboxMessageReading {
+  private let loadGate = OverrideGate()
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func loadMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageBody {
+    await loadGate.waitForRelease()
+    return MailboxMessageBody(text: "Body")
+  }
+
+  func removeCachedMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func waitUntilLoadStarts() async {
+    await loadGate.waitUntilStarted()
+  }
+
+  func releaseLoad() async {
+    await loadGate.release()
   }
 }
 

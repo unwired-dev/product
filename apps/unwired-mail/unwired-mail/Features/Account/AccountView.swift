@@ -456,6 +456,7 @@ final class GmailInboxViewModel {
   var isAssigningCategory = false
   var isCategorizingHistorical = false
   var isLoading = false
+  var isLoadingMessageBody = false
   var isSearching = false
   var isSyncing = false
   var searchQuery = ""
@@ -482,7 +483,17 @@ final class GmailInboxViewModel {
   }
 
   var isBusy: Bool {
-    isAssigningCategory || isCategorizingHistorical || isLoading || isSearching || isSyncing
+    isAssigningCategory || isCategorizingHistorical || isLoading || isLoadingMessageBody
+      || isSearching || isSyncing
+  }
+
+  func loadMessageBody(
+    _ message: MailboxMessageMetadata,
+    using reader: MailboxMessageReading
+  ) async throws -> MailboxMessageBody {
+    isLoadingMessageBody = true
+    defer { isLoadingMessageBody = false }
+    return try await reader.loadMessageBody(message: message, session: session)
   }
 
   var messageCount: Int {
@@ -685,6 +696,7 @@ private final class GmailProviderConnectionViewModel {
   var isConnecting = false
   var isLoading = false
   var isRemoving = false
+  var isRenewingPushWatch = false
   var pushStatusMessage: String? {
     let messages = connections.compactMap { pushStatusMessages[$0.id] }
     return messages.isEmpty ? nil : messages.joined(separator: "\n")
@@ -707,11 +719,11 @@ private final class GmailProviderConnectionViewModel {
   }
 
   var canConnect: Bool {
-    !isConnecting && !isLoading && !isRemoving
+    !isConnecting && !isLoading && !isRemoving && !isRenewingPushWatch
   }
 
   var isEditingDisabled: Bool {
-    isConnecting || isLoading || isRemoving
+    isConnecting || isLoading || isRemoving || isRenewingPushWatch
   }
 
   var connection: MailboxConnection? {
@@ -774,7 +786,9 @@ private final class GmailProviderConnectionViewModel {
   }
 
   func renewPushWatch() async {
-    guard !isRemoving else { return }
+    guard !isEditingDisabled else { return }
+    isRenewingPushWatch = true
+    defer { isRenewingPushWatch = false }
     for connection in connections {
       await refreshPushWatch(connection: connection)
     }
@@ -1202,11 +1216,15 @@ private struct GmailProviderConnectionPanel: View {
       .buttonStyle(.borderedProminent)
       .disabled(!viewModel.canConnect)
 
-      if viewModel.isLoading || viewModel.isConnecting || viewModel.isRemoving {
+      if viewModel.isLoading || viewModel.isConnecting || viewModel.isRemoving
+        || viewModel.isRenewingPushWatch
+      {
         ProgressView(
           viewModel.isConnecting
             ? "Connecting Gmail..."
-            : (viewModel.isRemoving ? "Removing Gmail..." : "Loading Gmail...")
+            : (viewModel.isRemoving
+              ? "Removing Gmail..."
+              : (viewModel.isRenewingPushWatch ? "Renewing Gmail push..." : "Loading Gmail..."))
         )
       }
 
@@ -1521,9 +1539,9 @@ private struct GmailInboxPanel: View {
                 thread: thread,
                 forward: { message in
                   do {
-                    let body = try await messageReader.loadMessageBody(
-                      message: message,
-                      session: session
+                    let body = try await viewModel.loadMessageBody(
+                      message,
+                      using: messageReader
                     )
                     guard !Task.isCancelled else { return }
                     cacheErrorMessage = nil
