@@ -1635,7 +1635,10 @@ private struct GmailInboxPanel: View {
       GmailMessageBodySheet(
         message: message,
         reader: messageReader,
-        session: session
+        session: session,
+        loadMessageBody: {
+          try await viewModel.loadMessageBody(message, using: messageReader)
+        }
       )
     }
   }
@@ -1712,11 +1715,17 @@ private struct GmailMessageBodySheet: View {
   init(
     message: MailboxMessageMetadata,
     reader: MailboxMessageReading,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    loadMessageBody: @escaping () async throws -> MailboxMessageBody
   ) {
     self.message = message
     _viewModel = State(
-      initialValue: GmailMessageBodyViewModel(message: message, reader: reader, session: session)
+      initialValue: GmailMessageBodyViewModel(
+        message: message,
+        reader: reader,
+        session: session,
+        loadMessageBody: loadMessageBody
+      )
     )
   }
 
@@ -1774,14 +1783,17 @@ private final class GmailMessageBodyViewModel {
   var isLoading = false
 
   private let message: MailboxMessageMetadata
+  private let loadMessageBody: () async throws -> MailboxMessageBody
   private let reader: MailboxMessageReading
   private let session: ProductAccountSessionSnapshot
 
   init(
     message: MailboxMessageMetadata,
     reader: MailboxMessageReading,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    loadMessageBody: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.loadMessageBody = loadMessageBody
     self.message = message
     self.reader = reader
     self.session = session
@@ -1791,7 +1803,7 @@ private final class GmailMessageBodyViewModel {
     isLoading = true
     defer { isLoading = false }
     do {
-      body = try await reader.loadMessageBody(message: message, session: session)
+      body = try await loadMessageBody()
       didRemoveCachedBody = false
       errorMessage = nil
     } catch {
