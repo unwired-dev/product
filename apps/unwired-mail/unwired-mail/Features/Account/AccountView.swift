@@ -786,11 +786,8 @@ final class GmailProviderConnectionViewModel {
     do {
       try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        if let defaultSendingConnectionId {
-          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
-        } else {
-          selectedConnectionId = connections.first?.id
-        }
+        let defaultConnection = connections.first { $0.id == defaultSendingConnectionId }
+        selectedConnectionId = defaultConnection?.id ?? connections.first?.id
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }
@@ -897,13 +894,15 @@ final class GmailProviderConnectionViewModel {
   }
 
   private func refreshConnections() async throws {
-    connections = try await service.loadConnections(session: session)
+    let loadedConnections = try await service.loadConnections(session: session)
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    defaultSendingConnectionId = try? await service.loadDefaultSendingConnectionId(
+    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
       session: session
     )
+    connections = loadedConnections
+    defaultSendingConnectionId = loadedDefaultSendingConnectionId
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
