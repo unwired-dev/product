@@ -746,12 +746,17 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await fulfillment(of: [stream.readStarted], timeout: 1)
     verification.cancel()
-    do {
-      _ = try await verification.value
-      XCTFail("Expected cancellation")
-    } catch is CancellationError {} catch {
-      XCTFail("Unexpected error: \(error)")
+    let completed = XCTestExpectation(description: "verification completed after cancellation")
+    Task {
+      do {
+        _ = try await verification.value
+        XCTFail("Expected cancellation")
+      } catch is CancellationError {} catch {
+        XCTFail("Unexpected error: \(error)")
+      }
+      completed.fulfill()
     }
+    await fulfillment(of: [completed], timeout: 1)
     XCTAssertGreaterThanOrEqual(stream.closeCount, 1)
   }
 
@@ -909,19 +914,31 @@ private final class ScriptedGenericMailStreamTask: GenericMailStreamTasking {
 
 private final class BlockingGenericMailStreamTask: GenericMailStreamTasking {
   let readStarted = XCTestExpectation(description: "stream read started")
+  private let lock = NSLock()
   private var readContinuation: CheckedContinuation<String, Error>?
-  private(set) var closeCount = 0
+  private var recordedCloseCount = 0
+
+  var closeCount: Int {
+    lock.lock()
+    defer { lock.unlock() }
+    return recordedCloseCount
+  }
 
   func close() {
-    closeCount += 1
-    readContinuation?.resume(throwing: CancellationError())
+    lock.lock()
+    recordedCloseCount += 1
+    let continuation = readContinuation
     readContinuation = nil
+    lock.unlock()
+    continuation?.resume(throwing: CancellationError())
   }
 
   func read() async throws -> String {
     readStarted.fulfill()
     return try await withCheckedThrowingContinuation { continuation in
+      lock.lock()
       readContinuation = continuation
+      lock.unlock()
     }
   }
 

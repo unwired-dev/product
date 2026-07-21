@@ -31,6 +31,11 @@ final class SystemGenericMailEndpointVerifier: NSObject, GenericMailEndpointVeri
     credential: String,
     authorizationMethod: MailAuthorizationMethod
   ) async throws -> GenericMailEndpointVerification {
+    guard !username.contains("\r"), !username.contains("\n"), !credential.contains("\r"),
+      !credential.contains("\n")
+    else {
+      throw GenericMailSetupError.authenticationFailed(endpoint.mailProtocol)
+    }
     let task = streamTaskFactory.makeStreamTask(
       hostname: endpoint.hostname,
       port: endpoint.port,
@@ -149,7 +154,10 @@ private final class MailEndpointConversation {
       tag: "A2",
       respondsToContinuation: authorizationMethod == .oauth
     )
-    guard response.uppercased().contains("A2 OK") else {
+    let taggedResponse = response.components(separatedBy: "\r\n").last { line in
+      line.uppercased().hasPrefix("A2 ")
+    }
+    guard taggedResponse?.uppercased().hasPrefix("A2 OK") == true else {
       throw GenericMailSetupError.authenticationFailed(.imap)
     }
   }
@@ -160,7 +168,7 @@ private final class MailEndpointConversation {
     var candidates: [CanonicalMailboxRole: Set<String>] = [:]
     for line in response.components(separatedBy: "\r\n") where line.hasPrefix("* LIST (") {
       guard let mailbox = listedMailbox(in: line) else { continue }
-      let flags = line.uppercased()
+      let flags = imapListFlags(in: line)
       for (flag, role) in specialUseRoles where flags.contains(flag) {
         candidates[role, default: []].insert(mailbox)
       }
@@ -186,6 +194,12 @@ private final class MailEndpointConversation {
       return nil
     }
     return imapListToken(in: afterDelimiter)?.value
+  }
+
+  private func imapListFlags(in line: String) -> Set<String> {
+    guard let range = line.range(of: "* LIST (") else { return [] }
+    guard let end = line[range.upperBound...].firstIndex(of: ")") else { return [] }
+    return Set(line[range.upperBound..<end].split(separator: " ").map { $0.uppercased() })
   }
 
   private func authenticatePOP3() async throws {

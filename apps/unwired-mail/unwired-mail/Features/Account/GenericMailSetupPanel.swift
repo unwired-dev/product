@@ -96,6 +96,7 @@ final class GenericMailSetupViewModel {
         errorMessage = "No device-local setup is saved for this address."
         return
       }
+      discoveredIncomingEndpoints = []
       apply(authorization.definition)
       connectedDefinition = authorization.definition
       credential = ""
