@@ -461,8 +461,10 @@ private final class GmailMailActionViewModel {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
   private var backfillTask: Task<Void, Never>?
+  private var backfillTaskId: UUID?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -518,6 +520,7 @@ final class GmailInboxViewModel {
   }
 
   func clear() {
+    cancelBackfill()
     currentConnectionId = nil
     threads = []
     searchQuery = ""
@@ -551,6 +554,7 @@ final class GmailInboxViewModel {
 
   func loadAfterConnectionChange(connection: MailboxConnection) async {
     if currentConnectionId != connection.id {
+      cancelBackfill()
       currentConnectionId = connection.id
       threads = []
       searchQuery = ""
@@ -568,7 +572,9 @@ final class GmailInboxViewModel {
     _ = await sync(connection: connection)
   }
 
+  // swiftlint:disable:next function_body_length
   func sync(connection: MailboxConnection) async -> Bool {
+    cancelBackfill()
     if currentConnectionId != connection.id {
       currentConnectionId = connection.id
       threads = []
@@ -592,9 +598,16 @@ final class GmailInboxViewModel {
       threads = result.threads
       errorMessage = nil
       if !result.historicalMetadataBackfillIsComplete, backfillTask == nil {
+        let taskId = UUID()
+        backfillTaskId = taskId
         backfillTask = Task { [weak self] in
           guard let self else { return }
-          defer { backfillTask = nil }
+          defer {
+            if backfillTaskId == taskId {
+              backfillTask = nil
+              backfillTaskId = nil
+            }
+          }
           do {
             let backfill = try await service.continueHistoricalBackfill(
               connection: connection,
@@ -622,6 +635,12 @@ final class GmailInboxViewModel {
       return false
     }
     return await sync(connection: connection)
+  }
+
+  private func cancelBackfill() {
+    backfillTask?.cancel()
+    backfillTask = nil
+    backfillTaskId = nil
   }
 
   func searchLocal(categoryNamesById: [String: String]) {
@@ -1665,6 +1684,7 @@ private struct GmailInboxPanel: View {
     .onDisappear {
       searchTask?.cancel()
       syncTask?.cancel()
+      viewModel.clear()
     }
     .sheet(item: $selectedMessage) { message in
       GmailMessageBodySheet(

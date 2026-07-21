@@ -929,6 +929,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(result.messages.allSatisfy(\.isHistorical))
   }
 
+  func testHistoricalBackfillReusesInitialSyncHistoricalCutoff() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+    let reconnectedConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_180_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_200_000_000
+    )
+
+    _ = try await fixture.service.syncInbox(
+      connection: reconnectedConnection,
+      session: session
+    )
+    let result = try await fixture.service.continueHistoricalBackfill(
+      connection: reconnectedConnection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      result.messages.first { $0.providerMessageId == "message-001" }?.isHistorical,
+      true
+    )
+  }
+
   func testSyncInboxPreservesExistingHistoricalStateWhenRefreshingMetadata() async throws {
     let fixture = try makeSyncFixture()
     fixture.store.messages = [

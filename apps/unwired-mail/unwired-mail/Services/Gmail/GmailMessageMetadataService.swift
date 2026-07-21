@@ -78,8 +78,21 @@ struct GmailMetadataSyncResult: Equatable {
 
 struct GmailMetadataSyncState: Equatable {
   let historicalMetadataBackfillIsComplete: Bool
+  let initialHistoricalCutoffMilliseconds: Int64?
   let nextPageToken: String?
   let scanId: String
+
+  init(
+    historicalMetadataBackfillIsComplete: Bool,
+    initialHistoricalCutoffMilliseconds: Int64? = nil,
+    nextPageToken: String?,
+    scanId: String
+  ) {
+    self.historicalMetadataBackfillIsComplete = historicalMetadataBackfillIsComplete
+    self.initialHistoricalCutoffMilliseconds = initialHistoricalCutoffMilliseconds
+    self.nextPageToken = nextPageToken
+    self.scanId = scanId
+  }
 }
 
 protocol GmailMessageMetadataPersisting {
@@ -458,6 +471,7 @@ final class DurableGmailMessageMetadataRecord {
 final class GmailMetadataSyncCheckpointRecord {
   @Attribute(.unique) var storageKey: String
   var historicalMetadataBackfillIsComplete: Bool
+  var initialHistoricalCutoffMilliseconds: Int64?
   var nextPageToken: String?
   var productAccountId: String
   var providerAccountIdentifier: String
@@ -473,6 +487,7 @@ final class GmailMetadataSyncCheckpointRecord {
     self.productAccountId = productAccountId
     self.providerAccountIdentifier = providerAccountIdentifier
     historicalMetadataBackfillIsComplete = state.historicalMetadataBackfillIsComplete
+    initialHistoricalCutoffMilliseconds = state.initialHistoricalCutoffMilliseconds
     nextPageToken = state.nextPageToken
     scanId = state.scanId
   }
@@ -480,6 +495,7 @@ final class GmailMetadataSyncCheckpointRecord {
   var state: GmailMetadataSyncState {
     GmailMetadataSyncState(
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
+      initialHistoricalCutoffMilliseconds: initialHistoricalCutoffMilliseconds,
       nextPageToken: nextPageToken,
       scanId: scanId
     )
@@ -487,6 +503,7 @@ final class GmailMetadataSyncCheckpointRecord {
 
   func update(from state: GmailMetadataSyncState) {
     historicalMetadataBackfillIsComplete = state.historicalMetadataBackfillIsComplete
+    initialHistoricalCutoffMilliseconds = state.initialHistoricalCutoffMilliseconds
     nextPageToken = state.nextPageToken
     scanId = state.scanId
   }
@@ -932,6 +949,7 @@ struct GmailMessageMetadataService:
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func syncInbox(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -952,11 +970,14 @@ struct GmailMessageMetadataService:
       accessToken: tokens.accessToken,
       pageToken: nil
     )
+    let initialHistoricalCutoffMilliseconds = historicalCutoffMilliseconds(
+      connection: connection,
+      hasLocalMetadata: !existingMessages.isEmpty
+    )
     var messages = try await fetchListedMessageMetadata(
       accessToken: tokens.accessToken,
       categorizationBoundary: historicalCutoff(
-        connection: connection,
-        hasLocalMetadata: !existingMessages.isEmpty
+        milliseconds: initialHistoricalCutoffMilliseconds
       ),
       connection: connection,
       listedMessages: page.messages ?? []
@@ -966,8 +987,10 @@ struct GmailMessageMetadataService:
       preservingExistingStateFrom: existingMessagesByStableId
     )
     messages = try await categorizer.categorize(messages: messages, session: session)
+    try Task.checkCancellation()
     let state = GmailMetadataSyncState(
       historicalMetadataBackfillIsComplete: page.nextPageToken == nil,
+      initialHistoricalCutoffMilliseconds: initialHistoricalCutoffMilliseconds,
       nextPageToken: page.nextPageToken,
       scanId: UUID().uuidString
     )
@@ -1049,8 +1072,8 @@ struct GmailMessageMetadataService:
       var pageMessages = try await fetchListedMessageMetadata(
         accessToken: tokens.accessToken,
         categorizationBoundary: historicalCutoff(
-          connection: connection,
-          hasLocalMetadata: true
+          milliseconds: state.initialHistoricalCutoffMilliseconds
+            ?? historicalCutoffMilliseconds(connection: connection, hasLocalMetadata: true)
         ),
         connection: connection,
         listedMessages: page.messages ?? []
@@ -1063,8 +1086,10 @@ struct GmailMessageMetadataService:
         messages: pageMessages,
         session: session
       )
+      try Task.checkCancellation()
       state = GmailMetadataSyncState(
         historicalMetadataBackfillIsComplete: page.nextPageToken == nil,
+        initialHistoricalCutoffMilliseconds: state.initialHistoricalCutoffMilliseconds,
         nextPageToken: page.nextPageToken,
         scanId: state.scanId
       )
@@ -1123,6 +1148,7 @@ struct GmailMessageMetadataService:
         ),
         state: GmailMetadataSyncState(
           historicalMetadataBackfillIsComplete: true,
+          initialHistoricalCutoffMilliseconds: nil,
           nextPageToken: nil,
           scanId: UUID().uuidString
         ),
@@ -1165,8 +1191,10 @@ struct GmailMessageMetadataService:
       uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }
     )
     let categorizationBoundary = historicalCutoff(
-      connection: connection,
-      hasLocalMetadata: !existingMessages.isEmpty
+      milliseconds: historicalCutoffMilliseconds(
+        connection: connection,
+        hasLocalMetadata: !existingMessages.isEmpty
+      )
     )
     let inboxHistoryChanges: GmailInboxHistoryChanges?
     if let sinceHistoryId {
@@ -1892,12 +1920,15 @@ struct GmailMessageMetadataService:
       }
   }
 
-  private func historicalCutoff(
+  private func historicalCutoffMilliseconds(
     connection: GmailProviderConnectionStatus,
     hasLocalMetadata: Bool
-  ) -> Date {
-    let cutoffMilliseconds = hasLocalMetadata ? connection.connectedAt : connection.updatedAt
-    return Date(timeIntervalSince1970: TimeInterval(cutoffMilliseconds) / 1_000)
+  ) -> Int64 {
+    hasLocalMetadata ? connection.connectedAt : connection.updatedAt
+  }
+
+  private func historicalCutoff(milliseconds: Int64) -> Date {
+    Date(timeIntervalSince1970: TimeInterval(milliseconds) / 1_000)
   }
 
   private func inboxMessages(
