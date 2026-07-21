@@ -1002,6 +1002,7 @@ struct GmailMessageMetadataService:
       messages,
       preservingExistingStateFrom: existingMessagesByStableId
     )
+    try Task.checkCancellation()
     messages = try await categorizer.categorize(messages: messages, session: session)
     try Task.checkCancellation()
     let state = GmailMetadataSyncState(
@@ -1030,10 +1031,22 @@ struct GmailMessageMetadataService:
     )
   }
 
-  // swiftlint:disable:next function_body_length
   func continueHistoricalBackfill(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await continueHistoricalBackfill(
+      connection: connection,
+      session: session,
+      allowsPageTokenReset: true
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func continueHistoricalBackfill(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsPageTokenReset: Bool
   ) async throws -> GmailMetadataSyncResult {
     guard
       var state = try store.loadSyncState(
@@ -1087,7 +1100,16 @@ struct GmailMessageMetadataService:
           pageToken: pageToken
         )
       } catch GmailMessageMetadataSyncError.gmailRequestFailed {
-        return try await syncInbox(connection: connection, session: session)
+        guard allowsPageTokenReset else {
+          throw GmailMessageMetadataSyncError.gmailRequestFailed
+        }
+        let refreshed = try await syncInbox(connection: connection, session: session)
+        guard !refreshed.historicalMetadataBackfillIsComplete else { return refreshed }
+        return try await continueHistoricalBackfill(
+          connection: connection,
+          session: session,
+          allowsPageTokenReset: false
+        )
       }
       let existingMessagesByStableId = Dictionary(
         uniqueKeysWithValues: storedMessages.map { ($0.stableProviderMessageId, $0) }
@@ -1105,6 +1127,7 @@ struct GmailMessageMetadataService:
         pageMessages,
         preservingExistingStateFrom: existingMessagesByStableId
       )
+      try Task.checkCancellation()
       pageMessages = try await categorizer.categorize(
         messages: pageMessages,
         session: session

@@ -867,7 +867,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       historicalMessagesByProviderAccount: [
         connection.providerAccountIdentifier: historicalMessage
       ],
-      delaysHistoricalBackfill: true
+      delaysHistoricalBackfill: true,
+      loadResultIsIncomplete: true
     )
     let viewModel = GmailInboxViewModel(
       service: service,
@@ -880,6 +881,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isRefreshDisabled)
+    XCTAssertEqual(service.syncInboxCallCount, 0)
 
     await service.releaseHistoricalBackfill()
   }
@@ -1219,6 +1221,25 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       [
         "message-003", "message-002", "message-001",
       ])
+  }
+
+  func testHistoricalBackfillContinuesAfterResettingRejectedPageToken() async throws {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      rejectsFirstHistoricalPageToken: true
+    )
+    _ = try await fixture.service.syncInbox(connection: connection, session: session)
+
+    let result = try await fixture.service.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(result.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(
+      result.messages.map(\.providerMessageId),
+      ["message-003", "message-002", "message-001"]
+    )
   }
 
   func testHistoricalBackfillStoresNonInboxMetadataWithoutShowingItInInbox() async throws {
@@ -2043,6 +2064,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     categorizer: GmailMessageCategorizing = RecordingGmailMessageCategorizer(),
     tokenInfoSubject: String = "gmail-user-001",
     usesPagination: Bool = false,
+    rejectsFirstHistoricalPageToken: Bool = false,
     replyTo: String? = nil,
     historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8),
@@ -2063,6 +2085,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         requestRecorder: requestRecorder,
         tokenInfoSubject: tokenInfoSubject,
         usesPagination: usesPagination,
+        rejectsFirstHistoricalPageToken: rejectsFirstHistoricalPageToken,
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
         historyStatusCode: historyStatusCode,
@@ -2096,6 +2119,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     requestRecorder: GmailMetadataRequestRecorder,
     tokenInfoSubject: String,
     usesPagination: Bool,
+    rejectsFirstHistoricalPageToken: Bool,
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
     historyStatusCode: Int,
@@ -2144,6 +2168,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         XCTAssertTrue(request.url?.query?.contains("labelIds=INBOX") == true)
       }
       if usesPagination, request.url?.query?.contains("pageToken=next-page-token") == true {
+        if rejectsFirstHistoricalPageToken,
+          requestRecorder.queries.filter({ $0.contains("pageToken=next-page-token") }).count == 1
+        {
+          return (Self.httpResponse(for: request, statusCode: 400), Data())
+        }
         return (
           Self.httpResponse(for: request, statusCode: 200),
           Data(#"{"messages":[{"id":"message-001"}]}"#.utf8)
@@ -2267,9 +2296,13 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
   var delaysHistoricalBackfill = false
+  var loadResultIsIncomplete = false
   private let historicalBackfillGate = OverrideGate()
   private let historicalCategorizationGate = OverrideGate()
   private let overrideGate = OverrideGate()
+  private let syncInboxCallRecorder = MailboxSyncCallRecorder()
+
+  var syncInboxCallCount: Int { syncInboxCallRecorder.count }
 
   func categorizeHistorical(
     scope _: HistoricalCategorizationScope,
@@ -2284,14 +2317,19 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    result(for: connection, using: messagesByProviderAccountIdentifier)
+    result(
+      for: connection,
+      using: messagesByProviderAccountIdentifier,
+      historicalMetadataBackfillIsComplete: !loadResultIsIncomplete
+    )
   }
 
   func syncInbox(
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    result(
+    syncInboxCallRecorder.count += 1
+    return result(
       for: connection,
       using: messagesByProviderAccountIdentifier,
       historicalMetadataBackfillIsComplete:
@@ -2410,6 +2448,10 @@ private struct GmailMessageMetadataSyncFixture {
 private final class GmailMetadataRequestRecorder {
   var paths: [String] = []
   var queries: [String] = []
+}
+
+private final class MailboxSyncCallRecorder {
+  var count = 0
 }
 
 private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
