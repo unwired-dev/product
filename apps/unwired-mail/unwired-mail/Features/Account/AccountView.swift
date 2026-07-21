@@ -786,9 +786,11 @@ final class GmailProviderConnectionViewModel {
     do {
       try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        selectedConnectionId =
-          connections.first { $0.id == defaultSendingConnectionId }?.id
-          ?? connections.first?.id
+        if let defaultSendingConnectionId {
+          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
+        } else {
+          selectedConnectionId = connections.first?.id
+        }
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }
