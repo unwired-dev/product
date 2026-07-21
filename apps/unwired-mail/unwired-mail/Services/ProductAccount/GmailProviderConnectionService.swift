@@ -363,7 +363,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       KeychainGmailPushConnectionStore(),
     pushWatchStopper: GmailPushWatchStopping = GmailPushWatchService(),
     pushWatchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
-    metadataStore: GmailMessageMetadataPersisting = FileGmailMessageMetadataStore(),
+    metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {

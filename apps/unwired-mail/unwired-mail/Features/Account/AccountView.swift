@@ -558,6 +558,13 @@ final class GmailInboxViewModel {
     }
 
     await load(connection: connection)
+    guard
+      !Task.isCancelled,
+      currentConnectionId == connection.id
+    else {
+      return
+    }
+    _ = await sync(connection: connection)
   }
 
   func sync(connection: MailboxConnection) async -> Bool {
@@ -573,7 +580,7 @@ final class GmailInboxViewModel {
     }
 
     do {
-      let result = try await service.syncInbox(
+      var result = try await service.syncInbox(
         connection: connection,
         session: session
       )
@@ -583,6 +590,17 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
+      if !result.historicalMetadataBackfillIsComplete {
+        result = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        try Task.checkCancellation()
+        guard currentConnectionId == connection.id else {
+          return false
+        }
+        threads = result.threads
+      }
       return true
     } catch is CancellationError {
       return false
