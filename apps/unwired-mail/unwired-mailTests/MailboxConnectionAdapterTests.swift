@@ -726,6 +726,26 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.recipient, "recipient@example.com")
   }
 
+  func testMailShellReplyPrefersRecipientHeaderOverReplyToForSentMessages() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "reader@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["SENT"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["recipient@example.com"],
+      replyTo: "reader@example.com",
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message",
+      subject: "Subject"
+    )
+
+    XCTAssertEqual(MailShellCompositionDraft.reply(to: message).recipient, "recipient@example.com")
+  }
+
   func testMailShellReplyUsesSenderForReceivedMessages() {
     let message = MailboxMessageMetadata(
       categoryId: nil,

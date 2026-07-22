@@ -190,6 +190,7 @@ struct AccountView: View {
         guard
           gmailViewModel.connections.contains(where: { $0.id == connectionId })
         else { return }
+        inboxViewModel.clear()
         mailShellSelection.selectMailbox(connectionId: connectionId)
         gmailViewModel.selectedConnectionId = connectionId
       }
@@ -424,13 +425,12 @@ struct MailShellCompositionDraft: Identifiable {
   }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
-    let recipient =
-      message.replyTo
-      ?? (message.providerStateIds?.contains("SENT") == true
-        ? message.recipientHeaders?.first
-        : nil)
-      ?? message.from
-      ?? ""
+    let recipient: String
+    if message.providerStateIds?.contains("SENT") == true {
+      recipient = message.recipientHeaders?.first ?? message.replyTo ?? message.from ?? ""
+    } else {
+      recipient = message.replyTo ?? message.from ?? ""
+    }
     return MailShellCompositionDraft(
       body: "",
       connectionId: message.connectionId,
@@ -781,7 +781,7 @@ private struct MailShellConversationReader: View {
     Task {
       let didPerform = await mailActionViewModel.perform(
         action,
-        for: thread.messages,
+        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") == true },
         connection: connection
       )
       if didPerform {
@@ -2908,7 +2908,7 @@ private struct GmailInboxThreadRow: View {
     Task {
       let didPerformAction = await mailActionViewModel.perform(
         action,
-        for: thread.messages,
+        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") == true },
         connection: connection
       )
       if didPerformAction && !Task.isCancelled {
