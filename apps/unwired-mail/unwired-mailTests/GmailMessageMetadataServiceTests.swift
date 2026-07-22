@@ -795,6 +795,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelLoadsUnifiedInboxAcrossAuthorizedConnections() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+
+    XCTAssertEqual(
+      fixture.viewModel.threads.map(\.providerThreadId),
+      ["thread-second", "thread-first"]
+    )
+    XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
+  }
+
+  @MainActor
+  func testInboxViewModelRefreshesOneUnifiedInboxConnectionWithoutDroppingOthers() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+
+    let didRefresh = await fixture.viewModel.refresh(connection: fixture.connections[0])
+
+    XCTAssertTrue(didRefresh)
+    XCTAssertEqual(fixture.service.syncInboxCallCount, 1)
+    XCTAssertEqual(
+      fixture.viewModel.threads.map(\.providerThreadId),
+      ["thread-second", "thread-first"]
+    )
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresOverrideResultAfterProviderAccountChanges() async {
     let originalMessage = metadata(
       messageId: "message-001",
@@ -2488,6 +2516,42 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  @MainActor
+  private func makeUnifiedInboxViewModelFixture() -> UnifiedInboxViewModelFixture {
+    let secondConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: metadata(
+          messageId: "message-first",
+          threadId: "thread-first",
+          internalDateMilliseconds: 100
+        ),
+        secondConnection.providerAccountIdentifier: metadata(
+          messageId: "message-second",
+          threadId: "thread-second",
+          internalDateMilliseconds: 200,
+          providerAccountIdentifier: secondConnection.providerAccountIdentifier
+        ),
+      ]
+    )
+    return UnifiedInboxViewModelFixture(
+      connections: [
+        connection.mailboxConnection(productAccountId: session.productAccountId),
+        secondConnection.mailboxConnection(productAccountId: session.productAccountId),
+      ],
+      service: service,
+      viewModel: GmailInboxViewModel(service: service, searchService: service, session: session)
+    )
+  }
+
   private func metadata(
     messageId: String,
     threadId: String,
@@ -2509,6 +2573,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       rfcMessageId: nil
     )
   }
+}
+
+private struct UnifiedInboxViewModelFixture {
+  let connections: [MailboxConnection]
+  let service: DelayedMailboxSwitchingService
+  let viewModel: GmailInboxViewModel
 }
 
 private actor OverrideGate {
