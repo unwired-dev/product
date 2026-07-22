@@ -694,8 +694,7 @@ private struct MailShellConversationReader: View {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
               }
               .disabled(
-                thread.latestMessage.rfcMessageId == nil || isConnectionBusy
-                  || mailActionViewModel.isPerformingAction
+                isConnectionBusy || mailActionViewModel.isPerformingAction
               )
             }
             if connection.capabilities.canForward {
@@ -779,7 +778,10 @@ private struct MailShellConversationReader: View {
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
       }
-      .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+      .disabled(
+        inboxViewModel.isRefreshDisabled || isConnectionBusy
+          || mailActionViewModel.isPerformingAction
+      )
     }
   }
 
@@ -885,7 +887,6 @@ private struct MailShellConversationMessage: View {
           if canReply {
             Button("Reply", action: reply)
               .buttonStyle(.bordered)
-              .disabled(message.rfcMessageId == nil)
           }
           if canForward {
             Button("Forward") {
@@ -2867,9 +2868,9 @@ private struct GmailInboxThreadRow: View {
         Menu("Set Category") {
           ForEach(categoryChoices) { choice in
             Button {
-              Task { await setCategory(choice.id, thread.latestMessage) }
+              Task { await setCategory(choice.id, categoryMessage) }
             } label: {
-              if choice.id == thread.latestMessage.categoryId {
+              if choice.id == categoryMessage.categoryId {
                 Label(choice.name, systemImage: "checkmark")
               } else {
                 Text(choice.name)
@@ -2880,7 +2881,6 @@ private struct GmailInboxThreadRow: View {
         Divider()
         if connection.capabilities.canReply {
           Button("Reply") { reply(thread.latestMessage) }
-            .disabled(thread.latestMessage.rfcMessageId == nil)
         }
         if connection.capabilities.canForward {
           Button("Forward") {
@@ -2914,10 +2914,14 @@ private struct GmailInboxThreadRow: View {
   }
 
   private var categoryState: String {
-    guard let categoryId = thread.latestMessage.categoryId else {
+    guard let categoryId = categoryMessage.categoryId else {
       return "Uncategorized"
     }
     return categoryChoices.first { $0.id == categoryId }?.name ?? "Categorized"
+  }
+
+  private var categoryMessage: MailboxMessageMetadata {
+    thread.inboxMessages.first ?? thread.latestMessage
   }
 
   private func perform(_ action: ProviderMailAction) {
