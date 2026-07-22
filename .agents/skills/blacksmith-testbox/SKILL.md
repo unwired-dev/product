@@ -40,12 +40,15 @@ do not poll or create another Testbox while the first one starts.
 Run focused checks first, then the full required TypeScript validation:
 
 ```sh
-blacksmith testbox run --id <ID> "pnpm lint"
-blacksmith testbox run --id <ID> "pnpm format"
-blacksmith testbox run --id <ID> "pnpm turbo run check-types"
-blacksmith testbox run --id <ID> "pnpm test"
-blacksmith testbox run --id <ID> "pnpm fallow"
+blacksmith testbox run --id <ID> "pnpm lint && printf '\\nTESTBOX_CHECK_PASSED\\n'"
+blacksmith testbox run --id <ID> "pnpm format && printf '\\nTESTBOX_CHECK_PASSED\\n'"
+blacksmith testbox run --id <ID> "pnpm turbo run check-types && printf '\\nTESTBOX_CHECK_PASSED\\n'"
+blacksmith testbox run --id <ID> "pnpm test && printf '\\nTESTBOX_CHECK_PASSED\\n'"
+blacksmith testbox run --id <ID> "pnpm fallow && printf '\\nTESTBOX_CHECK_PASSED\\n'"
 ```
+
+Until the CLI propagates remote command failures, verify `TESTBOX_CHECK_PASSED`
+appears in the output of every check before treating it as successful.
 
 Testbox does not sync ignored dependency directories. When `package.json`,
 `pnpm-lock.yaml`, or `pnpm-workspace.yaml` changes, install before checking:
