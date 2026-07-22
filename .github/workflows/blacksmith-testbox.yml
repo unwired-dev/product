@@ -58,5 +58,4 @@ jobs:
           done
 
       - name: Run Testbox
-        if: always()
         uses: useblacksmith/run-testbox@5ca05834db1d3813554d1dd109e5f2087a8d7cbc # v2
