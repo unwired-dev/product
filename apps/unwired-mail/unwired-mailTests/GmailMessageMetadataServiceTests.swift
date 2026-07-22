@@ -690,6 +690,45 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       result.threads[1].messages.map(\.providerMessageId), ["message-002", "message-001"])
   }
 
+  func testLoadInboxIncludesLocallyObservedNonInboxMessagesInVisibleConversations() async throws {
+    let store = RecordingGmailMessageMetadataStore()
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 10
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentReply = metadata(
+      messageId: "message-sent",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 20
+    )
+    sentReply.providerLabelIds = ["SENT"]
+    var unrelatedSentMessage = metadata(
+      messageId: "message-unrelated",
+      threadId: "thread-hidden",
+      internalDateMilliseconds: 30
+    )
+    unrelatedSentMessage.providerLabelIds = ["SENT"]
+    store.messages = [inboxMessage, sentReply, unrelatedSentMessage]
+    let service = GmailMessageMetadataService(
+      store: store,
+      tokenStore: RecordingGmailProviderTokenStore()
+    )
+
+    let result = try await service.loadInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-inbox"])
+    XCTAssertEqual(result.threads.map(\.providerThreadId), ["thread-visible"])
+    XCTAssertEqual(
+      result.threads[0].messages.map(\.providerMessageId),
+      ["message-sent", "message-inbox"]
+    )
+  }
+
   func testOverrideCategoryPersistsUpdatedMessageMetadata() async throws {
     let message = metadata(
       messageId: "message-001",

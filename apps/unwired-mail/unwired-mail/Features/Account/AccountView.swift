@@ -17,6 +17,7 @@ struct AccountView: View {
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsAccountSettings = false
 
   @MainActor
@@ -74,7 +75,10 @@ struct AccountView: View {
   }
 
   var body: some View {
-    NavigationSplitView(columnVisibility: $columnVisibility) {
+    NavigationSplitView(
+      columnVisibility: $columnVisibility,
+      preferredCompactColumn: $preferredCompactColumn
+    ) {
       MailShellSidebar(
         connections: gmailViewModel.connections,
         selectedConnectionId: selectedMailboxBinding,
@@ -172,6 +176,9 @@ struct AccountView: View {
       guard let connectionId = mailShellSelection.selectedConnectionId else { return }
       mailShellSelection.updateThreads(threads, for: connectionId)
     }
+    .onChange(of: mailShellSelection.navigationLevel) { _, _ in
+      preferredCompactColumn = mailShellSelection.preferredCompactColumn
+    }
   }
 
   private var selectedMailboxBinding: Binding<MailboxConnectionId?> {
@@ -198,7 +205,10 @@ struct AccountView: View {
     )
   }
 
-  private var accountSettings: some View {
+}
+
+extension AccountView {
+  fileprivate var accountSettings: some View {
     NavigationStack {
       ScrollView {
         VStack(alignment: .leading, spacing: 24) {
@@ -307,6 +317,17 @@ final class MailShellSelectionModel {
     return .mailboxList
   }
 
+  var preferredCompactColumn: NavigationSplitViewColumn {
+    switch navigationLevel {
+    case .mailboxList:
+      return .sidebar
+    case .threadList:
+      return .content
+    case .conversation:
+      return .detail
+    }
+  }
+
   var selectedThread: MailboxThread? {
     threads.first { $0.id == selectedThreadId }
   }
@@ -375,7 +396,16 @@ struct MailShellCompositionDraft: Identifiable {
   let id = UUID()
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
+  let sourceMessage: MailboxMessageMetadata
   var subject: String
+
+  var sourceMailboxIdentity: StableProviderMailboxIdentity {
+    sourceMessage.connectionId.providerMailboxIdentity
+  }
+
+  var sourceThreadId: MailboxThreadIdentity {
+    sourceMessage.threadIdentity
+  }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
     MailShellCompositionDraft(
@@ -383,6 +413,7 @@ struct MailShellCompositionDraft: Identifiable {
       connectionId: message.connectionId,
       recipient: message.replyTo ?? message.from ?? "",
       replyToMessage: message,
+      sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject)
     )
   }
@@ -396,6 +427,7 @@ struct MailShellCompositionDraft: Identifiable {
       connectionId: message.connectionId,
       recipient: "",
       replyToMessage: nil,
+      sourceMessage: message,
       subject: prefixedSubject("Fwd:", subject: message.subject)
     )
   }

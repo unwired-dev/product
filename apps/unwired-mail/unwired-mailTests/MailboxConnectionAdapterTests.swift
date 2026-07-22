@@ -550,6 +550,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let viewModel = MailShellSelectionModel()
 
+    XCTAssertEqual(viewModel.navigationLevel, .mailboxList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .sidebar)
+
     viewModel.selectMailbox(connectionId: adapterConnectionId)
     viewModel.updateThreads([olderThread, newerThread], for: adapterConnectionId)
     viewModel.selectThread(olderThread.id)
@@ -557,11 +560,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(viewModel.selectedThreadId, olderThread.id)
     XCTAssertEqual(viewModel.navigationLevel, .conversation)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .detail)
 
     viewModel.updateThreads([newerThread], for: adapterConnectionId)
 
     XCTAssertNil(viewModel.selectedThreadId)
     XCTAssertEqual(viewModel.navigationLevel, .threadList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
   }
 
   func testMailShellScopesThreadsToSelectedMailbox() {
@@ -592,6 +597,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(viewModel.threads.isEmpty)
     XCTAssertNil(viewModel.selectedThreadId)
     XCTAssertEqual(viewModel.navigationLevel, .threadList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
   }
 
   func testMailShellExpandsLatestMessageAndTogglesOlderMessages() {
@@ -634,10 +640,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
 
     XCTAssertEqual(reply.connectionId, message.connectionId)
+    XCTAssertEqual(reply.sourceThreadId, message.threadIdentity)
+    XCTAssertEqual(reply.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
     XCTAssertEqual(reply.replyToMessage, message)
     XCTAssertEqual(reply.recipient, "sender@example.com")
     XCTAssertEqual(reply.subject, "Re: Subject message-001")
     XCTAssertEqual(forward.connectionId, message.connectionId)
+    XCTAssertEqual(forward.sourceThreadId, message.threadIdentity)
+    XCTAssertEqual(forward.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
+    XCTAssertEqual(forward.sourceMessage, message)
     XCTAssertNil(forward.replyToMessage)
     XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
     XCTAssertTrue(forward.body.contains("Decrypted body"))

@@ -908,7 +908,7 @@ struct GmailMessageMetadataService:
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false,
       messages: visibleMessages,
-      threads: GmailInboxThread.group(visibleMessages)
+      threads: inboxThreads(messages)
     )
   }
 
@@ -962,7 +962,7 @@ struct GmailMessageMetadataService:
     let visibleMessages = inboxMessages(categorizedMessages)
     return GmailMetadataSyncResult(
       messages: visibleMessages,
-      threads: GmailInboxThread.group(visibleMessages)
+      threads: inboxThreads(categorizedMessages)
     )
   }
 
@@ -1044,7 +1044,7 @@ struct GmailMessageMetadataService:
     return GmailMetadataSyncResult(
       historicalMetadataBackfillIsComplete: state.historicalMetadataBackfillIsComplete,
       messages: visibleMessages,
-      threads: GmailInboxThread.group(visibleMessages)
+      threads: inboxThreads(storedMessages)
     )
   }
 
@@ -1087,7 +1087,7 @@ struct GmailMessageMetadataService:
       let visibleMessages = inboxMessages(messages)
       return GmailMetadataSyncResult(
         messages: visibleMessages,
-        threads: GmailInboxThread.group(visibleMessages)
+        threads: inboxThreads(messages)
       )
     }
 
@@ -1100,7 +1100,7 @@ struct GmailMessageMetadataService:
       return GmailMetadataSyncResult(
         historicalMetadataBackfillIsComplete: false,
         messages: visibleMessages,
-        threads: GmailInboxThread.group(visibleMessages)
+        threads: inboxThreads(messages)
       )
     }
 
@@ -1181,7 +1181,7 @@ struct GmailMessageMetadataService:
     return GmailMetadataSyncResult(
       historicalMetadataBackfillIsComplete: state.historicalMetadataBackfillIsComplete,
       messages: visibleMessages,
-      threads: GmailInboxThread.group(visibleMessages)
+      threads: inboxThreads(storedMessages)
     )
   }
 
@@ -1238,7 +1238,7 @@ struct GmailMessageMetadataService:
         historyIsExpired: true,
         messages: visibleMessages,
         newMessageIds: [],
-        threads: GmailInboxThread.group(visibleMessages)
+        threads: inboxThreads(storedMessages)
       )
     }
   }
@@ -1371,7 +1371,7 @@ struct GmailMessageMetadataService:
       } ?? false,
       messages: visibleMessages,
       newMessageIds: addedMessageIds?.intersection(currentInboxMessageIds),
-      threads: GmailInboxThread.group(visibleMessages)
+      threads: inboxThreads(fetchedMessages)
     )
   }
 
@@ -2040,6 +2040,15 @@ struct GmailMessageMetadataService:
     _ messages: [GmailMessageMetadata]
   ) -> [GmailMessageMetadata] {
     messages.filter { $0.providerLabelIds?.contains("INBOX") ?? true }
+  }
+
+  private func inboxThreads(
+    _ messages: [GmailMessageMetadata]
+  ) -> [GmailInboxThread] {
+    let visibleThreadIds = Set(inboxMessages(messages).map(\.providerThreadId))
+    return GmailInboxThread.group(
+      messages.filter { visibleThreadIds.contains($0.providerThreadId) }
+    )
   }
 
   private func merging(
