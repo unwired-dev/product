@@ -1523,6 +1523,7 @@ final class GmailInboxViewModel {
     currentConnectionId = nil
     unifiedConnectionIds = []
     unifiedLoadId = nil
+    isLoading = false
     threads = []
     searchQuery = ""
     searchResult = nil
@@ -1545,30 +1546,40 @@ final class GmailInboxViewModel {
       }
     }
 
-    var loadedThreadsByConnection = Dictionary(
-      grouping: threads.filter { connectionIds.contains($0.id.connectionId) },
-      by: { $0.id.connectionId }
-    )
+    var loadedThreadsByConnection = unifiedThreads(for: connectionIds)
     threads = MailboxThread.group(
       loadedThreadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
     )
     var errors: [String] = []
+    var connectionsNeedingBackfill: [MailboxConnection] = []
     for connection in authorizedConnections {
       do {
         guard
-          try await loadUnifiedInbox(
+          let needsBackfill = try await loadUnifiedInbox(
             for: connection,
             loadId: loadId,
             connectionIds: connectionIds,
             threadsByConnection: &loadedThreadsByConnection
           )
         else { return }
+        if needsBackfill {
+          connectionsNeedingBackfill.append(connection)
+        }
       } catch is CancellationError {
         return
       } catch {
         errors.append("\(connection.displayName): \(error.localizedDescription)")
       }
     }
+    guard
+      let backfillErrors = await continueUnifiedInboxBackfill(
+        for: connectionsNeedingBackfill,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &loadedThreadsByConnection
+      )
+    else { return }
+    errors.append(contentsOf: backfillErrors)
     guard unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else { return }
     errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
   }
@@ -1578,7 +1589,7 @@ final class GmailInboxViewModel {
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) async throws -> Bool {
+  ) async throws -> Bool? {
     let result = try await service.loadInbox(connection: connection, session: session)
     guard
       applyUnifiedInboxResult(
@@ -1588,7 +1599,7 @@ final class GmailInboxViewModel {
         connectionIds: connectionIds,
         threadsByConnection: &threadsByConnection
       )
-    else { return false }
+    else { return nil }
 
     let syncedResult = try await service.syncInbox(connection: connection, session: session)
     guard
@@ -1599,20 +1610,48 @@ final class GmailInboxViewModel {
         connectionIds: connectionIds,
         threadsByConnection: &threadsByConnection
       )
-    else { return false }
+    else { return nil }
+    return !syncedResult.historicalMetadataBackfillIsComplete
+  }
 
-    guard !syncedResult.historicalMetadataBackfillIsComplete else { return true }
-    let backfillResult = try await service.continueHistoricalBackfill(
-      connection: connection,
-      session: session
+  private func unifiedThreads(
+    for connectionIds: Set<MailboxConnectionId>
+  ) -> [MailboxConnectionId: [MailboxThread]] {
+    Dictionary(
+      grouping: threads.filter { connectionIds.contains($0.id.connectionId) },
+      by: { $0.id.connectionId }
     )
-    return applyUnifiedInboxResult(
-      backfillResult.threads,
-      for: connection.id,
-      loadId: loadId,
-      connectionIds: connectionIds,
-      threadsByConnection: &threadsByConnection
-    )
+  }
+
+  private func continueUnifiedInboxBackfill(
+    for connections: [MailboxConnection],
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>,
+    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) async -> [String]? {
+    var errors: [String] = []
+    for connection in connections {
+      do {
+        let backfillResult = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        guard
+          applyUnifiedInboxResult(
+            backfillResult.threads,
+            for: connection.id,
+            loadId: loadId,
+            connectionIds: connectionIds,
+            threadsByConnection: &threadsByConnection
+          )
+        else { return nil }
+      } catch is CancellationError {
+        return nil
+      } catch {
+        errors.append("\(connection.displayName): \(error.localizedDescription)")
+      }
+    }
+    return errors
   }
 
   func load(connection: MailboxConnection) async {
