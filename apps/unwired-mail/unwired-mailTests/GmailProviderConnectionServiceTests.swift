@@ -476,6 +476,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
   }
 
   func testClearLocalConnectionStopsWatchThenClearsTokensMetadataAndCachedBodies() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let tokenStore = InMemoryGmailProviderTokenStore()
     let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -497,6 +498,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
       pushConnectionStore: pushConnectionStore,
       pushWatchStopper: pushWatchStopper,
@@ -514,6 +516,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
     XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
     XCTAssertEqual(bodyReader.clearedSessions, [session])
+    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
@@ -1395,6 +1398,23 @@ private final class RecordingPushWatchStore: GmailPushWatchPersisting {
     _: GmailPushWatchStatus,
     productAccountId _: String,
     providerAccountIdentifier _: String
+  ) throws {}
+}
+
+private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+    nil
+  }
+
+  func save(
+    _: BackgroundCategorizationContextCache,
+    productAccountId _: String
   ) throws {}
 }
 

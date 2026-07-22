@@ -1565,6 +1565,24 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  func testForegroundCategorizationContinuesWhenBackgroundContextCacheCannotBeSaved()
+    async throws
+  {
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    cacheStore.saveError = KeychainStoreError.unexpectedData
+    let service = GmailMessageCategorizationService(
+      assignmentSync: RecordingMessageCategoryAssignmentSync(),
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [.uncategorized])
+    )
+
+    let categorized = try await service.categorize(messages: [message()], session: session)
+
+    XCTAssertEqual(categorized.count, 1)
+  }
+
   func testBackgroundCategorizationUsesFreshExactSenderContextWhenProductSyncFails()
     async throws
   {
@@ -2017,6 +2035,7 @@ private final class InMemoryBackgroundContextCacheStore:
   var caches: [String: BackgroundCategorizationContextCache] = [:]
   var clearError: Error?
   var loadError: Error?
+  var saveError: Error?
 
   func clear(productAccountId: String) throws {
     if let clearError { throw clearError }
@@ -2029,6 +2048,7 @@ private final class InMemoryBackgroundContextCacheStore:
   }
 
   func save(_ cache: BackgroundCategorizationContextCache, productAccountId: String) throws {
+    if let saveError { throw saveError }
     caches[productAccountId] = cache
   }
 }

@@ -1235,7 +1235,7 @@ extension GmailMessageCategorizationService {
       senderAddresses: learningSignalSenderAddresses,
       session: session
     )
-    try refreshBackgroundContextCache(
+    try? refreshBackgroundContextCache(
       customCategory: customCategory,
       learningSignals: learningSignals,
       senderAddresses: learningSignalSenderAddresses,

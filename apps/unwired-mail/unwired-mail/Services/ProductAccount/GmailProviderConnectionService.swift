@@ -348,6 +348,7 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
   }
 }
 
+// swiftlint:disable type_body_length
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
@@ -405,6 +406,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var cleanupError: Error?
+    do {
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = error
+    }
     var connections: [GmailProviderConnectionStatus] = []
     do {
       connections = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
@@ -609,6 +615,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 }
+// swiftlint:enable type_body_length
 
 extension GmailProviderConnectionService {
   func loadConnection(
