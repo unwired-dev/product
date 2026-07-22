@@ -14,6 +14,7 @@ struct AccountView: View {
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
+  @State private var inboxLoadTask: Task<Void, Never>?
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
@@ -146,9 +147,7 @@ struct AccountView: View {
         inboxViewModel.clear()
         return
       }
-      Task {
-        await inboxViewModel.loadAfterConnectionChange(connection: connection)
-      }
+      loadInbox(for: connection)
     }
     .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
       guard
@@ -158,9 +157,7 @@ struct AccountView: View {
         inboxViewModel.clear()
         return
       }
-      Task {
-        await inboxViewModel.loadAfterConnectionChange(connection: connection)
-      }
+      loadInbox(for: connection)
     }
     .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
       Task {
@@ -185,8 +182,12 @@ struct AccountView: View {
     Binding(
       get: { mailShellSelection.selectedConnectionId },
       set: { connectionId in
+        guard let connectionId else {
+          mailShellSelection.clearSelection()
+          gmailViewModel.selectedConnectionId = nil
+          return
+        }
         guard
-          let connectionId,
           gmailViewModel.connections.contains(where: { $0.id == connectionId })
         else { return }
         mailShellSelection.selectMailbox(connectionId: connectionId)
@@ -199,10 +200,20 @@ struct AccountView: View {
     Binding(
       get: { mailShellSelection.selectedThreadId },
       set: { threadId in
-        guard let threadId else { return }
+        guard let threadId else {
+          mailShellSelection.clearThreadSelection()
+          return
+        }
         mailShellSelection.selectThread(threadId)
       }
     )
+  }
+
+  private func loadInbox(for connection: MailboxConnection) {
+    inboxLoadTask?.cancel()
+    inboxLoadTask = Task {
+      await inboxViewModel.loadAfterConnectionChange(connection: connection)
+    }
   }
 
 }
@@ -339,6 +350,11 @@ final class MailShellSelectionModel {
     expandedMessageIds = []
   }
 
+  func clearThreadSelection() {
+    selectedThreadId = nil
+    expandedMessageIds = []
+  }
+
   func selectMailbox(connectionId: MailboxConnectionId) {
     guard selectedConnectionId != connectionId else { return }
     selectedConnectionId = connectionId
@@ -411,7 +427,7 @@ struct MailShellCompositionDraft: Identifiable {
     MailShellCompositionDraft(
       body: "",
       connectionId: message.connectionId,
-      recipient: message.replyTo ?? message.from ?? "",
+      recipient: message.replyTo ?? message.recipientHeaders?.first ?? message.from ?? "",
       replyToMessage: message,
       sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject)
@@ -435,7 +451,7 @@ struct MailShellCompositionDraft: Identifiable {
   private static func prefixedSubject(_ prefix: String, subject: String) -> String {
     let trimmedSubject = subject == "(No subject)" ? "" : subject
     guard !trimmedSubject.isEmpty else { return prefix }
-    guard !trimmedSubject.localizedCaseInsensitiveContains(prefix) else {
+    guard trimmedSubject.range(of: prefix, options: [.caseInsensitive, .anchored]) == nil else {
       return trimmedSubject
     }
     return "\(prefix) \(trimmedSubject)"
@@ -522,9 +538,17 @@ private struct MailShellThreadList: View {
           )
         } else {
           List(selection: $selectedThreadId) {
-            ForEach(viewModel.threads) { thread in
-              NavigationLink(value: thread.id) {
-                MailShellThreadRow(thread: thread)
+            if let errorMessage = viewModel.errorMessage {
+              Section {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                  .foregroundStyle(.orange)
+              }
+            }
+            Section {
+              ForEach(viewModel.threads) { thread in
+                NavigationLink(value: thread.id) {
+                  MailShellThreadRow(thread: thread)
+                }
               }
             }
           }
@@ -762,9 +786,12 @@ private struct MailShellConversationReader: View {
   }
 
   private func prepareForward(_ message: MailboxMessageMetadata) async {
+    let selectedThreadId = selection.selectedThreadId
     do {
       let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
-      guard !Task.isCancelled else { return }
+      guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
+        selection.selectedThreadId == selectedThreadId
+      else { return }
       compositionDraft = .forward(message, body: body.text)
       readerErrorMessage = nil
     } catch is CancellationError {
