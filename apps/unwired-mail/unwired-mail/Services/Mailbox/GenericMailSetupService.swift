@@ -514,13 +514,17 @@ extension GenericMailSetupService {
 }
 
 struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
+  private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let genericMailSetupService: GenericMailSetupService
   private let gmailConnection: MailboxConnectionClearing
 
   init(
+    backgroundContextCacheStore: BackgroundContextCachePersisting =
+      KeychainBackgroundContextCacheStore(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
     gmailConnection: MailboxConnectionClearing = GmailMailboxConnectionAdapter()
   ) {
+    self.backgroundContextCacheStore = backgroundContextCacheStore
     self.genericMailSetupService = genericMailSetupService
     self.gmailConnection = gmailConnection
   }
@@ -536,6 +540,11 @@ struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
       try genericMailSetupService.clearLocalAuthorizations(
         productAccountId: ProductAccountId(session.productAccountId)
       )
+    } catch {
+      if firstError == nil { firstError = error }
+    }
+    do {
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     } catch {
       if firstError == nil { firstError = error }
     }

@@ -797,6 +797,34 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
   }
 
+  func testProductAccountCleanupClearsBackgroundCategorizationContext() async throws {
+    let authorizationStore = RecordingGenericMailAuthorizationStore()
+    let backgroundContextCacheStore = RecordingBackgroundContextCacheStore()
+    let gmailConnection = RecordingMailboxConnectionClearer()
+    let clearer = ProductAccountMailboxConnectionClearer(
+      backgroundContextCacheStore: backgroundContextCacheStore,
+      genericMailSetupService: GenericMailSetupService(
+        authorizationStore: authorizationStore,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      gmailConnection: gmailConnection
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "identity-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    try await clearer.clearLocalConnection(session: session)
+
+    XCTAssertEqual(
+      backgroundContextCacheStore.clearedProductAccountId,
+      session.productAccountId
+    )
+    XCTAssertEqual(gmailConnection.clearedSession, session)
+  }
+
   func testSessionChangeDuringVerificationPreventsLateCredentialPersistence() async {
     let store = RecordingGenericMailAuthorizationStore()
     let verifier = RecordingGenericMailEndpointVerifier()
@@ -1261,6 +1289,30 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
   ) throws {
     self.authorization = authorization
     self.productAccountId = productAccountId
+  }
+}
+
+private final class RecordingBackgroundContextCacheStore:
+  BackgroundContextCachePersisting
+{
+  var clearedProductAccountId: String?
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountId = productAccountId
+  }
+
+  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+    nil
+  }
+
+  func save(_ cache: BackgroundCategorizationContextCache, productAccountId _: String) throws {}
+}
+
+private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing {
+  var clearedSession: ProductAccountSessionSnapshot?
+
+  func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    clearedSession = session
   }
 }
 

@@ -1127,6 +1127,7 @@ struct GmailPushWakeupHandler {
     case fallbackDelivered
   }
 
+  private let backgroundCategorizer: GmailMessageCategorizing
   private let connectionStore: GmailPushConnectionPersisting
   private let genericNotificationDelivery: GenericNotificationDelivering
   private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
@@ -1141,6 +1142,7 @@ struct GmailPushWakeupHandler {
   private let watchStore: GmailPushWatchPersisting
 
   init(
+    backgroundCategorizer: GmailMessageCategorizing = GmailMessageCategorizationService(),
     connectionStore: GmailPushConnectionPersisting = KeychainGmailPushConnectionStore(),
     genericNotificationDelivery: GenericNotificationDelivering? = nil,
     genericNotificationFallbackStore: GenericNotificationFallbackPersisting =
@@ -1161,6 +1163,7 @@ struct GmailPushWakeupHandler {
     syncService: MailboxMetadataSyncing = GmailMailboxConnectionAdapter(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
+    self.backgroundCategorizer = backgroundCategorizer
     self.connectionStore = connectionStore
     self.genericNotificationDelivery =
       genericNotificationDelivery
@@ -1352,6 +1355,28 @@ struct GmailPushWakeupHandler {
     let deliverableNotificationCandidateIds =
       syncResult.newMessageIds == nil && notificationCandidateIds.isEmpty
       ? nil : notificationCandidateIds
+    let notificationMessages: [GmailMessageMetadata]
+    if currentNotificationRules.categoryIds.isEmpty
+      || deliverableNotificationCandidateIds == nil
+    {
+      notificationMessages = syncResult.messages.map(\.gmailMetadata)
+    } else {
+      let notificationCandidates = syncResult.messages.compactMap { message in
+        deliverableNotificationCandidateIds?.contains(message.providerMessageId) == true
+          ? message.gmailMetadata : nil
+      }
+      do {
+        notificationMessages =
+          try await backgroundCategorizer
+          .categorizeForBackgroundNotification(
+            messages: notificationCandidates,
+            session: productSession
+          )
+      } catch {
+        try Task.checkCancellation()
+        notificationMessages = notificationCandidates
+      }
+    }
     let canAdvanceWatermark =
       currentNotificationRules.categoryIds.isEmpty
       || (syncResult.newMessageIds != nil && !syncResult.hasUnlistedNewMessages)
@@ -1360,13 +1385,13 @@ struct GmailPushWakeupHandler {
       && (syncResult.providerCursorIsExpired
         || syncResult.hasUnlistedNewMessages
         || syncResult.newMessageIds == nil
-        || syncResult.messages.contains { message in
+        || notificationMessages.contains { message in
           !message.isHistorical
             && notificationCandidateIds.contains(message.providerMessageId)
             && message.categoryId == nil
         })
     let notificationDeliveryResult = try await deliverCategoryAwareNotifications(
-      for: syncResult.messages.map(\.gmailMetadata),
+      for: notificationMessages,
       including: deliverableNotificationCandidateIds,
       connection: connection,
       productAccountId: productSession.productAccountId,
