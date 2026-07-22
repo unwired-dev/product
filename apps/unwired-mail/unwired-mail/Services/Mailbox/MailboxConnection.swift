@@ -574,6 +574,15 @@ protocol MailboxMessageSearching {
   ) async throws -> [MailboxMessageMetadata]
 }
 
+protocol MailboxMessageBodyPrefetching {
+  func prefetchMessageBodies(
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    referenceDate: Date,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
 protocol MailboxMessageReading {
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws
 
@@ -626,7 +635,8 @@ protocol MailboxProviderMailActing {
 
 protocol MailboxConnectionAdapter:
   MailboxConnectionManaging, MailboxMetadataSyncing, MailboxMessageSearching,
-  MailboxMessageReading, MailboxPushRegistering, MailboxProviderMailActing
+  MailboxMessageBodyPrefetching, MailboxMessageReading, MailboxPushRegistering,
+  MailboxProviderMailActing
 {}
 
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {
@@ -1002,6 +1012,24 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     )
     return MailboxMessageBody(text: body.text)
+  }
+
+  func prefetchMessageBodies(
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    referenceDate: Date,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    try await bodyReader.prefetchMessageBodies(
+      connection: gmailConnection,
+      pinnedMessageIds: Set(pinnedMessageIds.map(\.rawValue)),
+      referenceDate: referenceDate,
+      session: session
+    )
   }
 
   func removeCachedMessageBody(

@@ -55,6 +55,7 @@ struct AccountView: View {
     )
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
+        bodyPrefetcher: mailboxConnection,
         service: mailboxConnection,
         searchService: mailboxConnection,
         session: snapshot
@@ -1299,6 +1300,8 @@ final class GmailMailActionViewModel {
 final class GmailInboxViewModel {
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
+  private let bodyPrefetcher: MailboxMessageBodyPrefetching?
+  private var bodyPrefetchTask: Task<Void, Never>?
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -1320,10 +1323,12 @@ final class GmailInboxViewModel {
   private let session: ProductAccountSessionSnapshot
 
   init(
+    bodyPrefetcher: MailboxMessageBodyPrefetching? = nil,
     service: MailboxMetadataSyncing,
     searchService: MailboxMessageSearching,
     session: ProductAccountSessionSnapshot
   ) {
+    self.bodyPrefetcher = bodyPrefetcher
     self.searchService = searchService
     self.service = service
     self.session = session
@@ -1355,6 +1360,8 @@ final class GmailInboxViewModel {
 
   func clear() {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     currentConnectionId = nil
     threads = []
     searchQuery = ""
@@ -1381,6 +1388,7 @@ final class GmailInboxViewModel {
       threads = result.threads
       errorMessage = nil
       if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
+        startBodyPrefetch(connection: connection)
         startHistoricalBackfill(connection: connection)
       }
     } catch is CancellationError {
@@ -1413,6 +1421,8 @@ final class GmailInboxViewModel {
 
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     if currentConnectionId != connection.id {
       currentConnectionId = connection.id
       threads = []
@@ -1425,7 +1435,7 @@ final class GmailInboxViewModel {
     }
 
     do {
-      var result = try await service.syncInbox(
+      let result = try await service.syncInbox(
         connection: connection,
         session: session
       )
@@ -1435,6 +1445,9 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
+      if result.hasInitialMailboxAvailability {
+        startBodyPrefetch(connection: connection)
+      }
       if !result.historicalMetadataBackfillIsComplete {
         startHistoricalBackfill(connection: connection)
       }
@@ -1470,10 +1483,28 @@ final class GmailInboxViewModel {
           currentConnectionId == connection.id
         else { return }
         threads = backfill.threads
+        startBodyPrefetch(connection: connection)
       } catch is CancellationError {
       } catch {
         guard !Task.isCancelled, backfillTaskId == taskId else { return }
         errorMessage = error.localizedDescription
+      }
+    }
+  }
+
+  private func startBodyPrefetch(connection: MailboxConnection) {
+    guard let bodyPrefetcher else { return }
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = Task {
+      do {
+        try await bodyPrefetcher.prefetchMessageBodies(
+          connection: connection,
+          pinnedMessageIds: [],
+          referenceDate: Date(),
+          session: session
+        )
+      } catch {
+        // Prefetch is best effort and must not block cached mailbox use.
       }
     }
   }
