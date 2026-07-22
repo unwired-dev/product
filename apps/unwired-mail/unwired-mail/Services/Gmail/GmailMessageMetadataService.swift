@@ -1807,7 +1807,7 @@ struct GmailMessageMetadataService:
       isHistorical: internalDate <= categorizationBoundary,
       providerAccountIdentifier: connection.providerAccountIdentifier,
       providerInternalDateMilliseconds: internalDateMilliseconds,
-      providerLabelIds: response.labelIds,
+      providerLabelIds: response.labelIds ?? [],
       providerMessageId: response.id,
       providerThreadId: response.threadId,
       replyTo: response.payload?.headers.first {

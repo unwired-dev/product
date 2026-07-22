@@ -1265,7 +1265,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   func testHistoricalBackfillStoresNonInboxMetadataWithoutShowingItInInbox() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
-      labelIdsByMessageId: ["message-001": ["ARCHIVE"]]
+      messageIdsWithoutLabelIds: ["message-001"]
     )
     _ = try await fixture.service.syncInbox(
       connection: connection,
@@ -2051,20 +2051,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     internalDate: String,
     snippet: String,
     replyTo: String? = nil,
-    labelIds: [String] = ["INBOX", "UNREAD"]
+    labelIds: [String]? = ["INBOX", "UNREAD"]
   ) -> Data {
     let replyToHeader =
       replyTo.map {
         ",\n            {\"name\": \"Reply-To\", \"value\": \"\($0)\"}"
       } ?? ""
-    let encodedLabelIds = labelIds.map { "\"\($0)\"" }.joined(separator: ", ")
+    let labelIdsField: String
+    if let labelIds {
+      let encodedLabelIds = labelIds.map { "\"\($0)\"" }.joined(separator: ", ")
+      labelIdsField = "\"labelIds\": [\(encodedLabelIds)],"
+    } else {
+      labelIdsField = ""
+    }
     return Data(
       """
       {
         "id": "\(messageId)",
         "threadId": "thread-001",
         "internalDate": "\(internalDate)",
-        "labelIds": [\(encodedLabelIds)],
+        \(labelIdsField)
         "snippet": "\(snippet)",
         "payload": {
           "headers": [
@@ -2089,7 +2095,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8),
     shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
-    labelIdsByMessageId: [String: [String]] = [:]
+    labelIdsByMessageId: [String: [String]] = [:],
+    messageIdsWithoutLabelIds: Set<String> = []
   ) throws -> GmailMessageMetadataSyncFixture {
     let eligibilityStore = RecordingGmailPushEligibilityStore()
     let store = RecordingGmailMessageMetadataStore()
@@ -2108,6 +2115,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         rejectsFirstHistoricalPageToken: rejectsFirstHistoricalPageToken,
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
+        messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
         historyStatusCode: historyStatusCode,
         historyResponseData: historyResponseData
       )
@@ -2142,6 +2150,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     rejectsFirstHistoricalPageToken: Bool,
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
+    messageIdsWithoutLabelIds: Set<String>,
     historyStatusCode: Int,
     historyResponseData: Data
   ) -> (HTTPURLResponse, Data) {
@@ -2218,7 +2227,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       makeMessageMetadataResponseData(
         for: request,
         replyTo: replyTo,
-        labelIdsByMessageId: labelIdsByMessageId
+        labelIdsByMessageId: labelIdsByMessageId,
+        messageIdsWithoutLabelIds: messageIdsWithoutLabelIds
       )
     )
   }
@@ -2226,10 +2236,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   private func makeMessageMetadataResponseData(
     for request: URLRequest,
     replyTo: String?,
-    labelIdsByMessageId: [String: [String]]
+    labelIdsByMessageId: [String: [String]],
+    messageIdsWithoutLabelIds: Set<String>
   ) -> Data {
     let messageId = request.url?.lastPathComponent ?? ""
-    let labelIds = labelIdsByMessageId[messageId] ?? ["INBOX", "UNREAD"]
+    let labelIds: [String]? =
+      messageIdsWithoutLabelIds.contains(messageId)
+      ? nil
+      : labelIdsByMessageId[messageId] ?? ["INBOX", "UNREAD"]
     if request.url?.path == "/gmail/v1/users/me/messages/message-001" {
       return Self.messageMetadataResponseData(
         messageId: "message-001",
