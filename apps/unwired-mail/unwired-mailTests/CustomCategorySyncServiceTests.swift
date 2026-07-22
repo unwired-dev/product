@@ -68,6 +68,69 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     XCTAssertEqual(transport.writeHistory.count, 2)
   }
 
+  func testCategoryWritesClearBackgroundCategorizationContext() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: RecordingProductSyncTransport()
+    )
+
+    _ = try await service.saveCategory(
+      CustomCategory(name: "Finance", description: nil),
+      session: session
+    )
+    try await service.deleteCategory(session: session)
+
+    XCTAssertEqual(
+      cacheStore.clearedProductAccountIds,
+      [session.productAccountId, session.productAccountId]
+    )
+  }
+
+  func testCategoryWriteDoesNotReachProductSyncWhenBackgroundContextCannotBeCleared()
+    async throws
+  {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    cacheStore.clearError = KeychainStoreError.unexpectedData
+    let transport = RecordingProductSyncTransport()
+    let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveCategory(
+        CustomCategory(name: "Finance", description: nil),
+        session: session
+      )
+      XCTFail("Expected background context clear failure")
+    } catch {}
+
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
+  func testCategoryDeleteDoesNotReachProductSyncWhenBackgroundContextCannotBeCleared()
+    async throws
+  {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    cacheStore.clearError = KeychainStoreError.unexpectedData
+    let transport = RecordingProductSyncTransport()
+    let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      try await service.deleteCategory(session: session)
+      XCTFail("Expected background context clear failure")
+    } catch {}
+
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
   func testLoadExistingRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let firstStore = InMemoryProductSyncKeyMaterialStore()
     let transport = RecordingProductSyncTransport()
@@ -121,6 +184,25 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     let loadedCategory = try await firstDeviceService.loadCategory(session: session)
     XCTAssertEqual(loadedCategory?.name, "Finance")
   }
+}
+
+private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
+  private(set) var clearedProductAccountIds: [String] = []
+  var clearError: Error?
+
+  func clear(productAccountId: String) throws {
+    if let clearError { throw clearError }
+    clearedProductAccountIds.append(productAccountId)
+  }
+
+  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+    nil
+  }
+
+  func save(
+    _ cache: BackgroundCategorizationContextCache,
+    productAccountId _: String
+  ) throws {}
 }
 
 private final class RecordingProductSyncTransport: ProductSyncPayloadTransport {
