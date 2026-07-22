@@ -184,10 +184,14 @@ struct AccountView: View {
     }
     .onChange(of: inboxViewModel.threads) { _, threads in
       if mailShellSelection.selectedMailbox == .unifiedInbox {
-        mailShellSelection.replaceUnifiedThreads(
-          threads,
-          connectionIds: Set(gmailViewModel.connections.map(\.id))
-        )
+        if let connectionId = inboxViewModel.currentConnectionId {
+          mailShellSelection.updateThreads(threads, for: connectionId)
+        } else {
+          mailShellSelection.replaceUnifiedThreads(
+            threads,
+            connectionIds: Set(gmailViewModel.connections.map(\.id))
+          )
+        }
       } else if let connectionId = mailShellSelection.selectedConnectionId {
         mailShellSelection.updateThreads(threads, for: connectionId)
       }
@@ -200,34 +204,6 @@ struct AccountView: View {
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = mailShellSelection.selectedConnectionId else { return nil }
     return gmailViewModel.connections.first { $0.id == connectionId }
-  }
-
-  private var selectedMailboxBinding: Binding<MailShellMailboxSelection?> {
-    Binding(
-      get: { mailShellSelection.selectedMailbox },
-      set: { mailbox in
-        guard let mailbox else {
-          mailShellSelection.clearSelection()
-          gmailViewModel.selectedConnectionId = nil
-          return
-        }
-        if mailbox == .unifiedInbox {
-          guard mailShellSelection.selectedMailbox != .unifiedInbox else { return }
-          inboxViewModel.clear()
-          mailShellSelection.selectUnifiedInbox()
-          loadUnifiedInbox()
-          return
-        }
-        guard case .connection(let connectionId) = mailbox else { return }
-        guard
-          gmailViewModel.connections.contains(where: { $0.id == connectionId })
-        else { return }
-        guard mailShellSelection.selectedConnectionId != connectionId else { return }
-        inboxViewModel.clear()
-        mailShellSelection.selectMailbox(connectionId: connectionId)
-        gmailViewModel.selectedConnectionId = connectionId
-      }
-    )
   }
 
   private var selectedThreadBinding: Binding<MailboxThreadIdentity?> {
@@ -261,6 +237,39 @@ struct AccountView: View {
 }
 
 extension AccountView {
+  private var selectedMailboxBinding: Binding<MailShellMailboxSelection?> {
+    Binding(
+      get: { mailShellSelection.selectedMailbox },
+      set: { mailbox in
+        guard let mailbox else {
+          mailShellSelection.clearSelection()
+          gmailViewModel.selectedConnectionId = nil
+          return
+        }
+        if mailbox == .unifiedInbox {
+          guard mailShellSelection.selectedMailbox != .unifiedInbox else { return }
+          inboxViewModel.clear()
+          mailShellSelection.selectUnifiedInbox()
+          loadUnifiedInbox()
+          return
+        }
+        guard case .connection(let connectionId) = mailbox else { return }
+        guard
+          gmailViewModel.connections.contains(where: { $0.id == connectionId })
+        else { return }
+        let isCurrentConnection = gmailViewModel.selectedConnectionId == connectionId
+        inboxViewModel.clear()
+        mailShellSelection.selectMailbox(connectionId: connectionId)
+        gmailViewModel.selectedConnectionId = connectionId
+        guard isCurrentConnection else { return }
+        guard let connection = gmailViewModel.connection,
+          connection.authorizationState == .authorized
+        else { return }
+        loadInbox(for: connection)
+      }
+    )
+  }
+
   fileprivate var accountSettings: some View {
     NavigationStack {
       ScrollView {
@@ -1459,7 +1468,7 @@ final class GmailInboxViewModel {
   var searchResult: GmailSearchResult?
   var threads: [MailboxThread] = []
 
-  private var currentConnectionId: MailboxConnectionId?
+  private(set) var currentConnectionId: MailboxConnectionId?
   private var unifiedConnectionIds: Set<MailboxConnectionId> = []
   private var unifiedLoadId: UUID?
   private let searchService: MailboxMessageSearching
