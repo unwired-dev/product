@@ -109,6 +109,11 @@ struct BackgroundCategorizationContextCache: Codable, Equatable {
   }
 }
 
+private struct BackgroundClassificationContext {
+  let learningSignalSenderAddresses: [String]
+  let cachedLearningSignals: [FutureLearningSignal]
+}
+
 protocol BackgroundContextCachePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> BackgroundCategorizationContextCache?
@@ -1046,7 +1051,7 @@ extension GmailMessageCategorizationService {
     let cachedLearningSignals = assignments.values.compactMap { assignment in
       assignment.source == .userOverride ? assignment.learningSignal : nil
     }
-    let classificationContext = (
+    let classificationContext = BackgroundClassificationContext(
       learningSignalSenderAddresses: signalSenders,
       cachedLearningSignals: cachedLearningSignals
     )
@@ -1073,10 +1078,7 @@ extension GmailMessageCategorizationService {
     _ message: GmailMessageMetadata,
     assignment: MessageCategoryAssignment?,
     categories: inout [MessageClassificationCategory]?,
-    classificationContext: (
-      learningSignalSenderAddresses: [String],
-      cachedLearningSignals: [FutureLearningSignal]
-    ),
+    classificationContext: BackgroundClassificationContext,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     if let assignment,
