@@ -953,12 +953,7 @@ struct GmailMessageMetadataService:
       scope: scope,
       session: session
     )
-    let categorizedInboxMessagesByStableId = Dictionary(
-      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
-    )
-    let categorizedMessages = messages.map {
-      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
-    }
+    let categorizedMessages = merging(categorizedInboxMessages, into: messages)
     try store.saveMessages(
       categorizedMessages,
       productAccountId: session.productAccountId,
@@ -1025,12 +1020,7 @@ struct GmailMessageMetadataService:
       messages: inboxMessages(messages),
       session: session
     )
-    let categorizedInboxMessagesByStableId = Dictionary(
-      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
-    )
-    messages = messages.map {
-      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
-    }
+    messages = merging(categorizedInboxMessages, into: messages)
     try Task.checkCancellation()
     let state = GmailMetadataSyncState(
       historicalMetadataBackfillIsComplete: page.nextPageToken == nil,
@@ -1165,12 +1155,7 @@ struct GmailMessageMetadataService:
         messages: inboxMessages(pageMessages),
         session: session
       )
-      let categorizedInboxMessagesByStableId = Dictionary(
-        uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
-      )
-      pageMessages = pageMessages.map {
-        categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
-      }
+      pageMessages = merging(categorizedInboxMessages, into: pageMessages)
       try Task.checkCancellation()
       guard shouldContinueHistoricalBackfill() else { break }
       state = GmailMetadataSyncState(
@@ -1329,12 +1314,7 @@ struct GmailMessageMetadataService:
       messages: inboxMessages(fetchedMessages),
       session: session
     )
-    let categorizedInboxMessagesByStableId = Dictionary(
-      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
-    )
-    fetchedMessages = fetchedMessages.map {
-      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
-    }
+    fetchedMessages = merging(categorizedInboxMessages, into: fetchedMessages)
     let currentInboxMessageIds = Set(
       inboxMessages(fetchedMessages).map(\.providerMessageId)
     )
@@ -2060,6 +2040,18 @@ struct GmailMessageMetadataService:
     _ messages: [GmailMessageMetadata]
   ) -> [GmailMessageMetadata] {
     messages.filter { $0.providerLabelIds?.contains("INBOX") ?? true }
+  }
+
+  private func merging(
+    _ categorizedMessages: [GmailMessageMetadata],
+    into messages: [GmailMessageMetadata]
+  ) -> [GmailMessageMetadata] {
+    let categorizedMessagesByStableId = Dictionary(
+      uniqueKeysWithValues: categorizedMessages.map { ($0.stableProviderMessageId, $0) }
+    )
+    return messages.map {
+      categorizedMessagesByStableId[$0.stableProviderMessageId] ?? $0
+    }
   }
 
   private func refreshedTokens(
