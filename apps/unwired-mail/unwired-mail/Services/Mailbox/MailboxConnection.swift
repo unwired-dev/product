@@ -327,10 +327,30 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
 
 struct MailboxMetadataSyncResult: Equatable, Sendable {
   let hasUnlistedNewMessages: Bool
+  let hasInitialMailboxAvailability: Bool
+  let historicalMetadataBackfillIsComplete: Bool
   let messages: [MailboxMessageMetadata]
   let newMessageIds: Set<String>?
   let providerCursorIsExpired: Bool
   let threads: [MailboxThread]
+
+  init(
+    hasUnlistedNewMessages: Bool,
+    messages: [MailboxMessageMetadata],
+    newMessageIds: Set<String>?,
+    providerCursorIsExpired: Bool,
+    threads: [MailboxThread],
+    hasInitialMailboxAvailability: Bool = true,
+    historicalMetadataBackfillIsComplete: Bool = true
+  ) {
+    self.hasUnlistedNewMessages = hasUnlistedNewMessages
+    self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
+    self.historicalMetadataBackfillIsComplete = historicalMetadataBackfillIsComplete
+    self.messages = messages
+    self.newMessageIds = newMessageIds
+    self.providerCursorIsExpired = providerCursorIsExpired
+    self.threads = threads
+  }
 }
 
 extension GmailMessageMetadata {
@@ -382,7 +402,9 @@ extension GmailMetadataSyncResult {
       messages: messages,
       newMessageIds: newMessageIds,
       providerCursorIsExpired: historyIsExpired,
-      threads: MailboxThread.group(messages)
+      threads: MailboxThread.group(messages),
+      hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )
   }
 }
@@ -501,6 +523,11 @@ protocol MailboxMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult
 
+  func continueHistoricalBackfill(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult
+
   func syncInbox(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -521,6 +548,15 @@ protocol MailboxMetadataSyncing {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata
+}
+
+extension MailboxMetadataSyncing {
+  func continueHistoricalBackfill(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await syncInbox(connection: connection, session: session)
+  }
 }
 
 protocol MailboxMessageSearching {
@@ -851,6 +887,17 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     let result = try await metadataService.loadInbox(
       connection: gmailConnection,
+      session: session
+    )
+    return result.mailboxResult(connectionId: connection.id)
+  }
+
+  func continueHistoricalBackfill(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    let result = try await metadataService.continueHistoricalBackfill(
+      connection: try await gmailConnectionForProviderAccess(connection, session: session),
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)
