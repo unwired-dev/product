@@ -824,7 +824,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
   }
 
-  func testMailboxThreadInboxMessagesExcludesUnknownProviderState() {
+  func testMailboxThreadInboxMessagesIncludesLegacyMessagesWithoutProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
       providerThreadId: "thread-001",
@@ -842,7 +842,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [inboxMessage, unknownMessage]
     )
 
-    XCTAssertEqual(thread.inboxMessages, [inboxMessage])
+    XCTAssertEqual(thread.inboxMessages, [unknownMessage, inboxMessage])
   }
 
 }

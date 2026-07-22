@@ -2546,17 +2546,19 @@ private struct GmailInboxPanel: View {
                       .frame(maxWidth: .infinity, alignment: .leading)
                   }
                   .buttonStyle(.plain)
-                  MessageCategoryMenu(
-                    categoryChoices: categoryChoices,
-                    currentCategoryId: message.categoryId,
-                    isDisabled: mailActionViewModel.isPerformingAction
-                      || viewModel.isRefreshDisabled
-                      || viewModel.isAssigningCategory
-                      || isConnectionBusy,
-                    setCategory: { categoryId in
-                      await viewModel.overrideCategory(categoryId, for: message)
-                    }
-                  )
+                  if thread.inboxMessages.contains(message) {
+                    MessageCategoryMenu(
+                      categoryChoices: categoryChoices,
+                      currentCategoryId: message.categoryId,
+                      isDisabled: mailActionViewModel.isPerformingAction
+                        || viewModel.isRefreshDisabled
+                        || viewModel.isAssigningCategory
+                        || isConnectionBusy,
+                      setCategory: { categoryId in
+                        await viewModel.overrideCategory(categoryId, for: message)
+                      }
+                    )
+                  }
                 }
               }
               Divider()
