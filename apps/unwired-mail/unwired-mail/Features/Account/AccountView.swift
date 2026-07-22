@@ -124,13 +124,17 @@ struct AccountView: View {
       )
       await gmailViewModel.load()
       await genericMailSetupViewModel.loadSyncedDefinitions()
-      if let connection = gmailViewModel.connection {
-        mailShellSelection.selectMailbox(connectionId: connection.id)
-      }
-      if let connection = gmailViewModel.connection,
-        connection.authorizationState == .authorized
-      {
-        await inboxViewModel.loadAfterConnectionChange(connection: connection)
+      if mailShellSelection.selectedMailbox == nil {
+        if let connection = gmailViewModel.connection {
+          mailShellSelection.selectMailbox(connectionId: connection.id)
+        }
+        if let connection = gmailViewModel.connection,
+          connection.authorizationState == .authorized
+        {
+          await inboxViewModel.loadAfterConnectionChange(connection: connection)
+        }
+      } else if mailShellSelection.selectedMailbox == .unifiedInbox {
+        loadUnifiedInbox()
       }
     }
     .onChange(of: scenePhase) { _, phase in
@@ -303,19 +307,20 @@ extension AccountView {
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
 
-          GmailInboxPanel(
-            categoryChoices: MessageCategoryChoice.available(
-              customCategory: categoryViewModel.category
-            ),
-            connection: gmailViewModel.connection?.authorizationState == .authorized
-              ? gmailViewModel.connection : nil,
-            isConnectionBusy: gmailViewModel.isEditingDisabled,
-            mailActionViewModel: mailActionViewModel,
-            messageReader: messageReader,
-            preventsInboxLoad: mailShellSelection.selectedMailbox == .unifiedInbox,
-            session: snapshot,
-            viewModel: inboxViewModel
-          )
+          if mailShellSelection.selectedMailbox != .unifiedInbox {
+            GmailInboxPanel(
+              categoryChoices: MessageCategoryChoice.available(
+                customCategory: categoryViewModel.category
+              ),
+              connection: gmailViewModel.connection?.authorizationState == .authorized
+                ? gmailViewModel.connection : nil,
+              isConnectionBusy: gmailViewModel.isEditingDisabled,
+              mailActionViewModel: mailActionViewModel,
+              messageReader: messageReader,
+              session: snapshot,
+              viewModel: inboxViewModel
+            )
+          }
 
           SmokeView(service: ConvexBackendHealthService())
 
@@ -1550,13 +1555,14 @@ final class GmailInboxViewModel {
     var errors: [String] = []
     for connection in authorizedConnections {
       do {
-        let result = try await service.loadInbox(connection: connection, session: session)
-        try Task.checkCancellation()
-        guard unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else { return }
-        loadedThreadsByConnection[connection.id] = result.threads
-        threads = MailboxThread.group(
-          loadedThreadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-        )
+        guard
+          try await loadUnifiedInbox(
+            for: connection,
+            loadId: loadId,
+            connectionIds: connectionIds,
+            threadsByConnection: &loadedThreadsByConnection
+          )
+        else { return }
       } catch is CancellationError {
         return
       } catch {
@@ -1565,6 +1571,48 @@ final class GmailInboxViewModel {
     }
     guard unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else { return }
     errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
+  }
+
+  private func loadUnifiedInbox(
+    for connection: MailboxConnection,
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>,
+    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) async throws -> Bool {
+    let result = try await service.loadInbox(connection: connection, session: session)
+    guard
+      applyUnifiedInboxResult(
+        result.threads,
+        for: connection.id,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &threadsByConnection
+      )
+    else { return false }
+
+    let syncedResult = try await service.syncInbox(connection: connection, session: session)
+    guard
+      applyUnifiedInboxResult(
+        syncedResult.threads,
+        for: connection.id,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &threadsByConnection
+      )
+    else { return false }
+
+    guard !syncedResult.historicalMetadataBackfillIsComplete else { return true }
+    let backfillResult = try await service.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    return applyUnifiedInboxResult(
+      backfillResult.threads,
+      for: connection.id,
+      loadId: loadId,
+      connectionIds: connectionIds,
+      threadsByConnection: &threadsByConnection
+    )
   }
 
   func load(connection: MailboxConnection) async {
@@ -1592,6 +1640,31 @@ final class GmailInboxViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+  }
+
+  private func updateUnifiedThreads(
+    _ updatedThreads: [MailboxThread],
+    for connectionId: MailboxConnectionId,
+    in threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) {
+    threadsByConnection[connectionId] = updatedThreads
+    threads = MailboxThread.group(
+      threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+    )
+  }
+
+  private func applyUnifiedInboxResult(
+    _ updatedThreads: [MailboxThread],
+    for connectionId: MailboxConnectionId,
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>,
+    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) -> Bool {
+    guard !Task.isCancelled, unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else {
+      return false
+    }
+    updateUnifiedThreads(updatedThreads, for: connectionId, in: &threadsByConnection)
+    return true
   }
 
   func loadAfterConnectionChange(connection: MailboxConnection) async {
@@ -2573,7 +2646,6 @@ private struct GmailInboxPanel: View {
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
-  let preventsInboxLoad: Bool
   let session: ProductAccountSessionSnapshot
   @Bindable var viewModel: GmailInboxViewModel
   @State private var searchTask: Task<Void, Never>?
@@ -2824,7 +2896,7 @@ private struct GmailInboxPanel: View {
           .font(.footnote)
       }
     }
-    .task(id: preventsInboxLoad ? nil : connection?.id) {
+    .task(id: connection?.id) {
       searchTask?.cancel()
       syncTask?.cancel()
       mailActionViewModel.clearError()
@@ -2832,7 +2904,6 @@ private struct GmailInboxPanel: View {
       recipient = ""
       subject = ""
       composeBody = ""
-      guard !preventsInboxLoad else { return }
       guard let connection else {
         viewModel.clear()
         return

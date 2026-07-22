@@ -805,17 +805,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       ["thread-second", "thread-first"]
     )
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
+    XCTAssertEqual(fixture.service.syncInboxCallCount, fixture.connections.count)
   }
 
   @MainActor
   func testInboxViewModelRefreshesOneUnifiedInboxConnectionWithoutDroppingOthers() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    let syncInboxCallCount = fixture.service.syncInboxCallCount
 
     let didRefresh = await fixture.viewModel.refresh(connection: fixture.connections[0])
 
     XCTAssertTrue(didRefresh)
-    XCTAssertEqual(fixture.service.syncInboxCallCount, 1)
+    XCTAssertEqual(fixture.service.syncInboxCallCount, syncInboxCallCount + 1)
     XCTAssertEqual(
       fixture.viewModel.threads.map(\.providerThreadId),
       ["thread-second", "thread-first"]
