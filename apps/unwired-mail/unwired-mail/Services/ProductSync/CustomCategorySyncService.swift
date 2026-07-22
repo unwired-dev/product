@@ -100,15 +100,19 @@ struct CustomCategorySyncPayload: Codable, Equatable {
 }
 
 final class CustomCategorySyncService: CustomCategorySyncing {
+  private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let transport: ProductSyncPayloadTransport
 
   init(
+    backgroundContextCacheStore: BackgroundContextCachePersisting =
+      KeychainBackgroundContextCacheStore(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
+    self.backgroundContextCacheStore = backgroundContextCacheStore
     self.keyMaterialStore = keyMaterialStore
     self.transport = transport
   }
@@ -134,11 +138,13 @@ final class CustomCategorySyncService: CustomCategorySyncing {
     -> CustomCategory
   {
     try await putPayload(CustomCategorySyncPayload(category: category), session: session)
+    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     return category
   }
 
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws {
     try await putPayload(CustomCategorySyncPayload(deleted: true), session: session)
+    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
   }
 
   private func putPayload(
