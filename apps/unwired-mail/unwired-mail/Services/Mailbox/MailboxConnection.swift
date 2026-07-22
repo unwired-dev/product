@@ -298,6 +298,10 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
     latestMessage.threadIdentity
   }
 
+  var inboxMessages: [MailboxMessageMetadata] {
+    messages.filter { $0.providerStateIds?.contains("INBOX") == true }
+  }
+
   static func group(_ messages: [MailboxMessageMetadata]) -> [MailboxThread] {
     Dictionary(grouping: messages, by: \.threadIdentity)
       .map { threadIdentity, threadMessages in

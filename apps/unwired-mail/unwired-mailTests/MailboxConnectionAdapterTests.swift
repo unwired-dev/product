@@ -768,6 +768,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.recipient, "sender@example.com")
   }
 
+  func testMailboxThreadInboxMessagesExcludesUnknownProviderState() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-inbox",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let unknownMessage = mailShellMessage(
+      providerMessageId: "message-unknown",
+      providerThreadId: "thread-001",
+      receivedAt: 200,
+      providerStateIds: nil
+    )
+
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [inboxMessage, unknownMessage]
+    )
+
+    XCTAssertEqual(thread.inboxMessages, [inboxMessage])
+  }
+
 }
 
 private func mailShellThread(
@@ -780,7 +801,8 @@ private func mailShellThread(
 private func mailShellMessage(
   providerMessageId: String,
   providerThreadId: String,
-  receivedAt: Int64
+  receivedAt: Int64,
+  providerStateIds: [String]? = ["INBOX"]
 ) -> MailboxMessageMetadata {
   MailboxMessageMetadata(
     categoryId: nil,
@@ -789,7 +811,7 @@ private func mailShellMessage(
     isHistorical: false,
     providerInternalDateMilliseconds: receivedAt,
     providerMessageId: providerMessageId,
-    providerStateIds: ["INBOX"],
+    providerStateIds: providerStateIds,
     providerThreadId: providerThreadId,
     recipientHeaders: ["reader@example.com"],
     replyTo: "sender@example.com",

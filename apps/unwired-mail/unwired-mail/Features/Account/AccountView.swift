@@ -190,6 +190,7 @@ struct AccountView: View {
         guard
           gmailViewModel.connections.contains(where: { $0.id == connectionId })
         else { return }
+        guard mailShellSelection.selectedConnectionId != connectionId else { return }
         inboxViewModel.clear()
         mailShellSelection.selectMailbox(connectionId: connectionId)
         gmailViewModel.selectedConnectionId = connectionId
@@ -425,20 +426,21 @@ struct MailShellCompositionDraft: Identifiable {
   }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
-    let recipient: String
-    if message.providerStateIds?.contains("SENT") == true {
-      recipient = message.recipientHeaders?.first ?? message.replyTo ?? message.from ?? ""
-    } else {
-      recipient = message.replyTo ?? message.from ?? ""
-    }
     return MailShellCompositionDraft(
       body: "",
       connectionId: message.connectionId,
-      recipient: recipient,
+      recipient: replyRecipient(for: message),
       replyToMessage: message,
       sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject)
     )
+  }
+
+  static func replyRecipient(for message: MailboxMessageMetadata) -> String {
+    if message.providerStateIds?.contains("SENT") == true {
+      return message.recipientHeaders?.first ?? message.replyTo ?? message.from ?? ""
+    }
+    return message.replyTo ?? message.from ?? ""
   }
 
   static func forward(
@@ -658,6 +660,8 @@ private struct MailShellConversationReader: View {
           LazyVStack(alignment: .leading, spacing: 12) {
             ForEach(Array(thread.messages.reversed())) { message in
               MailShellConversationMessage(
+                canForward: connection.capabilities.canForward,
+                canReply: connection.capabilities.canReply,
                 isExpanded: selection.isMessageExpanded(message, in: thread),
                 isLatest: message.id == thread.latestMessage.id,
                 loadBody: {
@@ -783,7 +787,7 @@ private struct MailShellConversationReader: View {
     Task {
       let didPerform = await mailActionViewModel.perform(
         action,
-        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") ?? true },
+        for: thread.inboxMessages,
         connection: connection
       )
       if didPerform {
@@ -832,6 +836,8 @@ private struct MailShellConversationReader: View {
 }
 
 private struct MailShellConversationMessage: View {
+  let canForward: Bool
+  let canReply: Bool
   let isExpanded: Bool
   let isLatest: Bool
   let loadBody: () async throws -> MailboxMessageBody
@@ -872,13 +878,17 @@ private struct MailShellConversationMessage: View {
         Divider()
         MailShellMessageBody(load: loadBody)
         HStack {
-          Button("Reply", action: reply)
-            .buttonStyle(.bordered)
-            .disabled(message.rfcMessageId == nil)
-          Button("Forward") {
-            Task { await forward() }
+          if canReply {
+            Button("Reply", action: reply)
+              .buttonStyle(.bordered)
+              .disabled(message.rfcMessageId == nil)
           }
-          .buttonStyle(.bordered)
+          if canForward {
+            Button("Forward") {
+              Task { await forward() }
+            }
+            .buttonStyle(.bordered)
+          }
         }
       }
     }
@@ -2476,7 +2486,7 @@ private struct GmailInboxPanel: View {
                 },
                 reply: { message in
                   replyToMessage = message
-                  recipient = message.replyTo ?? message.from ?? ""
+                  recipient = MailShellCompositionDraft.replyRecipient(for: message)
                   subject = message.subject == "(No subject)" ? "" : "Re: \(message.subject)"
                   composeBody = "\n\nOn \(message.from ?? "Unknown sender"):\n\(message.snippet)"
                 },
@@ -2910,7 +2920,7 @@ private struct GmailInboxThreadRow: View {
     Task {
       let didPerformAction = await mailActionViewModel.perform(
         action,
-        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") ?? true },
+        for: thread.inboxMessages,
         connection: connection
       )
       if didPerformAction && !Task.isCancelled {
