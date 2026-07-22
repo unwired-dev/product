@@ -289,6 +289,63 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       XCTAssertEqual(error, .writeFailed)
     }
     XCTAssertEqual(transport.writes.count, 1)
+
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+    let cachedRules = try await service.loadRulesForBackground(session: session)
+    XCTAssertEqual(cachedRules.rules, NotificationRules(categoryIds: ["system:flights"]))
+  }
+
+  func testTransientSaveFailureInvalidatesCachedRules() async throws {
+    try await assertFailedSaveInvalidatesCachedRules(
+      error: ConvexClientError.httpError(statusCode: 503)
+    )
+  }
+
+  func testExpiredAuthenticationSaveFailureInvalidatesCachedRules() async throws {
+    try await assertFailedSaveInvalidatesCachedRules(
+      error: ConvexClientError.httpError(statusCode: 401)
+    )
+  }
+
+  func testSaveConflictCachesAuthoritativeRemoteRules() async throws {
+    let keyStore = try seededKeyMaterialStore(for: session)
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: keyStore,
+      transport: transport
+    )
+    let initialSnapshot = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    let remoteRules = NotificationRules(categoryIds: ["system:invoices"])
+    _ = try await NotificationRuleSyncService(
+      cacheStore: InMemoryNotificationRuleCacheStore(),
+      keyMaterialStore: keyStore,
+      transport: transport
+    ).saveRules(
+      remoteRules,
+      expectedUpdatedAt: initialSnapshot.updatedAt,
+      session: session
+    )
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:promotions"]),
+        expectedUpdatedAt: initialSnapshot.updatedAt,
+        session: session
+      )
+      XCTFail("Expected concurrent modification")
+    } catch let error as NotificationRuleSyncError {
+      XCTAssertEqual(error, .concurrentModification)
+    }
+
+    transport.loadError = ConvexClientError.httpError(statusCode: 401)
+    let cachedRules = try await service.loadRulesForBackground(session: session)
+    XCTAssertEqual(cachedRules.rules, remoteRules)
   }
 
   func testForegroundLoadSucceedsWhenCacheRefreshFails() async throws {
@@ -564,6 +621,44 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       XCTAssertEqual(error, .concurrentModification)
     }
   }
+
+  private func assertFailedSaveInvalidatesCachedRules(
+    error: ConvexClientError
+  ) async throws {
+    let cacheStore = InMemoryNotificationRuleCacheStore()
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      cacheStore: cacheStore,
+      keyMaterialStore: try seededKeyMaterialStore(for: session),
+      transport: transport
+    )
+    let initialSnapshot = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: session
+    )
+    transport.saveError = error
+
+    do {
+      _ = try await service.saveRules(
+        NotificationRules(categoryIds: ["system:invoices"]),
+        expectedUpdatedAt: initialSnapshot.updatedAt,
+        session: session
+      )
+      XCTFail("Expected remote save failure")
+    } catch let caughtError as ConvexClientError {
+      XCTAssertEqual(caughtError, error)
+    }
+    XCTAssertNil(cacheStore.payloads[session.productAccountId])
+
+    transport.loadError = error
+    do {
+      _ = try await service.loadRulesForBackground(session: session)
+      XCTFail("Expected failed save to leave no background cache")
+    } catch let caughtError as ConvexClientError {
+      XCTAssertEqual(caughtError, error)
+    }
+  }
 }
 
 extension NotificationRuleSyncServiceTests {
@@ -624,6 +719,7 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
   private(set) var expectedUpdatedAts: [Int64?] = []
   private(set) var writes: [EncryptedProductSyncPayload] = []
   var loadError: Error?
+  var saveError: Error?
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
@@ -690,6 +786,9 @@ private final class RecordingRuleSyncTransport: ProductSyncPayloadTransport {
     trustedDeviceId: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
+    if let saveError {
+      throw saveError
+    }
     expectedUpdatedAts.append(expectedUpdatedAt)
     if let existing = writes.first(where: { $0.payloadIdentifier == payloadIdentifier }),
       existing.updatedAt != expectedUpdatedAt
