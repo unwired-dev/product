@@ -570,7 +570,9 @@ private struct MailShellThreadList: View {
     }
     .navigationTitle(connection?.displayName ?? "Inbox")
     .toolbar {
-      if let connection, connection.capabilities.canSynchronizeMetadata {
+      if let connection, connection.authorizationState == .authorized,
+        connection.capabilities.canSynchronizeMetadata
+      {
         ToolbarItem(placement: .primaryAction) {
           Button {
             Task { _ = await viewModel.refresh(connection: connection) }
@@ -781,7 +783,7 @@ private struct MailShellConversationReader: View {
     Task {
       let didPerform = await mailActionViewModel.perform(
         action,
-        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") == true },
+        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") ?? true },
         connection: connection
       )
       if didPerform {
@@ -2908,7 +2910,7 @@ private struct GmailInboxThreadRow: View {
     Task {
       let didPerformAction = await mailActionViewModel.perform(
         action,
-        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") == true },
+        for: thread.messages.filter { $0.providerStateIds?.contains("INBOX") ?? true },
         connection: connection
       )
       if didPerformAction && !Task.isCancelled {
