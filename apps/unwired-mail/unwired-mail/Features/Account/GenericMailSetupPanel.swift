@@ -1,11 +1,15 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 @MainActor
 @Observable
 final class GenericMailSetupViewModel {
   var authorizationMethod = MailAuthorizationMethod.password
+  var authorizedSyncedConnectionIds: Set<MailboxConnectionId> = []
   var connectedDefinition: GenericMailConnectionDefinition?
   var credential = ""
+  var defaultSendingConnectionId: MailboxConnectionId?
   private var discoveredIncomingEndpoints: [GenericMailEndpoint] = []
   var discoverySource: String?
   var emailAddress = ""
@@ -15,6 +19,8 @@ final class GenericMailSetupViewModel {
   var incomingProtocol = GenericMailProtocol.imap
   var incomingSecurity = MailTransportSecurity.implicitTLS
   var isConnecting = false
+  var isLoadingSyncedDefinitions = false
+  private var hasLoadedSyncedDefinitions = false
   var outgoingHostname = ""
   var outgoingPort = "465"
   var outgoingSecurity = MailTransportSecurity.implicitTLS
@@ -22,6 +28,8 @@ final class GenericMailSetupViewModel {
     uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, "") }
   )
   var rolesRequiringMapping: [CanonicalMailboxRole] = []
+  private var selectedSyncedConnectionId: MailboxConnectionId?
+  var syncedDefinitions: [GenericMailConnectionDefinition] = []
   var username = ""
 
   private let productAccountId: ProductAccountId
@@ -30,15 +38,18 @@ final class GenericMailSetupViewModel {
   private var roleMappingEmailAddress: String?
   private var roleMappingEndpoint: GenericMailEndpoint?
   private let service: GenericMailSetupService
+  private let syncSession: ProductAccountSessionSnapshot?
 
   init(
     productAccountId: ProductAccountId,
     isSessionCurrent: @escaping () -> Bool,
-    service: GenericMailSetupService = GenericMailSetupService()
+    service: GenericMailSetupService = GenericMailSetupService(),
+    syncSession: ProductAccountSessionSnapshot? = nil
   ) {
     self.productAccountId = productAccountId
     self.isSessionCurrent = isSessionCurrent
     self.service = service
+    self.syncSession = syncSession
   }
 
   var credentialLabel: String { authorizationMethod.displayName }
@@ -52,6 +63,7 @@ final class GenericMailSetupViewModel {
   func discover() {
     let trimmedEmail = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     connectedDefinition = nil
+    selectedSyncedConnectionId = nil
     credential = ""
     resetRoleMappingState()
     username = trimmedEmail
@@ -100,6 +112,7 @@ final class GenericMailSetupViewModel {
       discoveredIncomingEndpoints = []
       apply(authorization.definition)
       connectedDefinition = authorization.definition
+      selectedSyncedConnectionId = nil
       credential = ""
       discoverySource = "Loaded saved settings. Re-enter authorization to verify changes."
       errorMessage = nil
@@ -133,31 +146,37 @@ final class GenericMailSetupViewModel {
     if roleMappingEndpoint != incomingEndpoint {
       resetRoleMappingState()
     }
+    let draft = GenericMailSetupDraft(
+      authorizationMethod: authorizationMethod,
+      emailAddress: emailAddress,
+      incomingEndpoint: incomingEndpoint,
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: outgoingHostname,
+        port: Int(outgoingPort) ?? 0,
+        security: outgoingSecurity
+      ),
+      roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
+      username: username
+    )
+    guard matchesSelectedSyncedConnection(draft) else { return }
     isConnecting = true
     defer { isConnecting = false }
 
     do {
-      connectedDefinition = try await service.authorize(
-        draft: GenericMailSetupDraft(
-          authorizationMethod: authorizationMethod,
-          emailAddress: emailAddress,
-          incomingEndpoint: incomingEndpoint,
-          outgoingEndpoint: GenericMailEndpoint(
-            mailProtocol: .smtp,
-            hostname: outgoingHostname,
-            port: Int(outgoingPort) ?? 0,
-            security: outgoingSecurity
-          ),
-          roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
-          username: username
-        ),
+      let definition = try await service.authorize(
+        draft: draft,
         credential: credential,
         productAccountId: productAccountId,
+        syncSession: syncSession,
         isSessionCurrent: { self.isValid && self.isSessionCurrent() }
       )
+      connectedDefinition = definition
+      selectedSyncedConnectionId = definition.connectionId
       credential = ""
       rolesRequiringMapping = []
       errorMessage = nil
+      await loadSyncedDefinitions()
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
@@ -191,6 +210,10 @@ final class GenericMailSetupViewModel {
     emailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
   }
 
+  private var hasManualSetupDraft: Bool {
+    !emailAddress.isEmpty || !incomingHostname.isEmpty || !outgoingHostname.isEmpty
+  }
+
   private func resetRoleMappingState() {
     roleMappingEmailAddress = nil
     roleMappingEndpoint = nil
@@ -200,6 +223,7 @@ final class GenericMailSetupViewModel {
 
   private func clearLoadedSetup() {
     connectedDefinition = nil
+    selectedSyncedConnectionId = nil
     credential = ""
     discoveredIncomingEndpoints = []
     authorizationMethod = .password
@@ -213,6 +237,21 @@ final class GenericMailSetupViewModel {
     resetRoleMappingState()
     username = ""
     discoverySource = nil
+  }
+
+  private func matchesSelectedSyncedConnection(_ draft: GenericMailSetupDraft) -> Bool {
+    do {
+      let draftConnectionId = try service.connectionId(for: draft)
+      guard selectedSyncedConnectionId == nil || draftConnectionId == selectedSyncedConnectionId
+      else {
+        errorMessage = "The mailbox settings no longer match the selected synced connection."
+        return false
+      }
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
   }
 
   private func applyMissingRoleMappings(
@@ -234,6 +273,106 @@ final class GenericMailSetupViewModel {
   }
 }
 
+extension GenericMailSetupViewModel {
+  func isAuthorized(_ definition: GenericMailConnectionDefinition) -> Bool {
+    authorizedSyncedConnectionIds.contains(definition.connectionId)
+  }
+
+  func loadSyncedDefinitions() async {
+    guard let syncSession else { return }
+    isLoadingSyncedDefinitions = true
+    defer { isLoadingSyncedDefinitions = false }
+    do {
+      let definitions = try await service.loadSyncedDefinitions(session: syncSession)
+        .sorted { $0.emailAddress < $1.emailAddress }
+      defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+        session: syncSession
+      )
+      syncedDefinitions = definitions
+      authorizedSyncedConnectionIds = try Set(
+        definitions.compactMap { definition in
+          try service.hasLocalAuthorization(
+            definition,
+            productAccountId: productAccountId
+          ) ? definition.connectionId : nil
+        }
+      )
+      if let selectedSyncedConnectionId,
+        !definitions.contains(where: { $0.connectionId == selectedSyncedConnectionId })
+      {
+        clearLoadedSetup()
+      }
+      if !hasLoadedSyncedDefinitions,
+        selectedSyncedConnectionId == nil,
+        !hasManualSetupDraft,
+        let selected = definitions.first(where: { $0.connectionId == defaultSendingConnectionId })
+          ?? definitions.first
+      {
+        selectSyncedDefinition(selected)
+      }
+      hasLoadedSyncedDefinitions = true
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func removeEverywhere(_ definition: GenericMailConnectionDefinition) async {
+    guard let syncSession else { return }
+    do {
+      try await service.removeEverywhere(definition, session: syncSession)
+      if connectedDefinition?.connectionId == definition.connectionId {
+        connectedDefinition = nil
+      }
+      await loadSyncedDefinitions()
+    } catch {
+      authorizedSyncedConnectionIds.remove(definition.connectionId)
+      if connectedDefinition?.connectionId == definition.connectionId {
+        connectedDefinition = nil
+      }
+      await loadSyncedDefinitions()
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async {
+    do {
+      try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
+      if connectedDefinition?.connectionId == definition.connectionId {
+        connectedDefinition = nil
+      }
+      authorizedSyncedConnectionIds.remove(definition.connectionId)
+      await loadSyncedDefinitions()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setDefaultSendingConnection(_ definition: GenericMailConnectionDefinition) async {
+    guard let syncSession, isAuthorized(definition) else { return }
+    do {
+      try await service.setDefaultSendingConnection(definition, session: syncSession)
+      defaultSendingConnectionId = definition.connectionId
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func selectSyncedDefinition(_ definition: GenericMailConnectionDefinition) {
+    discoveredIncomingEndpoints = []
+    apply(definition)
+    selectedSyncedConnectionId = definition.connectionId
+    connectedDefinition = isAuthorized(definition) ? definition : nil
+    credential = ""
+    discoverySource =
+      isAuthorized(definition)
+      ? "Loaded device-authorized settings."
+      : "Loaded encrypted synced settings. Authorize this mailbox on this device."
+    errorMessage = nil
+  }
+}
+
 struct GenericMailSetupPanel: View {
   @Bindable var viewModel: GenericMailSetupViewModel
   @State private var connectTask: Task<Void, Never>?
@@ -243,9 +382,58 @@ struct GenericMailSetupPanel: View {
       VStack(alignment: .leading, spacing: 4) {
         Text("Other Mail Server")
           .font(.headline)
-        Text("Server settings and credentials stay on this device.")
+        Text("Encrypted server settings sync; credentials stay on this device.")
           .font(.subheadline)
           .foregroundStyle(.secondary)
+      }
+
+      if !viewModel.syncedDefinitions.isEmpty {
+        VStack(alignment: .leading, spacing: 8) {
+          Text("Synced Mailbox Connections")
+            .font(.subheadline.bold())
+          ForEach(viewModel.syncedDefinitions, id: \.connectionId) { definition in
+            HStack {
+              Button {
+                viewModel.selectSyncedDefinition(definition)
+              } label: {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text(definition.emailAddress)
+                  Text(
+                    viewModel.isAuthorized(definition)
+                      ? "Authorized on this device" : "Authorization required on this device"
+                  )
+                  .font(.caption)
+                  .foregroundStyle(
+                    viewModel.isAuthorized(definition) ? Color.secondary : Color.orange
+                  )
+                  if viewModel.defaultSendingConnectionId == definition.connectionId {
+                    Label("Default sender", systemImage: "paperplane.fill")
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                  }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+              }
+              .buttonStyle(.plain)
+
+              Menu("Manage") {
+                if viewModel.isAuthorized(definition) {
+                  Button("Set as Default Sending Connection") {
+                    Task { await viewModel.setDefaultSendingConnection(definition) }
+                  }
+                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
+
+                  Button("Remove Device Authorization", role: .destructive) {
+                    Task { await viewModel.removeLocalAuthorization(definition) }
+                  }
+                }
+                Button("Remove Mailbox Connection Everywhere", role: .destructive) {
+                  Task { await viewModel.removeEverywhere(definition) }
+                }
+              }
+            }
+          }
+        }
       }
 
       HStack {

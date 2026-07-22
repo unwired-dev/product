@@ -86,9 +86,27 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     canSynchronizeMetadata: true,
     providerActions: Set(ProviderMailAction.allCases)
   )
+
+  static let none = MailboxConnectionCapabilities(
+    canCategorizeHistorical: false,
+    canForward: false,
+    canReadMessages: false,
+    canRegisterPush: false,
+    canReply: false,
+    canSearchProvider: false,
+    canSend: false,
+    canSynchronizeMetadata: false,
+    providerActions: []
+  )
+}
+
+enum MailboxAuthorizationState: Equatable, Sendable {
+  case authorized
+  case required
 }
 
 struct MailboxConnection: Equatable, Identifiable, Sendable {
+  let authorizationState: MailboxAuthorizationState
   let capabilities: MailboxConnectionCapabilities
   let connectedAt: Int64
   let displayName: String
@@ -115,19 +133,10 @@ extension GmailProviderConnectionStatus {
       value: providerAccountIdentifier
     )
     return MailboxConnection(
+      authorizationState: .authorized,
       capabilities: providerId == .gmail
         ? .gmail
-        : MailboxConnectionCapabilities(
-          canCategorizeHistorical: false,
-          canForward: false,
-          canReadMessages: false,
-          canRegisterPush: false,
-          canReply: false,
-          canSearchProvider: false,
-          canSend: false,
-          canSynchronizeMetadata: false,
-          providerActions: []
-        ),
+        : .none,
       connectedAt: connectedAt,
       displayName: emailAddress,
       id: MailboxConnectionId(
@@ -429,6 +438,7 @@ extension MailboxConnectionClearing {
 protocol MailboxConnectionManaging: MailboxConnectionClearing {
   @MainActor
   func connect(
+    expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection?
@@ -440,9 +450,35 @@ protocol MailboxConnectionManaging: MailboxConnectionClearing {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection]
+
+  func loadDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId?
+
+  func removeMailboxConnectionEverywhere(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func setDefaultSendingConnection(
+    _ connection: MailboxConnection?,
+    session: ProductAccountSessionSnapshot
+  ) async throws
 }
 
 extension MailboxConnectionManaging {
+  @MainActor
+  func connect(
+    session: ProductAccountSessionSnapshot,
+    isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
+  ) async throws -> MailboxConnection? {
+    try await connect(
+      expectedConnectionId: nil,
+      session: session,
+      isSessionCurrent: isSessionCurrent
+    )
+  }
+
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
@@ -551,11 +587,20 @@ protocol MailboxConnectionAdapter:
 {}
 
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {
+  case authorizationRequired
+  case connectionRemoved
+  case unexpectedAuthorizedAccount
   case productAccountMismatch
   case unsupportedProvider
 
   var errorDescription: String? {
     switch self {
+    case .authorizationRequired:
+      return "Authorize this Mailbox Connection on this device before accessing mail."
+    case .connectionRemoved:
+      return "This Mailbox Connection was removed on another trusted device."
+    case .unexpectedAuthorizedAccount:
+      return "Sign in to the Google account for the selected Mailbox Connection."
     case .productAccountMismatch:
       return "The mailbox connection does not belong to the current Product Account."
     case .unsupportedProvider:
@@ -569,6 +614,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
   private let credentialVerifier: GmailProviderCredentialVerifying
+  private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let mailActionService: GmailProviderMailActing
   private let metadataService: GmailMessageMetadataSyncing
   private let oauthAuthorizer: GmailOAuthAuthorizing
@@ -580,6 +626,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     credentialVerifier: GmailProviderCredentialVerifying =
       GoogleGmailProviderCredentialVerifier(),
+    definitionSyncService: MailboxConnectionDefinitionSyncing = MailboxConnectionSyncService(),
     mailActionService: GmailProviderMailActing = GmailMessageMetadataService(),
     metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
@@ -589,6 +636,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.bodyReader = bodyReader
     self.connectionService = connectionService
     self.credentialVerifier = credentialVerifier
+    self.definitionSyncService = definitionSyncService
     self.mailActionService = mailActionService
     self.metadataService = metadataService
     self.oauthAuthorizer = oauthAuthorizer
@@ -612,6 +660,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   @MainActor
   func connect(
+    expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -625,6 +674,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       return nil
     }
 
+    let verifiedConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: verifiedAccount.providerAccountIdentifier
+      )
+    )
+    if let expectedConnectionId, expectedConnectionId != verifiedConnectionId {
+      throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
+    }
+    let hadExistingConnection = try await connectionService.loadConnections(session: session)
+      .contains {
+        $0.mailboxConnection(productAccountId: session.productAccountId).id == verifiedConnectionId
+      }
+
     let status = try await connectionService.completeConnection(
       verifiedAccount: VerifiedGmailAccount(
         emailAddress: verifiedAccount.emailAddress,
@@ -637,23 +700,128 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       session: session
     )
-    return status.mailboxConnection(productAccountId: session.productAccountId)
+    let connection = status.mailboxConnection(productAccountId: session.productAccountId)
+    do {
+      _ = try await definitionSyncService.saveConnection(connection, session: session)
+      return connection
+    } catch {
+      if !hadExistingConnection {
+        try await connectionService.clearLocalConnection(status, session: session)
+      }
+      throw error
+    }
   }
 
   func loadConnection(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnection? {
-    try await connectionService.loadConnection(session: session)?.mailboxConnection(
-      productAccountId: session.productAccountId
-    )
+    try await loadConnections(session: session).first
   }
 
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    try await connectionService.loadConnections(session: session).map {
+    let localStatuses = try await connectionService.loadConnections(session: session)
+    let localConnections = localStatuses.map {
       $0.mailboxConnection(productAccountId: session.productAccountId)
     }
+    let localStatusesById = Dictionary(
+      localStatuses.map { status in
+        (
+          status.mailboxConnection(productAccountId: session.productAccountId).id,
+          status
+        )
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
+    guard
+      let (snapshot, usedCachedSnapshot) = try await reconciledSnapshot(
+        localConnections: localConnections,
+        session: session
+      )
+    else { return localConnections }
+    for removedConnectionId in snapshot.removedConnectionIds {
+      guard let localStatus = localStatusesById[removedConnectionId] else { continue }
+      try await connectionService.clearLocalConnection(localStatus, session: session)
+    }
+    var definitions = snapshot.connections
+    if usedCachedSnapshot {
+      definitions += localConnections.map(\.definition).filter { definition in
+        !definitions.contains(where: { $0.id == definition.id })
+          && !snapshot.removedConnectionIds.contains(definition.id)
+      }
+    }
+    return
+      definitions
+      .filter { $0.provider == MailProviderId.gmail.rawValue }
+      .map { definition in
+        if let localStatus = localStatusesById[definition.id] {
+          return localStatus.mailboxConnection(productAccountId: session.productAccountId)
+        }
+        return definition.mailboxConnection(
+          productAccountId: session.productAccountId,
+          trustedDeviceId: session.trustedDeviceId
+        )
+      }
+  }
+
+  private func reconciledSnapshot(
+    localConnections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async throws -> (MailboxConnectionSyncSnapshot, Bool)? {
+    do {
+      return (
+        try await definitionSyncService.reconcileConnections(
+          localConnections.map(\.definition),
+          session: session
+        ),
+        false
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      guard
+        let snapshot = try? await definitionSyncService.loadSnapshotForProviderAccess(
+          session: session
+        )
+      else { return nil }
+      return (snapshot, true)
+    }
+  }
+
+  func loadDefaultSendingConnectionId(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      .defaultSendingConnectionId
+  }
+
+  func removeMailboxConnectionEverywhere(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let gmailStatus = try gmailConnection(
+      connection, session: session, requiresAuthorization: false)
+    try await connectionService.clearLocalConnection(gmailStatus, session: session)
+    _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+  }
+
+  func setDefaultSendingConnection(
+    _ connection: MailboxConnection?,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    if let connection {
+      guard connection.productAccountId == ProductAccountId(session.productAccountId) else {
+        throw MailboxConnectionAdapterError.productAccountMismatch
+      }
+      guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
+        throw MailboxConnectionAdapterError.authorizationRequired
+      }
+    }
+    _ = try await definitionSyncService.setDefaultSendingConnection(
+      connection?.id,
+      session: session
+    )
   }
 
   func categorizeHistorical(
@@ -661,9 +829,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     let result = try await metadataService.categorizeHistorical(
       scope: scope.gmailScope,
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)
@@ -673,8 +845,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     let result = try await metadataService.loadInbox(
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)
@@ -684,8 +860,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     let result = try await metadataService.syncInbox(
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)
@@ -700,8 +880,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     let result = try await metadataService.syncRecentInbox(
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       includingHistoryCandidates: includingHistoryCandidates,
       session: session,
       sinceHistoryId: sinceHistoryId,
@@ -716,7 +900,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
-    try await metadataService.overrideCategory(
+    try await ensureConnectionIsActive(message.connectionId, session: session)
+    return try await metadataService.overrideCategory(
       categoryId,
       for: message.gmailMetadata,
       session: session
@@ -728,9 +913,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxMessageMetadata] {
-    try await searchService.searchProvider(
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    return try await searchService.searchProvider(
       query: query,
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     ).map { $0.mailboxMetadata(connectionId: connection.id) }
   }
@@ -753,6 +942,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
+    try await ensureConnectionIsActive(message.connectionId, session: session)
     let body = try await bodyReader.loadMessageBody(
       message: message.gmailMetadata,
       session: session
@@ -771,8 +961,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     _ = try await pushWatchService.registerOrRenew(
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
   }
@@ -783,10 +977,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     try await mailActionService.perform(
       gmailAction(action),
       messageIds: messages.map(\.providerMessageId),
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
   }
@@ -796,6 +994,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
     try await mailActionService.send(
       GmailOutgoingMessage(
         body: message.body,
@@ -804,20 +1006,54 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         inReplyTo: message.inReplyTo,
         threadId: message.providerThreadId
       ),
-      connection: try gmailConnection(connection, session: session),
+      connection: gmailConnection,
       session: session
     )
   }
 
-  private func gmailConnection(
+  private func gmailConnectionForProviderAccess(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus {
+    let gmailConnection = try gmailConnection(connection, session: session)
+    try await ensureConnectionIsActive(connection.id, session: session)
+    return gmailConnection
+  }
+
+  private func ensureConnectionIsActive(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+      session: session
+    )
+    if snapshot.removedConnectionIds.contains(connectionId) {
+      if let localConnection = try await connectionService.loadConnections(session: session)
+        .first(where: { status in
+          status.provider == connectionId.providerId.rawValue
+            && status.providerAccountIdentifier
+              == connectionId.providerMailboxIdentity.value
+        })
+      {
+        try await connectionService.clearLocalConnection(localConnection, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  private func gmailConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    requiresAuthorization: Bool = true
   ) throws -> GmailProviderConnectionStatus {
     guard connection.productAccountId == ProductAccountId(session.productAccountId) else {
       throw MailboxConnectionAdapterError.productAccountMismatch
     }
     guard connection.providerId == .gmail else {
       throw MailboxConnectionAdapterError.unsupportedProvider
+    }
+    if requiresAuthorization, connection.authorizationState != .authorized {
+      throw MailboxConnectionAdapterError.authorizationRequired
     }
     return GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,

@@ -79,10 +79,22 @@ struct KeychainGenericMailAuthorizationStore: GenericMailAuthorizationPersisting
     productAccountId: ProductAccountId,
     emailAddress: String
   ) throws -> DeviceLocalGenericMailAuthorization? {
-    guard
-      let authorization = try loadAll(productAccountId: productAccountId)[emailAddress.lowercased()]
-    else { return nil }
-    return authorization
+    let matchingAuthorizations = try loadAll(productAccountId: productAccountId).values
+      .filter { $0.definition.emailAddress.lowercased() == emailAddress.lowercased() }
+      .sorted { $0.definition.connectionId.rawValue < $1.definition.connectionId.rawValue }
+    guard matchingAuthorizations.count < 2 else {
+      throw GenericMailSetupError.ambiguousSavedSetup
+    }
+    return matchingAuthorizations.first
+  }
+
+  func load(
+    productAccountId: ProductAccountId,
+    connectionId: MailboxConnectionId
+  ) throws -> DeviceLocalGenericMailAuthorization? {
+    try loadAll(productAccountId: productAccountId).values.first {
+      $0.definition.connectionId == connectionId
+    }
   }
 
   func save(
@@ -90,7 +102,19 @@ struct KeychainGenericMailAuthorizationStore: GenericMailAuthorizationPersisting
     productAccountId: ProductAccountId
   ) throws {
     var authorizations = try loadAll(productAccountId: productAccountId)
-    authorizations[authorization.definition.emailAddress.lowercased()] = authorization
+    authorizations = authorizations.filter {
+      $0.value.definition.connectionId != authorization.definition.connectionId
+    }
+    authorizations[authorization.definition.connectionId.rawValue] = authorization
+    try saveAll(authorizations, productAccountId: productAccountId)
+  }
+
+  func remove(
+    productAccountId: ProductAccountId,
+    connectionId: MailboxConnectionId
+  ) throws {
+    var authorizations = try loadAll(productAccountId: productAccountId)
+    authorizations = authorizations.filter { $0.value.definition.connectionId != connectionId }
     try saveAll(authorizations, productAccountId: productAccountId)
   }
 

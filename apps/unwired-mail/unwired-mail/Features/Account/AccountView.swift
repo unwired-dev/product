@@ -37,7 +37,8 @@ struct AccountView: View {
     _genericMailSetupViewModel = State(
       initialValue: GenericMailSetupViewModel(
         productAccountId: ProductAccountId(snapshot.productAccountId),
-        isSessionCurrent: { session.isCurrent(snapshot) }
+        isSessionCurrent: { session.isCurrent(snapshot) },
+        syncSession: snapshot
       )
     )
     _gmailViewModel = State(
@@ -110,7 +111,8 @@ struct AccountView: View {
           categoryChoices: MessageCategoryChoice.available(
             customCategory: categoryViewModel.category
           ),
-          connection: gmailViewModel.connection,
+          connection: gmailViewModel.connection?.authorizationState == .authorized
+            ? gmailViewModel.connection : nil,
           isConnectionBusy: gmailViewModel.isEditingDisabled,
           mailActionViewModel: mailActionViewModel,
           messageReader: messageReader,
@@ -145,20 +147,49 @@ struct AccountView: View {
           : nil
       )
       await gmailViewModel.load()
-      if let connection = gmailViewModel.connection {
-        await inboxViewModel.load(connection: connection)
+      await genericMailSetupViewModel.loadSyncedDefinitions()
+      if let connection = gmailViewModel.connection,
+        connection.authorizationState == .authorized
+      {
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
       }
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
-        await gmailViewModel.renewPushWatch()
+        await gmailViewModel.load()
+        await genericMailSetupViewModel.loadSyncedDefinitions()
       }
     }
     .onChange(of: gmailViewModel.connection?.id) { _, _ in
-      guard let connection = gmailViewModel.connection else { return }
+      guard
+        let connection = gmailViewModel.connection,
+        connection.authorizationState == .authorized
+      else { return }
       Task {
-        await inboxViewModel.load(connection: connection)
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
+      }
+    }
+    .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
+      guard
+        let connection = gmailViewModel.connection,
+        authorizationState == .authorized
+      else {
+        inboxViewModel.clear()
+        return
+      }
+      Task {
+        await inboxViewModel.loadAfterConnectionChange(connection: connection)
+      }
+    }
+    .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
+      Task {
+        await genericMailSetupViewModel.loadSyncedDefinitions()
+      }
+    }
+    .onChange(of: genericMailSetupViewModel.defaultSendingConnectionId) { _, _ in
+      Task {
+        await gmailViewModel.load()
       }
     }
   }
@@ -704,8 +735,9 @@ final class GmailInboxViewModel {
 
 @MainActor
 @Observable
-private final class GmailProviderConnectionViewModel {
+final class GmailProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
+  var defaultSendingConnectionId: MailboxConnectionId?
   var errorMessage: String?
   var isConnecting = false
   var isLoading = false
@@ -741,7 +773,7 @@ private final class GmailProviderConnectionViewModel {
   }
 
   var connection: MailboxConnection? {
-    connections.first { $0.id == selectedConnectionId } ?? connections.first
+    connections.first { $0.id == selectedConnectionId }
   }
 
   func load() async {
@@ -751,12 +783,13 @@ private final class GmailProviderConnectionViewModel {
     }
 
     do {
-      connections = try await service.loadConnections(session: session)
-        .sorted {
-          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
+      try await refreshConnections()
       if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        selectedConnectionId = connections.first?.id
+        if defaultSendingConnectionId?.providerId == .gmail {
+          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
+        } else {
+          selectedConnectionId = connections.first?.id
+        }
       }
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
         connections.contains { $0.id == connectionId }
@@ -766,11 +799,12 @@ private final class GmailProviderConnectionViewModel {
         await refreshPushWatch(connection: connection)
       }
     } catch {
+      try? await refreshConnections()
       errorMessage = error.localizedDescription
     }
   }
 
-  func connect() async {
+  func connect(expectedConnection: MailboxConnection? = nil) async {
     guard canConnect else { return }
 
     isConnecting = true
@@ -780,16 +814,13 @@ private final class GmailProviderConnectionViewModel {
 
     do {
       let connected = try await service.connect(
+        expectedConnectionId: expectedConnection?.id,
         session: session,
         isSessionCurrent: isSessionCurrent
       )
       errorMessage = nil
       if let connected {
-        connections.removeAll { $0.id == connected.id }
-        connections.append(connected)
-        connections.sort {
-          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
+        try await refreshConnections()
         selectedConnectionId = connected.id
         await refreshPushWatch(connection: connected)
       }
@@ -814,11 +845,9 @@ private final class GmailProviderConnectionViewModel {
     defer { isRemoving = false }
     do {
       try await service.clearLocalConnection(connection, session: session)
-      connections.removeAll { $0.id == connection.id }
+      try await refreshConnections()
       pushStatusMessages[connection.id] = nil
-      if selectedConnectionId == connection.id {
-        selectedConnectionId = connections.first?.id
-      }
+      selectedConnectionId = connection.id
       errorMessage = nil
     } catch {
       if let refreshedConnections = try? await service.loadConnections(session: session) {
@@ -834,6 +863,45 @@ private final class GmailProviderConnectionViewModel {
       }
       errorMessage = error.localizedDescription
     }
+  }
+
+  func removeEverywhere(_ connection: MailboxConnection) async {
+    guard !isEditingDisabled else { return }
+    isRemoving = true
+    defer { isRemoving = false }
+    do {
+      try await service.removeMailboxConnectionEverywhere(connection, session: session)
+      try await refreshConnections()
+      pushStatusMessages[connection.id] = nil
+      if selectedConnectionId == connection.id {
+        selectedConnectionId = connections.first?.id
+      }
+      errorMessage = nil
+    } catch {
+      try? await refreshConnections()
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func setDefaultSendingConnection(_ connection: MailboxConnection) async {
+    guard !isEditingDisabled else { return }
+    do {
+      try await service.setDefaultSendingConnection(connection, session: session)
+      defaultSendingConnectionId = connection.id
+      selectedConnectionId = connection.id
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func refreshConnections() async throws {
+    let loadedConnections = try await service.loadConnections(session: session)
+      .sorted {
+        $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+      }
+    connections = loadedConnections
+    defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(session: session)
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
@@ -1200,15 +1268,55 @@ private struct GmailProviderConnectionPanel: View {
               Text(connection.providerMailboxIdentity.value)
                 .font(.caption)
                 .foregroundStyle(.secondary)
+              Text(
+                connection.authorizationState == .authorized
+                  ? "Authorized on this device" : "Authorization required on this device"
+              )
+              .font(.caption)
+              .foregroundStyle(
+                connection.authorizationState == .authorized ? Color.secondary : Color.orange
+              )
+              if viewModel.defaultSendingConnectionId == connection.id {
+                Label("Default sender", systemImage: "paperplane.fill")
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
             }
             .frame(maxWidth: .infinity, alignment: .leading)
           }
           .buttonStyle(.plain)
 
-          Button("Remove", role: .destructive) {
-            Task {
-              await viewModel.removeLocalAuthorization(connection)
+          Menu {
+            if connection.authorizationState == .required {
+              Button("Authorize on This Device") {
+                viewModel.selectedConnectionId = connection.id
+                connectTask?.cancel()
+                connectTask = Task {
+                  await viewModel.connect(expectedConnection: connection)
+                }
+              }
+            } else {
+              Button("Set as Default Sending Connection") {
+                Task {
+                  await viewModel.setDefaultSendingConnection(connection)
+                }
+              }
+              .disabled(viewModel.defaultSendingConnectionId == connection.id)
+
+              Button("Remove Device Authorization", role: .destructive) {
+                Task {
+                  await viewModel.removeLocalAuthorization(connection)
+                }
+              }
             }
+            Divider()
+            Button("Remove Mailbox Connection Everywhere", role: .destructive) {
+              Task {
+                await viewModel.removeEverywhere(connection)
+              }
+            }
+          } label: {
+            Label("Manage", systemImage: "ellipsis.circle")
           }
           .buttonStyle(.bordered)
           .disabled(viewModel.isEditingDisabled || isMailboxBusy)
