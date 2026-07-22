@@ -897,7 +897,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let result = try await metadataService.continueHistoricalBackfill(
-      connection: try gmailConnection(connection, session: session),
+      connection: try await gmailConnectionForProviderAccess(connection, session: session),
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)

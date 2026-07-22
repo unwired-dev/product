@@ -301,6 +301,66 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSwiftDataMetadataStoreKeepsRemovalMarkersDuringOrdinarySaves() throws {
+    let store = try SwiftDataGmailMessageMetadataStore.inMemory()
+    let stale = metadata(
+      messageId: "message-stale",
+      threadId: "thread-stale",
+      internalDateMilliseconds: 1
+    )
+    let newest = metadata(
+      messageId: "message-newest",
+      threadId: "thread-newest",
+      internalDateMilliseconds: 3
+    )
+    let older = metadata(
+      messageId: "message-older",
+      threadId: "thread-older",
+      internalDateMilliseconds: 2
+    )
+    let incompleteState = GmailMetadataSyncState(
+      historicalMetadataBackfillIsComplete: false,
+      nextPageToken: "next-page-token",
+      scanId: "scan-001"
+    )
+    try store.saveMessages(
+      [stale],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.saveSyncPage(
+      [newest],
+      state: incompleteState,
+      isFirstPage: true,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.saveMessages(
+      [newest, stale],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try store.saveSyncPage(
+      [older],
+      state: GmailMetadataSyncState(
+        historicalMetadataBackfillIsComplete: true,
+        nextPageToken: nil,
+        scanId: incompleteState.scanId
+      ),
+      isFirstPage: false,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [newest, older]
+    )
+  }
+
   func testSwiftDataMetadataStoreRestoresBackfillCheckpointAfterContainerRecreation() throws {
     let configurationName = "GmailMetadataRestart-\(UUID().uuidString)"
     let schema = Schema([
@@ -811,7 +871,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelAutomaticallyResumesHistoricalBackfillAfterLoadingCache() async {
+  func testInboxViewModelKeepsCachedThreadsVisibleWhileHistoricalBackfillResumes() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
       threadId: "thread-cached",
@@ -843,7 +903,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       viewModel.threads,
       MailboxThread.group([
-        historicalMessage.mailboxMetadata(connectionId: historicalMessage.mailboxConnectionId)
+        cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
       ])
     )
   }
@@ -1103,6 +1163,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     XCTAssertTrue(result.messages.allSatisfy { $0.categoryId == "system:promotions" })
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
+  func testSyncInboxDoesNotCategorizeNonInboxMessages() async throws {
+    let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
+    let fixture = try makeSyncFixture(
+      categorizer: categorizer,
+      messageIdsWithoutLabelIds: ["message-002"]
+    )
+    let installedConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_100_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_100_000_000
+    )
+
+    _ = try await fixture.service.syncInbox(
+      connection: installedConnection,
+      session: session
+    )
+
+    XCTAssertEqual(categorizer.receivedMessages.map(\.providerMessageId), ["message-001"])
+    XCTAssertNil(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-002" }?.categoryId
+    )
   }
 
   func testSyncInboxFollowsGmailPaginationBeforeSavingMetadata() async throws {

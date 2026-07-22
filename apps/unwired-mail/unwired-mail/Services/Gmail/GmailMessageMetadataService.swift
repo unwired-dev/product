@@ -732,7 +732,6 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     for message in messages {
       if let record = existingByStableId.removeValue(forKey: message.stableProviderMessageId) {
         record.encodedMessage = try JSONEncoder().encode(message)
-        record.pendingRemovalScanId = nil
       } else {
         context.insert(
           DurableGmailMessageMetadataRecord(
@@ -1004,7 +1003,16 @@ struct GmailMessageMetadataService:
       preservingExistingStateFrom: existingMessagesByStableId
     )
     try Task.checkCancellation()
-    messages = try await categorizer.categorize(messages: messages, session: session)
+    let categorizedInboxMessages = try await categorizer.categorize(
+      messages: inboxMessages(messages),
+      session: session
+    )
+    let categorizedInboxMessagesByStableId = Dictionary(
+      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
+    )
+    messages = messages.map {
+      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
+    }
     try Task.checkCancellation()
     let state = GmailMetadataSyncState(
       historicalMetadataBackfillIsComplete: page.nextPageToken == nil,
