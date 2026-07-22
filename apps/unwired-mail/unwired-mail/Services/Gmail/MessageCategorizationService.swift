@@ -1043,6 +1043,13 @@ extension GmailMessageCategorizationService {
       excluding: assignments,
       mode: mode
     )
+    let cachedLearningSignals = assignments.values.compactMap { assignment in
+      assignment.source == .userOverride ? assignment.learningSignal : nil
+    }
+    let classificationContext = (
+      learningSignalSenderAddresses: signalSenders,
+      cachedLearningSignals: cachedLearningSignals
+    )
     for message in messages {
       let assignment = assignments[message.stableProviderMessageId]
       guard mode.includes(message) || assignment != nil else {
@@ -1054,7 +1061,7 @@ extension GmailMessageCategorizationService {
           message,
           assignment: assignment,
           categories: &categories,
-          learningSignalSenders: signalSenders,
+          classificationContext: classificationContext,
           session: session
         )
       )
@@ -1066,7 +1073,10 @@ extension GmailMessageCategorizationService {
     _ message: GmailMessageMetadata,
     assignment: MessageCategoryAssignment?,
     categories: inout [MessageClassificationCategory]?,
-    learningSignalSenders: [String],
+    classificationContext: (
+      learningSignalSenderAddresses: [String],
+      cachedLearningSignals: [FutureLearningSignal]
+    ),
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageMetadata {
     if let assignment,
@@ -1080,7 +1090,8 @@ extension GmailMessageCategorizationService {
     do {
       if categories == nil {
         categories = try await classificationCategories(
-          learningSignalSenderAddresses: learningSignalSenders,
+          learningSignalSenderAddresses: classificationContext.learningSignalSenderAddresses,
+          cachedLearningSignals: classificationContext.cachedLearningSignals,
           session: session
         )
       }
@@ -1228,6 +1239,7 @@ extension GmailMessageCategorizationService {
 
   private func classificationCategories(
     learningSignalSenderAddresses: [String],
+    cachedLearningSignals: [FutureLearningSignal] = [],
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
     let customCategory = try await categorySync.loadCategory(session: session)
@@ -1238,15 +1250,16 @@ extension GmailMessageCategorizationService {
         session: session
       )
     } catch {
-      if backgroundAuthenticationIsUnavailable(error) {
-        try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-      }
+      try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
       throw error
     }
+    let cachedSenderAddresses = Array(
+      Set(learningSignalSenderAddresses + cachedLearningSignals.flatMap(\.senderAddresses))
+    )
     try? refreshBackgroundContextCache(
       customCategory: customCategory,
-      learningSignals: learningSignals,
-      senderAddresses: learningSignalSenderAddresses,
+      learningSignals: learningSignals + cachedLearningSignals,
+      senderAddresses: cachedSenderAddresses,
       productAccountId: session.productAccountId
     )
     return classificationCategories(

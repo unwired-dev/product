@@ -1565,6 +1565,51 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  func testAuthenticatedCategorizationCachesLearningSignalsFromPrefetchedOverrides()
+    async throws
+  {
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.assignmentsByMessageId["gmail:account:message-001"] = MessageCategoryAssignment(
+      categoryId: "system:flights",
+      learningSignal: FutureLearningSignal(
+        appliesAfterTimestamp: 1,
+        categoryId: "system:flights",
+        senderAddresses: ["override@example.com"]
+      ),
+      source: .userOverride,
+      stableProviderMessageId: "gmail:account:message-001"
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 1_781_400_000_000 },
+      engine: RecordingClassificationEngine(decisions: [.uncategorized])
+    )
+
+    _ = try await service.categorize(
+      messages: [
+        message(from: "Override <override@example.com>", messageId: "message-001"),
+        message(from: "Other <other@example.com>", messageId: "message-002"),
+      ],
+      session: session
+    )
+
+    XCTAssertEqual(
+      cacheStore.caches[session.productAccountId]?.learningSignalsBySender["override@example.com"]?
+        .learningSignals,
+      [
+        FutureLearningSignal(
+          appliesAfterTimestamp: 1,
+          categoryId: "system:flights",
+          senderAddresses: ["override@example.com"]
+        )
+      ]
+    )
+  }
+
   func testForegroundCategorizationContinuesWhenBackgroundContextCacheCannotBeSaved()
     async throws
   {
@@ -1663,6 +1708,30 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertNil(categorized[0].categoryId)
+    XCTAssertNil(cacheStore.caches[session.productAccountId])
+  }
+
+  func testBackgroundCategorizationClearsCacheWhenLearningSignalsLoadFails() async throws {
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+      cachedAtMilliseconds: 1_781_400_000_000
+    )
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.learningSignalLoadError = URLError(.cannotConnectToHost)
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 1_781_400_000_000 },
+      engine: RuleBasedClassificationEngine()
+    )
+
+    _ = try await service.categorizeForBackgroundNotification(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
     XCTAssertNil(cacheStore.caches[session.productAccountId])
   }
 

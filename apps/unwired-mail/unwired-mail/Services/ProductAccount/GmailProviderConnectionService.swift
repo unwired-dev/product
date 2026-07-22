@@ -348,7 +348,6 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
   }
 }
 
-// swiftlint:disable type_body_length
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
@@ -456,27 +455,18 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
-    let hasRemainingGmailConnections: Bool
-    do {
-      hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
-        identityToken: session.identityToken,
-        providerAccountIdentifier: connection.providerAccountIdentifier,
-        trustedDeviceId: session.trustedDeviceId
-      )
-    } catch {
-      throw error
-    }
+    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    let hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
+      identityToken: session.identityToken,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: session.trustedDeviceId
+    )
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
     var cleanupError: Error?
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
-    } catch {
-      cleanupError = cleanupError ?? error
-    }
-    do {
-      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     } catch {
       cleanupError = cleanupError ?? error
     }
@@ -615,8 +605,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 }
-// swiftlint:enable type_body_length
-
 extension GmailProviderConnectionService {
   func loadConnection(
     session: ProductAccountSessionSnapshot

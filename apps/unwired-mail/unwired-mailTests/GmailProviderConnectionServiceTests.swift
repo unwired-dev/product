@@ -587,6 +587,26 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(transport.removedProviderAccountIdentifiers, [first.providerAccountIdentifier])
   }
 
+  func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    cacheStore.clearError = GmailProviderConnectionTestError.tokenCleanupFailed
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(transport.status, session: session)
+      XCTFail("Expected background context cache clear failure")
+    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(transport.removedProviderAccountIdentifiers.isEmpty)
+  }
+
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
     let transport = RecordingGmailConnectionTransport()
     transport.shouldStopWatch = false
@@ -1405,10 +1425,12 @@ private final class RecordingPushWatchStore: GmailPushWatchPersisting {
 }
 
 private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
+  var clearError: Error?
   private(set) var clearedProductAccountIds: [String] = []
 
   func clear(productAccountId: String) throws {
     clearedProductAccountIds.append(productAccountId)
+    if let clearError { throw clearError }
   }
 
   func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
