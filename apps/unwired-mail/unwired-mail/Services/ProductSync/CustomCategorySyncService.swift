@@ -137,13 +137,13 @@ final class CustomCategorySyncService: CustomCategorySyncing {
   func saveCategory(_ category: CustomCategory, session: ProductAccountSessionSnapshot) async throws
     -> CustomCategory
   {
-    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     try await putPayload(CustomCategorySyncPayload(category: category), session: session)
     return category
   }
 
   func deleteCategory(session: ProductAccountSessionSnapshot) async throws {
-    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     try await putPayload(CustomCategorySyncPayload(deleted: true), session: session)
   }
 

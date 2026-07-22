@@ -349,6 +349,7 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 }
 
 struct GmailProviderConnectionService: GmailProviderConnecting {
+  private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
   private let pushConnectionStore: GmailPushConnectionPersisting
   private let pushWatchStopper: GmailPushWatchStopping
@@ -358,6 +359,8 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   private let transport: GmailProviderConnectionTransport
 
   init(
+    backgroundContextCacheStore: BackgroundContextCachePersisting =
+      KeychainBackgroundContextCacheStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     pushConnectionStore: GmailPushConnectionPersisting =
       KeychainGmailPushConnectionStore(),
@@ -367,6 +370,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
+    self.backgroundContextCacheStore = backgroundContextCacheStore
     self.bodyReader = bodyReader
     self.pushConnectionStore = pushConnectionStore
     self.pushWatchStopper = pushWatchStopper
@@ -466,6 +470,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = cleanupError ?? error
     }
     if !hasRemainingGmailConnections {
+      do {
+        try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
       do {
         try bodyReader.clearCachedMessageBodies(session: session)
       } catch {

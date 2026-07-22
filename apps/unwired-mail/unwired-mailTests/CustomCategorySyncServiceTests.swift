@@ -88,6 +88,29 @@ final class CustomCategorySyncServiceTests: XCTestCase {
     )
   }
 
+  func testCategoryWriteDoesNotReachProductSyncWhenBackgroundContextCannotBeCleared()
+    async throws
+  {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    cacheStore.clearError = KeychainStoreError.unexpectedData
+    let transport = RecordingProductSyncTransport()
+    let service = CustomCategorySyncService(
+      backgroundContextCacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      transport: transport
+    )
+
+    do {
+      _ = try await service.saveCategory(
+        CustomCategory(name: "Finance", description: nil),
+        session: session
+      )
+      XCTFail("Expected background context clear failure")
+    } catch {}
+
+    XCTAssertTrue(transport.writes.isEmpty)
+  }
+
   func testLoadExistingRemoteCategoryRequiresLocalKeyMaterial() async throws {
     let firstStore = InMemoryProductSyncKeyMaterialStore()
     let transport = RecordingProductSyncTransport()
@@ -145,8 +168,10 @@ final class CustomCategorySyncServiceTests: XCTestCase {
 
 private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
   private(set) var clearedProductAccountIds: [String] = []
+  var clearError: Error?
 
   func clear(productAccountId: String) throws {
+    if let clearError { throw clearError }
     clearedProductAccountIds.append(productAccountId)
   }
 

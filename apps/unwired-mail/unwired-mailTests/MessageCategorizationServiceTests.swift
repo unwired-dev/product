@@ -385,6 +385,26 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  func testUserOverrideDoesNotSaveWhenBackgroundContextCannotBeCleared() async throws {
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    cacheStore.clearError = KeychainStoreError.unexpectedData
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      engine: RecordingClassificationEngine(decisions: [])
+    )
+
+    do {
+      _ = try await service.overrideCategory("system:invoices", for: message(), session: session)
+      XCTFail("Expected background context clear failure")
+    } catch {}
+
+    XCTAssertTrue(assignmentSync.savedUserOverrides.isEmpty)
+  }
+
   func testFutureLearningSignalInfluencesOnlyMessagesReceivedAfterOverride() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
@@ -1995,9 +2015,11 @@ private final class InMemoryBackgroundContextCacheStore:
   BackgroundContextCachePersisting
 {
   var caches: [String: BackgroundCategorizationContextCache] = [:]
+  var clearError: Error?
   var loadError: Error?
 
   func clear(productAccountId: String) throws {
+    if let clearError { throw clearError }
     caches[productAccountId] = nil
   }
 

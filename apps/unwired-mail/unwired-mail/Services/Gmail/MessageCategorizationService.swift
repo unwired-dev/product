@@ -1137,7 +1137,7 @@ extension GmailMessageCategorizationService {
     let senderAddresses = MessageSenderAddressParser.addresses(
       in: [message.from].compactMap { $0 }
     )
-    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     let assignment = try await assignmentSync.saveUserOverride(
       MessageCategoryAssignment(
         categoryId: categoryId,
@@ -1235,7 +1235,7 @@ extension GmailMessageCategorizationService {
       senderAddresses: learningSignalSenderAddresses,
       session: session
     )
-    refreshBackgroundContextCache(
+    try refreshBackgroundContextCache(
       customCategory: customCategory,
       learningSignals: learningSignals,
       senderAddresses: learningSignalSenderAddresses,
@@ -1296,7 +1296,7 @@ extension GmailMessageCategorizationService {
     learningSignals: [FutureLearningSignal],
     senderAddresses: [String],
     productAccountId: String
-  ) {
+  ) throws {
     let cachedAtMilliseconds = currentTimeMilliseconds()
     var learningSignalsBySender =
       (try? backgroundContextCacheStore.load(productAccountId: productAccountId))?
@@ -1320,7 +1320,8 @@ extension GmailMessageCategorizationService {
         learningSignals: exactSenderSignals
       )
     }
-    try? backgroundContextCacheStore.save(
+    try backgroundContextCacheStore.clear(productAccountId: productAccountId)
+    try backgroundContextCacheStore.save(
       BackgroundCategorizationContextCache(
         customCategory: customCategory,
         customCategoryCachedAtMilliseconds: cachedAtMilliseconds,
