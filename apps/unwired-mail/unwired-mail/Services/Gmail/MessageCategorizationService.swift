@@ -1137,6 +1137,7 @@ extension GmailMessageCategorizationService {
     let senderAddresses = MessageSenderAddressParser.addresses(
       in: [message.from].compactMap { $0 }
     )
+    try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     let assignment = try await assignmentSync.saveUserOverride(
       MessageCategoryAssignment(
         categoryId: categoryId,

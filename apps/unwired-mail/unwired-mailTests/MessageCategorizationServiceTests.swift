@@ -345,8 +345,13 @@ extension MessageCategorizationServiceTests {
 extension MessageCategorizationServiceTests {
   func testUserCanOverrideHistoricalUncategorizedMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+      cachedAtMilliseconds: 1_781_300_000_000
+    )
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
+      backgroundContextCacheStore: cacheStore,
       bodyReader: RecordingCachedBodyReader(bodyText: nil),
       categorySync: StubCustomCategorySync(),
       currentTimeMilliseconds: { 1_781_300_000_000 },
@@ -360,6 +365,7 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(overridden.categoryId, "system:invoices")
+    XCTAssertNil(cacheStore.caches[session.productAccountId])
     XCTAssertEqual(
       assignmentSync.savedUserOverrides,
       [
