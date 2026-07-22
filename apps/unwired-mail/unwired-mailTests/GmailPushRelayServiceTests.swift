@@ -917,6 +917,42 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.messages, [message])
   }
 
+  func testGmailWakeupUsesBackgroundCategorizationBeforeApplyingCachedRules() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let message = pushMessage(categoryId: nil)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncedMessages = [message]
+    syncService.newMessageIds = [message.providerMessageId]
+    let notificationDelivery = RecordingNotificationDelivery()
+    let handler = GmailPushWakeupHandler(
+      backgroundCategorizer: AssigningBackgroundCategorizer(categoryId: "system:flights"),
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: ExpiredCachedRuleSync(
+        cachedRules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(notificationDelivery.messages, [message.assigningCategory("system:flights")])
+  }
+
   func testGmailWakeupUsesRulesCurrentAfterInboxSync() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -3243,6 +3279,40 @@ private struct StubNotificationRuleSync: NotificationRuleSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> NotificationRuleSyncSnapshot {
     NotificationRuleSyncSnapshot(rules: rules, updatedAt: nil)
+  }
+}
+
+private struct AssigningBackgroundCategorizer: GmailMessageCategorizing {
+  let categoryId: String
+
+  func categorize(
+    messages: [GmailMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    messages
+  }
+
+  func categorizeForBackgroundNotification(
+    messages: [GmailMessageMetadata],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    messages.map { $0.assigningCategory(categoryId) }
+  }
+
+  func categorizeHistorical(
+    messages: [GmailMessageMetadata],
+    scope _: GmailHistoricalCategorizationScope,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    messages
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    message.assigningCategory(categoryId)
   }
 }
 
