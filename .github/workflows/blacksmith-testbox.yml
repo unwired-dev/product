@@ -1,0 +1,51 @@
+name: Blacksmith Testbox
+
+on:
+  workflow_dispatch:
+    inputs:
+      testbox_id:
+        type: string
+        description: Blacksmith Testbox session ID
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  typescript:
+    name: TypeScript
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - name: Begin Testbox
+        uses: useblacksmith/begin-testbox@v2
+        with:
+          testbox_id: ${{ inputs.testbox_id }}
+
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Restore Turbo cache
+        uses: actions/cache@v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-testbox-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-testbox-
+            turbo-${{ runner.os }}-typescript-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run Testbox
+        if: always()
+        uses: useblacksmith/run-testbox@v2
