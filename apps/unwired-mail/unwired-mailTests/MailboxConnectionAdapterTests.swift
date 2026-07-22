@@ -769,6 +769,45 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.recipient, "sender@example.com")
   }
 
+  func testMailActionReplyWithoutRFCMessageIDKeepsProviderThread() async {
+    let service = RecordingAdapterMailActionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: service
+    )
+    let viewModel = GmailMailActionViewModel(service: adapter, session: session)
+    let replyTo = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["reader@example.com"],
+      replyTo: nil,
+      rfcMessageId: nil,
+      snippet: "Message",
+      subject: "Subject"
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "sender@example.com",
+      subject: "Re: Subject",
+      body: "Reply",
+      replyTo: replyTo,
+      connection: connection
+    )
+
+    XCTAssertTrue(didSend)
+    XCTAssertEqual(service.outgoingMessage?.threadId, replyTo.providerThreadId)
+    XCTAssertNil(service.outgoingMessage?.inReplyTo)
+  }
+
   func testMailboxThreadInboxMessagesIncludesUnknownProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",

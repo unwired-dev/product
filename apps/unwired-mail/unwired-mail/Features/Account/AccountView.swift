@@ -830,7 +830,6 @@ private struct MailShellConversationReader: View {
       subject: draft.subject,
       body: draft.body,
       replyTo: draft.replyToMessage,
-      forwardSource: draft.forwardSourceMessage,
       connection: connection
     )
     if !didSend {
@@ -1193,7 +1192,7 @@ final class NotificationRuleViewModel {
 
 @MainActor
 @Observable
-private final class GmailMailActionViewModel {
+final class GmailMailActionViewModel {
   var errorMessage: String?
   var isPerformingAction = false
 
@@ -1241,7 +1240,6 @@ private final class GmailMailActionViewModel {
     subject: String,
     body: String,
     replyTo: MailboxMessageMetadata?,
-    forwardSource: MailboxMessageMetadata? = nil,
     connection: MailboxConnection
   ) async -> Bool {
     guard connection.capabilities.canSend else { return false }
@@ -1257,9 +1255,7 @@ private final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
-          providerThreadId: replyTo?.rfcMessageId == nil
-            ? forwardSource?.providerThreadId
-            : replyTo?.providerThreadId
+          providerThreadId: replyTo?.providerThreadId
         ),
         connection: connection,
         session: session
