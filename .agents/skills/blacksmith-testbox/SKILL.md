@@ -29,7 +29,7 @@ blacksmith auth login
 Warm one Testbox at the beginning of a validation session and save its ID:
 
 ```sh
-blacksmith testbox warmup blacksmith-testbox.yml --job typescript
+blacksmith testbox warmup blacksmith-testbox.yml --job typescript --ref "$(git branch --show-current)"
 ```
 
 Reuse that ID throughout the task. `run` waits for hydration automatically, so
