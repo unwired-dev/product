@@ -288,6 +288,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testViewModelReportsLoadErrorWhenConnectionsCannotLoad() async {
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.loadError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(definitionSyncService: definitionSyncService)
+    let viewModel = GmailProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+
+    XCTAssertTrue(viewModel.connections.isEmpty)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(
@@ -808,7 +824,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
   }
 
-  func testMailboxThreadInboxMessagesIncludesUnknownProviderState() {
+  func testMailboxThreadInboxMessagesExcludesUnknownProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
       providerThreadId: "thread-001",
@@ -826,7 +842,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [inboxMessage, unknownMessage]
     )
 
-    XCTAssertEqual(thread.inboxMessages, [inboxMessage, unknownMessage])
+    XCTAssertEqual(thread.inboxMessages, [inboxMessage])
   }
 
 }
@@ -952,6 +968,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 }
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var loadError: Error?
   var removedConnectionIds: [MailboxConnectionId] = []
   var removeError: Error?
   var saveError: Error?
@@ -964,7 +981,8 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    snapshot
+    if let loadError { throw loadError }
+    return snapshot
   }
 
   func reconcileConnections(

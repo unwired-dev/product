@@ -299,7 +299,7 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
   }
 
   var inboxMessages: [MailboxMessageMetadata] {
-    messages.filter { $0.providerStateIds?.contains("INBOX") != false }
+    messages.filter { $0.providerStateIds?.contains("INBOX") == true }
   }
 
   static func group(_ messages: [MailboxMessageMetadata]) -> [MailboxThread] {

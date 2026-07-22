@@ -82,6 +82,8 @@ struct AccountView: View {
     ) {
       MailShellSidebar(
         connections: gmailViewModel.connections,
+        errorMessage: gmailViewModel.errorMessage,
+        isLoading: gmailViewModel.isLoading,
         selectedConnectionId: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true }
       )
@@ -473,6 +475,8 @@ struct MailShellCompositionDraft: Identifiable {
 
 private struct MailShellSidebar: View {
   let connections: [MailboxConnection]
+  let errorMessage: String?
+  let isLoading: Bool
   @Binding var selectedConnectionId: MailboxConnectionId?
   let showAccountSettings: () -> Void
 
@@ -480,8 +484,18 @@ private struct MailShellSidebar: View {
     List(selection: $selectedConnectionId) {
       Section("Mailboxes") {
         if connections.isEmpty {
-          Text("No Mailbox Connections")
-            .foregroundStyle(.secondary)
+          if isLoading {
+            ProgressView("Loading mailboxes...")
+          } else if let errorMessage {
+            ContentUnavailableView(
+              "Mailboxes unavailable",
+              systemImage: "exclamationmark.triangle",
+              description: Text(errorMessage)
+            )
+          } else {
+            Text("No Mailbox Connections")
+              .foregroundStyle(.secondary)
+          }
         } else {
           ForEach(connections) { connection in
             NavigationLink(value: connection.id) {
