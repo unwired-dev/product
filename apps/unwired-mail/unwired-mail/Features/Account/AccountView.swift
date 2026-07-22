@@ -424,10 +424,17 @@ struct MailShellCompositionDraft: Identifiable {
   }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
-    MailShellCompositionDraft(
+    let recipient =
+      message.replyTo
+      ?? (message.providerStateIds?.contains("SENT") == true
+        ? message.recipientHeaders?.first
+        : nil)
+      ?? message.from
+      ?? ""
+    return MailShellCompositionDraft(
       body: "",
       connectionId: message.connectionId,
-      recipient: message.replyTo ?? message.recipientHeaders?.first ?? message.from ?? "",
+      recipient: recipient,
       replyToMessage: message,
       sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject)
