@@ -397,12 +397,15 @@ extension MailboxMessageMetadata {
 extension GmailMetadataSyncResult {
   func mailboxResult(connectionId: MailboxConnectionId) -> MailboxMetadataSyncResult {
     let messages = messages.map { $0.mailboxMetadata(connectionId: connectionId) }
+    let threads = threads.flatMap {
+      MailboxThread.group($0.messages.map { $0.mailboxMetadata(connectionId: connectionId) })
+    }
     return MailboxMetadataSyncResult(
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
       providerCursorIsExpired: historyIsExpired,
-      threads: MailboxThread.group(messages),
+      threads: threads,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )

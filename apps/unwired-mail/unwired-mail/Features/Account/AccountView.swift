@@ -504,6 +504,16 @@ private struct MailShellThreadList: View {
             systemImage: "lock.trianglebadge.exclamationmark",
             description: Text("Open Account Settings to authorize this mailbox on this device.")
           )
+        } else if let errorMessage = viewModel.errorMessage,
+          viewModel.threads.isEmpty,
+          !viewModel.isLoading,
+          !viewModel.isSyncing
+        {
+          ContentUnavailableView(
+            "Inbox unavailable",
+            systemImage: "exclamationmark.triangle",
+            description: Text(errorMessage)
+          )
         } else if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
           ContentUnavailableView(
             "No inbox messages",
@@ -642,7 +652,10 @@ private struct MailShellConversationReader: View {
               } label: {
                 Label("Reply", systemImage: "arrowshape.turn.up.left")
               }
-              .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+              .disabled(
+                thread.latestMessage.rfcMessageId == nil || isConnectionBusy
+                  || mailActionViewModel.isPerformingAction
+              )
             }
             if connection.capabilities.canForward {
               Button {
@@ -715,6 +728,12 @@ private struct MailShellConversationReader: View {
           Button("Delete", role: .destructive) {
             perform(.delete, thread: thread, connection: connection)
           }
+        }
+        if connection.capabilities.supports(.star) {
+          Button("Star") { perform(.star, thread: thread, connection: connection) }
+        }
+        if connection.capabilities.supports(.unstar) {
+          Button("Unstar") { perform(.unstar, thread: thread, connection: connection) }
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -819,6 +838,7 @@ private struct MailShellConversationMessage: View {
         HStack {
           Button("Reply", action: reply)
             .buttonStyle(.bordered)
+            .disabled(message.rfcMessageId == nil)
           Button("Forward") {
             Task { await forward() }
           }
@@ -860,6 +880,8 @@ private struct MailShellMessageBody: View {
           systemImage: "exclamationmark.triangle",
           description: Text(errorMessage)
         )
+      } else {
+        ProgressView("Loading message…")
       }
     }
     .task {

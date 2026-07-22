@@ -64,6 +64,34 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailSyncAdapterKeepsNonInboxMessagesInVisibleThreads() {
+    let sentMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Reader <reader@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: 1_781_200_001_000,
+      providerLabelIds: ["SENT"],
+      providerMessageId: "message-002",
+      providerThreadId: adapterGmailMessage.providerThreadId,
+      replyTo: nil,
+      snippet: "Sent reply",
+      stableProviderMessageId: "gmail:gmail-user-001:message-002",
+      subject: adapterGmailMessage.subject,
+      rfcMessageId: "<message-002@example.com>"
+    )
+    let result = GmailMetadataSyncResult(
+      messages: [adapterGmailMessage],
+      threads: GmailInboxThread.group([adapterGmailMessage, sentMessage])
+    )
+
+    let mailboxResult = result.mailboxResult(connectionId: adapterConnectionId)
+
+    XCTAssertEqual(mailboxResult.messages, [adapterMessage])
+    XCTAssertEqual(mailboxResult.threads.first?.messages.count, 2)
+    XCTAssertEqual(mailboxResult.threads.first?.latestMessage.providerMessageId, "message-002")
+  }
+
   func testGmailAdapterKeepsExistingAuthorizationWhenDefinitionSyncFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
