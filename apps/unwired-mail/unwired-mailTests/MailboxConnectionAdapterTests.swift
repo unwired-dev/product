@@ -64,6 +64,34 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailSyncAdapterKeepsNonInboxMessagesInVisibleThreads() {
+    let sentMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "Reader <reader@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: 1_781_200_001_000,
+      providerLabelIds: ["SENT"],
+      providerMessageId: "message-002",
+      providerThreadId: adapterGmailMessage.providerThreadId,
+      replyTo: nil,
+      snippet: "Sent reply",
+      stableProviderMessageId: "gmail:gmail-user-001:message-002",
+      subject: adapterGmailMessage.subject,
+      rfcMessageId: "<message-002@example.com>"
+    )
+    let result = GmailMetadataSyncResult(
+      messages: [adapterGmailMessage],
+      threads: GmailInboxThread.group([adapterGmailMessage, sentMessage])
+    )
+
+    let mailboxResult = result.mailboxResult(connectionId: adapterConnectionId)
+
+    XCTAssertEqual(mailboxResult.messages, [adapterMessage])
+    XCTAssertEqual(mailboxResult.threads.first?.messages.count, 2)
+    XCTAssertEqual(mailboxResult.threads.first?.latestMessage.providerMessageId, "message-002")
+  }
+
   func testGmailAdapterKeepsExistingAuthorizationWhenDefinitionSyncFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
@@ -258,6 +286,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       viewModel.selectedConnectionId,
       localStatus.mailboxConnection(productAccountId: session.productAccountId).id
     )
+  }
+
+  func testViewModelReportsLoadErrorWhenConnectionsCannotLoad() async {
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.loadError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(definitionSyncService: definitionSyncService)
+    let viewModel = GmailProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+
+    XCTAssertTrue(viewModel.connections.isEmpty)
+    XCTAssertNotNil(viewModel.errorMessage)
   }
 
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
@@ -527,6 +571,310 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
   }
 
+  func testMailShellPreservesSelectedThreadAcrossReordering() {
+    let olderThread = mailShellThread(
+      providerThreadId: "thread-older",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-older",
+          providerThreadId: "thread-older",
+          receivedAt: 100
+        )
+      ]
+    )
+    let newerThread = mailShellThread(
+      providerThreadId: "thread-newer",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-newer",
+          providerThreadId: "thread-newer",
+          receivedAt: 200
+        )
+      ]
+    )
+    let viewModel = MailShellSelectionModel()
+
+    XCTAssertEqual(viewModel.navigationLevel, .mailboxList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .sidebar)
+
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([olderThread, newerThread], for: adapterConnectionId)
+    viewModel.selectThread(olderThread.id)
+    viewModel.updateThreads([newerThread, olderThread], for: adapterConnectionId)
+
+    XCTAssertEqual(viewModel.selectedThreadId, olderThread.id)
+    XCTAssertEqual(viewModel.navigationLevel, .conversation)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .detail)
+
+    viewModel.updateThreads([newerThread], for: adapterConnectionId)
+
+    XCTAssertNil(viewModel.selectedThreadId)
+    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
+  }
+
+  func testMailShellScopesThreadsToSelectedMailbox() {
+    let selectedThread = mailShellThread(
+      providerThreadId: "thread-selected",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-selected",
+          providerThreadId: "thread-selected",
+          receivedAt: 100
+        )
+      ]
+    )
+    let otherConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([selectedThread], for: adapterConnectionId)
+    viewModel.selectThread(selectedThread.id)
+
+    viewModel.selectMailbox(connectionId: otherConnectionId)
+
+    XCTAssertEqual(viewModel.selectedConnectionId, otherConnectionId)
+    XCTAssertTrue(viewModel.threads.isEmpty)
+    XCTAssertNil(viewModel.selectedThreadId)
+    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+    XCTAssertEqual(viewModel.preferredCompactColumn, .content)
+  }
+
+  func testMailShellClearsThreadSelection() {
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-001",
+          providerThreadId: "thread-001",
+          receivedAt: 100
+        )
+      ]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([thread], for: adapterConnectionId)
+    viewModel.selectThread(thread.id)
+
+    viewModel.clearThreadSelection()
+
+    XCTAssertNil(viewModel.selectedThreadId)
+    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+  }
+
+  func testMailShellExpandsLatestMessageAndTogglesOlderMessages() {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let latestMessage = mailShellMessage(
+      providerMessageId: "message-latest",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [olderMessage, latestMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([thread], for: adapterConnectionId)
+
+    viewModel.selectThread(thread.id)
+
+    XCTAssertTrue(viewModel.isMessageExpanded(latestMessage, in: thread))
+    XCTAssertFalse(viewModel.isMessageExpanded(olderMessage, in: thread))
+
+    viewModel.toggleMessageExpansion(olderMessage, in: thread)
+
+    XCTAssertTrue(viewModel.isMessageExpanded(olderMessage, in: thread))
+  }
+
+  func testMailShellReplyAndForwardDraftsKeepSourceConnectionIdentity() {
+    let message = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+
+    let reply = MailShellCompositionDraft.reply(to: message)
+    let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
+
+    XCTAssertEqual(reply.connectionId, message.connectionId)
+    XCTAssertEqual(reply.sourceThreadId, message.threadIdentity)
+    XCTAssertEqual(reply.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
+    XCTAssertEqual(reply.replyToMessage, message)
+    XCTAssertEqual(reply.recipient, "sender@example.com")
+    XCTAssertEqual(reply.subject, "Re: Subject message-001")
+    XCTAssertEqual(forward.connectionId, message.connectionId)
+    XCTAssertEqual(forward.sourceThreadId, message.threadIdentity)
+    XCTAssertEqual(forward.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
+    XCTAssertEqual(forward.sourceMessage, message)
+    XCTAssertNil(forward.replyToMessage)
+    XCTAssertEqual(forward.forwardSourceMessage, message)
+    XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
+    XCTAssertTrue(forward.body.contains("Decrypted body"))
+  }
+
+  func testMailShellReplyUsesRecipientHeaderForSentMessages() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "reader@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["SENT"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["recipient@example.com"],
+      replyTo: nil,
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message",
+      subject: "Subject"
+    )
+
+    let reply = MailShellCompositionDraft.reply(to: message)
+
+    XCTAssertEqual(reply.recipient, "recipient@example.com")
+  }
+
+  func testMailShellReplyPrefersRecipientHeaderOverReplyToForSentMessages() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "reader@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["SENT"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["recipient@example.com"],
+      replyTo: "reader@example.com",
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message",
+      subject: "Subject"
+    )
+
+    XCTAssertEqual(MailShellCompositionDraft.reply(to: message).recipient, "recipient@example.com")
+  }
+
+  func testMailShellReplyUsesSenderForReceivedMessages() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["reader@example.com"],
+      replyTo: nil,
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message",
+      subject: "Subject"
+    )
+
+    let reply = MailShellCompositionDraft.reply(to: message)
+
+    XCTAssertEqual(reply.recipient, "sender@example.com")
+  }
+
+  func testMailActionReplyWithoutRFCMessageIDDoesNotSetProviderThread() async {
+    let service = RecordingAdapterMailActionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: service
+    )
+    let viewModel = GmailMailActionViewModel(service: adapter, session: session)
+    let replyTo = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-001",
+      recipientHeaders: ["reader@example.com"],
+      replyTo: nil,
+      rfcMessageId: nil,
+      snippet: "Message",
+      subject: "Subject"
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "sender@example.com",
+      subject: "Re: Subject",
+      body: "Reply",
+      replyTo: replyTo,
+      connection: connection
+    )
+
+    XCTAssertTrue(didSend)
+    XCTAssertNil(service.outgoingMessage?.threadId)
+    XCTAssertNil(service.outgoingMessage?.inReplyTo)
+  }
+
+  func testMailboxThreadInboxMessagesIncludesLegacyMessagesWithoutProviderState() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-inbox",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let unknownMessage = mailShellMessage(
+      providerMessageId: "message-unknown",
+      providerThreadId: "thread-001",
+      receivedAt: 200,
+      providerStateIds: nil
+    )
+
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [inboxMessage, unknownMessage]
+    )
+
+    XCTAssertEqual(thread.inboxMessages, [unknownMessage, inboxMessage])
+  }
+
+}
+
+private func mailShellThread(
+  providerThreadId: String,
+  messages: [MailboxMessageMetadata]
+) -> MailboxThread {
+  MailboxThread.group(messages).first { $0.providerThreadId == providerThreadId }!
+}
+
+private func mailShellMessage(
+  providerMessageId: String,
+  providerThreadId: String,
+  receivedAt: Int64,
+  providerStateIds: [String]? = ["INBOX"]
+) -> MailboxMessageMetadata {
+  MailboxMessageMetadata(
+    categoryId: nil,
+    connectionId: adapterConnectionId,
+    from: "Sender <sender@example.com>",
+    isHistorical: false,
+    providerInternalDateMilliseconds: receivedAt,
+    providerMessageId: providerMessageId,
+    providerStateIds: providerStateIds,
+    providerThreadId: providerThreadId,
+    recipientHeaders: ["reader@example.com"],
+    replyTo: "sender@example.com",
+    rfcMessageId: "<\(providerMessageId)@example.com>",
+    snippet: "Message \(providerMessageId)",
+    subject: "Subject \(providerMessageId)"
+  )
 }
 
 @MainActor
@@ -620,6 +968,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 }
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var loadError: Error?
   var removedConnectionIds: [MailboxConnectionId] = []
   var removeError: Error?
   var saveError: Error?
@@ -632,7 +981,8 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    snapshot
+    if let loadError { throw loadError }
+    return snapshot
   }
 
   func reconcileConnections(

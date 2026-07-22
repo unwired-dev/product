@@ -298,6 +298,10 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
     latestMessage.threadIdentity
   }
 
+  var inboxMessages: [MailboxMessageMetadata] {
+    messages.filter { $0.providerStateIds?.contains("INBOX") ?? true }
+  }
+
   static func group(_ messages: [MailboxMessageMetadata]) -> [MailboxThread] {
     Dictionary(grouping: messages, by: \.threadIdentity)
       .map { threadIdentity, threadMessages in
@@ -397,12 +401,15 @@ extension MailboxMessageMetadata {
 extension GmailMetadataSyncResult {
   func mailboxResult(connectionId: MailboxConnectionId) -> MailboxMetadataSyncResult {
     let messages = messages.map { $0.mailboxMetadata(connectionId: connectionId) }
+    let threads = threads.flatMap {
+      MailboxThread.group($0.messages.map { $0.mailboxMetadata(connectionId: connectionId) })
+    }
     return MailboxMetadataSyncResult(
       hasUnlistedNewMessages: hasUnlistedNewMessages,
       messages: messages,
       newMessageIds: newMessageIds,
       providerCursorIsExpired: historyIsExpired,
-      threads: MailboxThread.group(messages),
+      threads: threads,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )
