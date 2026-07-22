@@ -884,6 +884,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(service.syncInboxCallCount, 0)
 
     await service.releaseHistoricalBackfill()
+
+    let backfillCompletion = expectation(description: "historical backfill completes")
+    Task { @MainActor in
+      while viewModel.isRefreshDisabled {
+        await Task.yield()
+      }
+      backfillCompletion.fulfill()
+    }
+    await fulfillment(of: [backfillCompletion], timeout: 1)
+
+    XCTAssertFalse(viewModel.isRefreshDisabled)
   }
 
   @MainActor
@@ -1239,6 +1250,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       result.messages.map(\.providerMessageId),
       ["message-003", "message-002", "message-001"]
+    )
+    XCTAssertEqual(
+      fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
+      [
+        "maxResults=50",
+        "maxResults=50&pageToken=next-page-token",
+        "maxResults=50",
+        "maxResults=50&pageToken=next-page-token",
+      ]
     )
   }
 
