@@ -700,6 +700,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(forward.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
     XCTAssertEqual(forward.sourceMessage, message)
     XCTAssertNil(forward.replyToMessage)
+    XCTAssertEqual(forward.forwardSourceMessage, message)
     XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
     XCTAssertTrue(forward.body.contains("Decrypted body"))
   }
@@ -768,7 +769,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.recipient, "sender@example.com")
   }
 
-  func testMailboxThreadInboxMessagesExcludesUnknownProviderState() {
+  func testMailboxThreadInboxMessagesIncludesUnknownProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
       providerThreadId: "thread-001",
@@ -786,7 +787,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [inboxMessage, unknownMessage]
     )
 
-    XCTAssertEqual(thread.inboxMessages, [inboxMessage])
+    XCTAssertEqual(thread.inboxMessages, [inboxMessage, unknownMessage])
   }
 
 }
