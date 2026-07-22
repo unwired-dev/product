@@ -948,11 +948,17 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let categorizedMessages = try await categorizer.categorizeHistorical(
-      messages: messages,
+    let categorizedInboxMessages = try await categorizer.categorizeHistorical(
+      messages: inboxMessages(messages),
       scope: scope,
       session: session
     )
+    let categorizedInboxMessagesByStableId = Dictionary(
+      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
+    )
+    let categorizedMessages = messages.map {
+      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
+    }
     try store.saveMessages(
       categorizedMessages,
       productAccountId: session.productAccountId,
@@ -1319,10 +1325,16 @@ struct GmailMessageMetadataService:
     guard shouldPersist?() ?? true else {
       throw GmailMessageMetadataSyncError.staleLocalConnection
     }
-    fetchedMessages = try await categorizer.categorize(
-      messages: fetchedMessages,
+    let categorizedInboxMessages = try await categorizer.categorize(
+      messages: inboxMessages(fetchedMessages),
       session: session
     )
+    let categorizedInboxMessagesByStableId = Dictionary(
+      uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
+    )
+    fetchedMessages = fetchedMessages.map {
+      categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
+    }
     let currentInboxMessageIds = Set(
       inboxMessages(fetchedMessages).map(\.providerMessageId)
     )

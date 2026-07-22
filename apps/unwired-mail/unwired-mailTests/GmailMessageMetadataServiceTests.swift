@@ -1206,7 +1206,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     _ = try await fixture.service.syncInbox(connection: reconnectedConnection, session: session)
-    _ = try await fixture.service.syncInbox(connection: reconnectedConnection, session: session)
+    let refreshedConnection = GmailProviderConnectionStatus(
+      connectedAt: reconnectedConnection.connectedAt,
+      emailAddress: reconnectedConnection.emailAddress,
+      lastVerifiedAt: reconnectedConnection.lastVerifiedAt,
+      provider: reconnectedConnection.provider,
+      providerAccountIdentifier: reconnectedConnection.providerAccountIdentifier,
+      trustedDeviceId: reconnectedConnection.trustedDeviceId,
+      updatedAt: reconnectedConnection.updatedAt + 1
+    )
+    _ = try await fixture.service.syncInbox(connection: refreshedConnection, session: session)
 
     XCTAssertEqual(
       fixture.store.syncState?.initialHistoricalCutoffMilliseconds,
@@ -1649,7 +1658,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSyncRecentInboxFallsBackToFullSyncWhenHistoryIdExpires() async throws {
+    let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
     let fixture = try makeSyncFixture(
+      categorizer: categorizer,
       usesPagination: true,
       historyStatusCode: 404,
       labelIdsByMessageId: ["message-001": ["ARCHIVED"]]
@@ -1682,6 +1693,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-stale" })
     XCTAssertFalse(fixture.store.savedMessages.contains { $0.providerMessageId == "message-stale" })
     XCTAssertTrue(fixture.store.savedMessages.contains { $0.providerMessageId == "message-001" })
+    XCTAssertTrue(
+      categorizer.receivedMessages.allSatisfy { $0.providerLabelIds?.contains("INBOX") == true }
+    )
     XCTAssertEqual(fixture.store.syncState?.historicalMetadataBackfillIsComplete, true)
     XCTAssertNil(fixture.store.syncState?.nextPageToken)
   }
