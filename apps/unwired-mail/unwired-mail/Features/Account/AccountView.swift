@@ -1509,6 +1509,11 @@ final class GmailInboxViewModel {
     }
   }
 
+  func cancelBodyPrefetch() {
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
+  }
+
   func refresh(connection: MailboxConnection) async -> Bool {
     guard currentConnectionId == connection.id else {
       return false
@@ -2402,6 +2407,7 @@ private struct GmailInboxPanel: View {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
               do {
+                viewModel.cancelBodyPrefetch()
                 if let connection {
                   try messageReader.clearCachedMessageBodies(
                     connection: connection,

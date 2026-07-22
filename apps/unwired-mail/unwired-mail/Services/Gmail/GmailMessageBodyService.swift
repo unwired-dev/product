@@ -376,8 +376,11 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     var cachedFiles = try cachedFiles(excluding: destination)
     var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
     cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
+    let canEvictProtectedEntries = entry.retention == .opened
     while cachedByteCount > maximumByteCount - encodedEntry.count,
-      let eviction = cachedFiles.first(where: { !$0.entry.isProtected })
+      let eviction = cachedFiles.first(where: {
+        canEvictProtectedEntries || !$0.entry.isProtected
+      })
     {
       try fileManager.removeItem(at: eviction.url)
       cachedByteCount -= eviction.byteCount
@@ -397,6 +400,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     Self.fileLock.lock()
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
+    try clearProtectedSelections(productAccountId: productAccountId)
     try enforceMaximumByteCount()
     let prefix = [
       gmailSafeFileComponent(productAccountId),
@@ -438,6 +442,23 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       entry.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
       entry.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
       _ = try writeEntryIfFits(entry, to: fileURL)
+    }
+  }
+
+  private func clearProtectedSelections(productAccountId: String) throws {
+    let productPrefix = "\(gmailSafeFileComponent(productAccountId))-"
+    for fileURL in try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: nil
+    ) where fileURL.lastPathComponent.hasPrefix(productPrefix) {
+      guard
+        var entry = try? JSONDecoder().decode(
+          FileGmailMessageBodyCacheEntry.self,
+          from: Data(contentsOf: fileURL)
+        )
+      else { continue }
+      entry.isProtected = false
+      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
     }
   }
 
