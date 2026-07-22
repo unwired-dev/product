@@ -47,6 +47,8 @@ The Apple client routes provider connection, metadata synchronization, message r
 
 Gmail Durable Message Metadata is stored per Product Account and Mailbox Connection in SwiftData. A new connection publishes Initial Mailbox Availability after the newest 50 provider-visible messages are persisted, then continues Historical Metadata Backfill from a durable page checkpoint while cached mailbox views remain usable. Backfill pauses in Low Power Mode and resumes from the saved page after cancellation, restart, or a later sync. Full scans retain provider labels for non-Inbox mail, keep the Inbox projection label-scoped, and retire unseen records only when the complete scan finishes, so an interrupted scan cannot mistake unfinished pagination for provider deletion. Existing file-backed metadata migrates into SwiftData on first load; message bodies remain outside this metadata store.
 
+The signed-in Apple app uses an adaptive mail shell. macOS and wide iPad layouts show the Mailbox Connection sidebar, selected Inbox thread list, and conversation reader together. Narrow iPad and iPhone layouts collapse the same connection and Thread selections into hierarchical navigation. A conversation shows every locally observed message, keeps the latest message expanded, and lets users expand older messages; reply and forward drafts remain bound to the source Mailbox Connection. Product Account, provider setup, categories, notification rules, search, and other diagnostic tools remain available from Account Settings.
+
 ### Generic mail server setup
 
 The authenticated account screen can prepare a device-local IMAP/SMTP or legacy POP3/SMTP connection. Enter an address to apply the bundled reviewed iCloud Mail or Fastmail settings, or enter hostnames, ports, and transport modes manually. Every discovered value remains editable and is shown before connection. The bundled entries follow [Apple's iCloud Mail server settings](https://support.apple.com/en-us/102525) and [Fastmail's IMAP, POP, and SMTP settings](https://www.fastmail.help/hc/en-us/articles/1500000279921); unknown and custom domains use manual setup rather than guessed hostnames.
@@ -101,7 +103,7 @@ On Apple Silicon machines, use the explicit arm64 destination if Xcode tries to 
 xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=macOS,variant=Mac Catalyst,arch=arm64' build
 ```
 
-The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, register the current trusted device with the backend using only operational account data, and still verify backend health from the authenticated screen.
+The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, and register the current trusted device with the backend using only operational account data. After sign-in, the adaptive mail shell becomes the root experience; backend health and account diagnostics remain available from Account Settings.
 
 ### Sign in with Apple (local development)
 

@@ -10,11 +10,14 @@ struct AccountView: View {
   @Environment(\.scenePhase) private var scenePhase
 
   @State private var categoryViewModel: CustomCategoryViewModel
+  @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var mailActionViewModel: GmailMailActionViewModel
+  @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
+  @State private var showsAccountSettings = false
 
   @MainActor
   init(
@@ -71,69 +74,33 @@ struct AccountView: View {
   }
 
   var body: some View {
-    ScrollView {
-      VStack(alignment: .leading, spacing: 24) {
-        VStack(alignment: .leading, spacing: 8) {
-          Text("Unwired Mail")
-            .font(.largeTitle.bold())
-          Text("Product Account")
-            .font(.title2)
-            .foregroundStyle(.secondary)
-        }
-
-        VStack(alignment: .leading, spacing: 8) {
-          Label("Signed in with Apple", systemImage: "checkmark.circle.fill")
-            .foregroundStyle(.green)
-            .font(.headline)
-          Text("Product account: \(snapshot.productAccountId)")
-          Text("Trusted device: \(snapshot.trustedDeviceId)")
-            .foregroundStyle(.secondary)
-        }
-
-        CustomCategoryPanel(viewModel: categoryViewModel)
-
-        NotificationRulePanel(
-          categoryChoices: MessageCategoryChoice.available(
-            customCategory: categoryViewModel.category
-          ),
-          hasLoadedCategory: categoryViewModel.hasLoadedCategory,
-          viewModel: notificationRuleViewModel
-        )
-
-        GmailProviderConnectionPanel(
-          viewModel: gmailViewModel,
-          isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
-        )
-
-        GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
-
-        GmailInboxPanel(
-          categoryChoices: MessageCategoryChoice.available(
-            customCategory: categoryViewModel.category
-          ),
-          connection: gmailViewModel.connection?.authorizationState == .authorized
-            ? gmailViewModel.connection : nil,
-          isConnectionBusy: gmailViewModel.isEditingDisabled,
-          mailActionViewModel: mailActionViewModel,
-          messageReader: messageReader,
-          session: snapshot,
-          viewModel: inboxViewModel
-        )
-
-        SmokeView(service: ConvexBackendHealthService())
-
-        Button("Sign Out", role: .destructive) {
-          genericMailSetupViewModel.invalidate()
-          Task {
-            await session.signOut()
-          }
-        }
-        .buttonStyle(.bordered)
-      }
-      .padding(32)
-      .frame(maxWidth: .infinity, alignment: .topLeading)
+    NavigationSplitView(columnVisibility: $columnVisibility) {
+      MailShellSidebar(
+        connections: gmailViewModel.connections,
+        selectedConnectionId: selectedMailboxBinding,
+        showAccountSettings: { showsAccountSettings = true }
+      )
+    } content: {
+      MailShellThreadList(
+        connection: gmailViewModel.connection,
+        isConnectionBusy: gmailViewModel.isEditingDisabled,
+        selectedThreadId: selectedThreadBinding,
+        viewModel: inboxViewModel
+      )
+    } detail: {
+      MailShellConversationReader(
+        connections: gmailViewModel.connections,
+        inboxViewModel: inboxViewModel,
+        isConnectionBusy: gmailViewModel.isEditingDisabled,
+        mailActionViewModel: mailActionViewModel,
+        messageReader: messageReader,
+        selection: mailShellSelection
+      )
     }
-    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    .navigationSplitViewStyle(.balanced)
+    .sheet(isPresented: $showsAccountSettings) {
+      accountSettings
+    }
     .task {
       #if canImport(UIKit)
         requestDevicePushRegistration()
@@ -148,6 +115,9 @@ struct AccountView: View {
       )
       await gmailViewModel.load()
       await genericMailSetupViewModel.loadSyncedDefinitions()
+      if let connection = gmailViewModel.connection {
+        mailShellSelection.selectMailbox(connectionId: connection.id)
+      }
       if let connection = gmailViewModel.connection,
         connection.authorizationState == .authorized
       {
@@ -162,10 +132,16 @@ struct AccountView: View {
       }
     }
     .onChange(of: gmailViewModel.connection?.id) { _, _ in
-      guard
-        let connection = gmailViewModel.connection,
-        connection.authorizationState == .authorized
-      else { return }
+      guard let connection = gmailViewModel.connection else {
+        mailShellSelection.clearSelection()
+        inboxViewModel.clear()
+        return
+      }
+      mailShellSelection.selectMailbox(connectionId: connection.id)
+      guard connection.authorizationState == .authorized else {
+        inboxViewModel.clear()
+        return
+      }
       Task {
         await inboxViewModel.loadAfterConnectionChange(connection: connection)
       }
@@ -192,6 +168,99 @@ struct AccountView: View {
         await gmailViewModel.load()
       }
     }
+    .onChange(of: inboxViewModel.threads) { _, threads in
+      guard let connectionId = mailShellSelection.selectedConnectionId else { return }
+      mailShellSelection.updateThreads(threads, for: connectionId)
+    }
+  }
+
+  private var selectedMailboxBinding: Binding<MailboxConnectionId?> {
+    Binding(
+      get: { mailShellSelection.selectedConnectionId },
+      set: { connectionId in
+        guard
+          let connectionId,
+          gmailViewModel.connections.contains(where: { $0.id == connectionId })
+        else { return }
+        mailShellSelection.selectMailbox(connectionId: connectionId)
+        gmailViewModel.selectedConnectionId = connectionId
+      }
+    )
+  }
+
+  private var selectedThreadBinding: Binding<MailboxThreadIdentity?> {
+    Binding(
+      get: { mailShellSelection.selectedThreadId },
+      set: { threadId in
+        guard let threadId else { return }
+        mailShellSelection.selectThread(threadId)
+      }
+    )
+  }
+
+  private var accountSettings: some View {
+    NavigationStack {
+      ScrollView {
+        VStack(alignment: .leading, spacing: 24) {
+          VStack(alignment: .leading, spacing: 8) {
+            Label("Signed in with Apple", systemImage: "checkmark.circle.fill")
+              .foregroundStyle(.green)
+              .font(.headline)
+            Text("Product account: \(snapshot.productAccountId)")
+            Text("Trusted device: \(snapshot.trustedDeviceId)")
+              .foregroundStyle(.secondary)
+          }
+
+          CustomCategoryPanel(viewModel: categoryViewModel)
+
+          NotificationRulePanel(
+            categoryChoices: MessageCategoryChoice.available(
+              customCategory: categoryViewModel.category
+            ),
+            hasLoadedCategory: categoryViewModel.hasLoadedCategory,
+            viewModel: notificationRuleViewModel
+          )
+
+          GmailProviderConnectionPanel(
+            viewModel: gmailViewModel,
+            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+          )
+
+          GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
+
+          GmailInboxPanel(
+            categoryChoices: MessageCategoryChoice.available(
+              customCategory: categoryViewModel.category
+            ),
+            connection: gmailViewModel.connection?.authorizationState == .authorized
+              ? gmailViewModel.connection : nil,
+            isConnectionBusy: gmailViewModel.isEditingDisabled,
+            mailActionViewModel: mailActionViewModel,
+            messageReader: messageReader,
+            session: snapshot,
+            viewModel: inboxViewModel
+          )
+
+          SmokeView(service: ConvexBackendHealthService())
+
+          Button("Sign Out", role: .destructive) {
+            genericMailSetupViewModel.invalidate()
+            Task {
+              await session.signOut()
+            }
+          }
+          .buttonStyle(.bordered)
+        }
+        .padding(24)
+        .frame(maxWidth: .infinity, alignment: .topLeading)
+      }
+      .navigationTitle("Account Settings")
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { showsAccountSettings = false }
+        }
+      }
+    }
   }
 }
 
@@ -212,6 +281,614 @@ enum GmailSearchSource: Equatable {
 struct GmailSearchResult: Equatable {
   let messages: [MailboxMessageMetadata]
   let source: GmailSearchSource
+}
+
+enum MailShellNavigationLevel: Equatable {
+  case mailboxList
+  case threadList
+  case conversation
+}
+
+@MainActor
+@Observable
+final class MailShellSelectionModel {
+  private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
+  private(set) var selectedConnectionId: MailboxConnectionId?
+  private(set) var selectedThreadId: MailboxThreadIdentity?
+  private(set) var threads: [MailboxThread] = []
+
+  var navigationLevel: MailShellNavigationLevel {
+    if selectedThreadId != nil {
+      return .conversation
+    }
+    if selectedConnectionId != nil {
+      return .threadList
+    }
+    return .mailboxList
+  }
+
+  var selectedThread: MailboxThread? {
+    threads.first { $0.id == selectedThreadId }
+  }
+
+  func clearSelection() {
+    selectedConnectionId = nil
+    selectedThreadId = nil
+    threads = []
+    expandedMessageIds = []
+  }
+
+  func selectMailbox(connectionId: MailboxConnectionId) {
+    guard selectedConnectionId != connectionId else { return }
+    selectedConnectionId = connectionId
+    selectedThreadId = nil
+    threads = []
+    expandedMessageIds = []
+  }
+
+  func selectThread(_ threadId: MailboxThreadIdentity) {
+    guard let thread = threads.first(where: { $0.id == threadId }) else { return }
+    selectedThreadId = threadId
+    expandedMessageIds = [thread.latestMessage.id]
+  }
+
+  func updateThreads(
+    _ threads: [MailboxThread],
+    for connectionId: MailboxConnectionId
+  ) {
+    guard selectedConnectionId == connectionId else { return }
+    self.threads = threads.filter { $0.id.connectionId == connectionId }
+    guard let selectedThreadId else { return }
+    guard let selectedThread = self.threads.first(where: { $0.id == selectedThreadId }) else {
+      self.selectedThreadId = nil
+      expandedMessageIds = []
+      return
+    }
+    let availableMessageIds = Set(selectedThread.messages.map(\.id))
+    expandedMessageIds.formIntersection(availableMessageIds)
+    expandedMessageIds.insert(selectedThread.latestMessage.id)
+  }
+
+  func isMessageExpanded(
+    _ message: MailboxMessageMetadata,
+    in thread: MailboxThread
+  ) -> Bool {
+    message.id == thread.latestMessage.id || expandedMessageIds.contains(message.id)
+  }
+
+  func toggleMessageExpansion(
+    _ message: MailboxMessageMetadata,
+    in thread: MailboxThread
+  ) {
+    guard message.id != thread.latestMessage.id else { return }
+    if expandedMessageIds.contains(message.id) {
+      expandedMessageIds.remove(message.id)
+    } else {
+      expandedMessageIds.insert(message.id)
+    }
+  }
+}
+
+struct MailShellCompositionDraft: Identifiable {
+  var body: String
+  let connectionId: MailboxConnectionId
+  let id = UUID()
+  var recipient: String
+  let replyToMessage: MailboxMessageMetadata?
+  var subject: String
+
+  static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: "",
+      connectionId: message.connectionId,
+      recipient: message.replyTo ?? message.from ?? "",
+      replyToMessage: message,
+      subject: prefixedSubject("Re:", subject: message.subject)
+    )
+  }
+
+  static func forward(
+    _ message: MailboxMessageMetadata,
+    body: String
+  ) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: "\n\nForwarded message from \(message.from ?? "Unknown sender"):\n\(body)",
+      connectionId: message.connectionId,
+      recipient: "",
+      replyToMessage: nil,
+      subject: prefixedSubject("Fwd:", subject: message.subject)
+    )
+  }
+
+  private static func prefixedSubject(_ prefix: String, subject: String) -> String {
+    let trimmedSubject = subject == "(No subject)" ? "" : subject
+    guard !trimmedSubject.isEmpty else { return prefix }
+    guard !trimmedSubject.localizedCaseInsensitiveContains(prefix) else {
+      return trimmedSubject
+    }
+    return "\(prefix) \(trimmedSubject)"
+  }
+}
+
+private struct MailShellSidebar: View {
+  let connections: [MailboxConnection]
+  @Binding var selectedConnectionId: MailboxConnectionId?
+  let showAccountSettings: () -> Void
+
+  var body: some View {
+    List(selection: $selectedConnectionId) {
+      Section("Mailboxes") {
+        if connections.isEmpty {
+          Text("No Mailbox Connections")
+            .foregroundStyle(.secondary)
+        } else {
+          ForEach(connections) { connection in
+            NavigationLink(value: connection.id) {
+              Label {
+                VStack(alignment: .leading, spacing: 2) {
+                  Text("Inbox")
+                  Text(connection.displayName)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                  if connection.authorizationState == .required {
+                    Text("Authorization required")
+                      .font(.caption2)
+                      .foregroundStyle(.orange)
+                  }
+                }
+              } icon: {
+                Image(
+                  systemName: connection.authorizationState == .authorized
+                    ? "tray.full" : "lock.trianglebadge.exclamationmark"
+                )
+              }
+            }
+          }
+        }
+      }
+
+      Section {
+        Button(action: showAccountSettings) {
+          Label("Account Settings", systemImage: "gearshape")
+        }
+      }
+    }
+    .navigationTitle("Unwired Mail")
+  }
+}
+
+private struct MailShellThreadList: View {
+  let connection: MailboxConnection?
+  let isConnectionBusy: Bool
+  @Binding var selectedThreadId: MailboxThreadIdentity?
+  @Bindable var viewModel: GmailInboxViewModel
+
+  var body: some View {
+    Group {
+      if let connection {
+        if connection.authorizationState == .required {
+          ContentUnavailableView(
+            "Authorization required",
+            systemImage: "lock.trianglebadge.exclamationmark",
+            description: Text("Open Account Settings to authorize this mailbox on this device.")
+          )
+        } else if viewModel.threads.isEmpty && !viewModel.isLoading && !viewModel.isSyncing {
+          ContentUnavailableView(
+            "No inbox messages",
+            systemImage: "tray",
+            description: Text("This Mailbox Connection has no locally observed Inbox threads yet.")
+          )
+        } else {
+          List(selection: $selectedThreadId) {
+            ForEach(viewModel.threads) { thread in
+              NavigationLink(value: thread.id) {
+                MailShellThreadRow(thread: thread)
+              }
+            }
+          }
+        }
+      } else {
+        ContentUnavailableView(
+          "Select a mailbox",
+          systemImage: "sidebar.left",
+          description: Text("Choose a Mailbox Connection from the sidebar.")
+        )
+      }
+    }
+    .navigationTitle(connection?.displayName ?? "Inbox")
+    .toolbar {
+      if let connection, connection.capabilities.canSynchronizeMetadata {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            Task { _ = await viewModel.refresh(connection: connection) }
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+        }
+      }
+    }
+    .overlay {
+      if viewModel.isLoading || viewModel.isSyncing {
+        ProgressView(viewModel.isSyncing ? "Syncing mailbox…" : "Loading inbox…")
+          .padding()
+          .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      }
+    }
+  }
+}
+
+private struct MailShellThreadRow: View {
+  let thread: MailboxThread
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      HStack(alignment: .firstTextBaseline) {
+        Text(thread.latestMessage.from ?? "Unknown sender")
+          .font(.subheadline.weight(.semibold))
+          .lineLimit(1)
+        Spacer()
+        Text(receivedDate)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      HStack {
+        Text(thread.latestMessage.subject)
+          .font(.subheadline)
+          .lineLimit(1)
+        if thread.messages.count > 1 {
+          Text("\(thread.messages.count)")
+            .font(.caption2.bold())
+            .padding(.horizontal, 6)
+            .padding(.vertical, 2)
+            .background(.secondary.opacity(0.15), in: Capsule())
+        }
+      }
+
+      Text(thread.latestMessage.snippet)
+        .font(.caption)
+        .foregroundStyle(.secondary)
+        .lineLimit(2)
+    }
+    .padding(.vertical, 4)
+  }
+
+  private var receivedDate: String {
+    Date(
+      timeIntervalSince1970:
+        TimeInterval(thread.latestMessage.providerInternalDateMilliseconds) / 1_000
+    )
+    .formatted(date: .abbreviated, time: .omitted)
+  }
+}
+
+private struct MailShellConversationReader: View {
+  let connections: [MailboxConnection]
+  @Bindable var inboxViewModel: GmailInboxViewModel
+  let isConnectionBusy: Bool
+  @Bindable var mailActionViewModel: GmailMailActionViewModel
+  let messageReader: MailboxMessageReading
+  @Bindable var selection: MailShellSelectionModel
+
+  @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var readerErrorMessage: String?
+
+  var body: some View {
+    Group {
+      if let thread = selection.selectedThread,
+        let connection = connection(for: thread)
+      {
+        ScrollView {
+          LazyVStack(alignment: .leading, spacing: 12) {
+            ForEach(Array(thread.messages.reversed())) { message in
+              MailShellConversationMessage(
+                isExpanded: selection.isMessageExpanded(message, in: thread),
+                isLatest: message.id == thread.latestMessage.id,
+                loadBody: {
+                  try await inboxViewModel.loadMessageBody(message, using: messageReader)
+                },
+                message: message,
+                reply: { compositionDraft = .reply(to: message) },
+                forward: { await prepareForward(message) },
+                toggleExpansion: {
+                  selection.toggleMessageExpansion(message, in: thread)
+                }
+              )
+            }
+          }
+          .padding()
+          .frame(maxWidth: 760, alignment: .topLeading)
+          .frame(maxWidth: .infinity, alignment: .top)
+        }
+        .navigationTitle(thread.latestMessage.subject)
+        .toolbar {
+          ToolbarItemGroup(placement: .primaryAction) {
+            if connection.capabilities.canReply {
+              Button {
+                compositionDraft = .reply(to: thread.latestMessage)
+              } label: {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+              }
+              .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+            }
+            if connection.capabilities.canForward {
+              Button {
+                Task { await prepareForward(thread.latestMessage) }
+              } label: {
+                Label("Forward", systemImage: "arrowshape.turn.up.right")
+              }
+              .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+            }
+            providerActionMenu(thread: thread, connection: connection)
+          }
+        }
+      } else {
+        ContentUnavailableView(
+          "Select a thread",
+          systemImage: "envelope.open",
+          description: Text("Choose a thread to read its complete conversation.")
+        )
+      }
+    }
+    .sheet(item: $compositionDraft) { draft in
+      MailShellComposer(
+        draft: draft,
+        isSending: mailActionViewModel.isPerformingAction,
+        send: send
+      )
+    }
+    .alert("Mail action failed", isPresented: readerErrorBinding) {
+      Button("OK", role: .cancel) {}
+    } message: {
+      Text(readerErrorMessage ?? "The mail action could not be completed.")
+    }
+    .onChange(of: selection.selectedThreadId) { _, _ in
+      compositionDraft = nil
+      readerErrorMessage = nil
+      mailActionViewModel.clearError()
+    }
+  }
+
+  private var readerErrorBinding: Binding<Bool> {
+    Binding(
+      get: { readerErrorMessage != nil },
+      set: { isPresented in
+        if !isPresented { readerErrorMessage = nil }
+      }
+    )
+  }
+
+  private func connection(for thread: MailboxThread) -> MailboxConnection? {
+    connections.first { $0.id == thread.id.connectionId }
+  }
+
+  @ViewBuilder
+  private func providerActionMenu(
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    if !connection.capabilities.providerActions.isEmpty {
+      Menu {
+        if connection.capabilities.supports(.markRead) {
+          Button("Mark Read") { perform(.markRead, thread: thread, connection: connection) }
+        }
+        if connection.capabilities.supports(.markUnread) {
+          Button("Mark Unread") { perform(.markUnread, thread: thread, connection: connection) }
+        }
+        if connection.capabilities.supports(.archive) {
+          Button("Archive") { perform(.archive, thread: thread, connection: connection) }
+        }
+        if connection.capabilities.supports(.delete) {
+          Button("Delete", role: .destructive) {
+            perform(.delete, thread: thread, connection: connection)
+          }
+        }
+      } label: {
+        Label("Actions", systemImage: "ellipsis.circle")
+      }
+      .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+    }
+  }
+
+  private func perform(
+    _ action: ProviderMailAction,
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) {
+    Task {
+      let didPerform = await mailActionViewModel.perform(
+        action,
+        for: thread.messages,
+        connection: connection
+      )
+      if didPerform {
+        _ = await inboxViewModel.refresh(connection: connection)
+      } else if let errorMessage = mailActionViewModel.errorMessage {
+        readerErrorMessage = errorMessage
+      }
+    }
+  }
+
+  private func prepareForward(_ message: MailboxMessageMetadata) async {
+    do {
+      let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
+      guard !Task.isCancelled else { return }
+      compositionDraft = .forward(message, body: body.text)
+      readerErrorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      readerErrorMessage = error.localizedDescription
+    }
+  }
+
+  private func send(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard
+      let connection = connections.first(where: { $0.id == draft.connectionId }),
+      connection.authorizationState == .authorized
+    else {
+      readerErrorMessage = "Authorize the source Mailbox Connection before sending."
+      return false
+    }
+    let didSend = await mailActionViewModel.send(
+      recipient: draft.recipient,
+      subject: draft.subject,
+      body: draft.body,
+      replyTo: draft.replyToMessage,
+      connection: connection
+    )
+    if !didSend {
+      readerErrorMessage = mailActionViewModel.errorMessage
+    }
+    return didSend
+  }
+}
+
+private struct MailShellConversationMessage: View {
+  let isExpanded: Bool
+  let isLatest: Bool
+  let loadBody: () async throws -> MailboxMessageBody
+  let message: MailboxMessageMetadata
+  let reply: () -> Void
+  let forward: () async -> Void
+  let toggleExpansion: () -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Button(action: toggleExpansion) {
+        HStack(alignment: .top, spacing: 12) {
+          Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+            .font(.caption.bold())
+            .foregroundStyle(.secondary)
+            .frame(width: 12, height: 20)
+          VStack(alignment: .leading, spacing: 4) {
+            Text(message.from ?? "Unknown sender")
+              .font(.headline)
+            Text(message.subject)
+              .font(.subheadline)
+            Text(receivedDate)
+              .font(.caption)
+              .foregroundStyle(.secondary)
+          }
+          Spacer()
+          if isLatest {
+            Text("Latest")
+              .font(.caption.bold())
+              .foregroundStyle(.secondary)
+          }
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+
+      if isExpanded {
+        Divider()
+        MailShellMessageBody(load: loadBody)
+        HStack {
+          Button("Reply", action: reply)
+            .buttonStyle(.bordered)
+          Button("Forward") {
+            Task { await forward() }
+          }
+          .buttonStyle(.bordered)
+        }
+      }
+    }
+    .padding()
+    .background(.background, in: RoundedRectangle(cornerRadius: 12))
+    .overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(.separator.opacity(0.5), lineWidth: 1)
+    }
+  }
+
+  private var receivedDate: String {
+    Date(timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000)
+      .formatted(date: .abbreviated, time: .shortened)
+  }
+}
+
+private struct MailShellMessageBody: View {
+  let load: () async throws -> MailboxMessageBody
+  @State private var messageBody: MailboxMessageBody?
+  @State private var errorMessage: String?
+  @State private var isLoading = false
+
+  var body: some View {
+    Group {
+      if let messageBody {
+        Text(messageBody.text)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .textSelection(.enabled)
+      } else if isLoading {
+        ProgressView("Loading message…")
+      } else if let errorMessage {
+        ContentUnavailableView(
+          "Message unavailable",
+          systemImage: "exclamationmark.triangle",
+          description: Text(errorMessage)
+        )
+      }
+    }
+    .task {
+      isLoading = true
+      defer { isLoading = false }
+      do {
+        messageBody = try await load()
+        errorMessage = nil
+      } catch is CancellationError {
+      } catch {
+        errorMessage = error.localizedDescription
+      }
+    }
+  }
+}
+
+private struct MailShellComposer: View {
+  @State private var draft: MailShellCompositionDraft
+  let isSending: Bool
+  let send: (MailShellCompositionDraft) async -> Bool
+  @Environment(\.dismiss) private var dismiss
+
+  init(
+    draft: MailShellCompositionDraft,
+    isSending: Bool,
+    send: @escaping (MailShellCompositionDraft) async -> Bool
+  ) {
+    _draft = State(initialValue: draft)
+    self.isSending = isSending
+    self.send = send
+  }
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        TextField("To", text: $draft.recipient)
+          .textInputAutocapitalization(.never)
+        TextField("Subject", text: $draft.subject)
+        TextField("Message", text: $draft.body, axis: .vertical)
+          .lineLimit(8...24)
+      }
+      .navigationTitle(draft.replyToMessage == nil ? "Forward" : "Reply")
+      .toolbar {
+        ToolbarItem(placement: .cancellationAction) {
+          Button("Cancel") { dismiss() }
+        }
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Send") {
+            Task {
+              if await send(draft) {
+                dismiss()
+              }
+            }
+          }
+          .disabled(
+            isSending || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+          )
+        }
+      }
+    }
+  }
 }
 
 @MainActor
@@ -1806,7 +2483,6 @@ private struct GmailInboxPanel: View {
     .onDisappear {
       searchTask?.cancel()
       syncTask?.cancel()
-      viewModel.clear()
     }
     .sheet(item: $selectedMessage) { message in
       GmailMessageBodySheet(

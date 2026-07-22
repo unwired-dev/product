@@ -527,6 +527,151 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
   }
 
+  func testMailShellPreservesSelectedThreadAcrossReordering() {
+    let olderThread = mailShellThread(
+      providerThreadId: "thread-older",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-older",
+          providerThreadId: "thread-older",
+          receivedAt: 100
+        )
+      ]
+    )
+    let newerThread = mailShellThread(
+      providerThreadId: "thread-newer",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-newer",
+          providerThreadId: "thread-newer",
+          receivedAt: 200
+        )
+      ]
+    )
+    let viewModel = MailShellSelectionModel()
+
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([olderThread, newerThread], for: adapterConnectionId)
+    viewModel.selectThread(olderThread.id)
+    viewModel.updateThreads([newerThread, olderThread], for: adapterConnectionId)
+
+    XCTAssertEqual(viewModel.selectedThreadId, olderThread.id)
+    XCTAssertEqual(viewModel.navigationLevel, .conversation)
+
+    viewModel.updateThreads([newerThread], for: adapterConnectionId)
+
+    XCTAssertNil(viewModel.selectedThreadId)
+    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+  }
+
+  func testMailShellScopesThreadsToSelectedMailbox() {
+    let selectedThread = mailShellThread(
+      providerThreadId: "thread-selected",
+      messages: [
+        mailShellMessage(
+          providerMessageId: "message-selected",
+          providerThreadId: "thread-selected",
+          receivedAt: 100
+        )
+      ]
+    )
+    let otherConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([selectedThread], for: adapterConnectionId)
+    viewModel.selectThread(selectedThread.id)
+
+    viewModel.selectMailbox(connectionId: otherConnectionId)
+
+    XCTAssertEqual(viewModel.selectedConnectionId, otherConnectionId)
+    XCTAssertTrue(viewModel.threads.isEmpty)
+    XCTAssertNil(viewModel.selectedThreadId)
+    XCTAssertEqual(viewModel.navigationLevel, .threadList)
+  }
+
+  func testMailShellExpandsLatestMessageAndTogglesOlderMessages() {
+    let olderMessage = mailShellMessage(
+      providerMessageId: "message-older",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+    let latestMessage = mailShellMessage(
+      providerMessageId: "message-latest",
+      providerThreadId: "thread-001",
+      receivedAt: 200
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [olderMessage, latestMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([thread], for: adapterConnectionId)
+
+    viewModel.selectThread(thread.id)
+
+    XCTAssertTrue(viewModel.isMessageExpanded(latestMessage, in: thread))
+    XCTAssertFalse(viewModel.isMessageExpanded(olderMessage, in: thread))
+
+    viewModel.toggleMessageExpansion(olderMessage, in: thread)
+
+    XCTAssertTrue(viewModel.isMessageExpanded(olderMessage, in: thread))
+  }
+
+  func testMailShellReplyAndForwardDraftsKeepSourceConnectionIdentity() {
+    let message = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100
+    )
+
+    let reply = MailShellCompositionDraft.reply(to: message)
+    let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
+
+    XCTAssertEqual(reply.connectionId, message.connectionId)
+    XCTAssertEqual(reply.replyToMessage, message)
+    XCTAssertEqual(reply.recipient, "sender@example.com")
+    XCTAssertEqual(reply.subject, "Re: Subject message-001")
+    XCTAssertEqual(forward.connectionId, message.connectionId)
+    XCTAssertNil(forward.replyToMessage)
+    XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
+    XCTAssertTrue(forward.body.contains("Decrypted body"))
+  }
+
+}
+
+private func mailShellThread(
+  providerThreadId: String,
+  messages: [MailboxMessageMetadata]
+) -> MailboxThread {
+  MailboxThread.group(messages).first { $0.providerThreadId == providerThreadId }!
+}
+
+private func mailShellMessage(
+  providerMessageId: String,
+  providerThreadId: String,
+  receivedAt: Int64
+) -> MailboxMessageMetadata {
+  MailboxMessageMetadata(
+    categoryId: nil,
+    connectionId: adapterConnectionId,
+    from: "Sender <sender@example.com>",
+    isHistorical: false,
+    providerInternalDateMilliseconds: receivedAt,
+    providerMessageId: providerMessageId,
+    providerStateIds: ["INBOX"],
+    providerThreadId: providerThreadId,
+    recipientHeaders: ["reader@example.com"],
+    replyTo: "sender@example.com",
+    rfcMessageId: "<\(providerMessageId)@example.com>",
+    snippet: "Message \(providerMessageId)",
+    subject: "Subject \(providerMessageId)"
+  )
 }
 
 @MainActor
