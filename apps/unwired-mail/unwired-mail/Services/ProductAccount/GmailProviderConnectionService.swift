@@ -349,6 +349,7 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
 }
 
 struct GmailProviderConnectionService: GmailProviderConnecting {
+  private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
   private let pushConnectionStore: GmailPushConnectionPersisting
   private let pushWatchStopper: GmailPushWatchStopping
@@ -358,6 +359,8 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   private let transport: GmailProviderConnectionTransport
 
   init(
+    backgroundContextCacheStore: BackgroundContextCachePersisting =
+      KeychainBackgroundContextCacheStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     pushConnectionStore: GmailPushConnectionPersisting =
       KeychainGmailPushConnectionStore(),
@@ -367,6 +370,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
     transport: GmailProviderConnectionTransport = ConvexClient()
   ) {
+    self.backgroundContextCacheStore = backgroundContextCacheStore
     self.bodyReader = bodyReader
     self.pushConnectionStore = pushConnectionStore
     self.pushWatchStopper = pushWatchStopper
@@ -401,11 +405,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var cleanupError: Error?
+    do {
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
     var connections: [GmailProviderConnectionStatus] = []
     do {
       connections = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
     } catch {
-      cleanupError = error
+      cleanupError = cleanupError ?? error
     }
     for connection in connections {
       await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
@@ -446,16 +455,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
-    let hasRemainingGmailConnections: Bool
-    do {
-      hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
-        identityToken: session.identityToken,
-        providerAccountIdentifier: connection.providerAccountIdentifier,
-        trustedDeviceId: session.trustedDeviceId
-      )
-    } catch {
-      throw error
-    }
+    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    let hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
+      identityToken: session.identityToken,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: session.trustedDeviceId
+    )
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
@@ -600,7 +605,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 }
-
 extension GmailProviderConnectionService {
   func loadConnection(
     session: ProductAccountSessionSnapshot

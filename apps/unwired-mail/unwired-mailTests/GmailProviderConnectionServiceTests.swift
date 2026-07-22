@@ -476,6 +476,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
   }
 
   func testClearLocalConnectionStopsWatchThenClearsTokensMetadataAndCachedBodies() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let tokenStore = InMemoryGmailProviderTokenStore()
     let bodyReader = RecordingGmailMessageReader()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -497,6 +498,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
       pushConnectionStore: pushConnectionStore,
       pushWatchStopper: pushWatchStopper,
@@ -514,6 +516,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(try tokenStore.load(productAccountId: session.productAccountId))
     XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
     XCTAssertEqual(bodyReader.clearedSessions, [session])
+    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(metadataStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
@@ -540,11 +543,13 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     }
     let bodyReader = RecordingGmailMessageReader()
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let metadataStore = RecordingGmailProviderMetadataStore()
     let pushConnectionStore = RecordingPushConnectionStore(connection: first)
     let pushWatchStore = RecordingPushWatchStore()
     let transport = RecordingGmailConnectionTransport()
     let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
       pushConnectionStore: pushConnectionStore,
       pushWatchStore: pushWatchStore,
@@ -568,6 +573,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     )
     XCTAssertEqual(bodyReader.clearedProviderAccountIdentifiers, [first.providerAccountIdentifier])
+    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(
       metadataStore.clearedKeys,
       ["\(session.productAccountId):\(first.providerAccountIdentifier)"]
@@ -579,6 +585,26 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       ["\(session.productAccountId):\(first.providerAccountIdentifier)"]
     )
     XCTAssertEqual(transport.removedProviderAccountIdentifiers, [first.providerAccountIdentifier])
+  }
+
+  func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    cacheStore.clearError = GmailProviderConnectionTestError.tokenCleanupFailed
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(transport.status, session: session)
+      XCTFail("Expected background context cache clear failure")
+    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(transport.removedProviderAccountIdentifiers.isEmpty)
   }
 
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
@@ -1395,6 +1421,25 @@ private final class RecordingPushWatchStore: GmailPushWatchPersisting {
     _: GmailPushWatchStatus,
     productAccountId _: String,
     providerAccountIdentifier _: String
+  ) throws {}
+}
+
+private final class RecordingBackgroundContextCacheStore: BackgroundContextCachePersisting {
+  var clearError: Error?
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountIds.append(productAccountId)
+    if let clearError { throw clearError }
+  }
+
+  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+    nil
+  }
+
+  func save(
+    _: BackgroundCategorizationContextCache,
+    productAccountId _: String
   ) throws {}
 }
 
