@@ -144,9 +144,9 @@ struct AccountView: View {
         inboxViewModel.clear()
         return
       }
+      inboxViewModel.clear()
       mailShellSelection.selectMailbox(connectionId: connection.id)
       guard connection.authorizationState == .authorized else {
-        inboxViewModel.clear()
         return
       }
       loadInbox(for: connection)
@@ -519,6 +519,13 @@ private struct MailShellSidebar: View {
               }
             }
           }
+        }
+      }
+
+      if !connections.isEmpty, let errorMessage {
+        Section {
+          Label(errorMessage, systemImage: "exclamationmark.triangle")
+            .foregroundStyle(.orange)
         }
       }
 
@@ -1270,7 +1277,7 @@ final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
-          providerThreadId: replyTo?.providerThreadId
+          providerThreadId: replyTo?.rfcMessageId == nil ? nil : replyTo?.providerThreadId
         ),
         connection: connection,
         session: session

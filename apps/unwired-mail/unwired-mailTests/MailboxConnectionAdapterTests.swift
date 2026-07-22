@@ -785,7 +785,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.recipient, "sender@example.com")
   }
 
-  func testMailActionReplyWithoutRFCMessageIDKeepsProviderThread() async {
+  func testMailActionReplyWithoutRFCMessageIDDoesNotSetProviderThread() async {
     let service = RecordingAdapterMailActionService()
     let adapter = GmailMailboxConnectionAdapter(
       definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
@@ -820,7 +820,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertTrue(didSend)
-    XCTAssertEqual(service.outgoingMessage?.threadId, replyTo.providerThreadId)
+    XCTAssertNil(service.outgoingMessage?.threadId)
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
   }
 
