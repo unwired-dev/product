@@ -810,15 +810,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   @MainActor
   func testInboxViewModelLoadsAllUnifiedConnectionsBeforeHistoricalBackfill() async {
-    var fixture = makeUnifiedInboxViewModelFixture()
-    fixture.service.historicalMessagesByProviderAccount = [
-      fixture.connections[0].providerMailboxIdentity.value: metadata(
-        messageId: "message-first-historical",
-        threadId: "thread-first-historical",
-        internalDateMilliseconds: 50
-      )
-    ]
-    fixture.service.delaysHistoricalBackfill = true
+    let fixture = makeUnifiedInboxViewModelFixture(
+      historicalMessagesByProviderAccount: [
+        connection.providerAccountIdentifier: metadata(
+          messageId: "message-first-historical",
+          threadId: "thread-first-historical",
+          internalDateMilliseconds: 50
+        )
+      ],
+      delaysHistoricalBackfill: true
+    )
 
     let loadTask = Task { @MainActor in
       await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
@@ -834,15 +835,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
   @MainActor
   func testInboxViewModelClearsLoadingWhenUnifiedLoadIsCancelled() async {
-    var fixture = makeUnifiedInboxViewModelFixture()
-    fixture.service.historicalMessagesByProviderAccount = [
-      fixture.connections[0].providerMailboxIdentity.value: metadata(
-        messageId: "message-first-historical",
-        threadId: "thread-first-historical",
-        internalDateMilliseconds: 50
-      )
-    ]
-    fixture.service.delaysHistoricalBackfill = true
+    let fixture = makeUnifiedInboxViewModelFixture(
+      historicalMessagesByProviderAccount: [
+        connection.providerAccountIdentifier: metadata(
+          messageId: "message-first-historical",
+          threadId: "thread-first-historical",
+          internalDateMilliseconds: 50
+        )
+      ],
+      delaysHistoricalBackfill: true
+    )
 
     let loadTask = Task { @MainActor in
       await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
@@ -2567,7 +2569,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  private func makeUnifiedInboxViewModelFixture() -> UnifiedInboxViewModelFixture {
+  private func makeUnifiedInboxViewModelFixture(
+    historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:],
+    delaysHistoricalBackfill: Bool = false
+  ) -> UnifiedInboxViewModelFixture {
     let secondConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
       emailAddress: "other@example.com",
@@ -2590,7 +2595,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           internalDateMilliseconds: 200,
           providerAccountIdentifier: secondConnection.providerAccountIdentifier
         ),
-      ]
+      ],
+      historicalMessagesByProviderAccount: historicalMessagesByProviderAccount,
+      delaysHistoricalBackfill: delaysHistoricalBackfill
     )
     return UnifiedInboxViewModelFixture(
       connections: [
@@ -2627,7 +2634,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
 private struct UnifiedInboxViewModelFixture {
   let connections: [MailboxConnection]
-  var service: DelayedMailboxSwitchingService
+  let service: DelayedMailboxSwitchingService
   let viewModel: GmailInboxViewModel
 }
 

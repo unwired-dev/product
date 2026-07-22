@@ -1550,57 +1550,99 @@ final class GmailInboxViewModel {
     threads = MailboxThread.group(
       loadedThreadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
     )
-    var errors: [String] = []
-    var connectionsNeedingBackfill: [MailboxConnection] = []
-    for connection in authorizedConnections {
-      do {
-        guard
-          let needsBackfill = try await loadUnifiedInbox(
-            for: connection,
-            loadId: loadId,
-            connectionIds: connectionIds,
-            threadsByConnection: &loadedThreadsByConnection
-          )
-        else { return }
-        if needsBackfill {
-          connectionsNeedingBackfill.append(connection)
-        }
-      } catch is CancellationError {
-        return
-      } catch {
-        errors.append("\(connection.displayName): \(error.localizedDescription)")
-      }
-    }
     guard
-      let backfillErrors = await continueUnifiedInboxBackfill(
-        for: connectionsNeedingBackfill,
+      let cacheErrors = await loadCachedUnifiedInboxes(
+        for: authorizedConnections,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &loadedThreadsByConnection
       )
     else { return }
-    errors.append(contentsOf: backfillErrors)
+    guard
+      let syncResult = await syncUnifiedInboxes(
+        for: authorizedConnections,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &loadedThreadsByConnection
+      )
+    else { return }
+    guard
+      let backfillErrors = await continueUnifiedInboxBackfill(
+        for: syncResult.connectionsNeedingBackfill,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &loadedThreadsByConnection
+      )
+    else { return }
+    let errors = cacheErrors + syncResult.errors + backfillErrors
     guard unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else { return }
     errorMessage = errors.isEmpty ? nil : errors.joined(separator: "\n")
   }
 
-  private func loadUnifiedInbox(
+  private func loadCachedUnifiedInboxes(
+    for connections: [MailboxConnection],
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>,
+    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) async -> [String]? {
+    var errors: [String] = []
+    for connection in connections {
+      do {
+        let result = try await service.loadInbox(connection: connection, session: session)
+        guard
+          applyUnifiedInboxResult(
+            result.threads,
+            for: connection.id,
+            loadId: loadId,
+            connectionIds: connectionIds,
+            threadsByConnection: &threadsByConnection
+          )
+        else { return nil }
+      } catch is CancellationError {
+        return nil
+      } catch {
+        errors.append("\(connection.displayName): \(error.localizedDescription)")
+      }
+    }
+    return errors
+  }
+
+  private func syncUnifiedInboxes(
+    for connections: [MailboxConnection],
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>,
+    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
+  ) async -> (connectionsNeedingBackfill: [MailboxConnection], errors: [String])? {
+    var connectionsNeedingBackfill: [MailboxConnection] = []
+    var errors: [String] = []
+    for connection in connections {
+      do {
+        guard
+          let needsBackfill = try await syncUnifiedInbox(
+            for: connection,
+            loadId: loadId,
+            connectionIds: connectionIds,
+            threadsByConnection: &threadsByConnection
+          )
+        else { return nil }
+        if needsBackfill {
+          connectionsNeedingBackfill.append(connection)
+        }
+      } catch is CancellationError {
+        return nil
+      } catch {
+        errors.append("\(connection.displayName): \(error.localizedDescription)")
+      }
+    }
+    return (connectionsNeedingBackfill, errors)
+  }
+
+  private func syncUnifiedInbox(
     for connection: MailboxConnection,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async throws -> Bool? {
-    let result = try await service.loadInbox(connection: connection, session: session)
-    guard
-      applyUnifiedInboxResult(
-        result.threads,
-        for: connection.id,
-        loadId: loadId,
-        connectionIds: connectionIds,
-        threadsByConnection: &threadsByConnection
-      )
-    else { return nil }
-
     let syncedResult = try await service.syncInbox(connection: connection, session: session)
     guard
       applyUnifiedInboxResult(
@@ -1817,6 +1859,9 @@ final class GmailInboxViewModel {
         .flatMap(\.messages)
 
       threads = MailboxThread.group(otherMessages + result.threads.flatMap(\.messages))
+      if !result.historicalMetadataBackfillIsComplete {
+        startUnifiedHistoricalBackfill(connection: connection)
+      }
       errorMessage = nil
       return true
     } catch is CancellationError {
@@ -1831,6 +1876,41 @@ final class GmailInboxViewModel {
     backfillTask?.cancel()
     backfillTask = nil
     backfillTaskId = nil
+  }
+
+  private func startUnifiedHistoricalBackfill(connection: MailboxConnection) {
+    guard backfillTask == nil else { return }
+    let taskId = UUID()
+    backfillTaskId = taskId
+    backfillTask = Task { [weak self] in
+      guard let self else { return }
+      defer {
+        if backfillTaskId == taskId {
+          backfillTask = nil
+          backfillTaskId = nil
+        }
+      }
+      do {
+        let backfill = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        guard
+          !Task.isCancelled,
+          backfillTaskId == taskId,
+          unifiedConnectionIds.contains(connection.id)
+        else { return }
+        let otherMessages =
+          threads
+          .filter { $0.id.connectionId != connection.id }
+          .flatMap(\.messages)
+        threads = MailboxThread.group(otherMessages + backfill.threads.flatMap(\.messages))
+      } catch is CancellationError {
+      } catch {
+        guard !Task.isCancelled, backfillTaskId == taskId else { return }
+        errorMessage = error.localizedDescription
+      }
+    }
   }
 
   func searchLocal(categoryNamesById: [String: String]) {
