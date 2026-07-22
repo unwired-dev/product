@@ -37,7 +37,7 @@ warm the repository's TypeScript Testbox from the repository root:
 ```sh
 curl -fsSL https://get.blacksmith.sh | sh
 blacksmith auth login
-blacksmith testbox warmup blacksmith-testbox.yml --job typescript --ref "$(git branch --show-current)"
+blacksmith testbox warmup blacksmith-testbox.yml --job typescript
 ```
 
 Reuse the returned Testbox ID to sync local changes and run checks in the warm

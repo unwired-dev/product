@@ -40,8 +40,22 @@ jobs:
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
+      - name: Restore Turbo cache
+        uses: actions/cache/restore@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # v4
+        with:
+          path: .turbo/cache
+          key: turbo-${{ runner.os }}-typescript-${{ github.sha }}
+          restore-keys: |
+            turbo-${{ runner.os }}-typescript-
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Expose Node toolchain to Testbox shells
+        run: |
+          for tool in node npm npx corepack pnpm; do
+            sudo ln -sf "$(command -v "$tool")" "/usr/local/bin/$tool"
+          done
 
       - name: Run Testbox
         if: always()
