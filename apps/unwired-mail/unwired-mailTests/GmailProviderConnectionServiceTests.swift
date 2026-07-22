@@ -543,11 +543,13 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     }
     let bodyReader = RecordingGmailMessageReader()
+    let cacheStore = RecordingBackgroundContextCacheStore()
     let metadataStore = RecordingGmailProviderMetadataStore()
     let pushConnectionStore = RecordingPushConnectionStore(connection: first)
     let pushWatchStore = RecordingPushWatchStore()
     let transport = RecordingGmailConnectionTransport()
     let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
       pushConnectionStore: pushConnectionStore,
       pushWatchStore: pushWatchStore,
@@ -571,6 +573,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       )
     )
     XCTAssertEqual(bodyReader.clearedProviderAccountIdentifiers, [first.providerAccountIdentifier])
+    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
     XCTAssertEqual(
       metadataStore.clearedKeys,
       ["\(session.productAccountId):\(first.providerAccountIdentifier)"]

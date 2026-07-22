@@ -1575,12 +1575,12 @@ extension MessageCategorizationServiceTests {
       backgroundContextCacheStore: cacheStore,
       bodyReader: RecordingCachedBodyReader(bodyText: nil),
       categorySync: StubCustomCategorySync(),
-      engine: RecordingClassificationEngine(decisions: [.uncategorized])
+      engine: RecordingClassificationEngine(decisions: [.assigned(categoryId: "system:flights")])
     )
 
     let categorized = try await service.categorize(messages: [message()], session: session)
 
-    XCTAssertEqual(categorized.count, 1)
+    XCTAssertEqual(categorized[0].categoryId, "system:flights")
   }
 
   func testBackgroundCategorizationUsesFreshExactSenderContextWhenProductSyncFails()
@@ -1627,6 +1627,43 @@ extension MessageCategorizationServiceTests {
 
     XCTAssertEqual(categorized[0].categoryId, "system:flights")
     XCTAssertTrue(assignmentSync.savedAssignments.isEmpty)
+  }
+
+  func testBackgroundCategorizationClearsCacheWhenLearningSignalsAuthenticationFails()
+    async throws
+  {
+    let cacheStore = InMemoryBackgroundContextCacheStore()
+    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+      cachedAtMilliseconds: 1_781_400_000_000,
+      learningSignals: [
+        FutureLearningSignal(
+          appliesAfterTimestamp: 1,
+          categoryId: "system:flights",
+          senderAddresses: ["sender@example.com"]
+        )
+      ]
+    )
+    let assignmentSync = RecordingMessageCategoryAssignmentSync()
+    assignmentSync.learningSignalLoadError = ConvexClientError.convexFailure(
+      status: "error",
+      message: "Authentication required"
+    )
+    let service = GmailMessageCategorizationService(
+      assignmentSync: assignmentSync,
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: RecordingCachedBodyReader(bodyText: nil),
+      categorySync: StubCustomCategorySync(),
+      currentTimeMilliseconds: { 1_781_400_000_000 },
+      engine: RuleBasedClassificationEngine()
+    )
+
+    let categorized = try await service.categorizeForBackgroundNotification(
+      messages: [message(subject: "Flight confirmation")],
+      session: session
+    )
+
+    XCTAssertNil(categorized[0].categoryId)
+    XCTAssertNil(cacheStore.caches[session.productAccountId])
   }
 
   func testBackgroundCategorizationDoesNotUseCacheForNonAuthenticationFailure() async throws {
@@ -1965,6 +2002,7 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
   var assignmentsByMessageId: [String: MessageCategoryAssignment] = [:]
   var shouldFailBatchLoad = false
   var shouldFailLearningSignalLoad = false
+  var learningSignalLoadError: Error?
   private(set) var loadedAssignmentBatches: [[String]] = []
   private(set) var loadedLearningSignalSenderAddresses: [String] = []
   private(set) var loadedMessageIds: [String] = []
@@ -1996,6 +2034,9 @@ private final class RecordingMessageCategoryAssignmentSync: MessageCategoryAssig
     session _: ProductAccountSessionSnapshot
   ) async throws -> [FutureLearningSignal] {
     loadedLearningSignalSenderAddresses = senderAddresses
+    if let learningSignalLoadError {
+      throw learningSignalLoadError
+    }
     if shouldFailLearningSignalLoad {
       throw URLError(.cannotConnectToHost)
     }

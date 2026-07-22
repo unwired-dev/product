@@ -409,13 +409,13 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     do {
       try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
     } catch {
-      cleanupError = error
+      cleanupError = cleanupError ?? error
     }
     var connections: [GmailProviderConnectionStatus] = []
     do {
       connections = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
     } catch {
-      cleanupError = error
+      cleanupError = cleanupError ?? error
     }
     for connection in connections {
       await stopPushWatchIfLastActiveRoute(connection: connection, session: session)
@@ -475,12 +475,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    do {
+      try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
     if !hasRemainingGmailConnections {
-      do {
-        try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
       do {
         try bodyReader.clearCachedMessageBodies(session: session)
       } catch {

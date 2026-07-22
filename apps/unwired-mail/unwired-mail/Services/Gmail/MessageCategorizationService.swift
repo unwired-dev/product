@@ -1231,10 +1231,18 @@ extension GmailMessageCategorizationService {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
     let customCategory = try await categorySync.loadCategory(session: session)
-    let learningSignals = try await assignmentSync.loadFutureLearningSignals(
-      senderAddresses: learningSignalSenderAddresses,
-      session: session
-    )
+    let learningSignals: [FutureLearningSignal]
+    do {
+      learningSignals = try await assignmentSync.loadFutureLearningSignals(
+        senderAddresses: learningSignalSenderAddresses,
+        session: session
+      )
+    } catch {
+      if backgroundAuthenticationIsUnavailable(error) {
+        try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      }
+      throw error
+    }
     try? refreshBackgroundContextCache(
       customCategory: customCategory,
       learningSignals: learningSignals,
