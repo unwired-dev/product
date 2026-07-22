@@ -732,6 +732,7 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     for message in messages {
       if let record = existingByStableId.removeValue(forKey: message.stableProviderMessageId) {
         record.encodedMessage = try JSONEncoder().encode(message)
+        record.pendingRemovalScanId = nil
       } else {
         context.insert(
           DurableGmailMessageMetadataRecord(
@@ -1099,7 +1100,7 @@ struct GmailMessageMetadataService:
           accessToken: tokens.accessToken,
           pageToken: pageToken
         )
-      } catch GmailMessageMetadataSyncError.gmailRequestFailed {
+      } catch GmailMessageMetadataSyncError.invalidGmailPageToken {
         guard allowsPageTokenReset else {
           throw GmailMessageMetadataSyncError.gmailRequestFailed
         }
@@ -1848,6 +1849,13 @@ struct GmailMessageMetadataService:
       {
         throw GmailMessageMetadataSyncError.expiredGmailHistoryId
       }
+      if url.path.hasSuffix("/users/me/messages"),
+        url.query?.contains("pageToken=") == true,
+        let error = try? JSONDecoder().decode(GmailAPIErrorResponse.self, from: data),
+        error.error.message.localizedCaseInsensitiveContains("page token")
+      {
+        throw GmailMessageMetadataSyncError.invalidGmailPageToken
+      }
       throw GmailMessageMetadataSyncError.gmailRequestFailed
     }
 
@@ -2110,6 +2118,7 @@ struct GmailMessageMetadataService:
 
 enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case expiredGmailHistoryId
+  case invalidGmailPageToken
   case invalidMessageHeader
   case gmailRequestFailed
   case invalidGmailRequest
@@ -2124,6 +2133,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
     switch self {
     case .expiredGmailHistoryId:
       return "The Gmail history cursor expired."
+    case .invalidGmailPageToken:
+      return "The saved Gmail message page token is invalid."
     case .invalidMessageHeader:
       return "Message recipients and subjects cannot contain line breaks."
     case .gmailRequestFailed:
@@ -2144,6 +2155,14 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "The Gmail connection changed while mailbox sync was running."
     }
   }
+}
+
+private struct GmailAPIErrorResponse: Decodable {
+  let error: GmailAPIError
+}
+
+private struct GmailAPIError: Decodable {
+  let message: String
 }
 
 extension GmailInboxThread {

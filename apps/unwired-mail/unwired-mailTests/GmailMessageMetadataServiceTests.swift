@@ -1262,6 +1262,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testHistoricalBackfillKeepsCheckpointAfterGenericPageFailure() async throws {
+    let fixture = try makeSyncFixture(
+      usesPagination: true,
+      rejectsFirstHistoricalPageToken: true,
+      rejectedPageTokenResponseData: Data()
+    )
+    _ = try await fixture.service.syncInbox(connection: connection, session: session)
+
+    do {
+      _ = try await fixture.service.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected the generic Gmail request failure to preserve the checkpoint.")
+    } catch {
+      XCTAssertEqual(error as? GmailMessageMetadataSyncError, .gmailRequestFailed)
+    }
+
+    XCTAssertEqual(fixture.store.syncState?.nextPageToken, "next-page-token")
+  }
+
   func testHistoricalBackfillStoresNonInboxMetadataWithoutShowingItInInbox() async throws {
     let fixture = try makeSyncFixture(
       usesPagination: true,
@@ -2091,6 +2112,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String = "gmail-user-001",
     usesPagination: Bool = false,
     rejectsFirstHistoricalPageToken: Bool = false,
+    rejectedPageTokenResponseData: Data? = nil,
     replyTo: String? = nil,
     historyStatusCode: Int = 200,
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8),
@@ -2113,6 +2135,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         tokenInfoSubject: tokenInfoSubject,
         usesPagination: usesPagination,
         rejectsFirstHistoricalPageToken: rejectsFirstHistoricalPageToken,
+        rejectedPageTokenResponseData: rejectedPageTokenResponseData,
         replyTo: replyTo,
         labelIdsByMessageId: labelIdsByMessageId,
         messageIdsWithoutLabelIds: messageIdsWithoutLabelIds,
@@ -2148,6 +2171,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     tokenInfoSubject: String,
     usesPagination: Bool,
     rejectsFirstHistoricalPageToken: Bool,
+    rejectedPageTokenResponseData: Data?,
     replyTo: String?,
     labelIdsByMessageId: [String: [String]],
     messageIdsWithoutLabelIds: Set<String>,
@@ -2200,7 +2224,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         if rejectsFirstHistoricalPageToken,
           requestRecorder.queries.filter({ $0.contains("pageToken=next-page-token") }).count == 1
         {
-          return (Self.httpResponse(for: request, statusCode: 400), Data())
+          return (
+            Self.httpResponse(for: request, statusCode: 400),
+            rejectedPageTokenResponseData
+              ?? Data(#"{"error":{"message":"Invalid page token."}}"#.utf8)
+          )
         }
         return (
           Self.httpResponse(for: request, statusCode: 200),
