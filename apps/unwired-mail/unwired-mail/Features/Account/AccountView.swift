@@ -150,12 +150,7 @@ struct AccountView: View {
         inboxViewModel.clear()
         return
       }
-      inboxViewModel.clear()
-      mailShellSelection.selectMailbox(connectionId: connection.id)
-      guard connection.authorizationState == .authorized else {
-        return
-      }
-      loadInbox(for: connection)
+      selectConnection(connection)
     }
     .onChange(of: gmailViewModel.connections) { _, _ in
       guard mailShellSelection.selectedMailbox == .unifiedInbox else { return }
@@ -234,6 +229,13 @@ struct AccountView: View {
     }
   }
 
+  private func selectConnection(_ connection: MailboxConnection) {
+    inboxViewModel.clear()
+    mailShellSelection.selectMailbox(connectionId: connection.id)
+    guard connection.authorizationState == .authorized else { return }
+    loadInbox(for: connection)
+  }
+
 }
 
 extension AccountView {
@@ -247,8 +249,8 @@ extension AccountView {
           return
         }
         if mailbox == .unifiedInbox {
-          guard mailShellSelection.selectedMailbox != .unifiedInbox else { return }
           inboxViewModel.clear()
+          mailShellSelection.replaceUnifiedThreads([], connectionIds: [])
           mailShellSelection.selectUnifiedInbox()
           loadUnifiedInbox()
           return
@@ -258,14 +260,15 @@ extension AccountView {
           gmailViewModel.connections.contains(where: { $0.id == connectionId })
         else { return }
         let isCurrentConnection = gmailViewModel.selectedConnectionId == connectionId
-        inboxViewModel.clear()
-        mailShellSelection.selectMailbox(connectionId: connectionId)
+        if !isCurrentConnection {
+          mailShellSelection.selectMailbox(connectionId: connectionId)
+        }
         gmailViewModel.selectedConnectionId = connectionId
         guard isCurrentConnection else { return }
         guard let connection = gmailViewModel.connection,
-          connection.authorizationState == .authorized
+          connection.id == connectionId
         else { return }
-        loadInbox(for: connection)
+        selectConnection(connection)
       }
     )
   }
@@ -309,6 +312,7 @@ extension AccountView {
             isConnectionBusy: gmailViewModel.isEditingDisabled,
             mailActionViewModel: mailActionViewModel,
             messageReader: messageReader,
+            preventsInboxLoad: mailShellSelection.selectedMailbox == .unifiedInbox,
             session: snapshot,
             viewModel: inboxViewModel
           )
@@ -2569,6 +2573,7 @@ private struct GmailInboxPanel: View {
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
+  let preventsInboxLoad: Bool
   let session: ProductAccountSessionSnapshot
   @Bindable var viewModel: GmailInboxViewModel
   @State private var searchTask: Task<Void, Never>?
@@ -2819,7 +2824,7 @@ private struct GmailInboxPanel: View {
           .font(.footnote)
       }
     }
-    .task(id: connection?.id) {
+    .task(id: preventsInboxLoad ? nil : connection?.id) {
       searchTask?.cancel()
       syncTask?.cancel()
       mailActionViewModel.clearError()
@@ -2827,6 +2832,7 @@ private struct GmailInboxPanel: View {
       recipient = ""
       subject = ""
       composeBody = ""
+      guard !preventsInboxLoad else { return }
       guard let connection else {
         viewModel.clear()
         return
