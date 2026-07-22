@@ -1187,8 +1187,30 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(categorizer.receivedMessages.map(\.providerMessageId), ["message-001"])
-    XCTAssertNil(
-      fixture.store.savedMessages.first { $0.providerMessageId == "message-002" }?.categoryId
+    let savedMessageTwo = try XCTUnwrap(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-002" }
+    )
+    XCTAssertNil(savedMessageTwo.categoryId)
+  }
+
+  func testSyncInboxRetainsIncompleteBackfillCutoffWhenRefreshingNewestPage() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+    let reconnectedConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_000_000_000,
+      emailAddress: connection.emailAddress,
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: 1_781_100_000_000
+    )
+
+    _ = try await fixture.service.syncInbox(connection: reconnectedConnection, session: session)
+    _ = try await fixture.service.syncInbox(connection: reconnectedConnection, session: session)
+
+    XCTAssertEqual(
+      fixture.store.syncState?.initialHistoricalCutoffMilliseconds,
+      reconnectedConnection.updatedAt
     )
   }
 
@@ -1248,7 +1270,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testCheckpointlessCachedMessagesStartWithNewestPageSync() async throws {
-    let fixture = try makeSyncFixture()
+    let fixture = try makeSyncFixture(usesPagination: true)
     fixture.store.messages = [
       metadata(
         messageId: "cached-message",
@@ -1263,9 +1285,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertTrue(result.hasInitialMailboxAvailability)
+    XCTAssertTrue(result.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      ["maxResults=50"]
+      [
+        "maxResults=50",
+        "maxResults=50&pageToken=next-page-token",
+      ]
     )
     XCTAssertNotNil(fixture.store.syncState)
   }
@@ -1391,6 +1417,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       [
         "message-003", "message-002", "message-001",
       ])
+  }
+
+  func testHistoricalBackfillDoesNotCategorizeNonInboxMessages() async throws {
+    let categorizer = RecordingGmailMessageCategorizer(categoryId: "system:promotions")
+    let fixture = try makeSyncFixture(
+      categorizer: categorizer,
+      usesPagination: true,
+      messageIdsWithoutLabelIds: ["message-001"]
+    )
+    _ = try await fixture.service.syncInbox(connection: connection, session: session)
+
+    _ = try await fixture.service.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(categorizer.receivedMessages.isEmpty)
+    let savedMessageOne = try XCTUnwrap(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-001" }
+    )
+    XCTAssertNil(savedMessageOne.categoryId)
   }
 
   func testSyncInboxRejectsRefreshedTokenForDifferentGoogleAccount() async throws {

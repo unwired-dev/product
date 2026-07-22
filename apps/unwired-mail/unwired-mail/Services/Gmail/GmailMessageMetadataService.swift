@@ -982,14 +982,26 @@ struct GmailMessageMetadataService:
     let existingMessagesByStableId = Dictionary(
       uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }
     )
+    let existingState = try store.loadSyncState(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     let page = try await listProviderMessagePage(
       accessToken: tokens.accessToken,
       pageToken: nil
     )
-    let initialHistoricalCutoffMilliseconds = historicalCutoffMilliseconds(
-      connection: connection,
-      hasLocalMetadata: !existingMessages.isEmpty
-    )
+    let incompleteBackfillCutoffMilliseconds = existingState.flatMap { state in
+      state.historicalMetadataBackfillIsComplete
+        ? nil
+        : state.initialHistoricalCutoffMilliseconds
+    }
+
+    let initialHistoricalCutoffMilliseconds =
+      incompleteBackfillCutoffMilliseconds
+      ?? historicalCutoffMilliseconds(
+        connection: connection,
+        hasLocalMetadata: !existingMessages.isEmpty
+      )
     var messages = try await fetchListedMessageMetadata(
       accessToken: tokens.accessToken,
       categorizationBoundary: historicalCutoff(
@@ -1063,7 +1075,13 @@ struct GmailMessageMetadataService:
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
     else {
-      return try await syncInbox(connection: connection, session: session)
+      let refreshed = try await syncInbox(connection: connection, session: session)
+      guard !refreshed.historicalMetadataBackfillIsComplete else { return refreshed }
+      return try await continueHistoricalBackfill(
+        connection: connection,
+        session: session,
+        allowsPageTokenReset: allowsPageTokenReset
+      )
     }
     guard !state.historicalMetadataBackfillIsComplete else {
       let messages = try store.loadMessages(
@@ -1137,10 +1155,16 @@ struct GmailMessageMetadataService:
         preservingExistingStateFrom: existingMessagesByStableId
       )
       try Task.checkCancellation()
-      pageMessages = try await categorizer.categorize(
-        messages: pageMessages,
+      let categorizedInboxMessages = try await categorizer.categorize(
+        messages: inboxMessages(pageMessages),
         session: session
       )
+      let categorizedInboxMessagesByStableId = Dictionary(
+        uniqueKeysWithValues: categorizedInboxMessages.map { ($0.stableProviderMessageId, $0) }
+      )
+      pageMessages = pageMessages.map {
+        categorizedInboxMessagesByStableId[$0.stableProviderMessageId] ?? $0
+      }
       try Task.checkCancellation()
       guard shouldContinueHistoricalBackfill() else { break }
       state = GmailMetadataSyncState(
