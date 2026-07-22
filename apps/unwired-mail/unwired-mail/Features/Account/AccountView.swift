@@ -532,7 +532,7 @@ final class GmailInboxViewModel {
 
   var isBusy: Bool {
     isAssigningCategory || isCategorizingHistorical || isLoading || isLoadingMessageBody
-      || isSearching || isSyncing
+      || isSearching || isSyncing || backfillTask != nil
   }
 
   func loadMessageBody(
