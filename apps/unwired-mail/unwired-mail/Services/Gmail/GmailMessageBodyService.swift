@@ -638,7 +638,6 @@ private struct GmailMessageBodyPrefetchContext {
   let accessToken: String
   let keyMaterial: ProductSyncKeyMaterial
   let pinnedMessageIds: Set<String>
-  let referenceDate: Date
   let session: ProductAccountSessionSnapshot
 }
 
@@ -791,7 +790,6 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       accessToken: refreshedTokens.accessToken,
       keyMaterial: material,
       pinnedMessageIds: pinnedMessageIds,
-      referenceDate: referenceDate,
       session: session
     )
     for message in messagesToPrefetch {
@@ -813,9 +811,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
         message: message,
         accessToken: context.accessToken
       )
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch {
+    } catch GmailMessageBodyError.missingMessageBody {
       return true
     }
     try Task.checkCancellation()
@@ -825,7 +821,9 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     )
     return try cache.saveMessageBody(
       GmailMessageBodyCacheWrite(
-        cachedAt: context.referenceDate,
+        cachedAt: Date(
+          timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000
+        ),
         isPinned: context.pinnedMessageIds.contains(message.stableProviderMessageId),
         isProtected: true,
         payload: encryptedPayload,
@@ -949,7 +947,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let text: String
     if bodyPart.mimeType == "text/html" {
-      text = await MainActor.run { htmlText(decodedText) }
+      text = htmlText(decodedText)
     } else {
       text = decodedText
     }

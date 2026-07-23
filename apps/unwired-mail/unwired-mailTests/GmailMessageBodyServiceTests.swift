@@ -227,6 +227,34 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     }
   }
 
+  func testPrefetchStopsAfterGmailRequestFailure() async throws {
+    let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let prefetchedMessage = prefetchMessage(
+      id: "message-001",
+      internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
+      labels: ["INBOX"]
+    )
+    let fixture = try makeFixture(
+      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      messageStatusCode: 503
+    )
+
+    do {
+      try await fixture.service.prefetchMessageBodies(
+        connection: connection,
+        pinnedMessageIds: [],
+        referenceDate: referenceDate,
+        session: session
+      )
+      XCTFail("Expected Gmail request failure")
+    } catch GmailMessageBodyError.gmailRequestFailed {
+      XCTAssertEqual(
+        fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testPrefetchCancellationStopsBeforeProviderAccess() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -911,6 +939,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   private func makeFixture(
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
+    messageStatusCode: Int = 200,
     tokenInfoResponse: String =
       #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#,
     messageResponse: String =
@@ -952,7 +981,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       XCTAssertEqual(request.url?.query, "format=full")
       return (
         HTTPURLResponse(
-          url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
+          url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
         )!,
         Data(messageResponse.utf8)
       )
