@@ -613,6 +613,117 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.preferredCompactColumn, .content)
   }
 
+  func testMailShellUnifiedInboxInterleavesThreadsAndShowsSourceConnections() {
+    let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "other@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let olderThread = mailShellThread(
+      connectionId: firstConnection.id,
+      providerMessageId: "message-older",
+      providerThreadId: "thread-older",
+      receivedAt: 100
+    )
+    let newerThread = mailShellThread(
+      connectionId: secondConnection.id,
+      providerMessageId: "message-newer",
+      providerThreadId: "thread-newer",
+      receivedAt: 200
+    )
+    let viewModel = MailShellSelectionModel()
+
+    viewModel.selectUnifiedInbox()
+    viewModel.updateThreads([olderThread], for: firstConnection.id)
+    viewModel.updateThreads([newerThread], for: secondConnection.id)
+
+    let items = viewModel.threadListItems(connections: [firstConnection, secondConnection])
+    XCTAssertEqual(items.map(\.thread.id), [newerThread.id, olderThread.id])
+    XCTAssertEqual(
+      items.map(\.sourceConnectionDisplayName),
+      [secondConnection.displayName, firstConnection.displayName]
+    )
+  }
+
+  func testMailShellUnifiedInboxKeepsDuplicateConversationsConnectionScoped() {
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let firstThread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "shared-message",
+      providerThreadId: "shared-thread",
+      receivedAt: 100
+    )
+    let secondThread = mailShellThread(
+      connectionId: secondConnectionId,
+      providerMessageId: "shared-message",
+      providerThreadId: "shared-thread",
+      receivedAt: 100
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedInbox()
+
+    viewModel.updateThreads([firstThread], for: adapterConnectionId)
+    viewModel.updateThreads([secondThread], for: secondConnectionId)
+
+    XCTAssertEqual(viewModel.threads.count, 2)
+    XCTAssertEqual(Set(viewModel.threads.map(\.id)), [firstThread.id, secondThread.id])
+  }
+
+  func testMailShellUnifiedInboxPreservesSelectionDuringOtherConnectionUpdates() {
+    let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let selectedThread = mailShellThread(
+      connectionId: firstConnection.id,
+      providerMessageId: "message-selected",
+      providerThreadId: "thread-selected",
+      receivedAt: 200
+    )
+    let otherThread = mailShellThread(
+      connectionId: secondConnectionId,
+      providerMessageId: "message-other",
+      providerThreadId: "thread-other",
+      receivedAt: 100
+    )
+    let insertedThread = mailShellThread(
+      connectionId: secondConnectionId,
+      providerMessageId: "message-inserted",
+      providerThreadId: "thread-inserted",
+      receivedAt: 300
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedInbox()
+    viewModel.updateThreads([selectedThread], for: firstConnection.id)
+    viewModel.updateThreads([otherThread], for: secondConnectionId)
+    viewModel.selectThread(selectedThread.id)
+
+    viewModel.updateThreads([insertedThread, otherThread], for: secondConnectionId)
+
+    XCTAssertEqual(viewModel.selectedThreadId, selectedThread.id)
+    XCTAssertEqual(
+      viewModel.threads.map(\.id),
+      [insertedThread.id, selectedThread.id, otherThread.id]
+    )
+
+    viewModel.updateThreads([], for: firstConnection.id)
+
+    XCTAssertNil(viewModel.selectedThreadId)
+  }
+
   func testMailShellScopesThreadsToSelectedMailbox() {
     let selectedThread = mailShellThread(
       providerThreadId: "thread-selected",
@@ -854,7 +965,43 @@ private func mailShellThread(
   MailboxThread.group(messages).first { $0.providerThreadId == providerThreadId }!
 }
 
+private func mailShellThread(
+  connectionId: MailboxConnectionId,
+  providerMessageId: String,
+  providerThreadId: String,
+  receivedAt: Int64
+) -> MailboxThread {
+  mailShellThread(
+    providerThreadId: providerThreadId,
+    messages: [
+      mailShellMessage(
+        connectionId: connectionId,
+        providerMessageId: providerMessageId,
+        providerThreadId: providerThreadId,
+        receivedAt: receivedAt
+      )
+    ]
+  )
+}
+
+private func mailShellConnection(
+  emailAddress: String,
+  providerAccountIdentifier: String,
+  productAccountId: String
+) -> MailboxConnection {
+  GmailProviderConnectionStatus(
+    connectedAt: 1_781_200_000_000,
+    emailAddress: emailAddress,
+    lastVerifiedAt: 1_781_200_000_100,
+    provider: "gmail",
+    providerAccountIdentifier: providerAccountIdentifier,
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1_781_200_000_200
+  ).mailboxConnection(productAccountId: productAccountId)
+}
+
 private func mailShellMessage(
+  connectionId: MailboxConnectionId = adapterConnectionId,
   providerMessageId: String,
   providerThreadId: String,
   receivedAt: Int64,
@@ -862,7 +1009,7 @@ private func mailShellMessage(
 ) -> MailboxMessageMetadata {
   MailboxMessageMetadata(
     categoryId: nil,
-    connectionId: adapterConnectionId,
+    connectionId: connectionId,
     from: "Sender <sender@example.com>",
     isHistorical: false,
     providerInternalDateMilliseconds: receivedAt,
