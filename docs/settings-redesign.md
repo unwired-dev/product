@@ -275,6 +275,7 @@ Mail Workflow Preferences follow the user through End-to-End Encrypted Product S
 - Templates
 - Category configuration
 - Global notification switch
+- Notification category eligibility
 - Per-connection notification policy
 - Per-connection Read Receipt policy
 
@@ -300,7 +301,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 
 - Preserve every Mailbox Connection and the Default Sending Connection.
 - Preserve the existing Custom Category.
-- Migrate existing Notification Rules into the global category-eligibility default, preserving their selected Category IDs; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty.
+- Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty.
 - Preserve the current device's Generic Notification Fallback.
 - Initialize genuinely new preferences from the defaults in this document.
 
