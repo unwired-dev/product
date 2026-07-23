@@ -196,7 +196,7 @@ Disabling a Category stops future System Categorization into it but preserves ex
 - Global notification switch, synchronized as a Mail Workflow Preference, with per-connection overrides.
 - Choose notifying Categories per connection.
 - Configure the device-local Generic Notification Fallback.
-- Lock-screen content level: count only, sender, sender and subject, or full preview.
+- Lock-screen content level: count only, sender, sender and subject, or full preview; this device-local choice applies to category-aware notifications.
 - Sound and badge toggles.
 - Quiet schedule with an allowlist for selected Categories.
 - Explain which controls synchronize and which remain device-local.
@@ -292,7 +292,7 @@ Provider credentials remain in the current device's Keychain.
 
 Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
 
-Device Revocation, Delete Product Account, Mailbox Connection removal, Mailbox Authorization, server verification, and Mailbox Role remapping require connectivity and cannot appear complete offline.
+Device Revocation, Delete Product Account, Mailbox Connection removal, authorization or reauthorization, server verification, and Mailbox Role remapping require connectivity and cannot appear complete offline. Removing Mailbox Authorization from the current device remains available offline and immediately deletes its local Keychain credentials and cached mailbox data.
 
 ## Migration
 
@@ -300,7 +300,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 
 - Preserve every Mailbox Connection and the Default Sending Connection.
 - Preserve the existing Custom Category.
-- Migrate existing Notification Rules into the global category-eligibility default, preserving their selected Category IDs; each connection inherits that default until the user creates an override.
+- Migrate existing Notification Rules into the global category-eligibility default, preserving their selected Category IDs; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty.
 - Preserve the current device's Generic Notification Fallback.
 - Initialize genuinely new preferences from the defaults in this document.
 

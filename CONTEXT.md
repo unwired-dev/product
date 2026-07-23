@@ -444,7 +444,7 @@ _Avoid_: Password reset, support recovery
 - Non-overlapping offline preference changes merge by field
 - A **Preference Conflict** preserves both values for explicit user resolution rather than choosing by device clock, upload order, or device identity
 - Conflicting signatures and templates may preserve the competing value as a conflict copy
-- **Device Revocation**, **Delete Product Account**, connection removal, mailbox authorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline
+- **Device Revocation**, **Delete Product Account**, connection removal, authorization or reauthorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline; removing **Mailbox Authorization** locally remains available offline and deletes local Keychain credentials and cached mailbox data
 - **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
 - **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
 - A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
