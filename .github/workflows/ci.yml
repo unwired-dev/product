@@ -24,13 +24,15 @@ jobs:
       apple_projects_changed: ${{ steps.apple-matrix.outputs.has-projects }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       # Keep one filter per Apple project. Shared changes select every project
       # configured in the Apple matrix below.
       - name: Detect changed Apple projects
         id: changed-paths
-        uses: dorny/paths-filter@v4
+        uses: dorny/paths-filter@7b450fff21473bca461d4b92ce414b9d0420d706 # v4
         with:
           filters: |
             apple_shared:
