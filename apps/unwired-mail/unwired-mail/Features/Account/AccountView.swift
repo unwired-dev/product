@@ -290,6 +290,10 @@ final class MailboxFreshnessViewModel {
       historicalBackfills[connectionId]?.cancel()
       historicalBackfills[connectionId] = nil
     }
+    for connectionId in inFlightSyncs.keys where !connectionIds.contains(connectionId) {
+      inFlightSyncs[connectionId]?.task.cancel()
+      inFlightSyncs[connectionId] = nil
+    }
     for connectionId in statuses.keys where !connectionIds.contains(connectionId) {
       statuses[connectionId] = nil
     }
@@ -362,8 +366,11 @@ final class MailboxFreshnessViewModel {
     inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
 
     do {
-      let result = try await task.value
-      guard isSessionCurrent(session) else {
+      let result = try await withTaskCancellationHandler(
+        operation: { try await task.value },
+        onCancel: { task.cancel() }
+      )
+      guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
       removeSync(connectionId: connection.id, syncId: syncId)
@@ -849,7 +856,10 @@ struct AccountView: View {
       selectConnection(connection, collection: collection)
     }
     .onChange(of: gmailViewModel.connections) { _, _ in
-      mailboxFreshnessViewModel.updateConnections(gmailViewModel.connections)
+      mailboxFreshnessViewModel.updateConnections(
+        gmailViewModel.connections,
+        prunesPersistedState: false
+      )
       Task {
         await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
       }
@@ -2900,7 +2910,8 @@ final class GmailInboxViewModel {
 
   func load(
     connection: MailboxConnection,
-    collection: MailboxMessageCollection = .role(.inbox)
+    collection: MailboxMessageCollection = .role(.inbox),
+    startsBackfill: Bool = true
   ) async {
     isLoading = true
     defer {
@@ -2920,7 +2931,10 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
-      if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
+      if startsBackfill,
+        result.hasInitialMailboxAvailability,
+        !result.historicalMetadataBackfillIsComplete
+      {
         startBodyPrefetch(connection: connection)
         startHistoricalBackfill(connection: connection)
       }
@@ -2992,7 +3006,11 @@ final class GmailInboxViewModel {
       errorMessage = nil
     }
 
-    await load(connection: connection, collection: collection)
+    await load(
+      connection: connection,
+      collection: collection,
+      startsBackfill: synchronizes
+    )
     guard
       !Task.isCancelled,
       currentConnectionId == connection.id

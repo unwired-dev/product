@@ -1366,11 +1366,11 @@ struct GmailPushWakeupHandler {
       successfulSyncAt: successfulSyncAt
     )
     guard currentWatchForRoute() != nil else { return false }
-    guard notificationRules != nil else { return false }
+    guard notificationRules != nil else { return true }
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
     }
-    guard let currentNotificationRules else { return false }
+    guard let currentNotificationRules else { return true }
     guard currentWatchForRoute() != nil else { return false }
     let durableEligibleMessageIds = try notificationEligibilityStore.eligibleStableMessageIds(
       after: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
