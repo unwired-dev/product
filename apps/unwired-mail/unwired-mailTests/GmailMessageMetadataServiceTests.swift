@@ -863,10 +863,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
     let syncInboxCallCount = fixture.service.syncInboxCallCount
+    fixture.viewModel.errorMessage = "Previous refresh failed"
 
     let didRefresh = await fixture.viewModel.refresh(connection: fixture.connections[0])
 
     XCTAssertTrue(didRefresh)
+    XCTAssertNil(fixture.viewModel.errorMessage)
     XCTAssertEqual(fixture.service.syncInboxCallCount, syncInboxCallCount + 1)
     XCTAssertEqual(
       fixture.viewModel.threads.map(\.providerThreadId),

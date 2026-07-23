@@ -1861,6 +1861,7 @@ final class GmailInboxViewModel {
         .flatMap(\.messages)
 
       threads = MailboxThread.group(otherMessages + result.threads.flatMap(\.messages))
+      errorMessage = nil
       if !result.historicalMetadataBackfillIsComplete {
         startUnifiedHistoricalBackfill(connection: connection)
       }
