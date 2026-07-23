@@ -36,6 +36,7 @@ jobs:
             apple_shared:
               - '.github/workflows/ci.yml'
               - '.mise.toml'
+              - '.swiftlint.yml'
               - 'scripts/check-apple-lint.zsh'
             unwired_mail:
               - 'apps/unwired-mail/**'
