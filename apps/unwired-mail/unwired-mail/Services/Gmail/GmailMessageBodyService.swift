@@ -68,7 +68,8 @@ extension GmailMessageMetadata {
   }
 
   fileprivate var isInRecentBodyPrefetchMailbox: Bool {
-    let labels = Set(providerLabelIds ?? [])
+    guard let providerLabelIds else { return true }
+    let labels = Set(providerLabelIds)
     return labels.contains("INBOX") || labels.contains("SENT")
   }
 }
@@ -401,7 +402,6 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
     try clearProtectedSelections(productAccountId: productAccountId)
-    try enforceMaximumByteCount()
     let prefix = [
       gmailSafeFileComponent(productAccountId),
       gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
@@ -441,8 +441,9 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       }
       entry.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
       entry.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
-      _ = try writeEntryIfFits(entry, to: fileURL)
+      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
     }
+    try enforceMaximumByteCount()
   }
 
   private func clearProtectedSelections(productAccountId: String) throws {
@@ -818,7 +819,14 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     from messages: [GmailMessageMetadata],
     session: ProductAccountSessionSnapshot
   ) throws -> [GmailMessageMetadata] {
-    try messages.filter { try loadCachedMessageBody(message: $0, session: session) == nil }
+    var uncachedMessages: [GmailMessageMetadata] = []
+    for message in messages {
+      try Task.checkCancellation()
+      if try loadCachedMessageBody(message: message, session: session) == nil {
+        uncachedMessages.append(message)
+      }
+    }
+    return uncachedMessages
   }
 
   func loadCachedMessageBody(

@@ -136,6 +136,23 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(plan.messages.map(\.providerMessageId), ["eligible-pin"])
   }
 
+  func testPrefetchPlanTreatsMissingLabelsAsInbox() {
+    let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let plan = GmailMessageBodyPrefetchPlan(
+      messages: [
+        prefetchMessage(
+          id: "missing-labels",
+          internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
+          labels: nil
+        )
+      ],
+      pinnedMessageIds: [],
+      referenceDate: referenceDate
+    )
+
+    XCTAssertEqual(plan.recentMessages.map(\.providerMessageId), ["missing-labels"])
+  }
+
   func testReadFetchesBodyOnDemandAndCachesOnlyEncryptedPayload() async throws {
     let fixture = try makeFixture()
 
@@ -454,7 +471,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
   }
 
-  func testReconcileKeepsLegacyCacheWithinDeviceBudget() throws {
+  func testReconcilePreservesProtectedLegacyCacheWhenOverBudget() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
@@ -489,7 +506,18 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: []
     )
 
-    XCTAssertLessThanOrEqual(try cacheByteCount(rootDirectory: rootDirectory), encodedPayload.count)
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: messageIds[0]
+      )
+    )
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: messageIds[1]
+      )
+    )
   }
 
   func testFileCacheEvictsOpenedThenPrefetchedThenPinnedBodiesAcrossConnections() throws {
@@ -689,7 +717,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   private func prefetchMessage(
     id: String,
     internalDateMilliseconds: Int64,
-    labels: [String]
+    labels: [String]?
   ) -> GmailMessageMetadata {
     GmailMessageMetadata(
       categoryId: nil,
