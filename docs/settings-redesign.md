@@ -112,6 +112,8 @@ Billing and subscriptions are excluded until the product has a commercial plan.
 - Show Category badges
 - Show attachment indicators
 
+Defaults are the last-viewed mailbox (Unified Inbox on first launch), comfortable density, two preview lines, and shown contact images, Category badges, and attachment indicators.
+
 Thread grouping, latest-message ordering, source-connection identity in Unified Inbox, and the latest message opening expanded remain fixed product behavior.
 
 The actual inbox and message browser remain in the main mail experience and are removed from Settings.
@@ -133,6 +135,8 @@ Read Receipts:
 - Outgoing requests: Off by default, with Never, Ask While Sending, or Request by Default.
 - Support per-connection overrides.
 - Explain that receipts are best-effort and depend on recipient and provider support.
+
+The account-wide incoming and outgoing defaults and each per-connection override are encrypted Mail Workflow Preferences.
 
 ### Swipes
 
@@ -188,7 +192,7 @@ Default sender selection remains in Email Accounts.
 - Show progress and allow cancellation.
 - Reset learned sender signals after confirmation.
 
-Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
+Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization and clears or versions the current device's cached learning context before its next background categorization. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
 
 ### Notifications
 
@@ -196,7 +200,7 @@ Disabling a Category stops future System Categorization into it but preserves ex
 - Global notification switch, synchronized as a Mail Workflow Preference, with per-connection overrides.
 - Choose notifying Categories per connection.
 - Configure the device-local Generic Notification Fallback.
-- Lock-screen content level: count only, sender, sender and subject, or full preview; this device-local choice applies to category-aware notifications.
+- Lock-screen content level: count only, sender, sender and subject, or full preview; this device-local choice applies to category-aware notifications and defaults to count only.
 - Sound and badge toggles.
 - Quiet schedule with an allowlist for selected Categories.
 - Explain which controls synchronize and which remain device-local.
@@ -204,9 +208,11 @@ Disabling a Category stops future System Categorization into it but preserves ex
 
 The global notification switch, category eligibility, and per-connection notification policy are encrypted Mail Workflow Preferences. Operating-system authorization, Generic Notification Fallback, lock-screen presentation, sound, badge, and quiet schedule are Device-Local Preferences.
 
+Notifications default to a disabled global switch with no eligible Categories or per-connection overrides; Generic Notification Fallback and quiet schedule are disabled, while sound and badge use the operating-system default.
+
 ### Appearance
 
-- Theme: System, Light, or Dark
+- Theme: System, Light, or Dark; default System
 - Reading text size while respecting Dynamic Type
 - Message-body presentation: sender formatting, system serif, or system sans-serif
 - Optional increased contrast beyond the system default
@@ -277,7 +283,7 @@ Mail Workflow Preferences follow the user through End-to-End Encrypted Product S
 - Global notification switch
 - Notification category eligibility
 - Per-connection notification policy
-- Per-connection Read Receipt policy
+- Account-wide and per-connection Read Receipt policy
 
 Device-Local Preferences remain on one device:
 
@@ -303,7 +309,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 - Preserve the existing Custom Category.
 - Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty.
 - Preserve the current device's Generic Notification Fallback.
-- Initialize genuinely new preferences from the defaults in this document.
+- Initialize genuinely new preferences from the explicit defaults in this document.
 
 ## Implementation boundary
 
@@ -320,7 +326,7 @@ Concrete names may follow nearby repository conventions, but the destination reg
 
 ## Delivery plan
 
-Implementation is tracked by [GitHub issues #115 through #133](https://github.com/unwired-dev/product/issues?q=is%3Aissue+is%3Aopen+number%3A115..133). Each issue is a tracer-bullet slice with native blocking relationships.
+Implementation is tracked by [GitHub issues #115 through #133](https://github.com/unwired-dev/product/issues?q=is%3Aissue+number%3A115..133). Each issue is a tracer-bullet slice with native blocking relationships.
 
 1. Add the Settings feature shell, adaptive navigation, search, and deep-link routing.
 2. Add versioned preference schemas, device-local persistence, encrypted synchronization, migration, offline queueing, and conflict resolution.
