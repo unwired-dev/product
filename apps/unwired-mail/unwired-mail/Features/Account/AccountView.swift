@@ -55,6 +55,7 @@ struct AccountView: View {
     )
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
+        bodyPrefetcher: mailboxConnection,
         service: mailboxConnection,
         searchService: mailboxConnection,
         session: snapshot
@@ -84,6 +85,7 @@ struct AccountView: View {
         connections: gmailViewModel.connections,
         errorMessage: gmailViewModel.errorMessage,
         isLoading: gmailViewModel.isLoading,
+        navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true }
       )
@@ -93,6 +95,7 @@ struct AccountView: View {
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: gmailViewModel.connections),
         mailboxSelection: mailShellSelection.selectedMailbox,
+        navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedThreadId: selectedThreadBinding,
         viewModel: inboxViewModel
       )
@@ -123,6 +126,7 @@ struct AccountView: View {
           : nil
       )
       await gmailViewModel.load()
+      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
       await genericMailSetupViewModel.loadSyncedDefinitions()
       if mailShellSelection.selectedMailbox == nil {
         if let connection = gmailViewModel.connection {
@@ -133,35 +137,48 @@ struct AccountView: View {
         {
           await inboxViewModel.loadAfterConnectionChange(connection: connection)
         }
-      } else if mailShellSelection.selectedMailbox == .unifiedInbox {
-        loadUnifiedInbox()
+      } else if mailShellSelection.selectedMailbox?.isUnified == true {
+        loadUnifiedMailbox()
       }
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
         await gmailViewModel.load()
+        await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
         await genericMailSetupViewModel.loadSyncedDefinitions()
-        if mailShellSelection.selectedMailbox == .unifiedInbox {
-          loadUnifiedInbox()
+        if mailShellSelection.selectedMailbox?.isUnified == true {
+          loadUnifiedMailbox()
         }
       }
     }
     .onChange(of: gmailViewModel.connection?.id) { _, _ in
-      guard mailShellSelection.selectedMailbox != .unifiedInbox else { return }
+      guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
       guard let connection = gmailViewModel.connection else {
         mailShellSelection.clearSelection()
         inboxViewModel.clear()
         return
       }
-      selectConnection(connection)
+      let collection: MailboxMessageCollection
+      if case .connection(let selectedConnectionId, let selectedCollection) =
+        mailShellSelection.selectedMailbox,
+        selectedConnectionId == connection.id
+      {
+        collection = selectedCollection
+      } else {
+        collection = .role(.inbox)
+      }
+      selectConnection(connection, collection: collection)
     }
     .onChange(of: gmailViewModel.connections) { _, _ in
-      guard mailShellSelection.selectedMailbox == .unifiedInbox else { return }
-      loadUnifiedInbox()
+      Task {
+        await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      }
+      guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
+      loadUnifiedMailbox()
     }
     .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
-      guard mailShellSelection.selectedMailbox != .unifiedInbox else { return }
+      guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
       guard
         let connection = gmailViewModel.connection,
         authorizationState == .authorized
@@ -169,7 +186,7 @@ struct AccountView: View {
         inboxViewModel.clear()
         return
       }
-      loadInbox(for: connection)
+      loadMailbox(for: connection)
     }
     .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
       Task {
@@ -182,7 +199,7 @@ struct AccountView: View {
       }
     }
     .onChange(of: inboxViewModel.threads) { _, threads in
-      if mailShellSelection.selectedMailbox == .unifiedInbox {
+      if mailShellSelection.selectedMailbox?.isUnified == true {
         if let connectionId = inboxViewModel.currentConnectionId {
           mailShellSelection.updateThreads(threads, for: connectionId)
         } else {
@@ -199,7 +216,9 @@ struct AccountView: View {
       preferredCompactColumn = mailShellSelection.preferredCompactColumn
     }
   }
+}
 
+extension AccountView {
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = mailShellSelection.selectedConnectionId else { return nil }
     return gmailViewModel.connections.first { $0.id == connectionId }
@@ -218,29 +237,36 @@ struct AccountView: View {
     )
   }
 
-  private func loadInbox(for connection: MailboxConnection) {
+  private func loadMailbox(for connection: MailboxConnection) {
     inboxLoadTask?.cancel()
+    let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadTask = Task {
-      await inboxViewModel.loadAfterConnectionChange(connection: connection)
+      await inboxViewModel.loadAfterConnectionChange(
+        connection: connection,
+        collection: collection
+      )
     }
   }
 
-  private func loadUnifiedInbox() {
+  private func loadUnifiedMailbox() {
+    guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
     let connections = gmailViewModel.connections
     inboxLoadTask = Task {
-      await inboxViewModel.loadUnifiedInbox(connections: connections)
+      await inboxViewModel.loadUnifiedMailbox(mailbox, connections: connections)
     }
   }
 
-  private func selectConnection(_ connection: MailboxConnection) {
+  private func selectConnection(
+    _ connection: MailboxConnection,
+    collection: MailboxMessageCollection = .role(.inbox)
+  ) {
     gmailViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
-    mailShellSelection.selectMailbox(connectionId: connection.id)
+    mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
-    loadInbox(for: connection)
+    loadMailbox(for: connection)
   }
-
 }
 
 extension AccountView {
@@ -253,27 +279,35 @@ extension AccountView {
           gmailViewModel.selectedConnectionId = nil
           return
         }
-        if mailbox == .unifiedInbox {
+        if case .unified(let unifiedMailbox) = mailbox {
           inboxViewModel.clear()
           mailShellSelection.replaceUnifiedThreads([], connectionIds: [])
-          mailShellSelection.selectUnifiedInbox()
-          loadUnifiedInbox()
+          mailShellSelection.selectUnifiedMailbox(unifiedMailbox)
+          loadUnifiedMailbox()
           return
         }
-        guard case .connection(let connectionId) = mailbox else { return }
+        if mailbox == .outbox {
+          inboxViewModel.clear()
+          mailShellSelection.selectOutbox()
+          return
+        }
+        guard case .connection(let connectionId, let collection) = mailbox else { return }
         guard
           gmailViewModel.connections.contains(where: { $0.id == connectionId })
         else { return }
         let isCurrentConnection = gmailViewModel.selectedConnectionId == connectionId
         if !isCurrentConnection {
-          mailShellSelection.selectMailbox(connectionId: connectionId)
+          mailShellSelection.selectMailbox(connectionId: connectionId, collection: collection)
         }
         gmailViewModel.selectedConnectionId = connectionId
         guard isCurrentConnection else { return }
         guard let connection = gmailViewModel.connection,
           connection.id == connectionId
         else { return }
-        selectConnection(connection)
+        mailShellSelection.selectMailbox(connectionId: connectionId, collection: collection)
+        inboxViewModel.clear()
+        guard connection.authorizationState == .authorized else { return }
+        loadMailbox(for: connection)
       }
     )
   }
@@ -302,14 +336,15 @@ extension AccountView {
           )
 
           GmailProviderConnectionPanel(
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             viewModel: gmailViewModel,
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
-            selectMailbox: selectConnection
+            selectMailbox: { selectConnection($0) }
           )
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
 
-          if mailShellSelection.selectedMailbox != .unifiedInbox {
+          if case .connection(_, .role(.inbox)) = mailShellSelection.selectedMailbox {
             GmailInboxPanel(
               categoryChoices: MessageCategoryChoice.available(
                 customCategory: categoryViewModel.category
@@ -329,6 +364,7 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             genericMailSetupViewModel.invalidate()
             Task {
+              await inboxViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -372,9 +408,175 @@ enum MailShellNavigationLevel: Equatable {
   case conversation
 }
 
+enum MailShellOutboxState: Hashable {
+  case pending
+  case retrying
+  case failed
+  case sent
+}
+
+struct MailShellProductMailboxState: Equatable {
+  let outboxStates: [MailShellOutboxState]
+  let pinnedMessageIds: Set<StableProviderMessageIdentity>
+
+  static let empty = MailShellProductMailboxState(
+    outboxStates: [],
+    pinnedMessageIds: []
+  )
+}
+
+struct MailboxNavigationSnapshot: Equatable {
+  let messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]]
+  let pinnedMessageIds: Set<StableProviderMessageIdentity>
+  let outboxStates: [MailShellOutboxState]
+  let providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]]
+
+  init(
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    outboxStates: [MailShellOutboxState],
+    providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]] = [:]
+  ) {
+    self.messagesByConnection = messagesByConnection
+    self.outboxStates = outboxStates
+    self.pinnedMessageIds = pinnedMessageIds
+    self.providerMailboxesByConnection = providerMailboxesByConnection
+  }
+
+  var outboxItemCount: Int {
+    outboxStates.count { $0 != .sent }
+  }
+
+  var showsOutbox: Bool {
+    outboxItemCount > 0
+  }
+
+  func count(for mailbox: UnifiedMailbox) -> MailboxItemCount {
+    count(for: mailbox.collection, in: nil)
+  }
+
+  func count(
+    for collection: MailboxMessageCollection,
+    in connectionId: MailboxConnectionId
+  ) -> MailboxItemCount {
+    count(for: collection, in: Optional(connectionId))
+  }
+
+  private func count(
+    for collection: MailboxMessageCollection,
+    in connectionId: MailboxConnectionId?
+  ) -> MailboxItemCount {
+    let sourceMessages =
+      if let connectionId {
+        messagesByConnection[connectionId] ?? []
+      } else {
+        messagesByConnection.values.flatMap { $0 }
+      }
+    let messages = sourceMessages.filter {
+      collection.contains(
+        providerStateIds: $0.providerStateIds,
+        isPinned: pinnedMessageIds.contains($0.id)
+      )
+    }
+    return MailboxItemCount(
+      itemCount: messages.count,
+      unreadCount: messages.count { $0.providerStateIds?.contains("UNREAD") == true }
+    )
+  }
+
+  func providerMailboxes(for connectionId: MailboxConnectionId) -> [ProviderMailbox] {
+    var mailboxesById = Dictionary(
+      uniqueKeysWithValues: (providerMailboxesByConnection[connectionId] ?? []).map {
+        ($0.id, $0)
+      }
+    )
+    for id in MailboxMessageCollection.providerMailboxIds(
+      in: messagesByConnection[connectionId] ?? []
+    ) where mailboxesById[id] == nil {
+      mailboxesById[id] = ProviderMailbox(id: id, title: id)
+    }
+    return mailboxesById.values.sorted {
+      $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
+    }
+  }
+
+  func providerMailboxIds(for connectionId: MailboxConnectionId) -> [String] {
+    providerMailboxes(for: connectionId).map(\.id)
+  }
+
+  static let empty = MailboxNavigationSnapshot(
+    messagesByConnection: [:],
+    pinnedMessageIds: [],
+    outboxStates: []
+  )
+}
+
 enum MailShellMailboxSelection: Hashable {
-  case unifiedInbox
-  case connection(MailboxConnectionId)
+  case unified(UnifiedMailbox)
+  case connection(MailboxConnectionId, MailboxMessageCollection)
+  case outbox
+
+  var collection: MailboxMessageCollection? {
+    switch self {
+    case .unified(let mailbox):
+      return mailbox.collection
+    case .connection(_, let collection):
+      return collection
+    case .outbox:
+      return nil
+    }
+  }
+
+  var isUnified: Bool {
+    if case .unified = self {
+      return true
+    }
+    return false
+  }
+}
+
+extension UnifiedMailbox {
+  var systemImage: String {
+    switch self {
+    case .inbox:
+      return "tray.2"
+    case .pins:
+      return "pin"
+    case .drafts:
+      return "doc"
+    case .sent:
+      return "paperplane"
+    case .archive:
+      return "archivebox"
+    case .allMail:
+      return "tray.full"
+    case .spam:
+      return "exclamationmark.octagon"
+    case .trash:
+      return "trash"
+    }
+  }
+
+  var title: String {
+    switch self {
+    case .inbox:
+      return "Inbox"
+    case .pins:
+      return "Pins"
+    case .drafts:
+      return "Drafts"
+    case .sent:
+      return "Sent"
+    case .archive:
+      return "Archive"
+    case .allMail:
+      return "All Mail"
+    case .spam:
+      return "Spam"
+    case .trash:
+      return "Trash"
+    }
+  }
 }
 
 struct MailShellThreadListItem: Equatable, Identifiable {
@@ -395,16 +597,18 @@ final class MailShellSelectionModel {
   private var threadsByConnection: [MailboxConnectionId: [MailboxThread]] = [:]
 
   var selectedConnectionId: MailboxConnectionId? {
-    guard case .connection(let connectionId) = selectedMailbox else { return nil }
+    guard case .connection(let connectionId, _) = selectedMailbox else { return nil }
     return connectionId
   }
 
   var threads: [MailboxThread] {
     switch selectedMailbox {
-    case .unifiedInbox:
+    case .unified:
       return threadsByConnection.values.flatMap { $0 }.sorted(by: Self.ordersBefore)
-    case .connection(let connectionId):
+    case .connection(let connectionId, _):
       return threadsByConnection[connectionId] ?? []
+    case .outbox:
+      return []
     case nil:
       return []
     }
@@ -447,8 +651,11 @@ final class MailShellSelectionModel {
     expandedMessageIds = []
   }
 
-  func selectMailbox(connectionId: MailboxConnectionId) {
-    let mailbox = MailShellMailboxSelection.connection(connectionId)
+  func selectMailbox(
+    connectionId: MailboxConnectionId,
+    collection: MailboxMessageCollection = .role(.inbox)
+  ) {
+    let mailbox = MailShellMailboxSelection.connection(connectionId, collection)
     guard selectedMailbox != mailbox else { return }
     selectedMailbox = mailbox
     selectedThreadId = nil
@@ -456,8 +663,20 @@ final class MailShellSelectionModel {
   }
 
   func selectUnifiedInbox() {
-    guard selectedMailbox != .unifiedInbox else { return }
-    selectedMailbox = .unifiedInbox
+    selectUnifiedMailbox(.inbox)
+  }
+
+  func selectUnifiedMailbox(_ mailbox: UnifiedMailbox) {
+    let selection = MailShellMailboxSelection.unified(mailbox)
+    guard selectedMailbox != selection else { return }
+    selectedMailbox = selection
+    selectedThreadId = nil
+    expandedMessageIds = []
+  }
+
+  func selectOutbox() {
+    guard selectedMailbox != .outbox else { return }
+    selectedMailbox = .outbox
     selectedThreadId = nil
     expandedMessageIds = []
   }
@@ -473,7 +692,9 @@ final class MailShellSelectionModel {
     for connectionId: MailboxConnectionId
   ) {
     threadsByConnection[connectionId] = threads.filter { $0.id.connectionId == connectionId }
-    guard selectedMailbox == .unifiedInbox || selectedConnectionId == connectionId else { return }
+    guard selectedMailbox?.isUnified == true || selectedConnectionId == connectionId else {
+      return
+    }
     reconcileSelectedThread()
   }
 
@@ -510,6 +731,19 @@ final class MailShellSelectionModel {
       return MailShellThreadListItem(
         sourceConnectionDisplayName: sourceConnectionDisplayName,
         thread: thread
+      )
+    }
+  }
+
+  func selectedMailboxMessages(
+    in thread: MailboxThread,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>
+  ) -> [MailboxMessageMetadata] {
+    guard let collection = selectedMailbox?.collection else { return [] }
+    return thread.messages.filter {
+      collection.contains(
+        providerStateIds: $0.providerStateIds,
+        isPinned: pinnedMessageIds.contains($0.id)
       )
     }
   }
@@ -613,14 +847,33 @@ private struct MailShellSidebar: View {
   let connections: [MailboxConnection]
   let errorMessage: String?
   let isLoading: Bool
+  let navigationSnapshot: MailboxNavigationSnapshot
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
 
   var body: some View {
     List(selection: $selectedMailbox) {
       Section("Mailboxes") {
-        NavigationLink(value: MailShellMailboxSelection.unifiedInbox) {
-          Label("Unified Inbox", systemImage: "tray.2")
+        ForEach(UnifiedMailbox.allCases, id: \.self) { mailbox in
+          NavigationLink(value: MailShellMailboxSelection.unified(mailbox)) {
+            MailShellMailboxLabel(
+              count: navigationSnapshot.count(for: mailbox),
+              systemImage: mailbox.systemImage,
+              title: mailbox.title
+            )
+          }
+        }
+        if navigationSnapshot.showsOutbox {
+          NavigationLink(value: MailShellMailboxSelection.outbox) {
+            MailShellMailboxLabel(
+              count: MailboxItemCount(
+                itemCount: navigationSnapshot.outboxItemCount,
+                unreadCount: 0
+              ),
+              systemImage: "paperplane.circle",
+              title: "Outbox"
+            )
+          }
         }
         if connections.isEmpty {
           if isLoading {
@@ -637,24 +890,44 @@ private struct MailShellSidebar: View {
           }
         } else {
           ForEach(connections) { connection in
-            NavigationLink(value: MailShellMailboxSelection.connection(connection.id)) {
-              Label {
-                VStack(alignment: .leading, spacing: 2) {
-                  Text("Inbox")
-                  Text(connection.displayName)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                  if connection.authorizationState == .required {
-                    Text("Authorization required")
-                      .font(.caption2)
-                      .foregroundStyle(.orange)
-                  }
-                }
-              } icon: {
-                Image(
-                  systemName: connection.authorizationState == .authorized
-                    ? "tray.full" : "lock.trianglebadge.exclamationmark"
+            Section(connection.displayName) {
+              NavigationLink(
+                value: MailShellMailboxSelection.connection(
+                  connection.id,
+                  .role(.inbox)
                 )
+              ) {
+                MailShellMailboxLabel(
+                  count: navigationSnapshot.count(for: .role(.inbox), in: connection.id),
+                  systemImage: connection.authorizationState == .authorized
+                    ? "tray.full" : "lock.trianglebadge.exclamationmark",
+                  title: "Inbox"
+                )
+              }
+              ForEach(
+                navigationSnapshot.providerMailboxes(for: connection.id),
+                id: \.self
+              ) { providerMailbox in
+                NavigationLink(
+                  value: MailShellMailboxSelection.connection(
+                    connection.id,
+                    .providerMailbox(providerMailbox.id)
+                  )
+                ) {
+                  MailShellMailboxLabel(
+                    count: navigationSnapshot.count(
+                      for: .providerMailbox(providerMailbox.id),
+                      in: connection.id
+                    ),
+                    systemImage: "tag",
+                    title: providerMailbox.title
+                  )
+                }
+              }
+              if connection.authorizationState == .required {
+                Text("Authorization required")
+                  .font(.caption2)
+                  .foregroundStyle(.orange)
               }
             }
           }
@@ -678,11 +951,37 @@ private struct MailShellSidebar: View {
   }
 }
 
+private struct MailShellMailboxLabel: View {
+  let count: MailboxItemCount
+  let systemImage: String
+  let title: String
+
+  var body: some View {
+    Label {
+      HStack {
+        Text(title)
+        Spacer()
+        if count.unreadCount > 0 {
+          Text("\(count.unreadCount) unread")
+            .font(.caption2)
+            .foregroundStyle(.secondary)
+        }
+        Text("\(count.itemCount)")
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(.secondary)
+      }
+    } icon: {
+      Image(systemName: systemImage)
+    }
+  }
+}
+
 private struct MailShellThreadList: View {
   let connection: MailboxConnection?
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
   let mailboxSelection: MailShellMailboxSelection?
+  let navigationSnapshot: MailboxNavigationSnapshot
   @Binding var selectedThreadId: MailboxThreadIdentity?
   @Bindable var viewModel: GmailInboxViewModel
 
@@ -724,7 +1023,7 @@ private struct MailShellThreadList: View {
                 NavigationLink(value: item.thread.id) {
                   MailShellThreadRow(
                     item: item,
-                    showsSourceConnection: mailboxSelection == .unifiedInbox
+                    showsSourceConnection: mailboxSelection?.isUnified == true
                   )
                 }
               }
@@ -739,9 +1038,7 @@ private struct MailShellThreadList: View {
         )
       }
     }
-    .navigationTitle(
-      mailboxSelection == .unifiedInbox ? "Unified Inbox" : connection?.displayName ?? "Inbox"
-    )
+    .navigationTitle(navigationTitle)
     .toolbar {
       if let connection, connection.authorizationState == .authorized,
         connection.capabilities.canSynchronizeMetadata
@@ -766,10 +1063,36 @@ private struct MailShellThreadList: View {
   }
 
   private var emptyInboxDescription: String {
-    if mailboxSelection == .unifiedInbox {
-      return "Authorized Mailbox Connections have no locally observed Inbox threads yet."
+    if mailboxSelection?.isUnified == true {
+      return "Authorized Mailbox Connections have no locally observed messages here yet."
     }
-    return "This Mailbox Connection has no locally observed Inbox threads yet."
+    if mailboxSelection == .outbox {
+      return "Pending, retrying, and failed deliveries appear here."
+    }
+    return "This Mailbox Connection has no locally observed messages here yet."
+  }
+
+  private var navigationTitle: String {
+    switch mailboxSelection {
+    case .unified(let mailbox):
+      return mailbox == .inbox ? "Unified Inbox" : mailbox.title
+    case .connection(_, let collection):
+      switch collection {
+      case .role(.inbox):
+        return connection?.displayName ?? "Inbox"
+      case .providerMailbox(let providerMailboxId):
+        guard let connection else { return providerMailboxId }
+        return navigationSnapshot.providerMailboxes(for: connection.id).first {
+          $0.id == providerMailboxId
+        }?.title ?? providerMailboxId
+      default:
+        return connection?.displayName ?? "Mailbox"
+      }
+    case .outbox:
+      return "Outbox"
+    case nil:
+      return "Inbox"
+    }
   }
 }
 
@@ -947,7 +1270,9 @@ private struct MailShellConversationReader: View {
         if connection.capabilities.supports(.markUnread) {
           Button("Mark Unread") { perform(.markUnread, thread: thread, connection: connection) }
         }
-        if connection.capabilities.supports(.archive) {
+        if selection.selectedMailbox?.collection == .role(.inbox),
+          connection.capabilities.supports(.archive)
+        {
           Button("Archive") { perform(.archive, thread: thread, connection: connection) }
         }
         if connection.capabilities.supports(.delete) {
@@ -979,7 +1304,10 @@ private struct MailShellConversationReader: View {
     Task {
       let didPerform = await mailActionViewModel.perform(
         action,
-        for: thread.inboxMessages,
+        for: selection.selectedMailboxMessages(
+          in: thread,
+          pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+        ),
         connection: connection
       )
       if didPerform {
@@ -1464,6 +1792,9 @@ final class GmailMailActionViewModel {
 final class GmailInboxViewModel {
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
+  private let bodyPrefetcher: MailboxMessageBodyPrefetching?
+  private var bodyPrefetchTask: Task<Void, Never>?
+  private var hasSignedOut = false
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -1480,17 +1811,29 @@ final class GmailInboxViewModel {
   var threads: [MailboxThread] = []
 
   private(set) var currentConnectionId: MailboxConnectionId?
+  private(set) var navigationSnapshot = MailboxNavigationSnapshot.empty
+  private var currentCollection: MailboxMessageCollection = .role(.inbox)
+  private var unifiedCollection: MailboxMessageCollection = .role(.inbox)
   private var unifiedConnectionIds: Set<MailboxConnectionId> = []
   private var unifiedLoadId: UUID?
+  private var navigationLoadId: UUID?
   private let searchService: MailboxMessageSearching
   private let service: MailboxMetadataSyncing
   private let session: ProductAccountSessionSnapshot
 
   init(
+    bodyPrefetcher: MailboxMessageBodyPrefetching? = nil,
     service: MailboxMetadataSyncing,
     searchService: MailboxMessageSearching,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    productMailboxState: MailShellProductMailboxState = .empty
   ) {
+    self.bodyPrefetcher = bodyPrefetcher
+    navigationSnapshot = MailboxNavigationSnapshot(
+      messagesByConnection: [:],
+      pinnedMessageIds: productMailboxState.pinnedMessageIds,
+      outboxStates: productMailboxState.outboxStates
+    )
     self.searchService = searchService
     self.service = service
     self.session = session
@@ -1522,6 +1865,8 @@ final class GmailInboxViewModel {
 
   func clear() {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     currentConnectionId = nil
     unifiedConnectionIds = []
     unifiedLoadId = nil
@@ -1533,8 +1878,79 @@ final class GmailInboxViewModel {
   }
 
   func loadUnifiedInbox(connections: [MailboxConnection]) async {
+    await loadUnifiedMailbox(.inbox, connections: connections)
+  }
+
+  func updateProductMailboxState(_ state: MailShellProductMailboxState) {
+    navigationSnapshot = MailboxNavigationSnapshot(
+      messagesByConnection: navigationSnapshot.messagesByConnection,
+      pinnedMessageIds: state.pinnedMessageIds,
+      outboxStates: state.outboxStates,
+      providerMailboxesByConnection: navigationSnapshot.providerMailboxesByConnection
+    )
+  }
+
+  func loadNavigation(connections: [MailboxConnection]) async {
+    let loadId = UUID()
+    navigationLoadId = loadId
+    var messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]] = [:]
+    var providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]] = [:]
+    for connection in connections where connection.authorizationState == .authorized {
+      await loadNavigation(
+        for: connection,
+        messagesByConnection: &messagesByConnection,
+        providerMailboxesByConnection: &providerMailboxesByConnection
+      )
+    }
+    updateNavigationSnapshot(
+      messagesByConnection: messagesByConnection,
+      providerMailboxesByConnection: providerMailboxesByConnection,
+      loadId: loadId
+    )
+  }
+
+  private func loadNavigation(
+    for connection: MailboxConnection,
+    messagesByConnection: inout [MailboxConnectionId: [MailboxMessageMetadata]],
+    providerMailboxesByConnection: inout [MailboxConnectionId: [ProviderMailbox]]
+  ) async {
+    if let result = try? await service.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    ) {
+      messagesByConnection[connection.id] = result.messages
+    }
+    if let providerMailboxes = try? await service.loadProviderMailboxes(
+      connection: connection,
+      session: session
+    ) {
+      providerMailboxesByConnection[connection.id] = providerMailboxes
+    }
+  }
+
+  private func updateNavigationSnapshot(
+    messagesByConnection: [MailboxConnectionId: [MailboxMessageMetadata]],
+    providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]],
+    loadId: UUID
+  ) {
+    guard navigationLoadId == loadId else { return }
+    navigationSnapshot = MailboxNavigationSnapshot(
+      messagesByConnection: messagesByConnection,
+      pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+      outboxStates: navigationSnapshot.outboxStates,
+      providerMailboxesByConnection: providerMailboxesByConnection
+    )
+  }
+
+  func loadUnifiedMailbox(
+    _ mailbox: UnifiedMailbox,
+    connections: [MailboxConnection]
+  ) async {
     cancelBackfill()
     currentConnectionId = nil
+    if unifiedCollection != mailbox.collection { threads = [] }
+    unifiedCollection = mailbox.collection
     let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
     let connectionIds = Set(authorizedConnections.map(\.id))
     unifiedConnectionIds = connectionIds
@@ -1555,6 +1971,7 @@ final class GmailInboxViewModel {
     guard
       let cacheErrors = await loadCachedUnifiedInboxes(
         for: authorizedConnections,
+        collection: mailbox.collection,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &loadedThreadsByConnection
@@ -1563,6 +1980,7 @@ final class GmailInboxViewModel {
     guard
       let syncResult = await syncUnifiedInboxes(
         for: authorizedConnections,
+        collection: mailbox.collection,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &loadedThreadsByConnection
@@ -1571,6 +1989,7 @@ final class GmailInboxViewModel {
     guard
       let backfillErrors = await continueUnifiedInboxBackfill(
         for: syncResult.connectionsNeedingBackfill,
+        collection: mailbox.collection,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &loadedThreadsByConnection
@@ -1583,6 +2002,7 @@ final class GmailInboxViewModel {
 
   private func loadCachedUnifiedInboxes(
     for connections: [MailboxConnection],
+    collection: MailboxMessageCollection,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
@@ -1590,10 +2010,14 @@ final class GmailInboxViewModel {
     var errors: [String] = []
     for connection in connections {
       do {
-        let result = try await service.loadInbox(connection: connection, session: session)
+        let result = try await loadProjectedMailbox(
+          collection,
+          connection: connection,
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+        )
         guard
           applyUnifiedInboxResult(
-            result.threads,
+            result,
             for: connection.id,
             loadId: loadId,
             connectionIds: connectionIds,
@@ -1611,6 +2035,7 @@ final class GmailInboxViewModel {
 
   private func syncUnifiedInboxes(
     for connections: [MailboxConnection],
+    collection: MailboxMessageCollection,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
@@ -1622,6 +2047,7 @@ final class GmailInboxViewModel {
         guard
           let needsBackfill = try await syncUnifiedInbox(
             for: connection,
+            collection: collection,
             loadId: loadId,
             connectionIds: connectionIds,
             threadsByConnection: &threadsByConnection
@@ -1641,20 +2067,27 @@ final class GmailInboxViewModel {
 
   private func syncUnifiedInbox(
     for connection: MailboxConnection,
+    collection: MailboxMessageCollection,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async throws -> Bool? {
     let syncedResult = try await service.syncInbox(connection: connection, session: session)
+    let projectedResult = try await loadProjectedMailbox(
+      collection,
+      connection: connection,
+      pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+    )
     guard
       applyUnifiedInboxResult(
-        syncedResult.threads,
+        projectedResult,
         for: connection.id,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &threadsByConnection
       )
     else { return nil }
+    await refreshNavigationSnapshot(for: connection)
     return !syncedResult.historicalMetadataBackfillIsComplete
   }
 
@@ -1669,6 +2102,7 @@ final class GmailInboxViewModel {
 
   private func continueUnifiedInboxBackfill(
     for connections: [MailboxConnection],
+    collection: MailboxMessageCollection,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
@@ -1676,13 +2110,18 @@ final class GmailInboxViewModel {
     var errors: [String] = []
     for connection in connections {
       do {
-        let backfillResult = try await service.continueHistoricalBackfill(
+        _ = try await service.continueHistoricalBackfill(
           connection: connection,
           session: session
         )
+        let backfillResult = try await loadProjectedMailbox(
+          collection,
+          connection: connection,
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+        )
         guard
           applyUnifiedInboxResult(
-            backfillResult.threads,
+            backfillResult,
             for: connection.id,
             loadId: loadId,
             connectionIds: connectionIds,
@@ -1698,25 +2137,30 @@ final class GmailInboxViewModel {
     return errors
   }
 
-  func load(connection: MailboxConnection) async {
+  func load(
+    connection: MailboxConnection,
+    collection: MailboxMessageCollection = .role(.inbox)
+  ) async {
     isLoading = true
     defer {
       isLoading = false
     }
 
     do {
-      let result = try await service.loadInbox(
+      let result = try await service.loadMailbox(
+        collection,
         connection: connection,
         session: session
       )
       try Task.checkCancellation()
-      guard currentConnectionId == connection.id
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return
       }
       threads = result.threads
       errorMessage = nil
       if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
+        startBodyPrefetch(connection: connection)
         startHistoricalBackfill(connection: connection)
       }
     } catch is CancellationError {
@@ -1737,7 +2181,7 @@ final class GmailInboxViewModel {
   }
 
   private func applyUnifiedInboxResult(
-    _ updatedThreads: [MailboxThread],
+    _ result: MailboxMetadataSyncResult,
     for connectionId: MailboxConnectionId,
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
@@ -1746,14 +2190,38 @@ final class GmailInboxViewModel {
     guard !Task.isCancelled, unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else {
       return false
     }
-    updateUnifiedThreads(updatedThreads, for: connectionId, in: &threadsByConnection)
+    updateUnifiedThreads(result.threads, for: connectionId, in: &threadsByConnection)
     return true
   }
 
-  func loadAfterConnectionChange(connection: MailboxConnection) async {
-    if currentConnectionId != connection.id {
+  private func loadProjectedMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>
+  ) async throws -> MailboxMetadataSyncResult {
+    guard collection == .pins else {
+      return try await service.loadMailbox(
+        collection,
+        connection: connection,
+        session: session
+      )
+    }
+    return try await service.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
+    .projected(to: .pins, pinnedMessageIds: pinnedMessageIds)
+  }
+
+  func loadAfterConnectionChange(
+    connection: MailboxConnection,
+    collection: MailboxMessageCollection = .role(.inbox)
+  ) async {
+    if currentConnectionId != connection.id || currentCollection != collection {
       cancelBackfill()
       currentConnectionId = connection.id
+      currentCollection = collection
       unifiedConnectionIds = []
       unifiedLoadId = nil
       threads = []
@@ -1762,7 +2230,7 @@ final class GmailInboxViewModel {
       errorMessage = nil
     }
 
-    await load(connection: connection)
+    await load(connection: connection, collection: collection)
     guard
       !Task.isCancelled,
       currentConnectionId == connection.id
@@ -1776,6 +2244,8 @@ final class GmailInboxViewModel {
 
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     if currentConnectionId != connection.id {
       currentConnectionId = connection.id
       unifiedConnectionIds = []
@@ -1790,17 +2260,26 @@ final class GmailInboxViewModel {
     }
 
     do {
-      var result = try await service.syncInbox(
+      let syncResult = try await service.syncInbox(
         connection: connection,
         session: session
       )
-      guard currentConnectionId == connection.id
+      let result = try await service.loadMailbox(
+        currentCollection,
+        connection: connection,
+        session: session
+      )
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return false
       }
       threads = result.threads
+      await refreshNavigationSnapshot(for: connection)
       errorMessage = nil
-      if !result.historicalMetadataBackfillIsComplete {
+      if syncResult.hasInitialMailboxAvailability {
+        startBodyPrefetch(connection: connection)
+      }
+      if !syncResult.historicalMetadataBackfillIsComplete {
         startHistoricalBackfill(connection: connection)
       }
       return true
@@ -1825,22 +2304,61 @@ final class GmailInboxViewModel {
         }
       }
       do {
-        let backfill = try await service.continueHistoricalBackfill(
+        _ = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        let backfill = try await service.loadMailbox(
+          currentCollection,
           connection: connection,
           session: session
         )
         guard
           !Task.isCancelled,
           backfillTaskId == taskId,
+          !hasSignedOut,
           currentConnectionId == connection.id
         else { return }
         threads = backfill.threads
+        await refreshNavigationSnapshot(for: connection)
+        startBodyPrefetch(connection: connection)
       } catch is CancellationError {
       } catch {
         guard !Task.isCancelled, backfillTaskId == taskId else { return }
         errorMessage = error.localizedDescription
       }
     }
+  }
+
+  private func startBodyPrefetch(connection: MailboxConnection) {
+    guard let bodyPrefetcher else { return }
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await bodyPrefetcher.prefetchMessageBodies(
+          connection: connection,
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+          referenceDate: Date(),
+          session: self.session
+        )
+      } catch {
+        // Prefetch is best effort and must not block cached mailbox use.
+      }
+    }
+  }
+
+  func cancelBodyPrefetch() async {
+    guard let task = bodyPrefetchTask else { return }
+    bodyPrefetchTask = nil
+    task.cancel()
+    await task.value
+  }
+
+  func prepareForSignOut() async {
+    hasSignedOut = true
+    cancelBackfill()
+    await cancelBodyPrefetch()
   }
 
   func refresh(connection: MailboxConnection) async -> Bool {
@@ -1852,8 +2370,13 @@ final class GmailInboxViewModel {
     isSyncing = true
     defer { isSyncing = false }
     do {
-      let result = try await service.syncInbox(connection: connection, session: session)
-      guard unifiedConnectionIds.contains(connection.id) else { return false }
+      let syncResult = try await service.syncInbox(connection: connection, session: session)
+      let result = try await loadProjectedMailbox(
+        unifiedCollection,
+        connection: connection,
+        pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+      )
+      guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
       let otherMessages =
         threads
@@ -1861,8 +2384,9 @@ final class GmailInboxViewModel {
         .flatMap(\.messages)
 
       threads = MailboxThread.group(otherMessages + result.threads.flatMap(\.messages))
+      await refreshNavigationSnapshot(for: connection)
       errorMessage = nil
-      if !result.historicalMetadataBackfillIsComplete {
+      if !syncResult.historicalMetadataBackfillIsComplete {
         startUnifiedHistoricalBackfill(connection: connection)
       }
       return true
@@ -1893,9 +2417,14 @@ final class GmailInboxViewModel {
         }
       }
       do {
-        let backfill = try await service.continueHistoricalBackfill(
+        _ = try await service.continueHistoricalBackfill(
           connection: connection,
           session: session
+        )
+        let backfill = try await loadProjectedMailbox(
+          unifiedCollection,
+          connection: connection,
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
         )
         guard
           !Task.isCancelled,
@@ -1907,6 +2436,7 @@ final class GmailInboxViewModel {
           .filter { $0.id.connectionId != connection.id }
           .flatMap(\.messages)
         threads = MailboxThread.group(otherMessages + backfill.threads.flatMap(\.messages))
+        await refreshNavigationSnapshot(for: connection)
       } catch is CancellationError {
       } catch {
         guard !Task.isCancelled, backfillTaskId == taskId else { return }
@@ -1961,6 +2491,48 @@ final class GmailInboxViewModel {
   func clearSearch() {
     searchQuery = ""
     searchResult = nil
+  }
+
+  private func refreshNavigationSnapshot(for connection: MailboxConnection) async {
+    guard
+      let result = try? await service.loadMailbox(
+        .allObserved,
+        connection: connection,
+        session: session
+      )
+    else { return }
+    let providerMailboxes = try? await service.loadProviderMailboxes(
+      connection: connection,
+      session: session
+    )
+    updateNavigationSnapshot(
+      result: result,
+      providerMailboxes: providerMailboxes,
+      for: connection.id
+    )
+  }
+
+  private func updateNavigationSnapshot(
+    result: MailboxMetadataSyncResult,
+    providerMailboxes: [ProviderMailbox]?,
+    for connectionId: MailboxConnectionId
+  ) {
+    var messagesByConnection = navigationSnapshot.messagesByConnection
+    if result.messages.allSatisfy({
+      $0.connectionId == connectionId
+    }) {
+      messagesByConnection[connectionId] = result.messages
+    }
+    var providerMailboxesByConnection = navigationSnapshot.providerMailboxesByConnection
+    if let providerMailboxes {
+      providerMailboxesByConnection[connectionId] = providerMailboxes
+    }
+    navigationSnapshot = MailboxNavigationSnapshot(
+      messagesByConnection: messagesByConnection,
+      pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+      outboxStates: navigationSnapshot.outboxStates,
+      providerMailboxesByConnection: providerMailboxesByConnection
+    )
   }
 
   func categorizeHistorical(
@@ -2503,6 +3075,7 @@ private struct NotificationRulePanel: View {
 }
 
 private struct GmailProviderConnectionPanel: View {
+  let cancelBodyPrefetch: () async -> Void
   @Bindable var viewModel: GmailProviderConnectionViewModel
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
@@ -2591,6 +3164,7 @@ private struct GmailProviderConnectionPanel: View {
 
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
+                  await cancelBodyPrefetch()
                   await viewModel.removeLocalAuthorization(connection)
                 }
               }
@@ -2598,6 +3172,7 @@ private struct GmailProviderConnectionPanel: View {
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
+                await cancelBodyPrefetch()
                 await viewModel.removeEverywhere(connection)
               }
             }
@@ -2796,6 +3371,7 @@ private struct GmailInboxPanel: View {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
               do {
+                await viewModel.cancelBodyPrefetch()
                 if let connection {
                   try messageReader.clearCachedMessageBodies(
                     connection: connection,

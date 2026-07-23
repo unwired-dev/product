@@ -7,6 +7,86 @@ struct GmailMessageBody: Equatable {
   let text: String
 }
 
+struct GmailMessageBodyPrefetchPlan {
+  static let maximumRecentMessageCount = 500
+  static let recentInterval: TimeInterval = 30 * 24 * 60 * 60
+
+  let pinnedMessages: [GmailMessageMetadata]
+  let recentMessages: [GmailMessageMetadata]
+
+  var messages: [GmailMessageMetadata] {
+    pinnedMessages + recentMessages
+  }
+
+  init(
+    messages: [GmailMessageMetadata],
+    pinnedMessageIds: Set<String>,
+    referenceDate: Date
+  ) {
+    var messagesByStableId: [String: GmailMessageMetadata] = [:]
+    for message in messages {
+      guard !message.isExcludedFromBodyPrefetch else { continue }
+      let existing = messagesByStableId[message.stableProviderMessageId]
+      if existing == nil
+        || message.providerInternalDateMilliseconds > existing!.providerInternalDateMilliseconds
+      {
+        messagesByStableId[message.stableProviderMessageId] = message
+      }
+    }
+    let lowerBoundMilliseconds = Int64(
+      referenceDate.addingTimeInterval(-Self.recentInterval).timeIntervalSince1970 * 1_000
+    )
+    let upperBoundMilliseconds = Int64(referenceDate.timeIntervalSince1970 * 1_000)
+    recentMessages = messagesByStableId.values.filter { message in
+      message.isInRecentBodyPrefetchMailbox
+        && (lowerBoundMilliseconds...upperBoundMilliseconds).contains(
+          message.providerInternalDateMilliseconds
+        )
+    }.sorted(by: Self.prefetchOrder).prefix(Self.maximumRecentMessageCount).map(\.self)
+    let recentMessageIds = Set(recentMessages.map(\.stableProviderMessageId))
+    pinnedMessages = messagesByStableId.values.filter { message in
+      pinnedMessageIds.contains(message.stableProviderMessageId)
+        && !recentMessageIds.contains(message.stableProviderMessageId)
+    }.sorted(by: Self.prefetchOrder)
+  }
+
+  private static func prefetchOrder(
+    _ first: GmailMessageMetadata,
+    _ second: GmailMessageMetadata
+  ) -> Bool {
+    if first.providerInternalDateMilliseconds == second.providerInternalDateMilliseconds {
+      return first.stableProviderMessageId < second.stableProviderMessageId
+    }
+    return first.providerInternalDateMilliseconds > second.providerInternalDateMilliseconds
+  }
+}
+
+extension GmailMessageMetadata {
+  fileprivate var isExcludedFromBodyPrefetch: Bool {
+    let labels = Set(providerLabelIds ?? [])
+    return labels.contains("DRAFT") || labels.contains("SPAM") || labels.contains("TRASH")
+  }
+
+  fileprivate var isInRecentBodyPrefetchMailbox: Bool {
+    guard let providerLabelIds else { return true }
+    let labels = Set(providerLabelIds)
+    return labels.contains("INBOX") || labels.contains("SENT")
+  }
+}
+
+enum GmailMessageBodyCacheRetention: String, Codable {
+  case opened
+  case prefetched
+}
+
+struct GmailMessageBodyCacheWrite {
+  let cachedAt: Date
+  let isPinned: Bool
+  let isProtected: Bool
+  let payload: ProductSyncEncryptedPayload
+  let retention: GmailMessageBodyCacheRetention
+}
+
 protocol GmailMessageBodyCaching {
   func clearMessageBodies(productAccountId: String) throws
 
@@ -30,6 +110,25 @@ protocol GmailMessageBodyCaching {
     productAccountId: String,
     stableProviderMessageId: String
   ) throws
+
+  func saveMessageBody(
+    _ write: GmailMessageBodyCacheWrite,
+    productAccountId: String,
+    stableProviderMessageId: String
+  ) throws -> Bool
+
+  func reconcileSelection(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    protectedMessageIds: Set<String>,
+    pinnedMessageIds: Set<String>
+  ) throws
+
+  func recordMessageBodyAccess(
+    productAccountId: String,
+    stableProviderMessageId: String,
+    accessedAt: Date
+  ) throws
 }
 
 extension GmailMessageBodyCaching {
@@ -39,6 +138,32 @@ extension GmailMessageBodyCaching {
   ) throws {
     try clearMessageBodies(productAccountId: productAccountId)
   }
+
+  func saveMessageBody(
+    _ write: GmailMessageBodyCacheWrite,
+    productAccountId: String,
+    stableProviderMessageId: String
+  ) throws -> Bool {
+    try saveMessageBody(
+      write.payload,
+      productAccountId: productAccountId,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    return true
+  }
+
+  func reconcileSelection(
+    productAccountId _: String,
+    providerAccountIdentifier _: String,
+    protectedMessageIds _: Set<String>,
+    pinnedMessageIds _: Set<String>
+  ) throws {}
+
+  func recordMessageBodyAccess(
+    productAccountId _: String,
+    stableProviderMessageId _: String,
+    accessedAt _: Date
+  ) throws {}
 }
 
 protocol GmailMessageReading {
@@ -54,6 +179,13 @@ protocol GmailMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody
 
+  func prefetchMessageBodies(
+    connection: GmailProviderConnectionStatus,
+    pinnedMessageIds: Set<String>,
+    referenceDate: Date,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
   func removeCachedMessageBody(
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
@@ -67,12 +199,19 @@ extension GmailMessageReading {
   ) throws {
     try clearCachedMessageBodies(session: session)
   }
+
+  func prefetchMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    pinnedMessageIds _: Set<String>,
+    referenceDate _: Date,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
-/// Reads only message bodies already present in the encrypted On-Demand Body Cache.
+/// Reads only message bodies already present in the bounded encrypted body cache.
 ///
 /// This boundary never fetches mail from Gmail. System Categorization uses it to keep
-/// provider body retrieval reserved for an explicit user-open action.
+/// provider retrieval outside the categorization path.
 ///
 /// Example:
 /// ```swift
@@ -91,11 +230,20 @@ protocol GmailCachedMessageBodyReading {
 }
 
 struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
+  static let defaultMaximumByteCount = 500 * 1_024 * 1_024
+  private static let fileLock = NSRecursiveLock()
+
   private let fileManager: FileManager
+  private let maximumByteCount: Int
   private let rootDirectory: URL
 
-  init(fileManager: FileManager = .default, rootDirectory: URL? = nil) {
+  init(
+    fileManager: FileManager = .default,
+    maximumByteCount: Int = Self.defaultMaximumByteCount,
+    rootDirectory: URL? = nil
+  ) {
     self.fileManager = fileManager
+    self.maximumByteCount = max(0, maximumByteCount)
     self.rootDirectory =
       rootDirectory
       ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -103,6 +251,8 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
   }
 
   func clearMessageBodies(productAccountId: String) throws {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else {
       return
     }
@@ -122,6 +272,8 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else {
       return
     }
@@ -143,6 +295,8 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId: String,
     stableProviderMessageId: String
   ) throws -> ProductSyncEncryptedPayload? {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
     let fileURL = fileURL(
       productAccountId: productAccountId,
       stableProviderMessageId: stableProviderMessageId
@@ -150,16 +304,19 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     guard fileManager.fileExists(atPath: fileURL.path) else {
       return nil
     }
-    return try JSONDecoder().decode(
-      ProductSyncEncryptedPayload.self,
-      from: Data(contentsOf: fileURL)
-    )
+    let data = try Data(contentsOf: fileURL)
+    if let entry = try? JSONDecoder().decode(FileGmailMessageBodyCacheEntry.self, from: data) {
+      return entry.payload
+    }
+    return try JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: data)
   }
 
   func removeMessageBody(
     productAccountId: String,
     stableProviderMessageId: String
   ) throws {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
     let fileURL = fileURL(
       productAccountId: productAccountId,
       stableProviderMessageId: stableProviderMessageId
@@ -174,14 +331,194 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId: String,
     stableProviderMessageId: String
   ) throws {
-    try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
-    try JSONEncoder().encode(payload).write(
-      to: fileURL(
-        productAccountId: productAccountId,
-        stableProviderMessageId: stableProviderMessageId
+    _ = try saveMessageBody(
+      GmailMessageBodyCacheWrite(
+        cachedAt: Date(),
+        isPinned: false,
+        isProtected: false,
+        payload: payload,
+        retention: .opened
       ),
-      options: [.atomic]
+      productAccountId: productAccountId,
+      stableProviderMessageId: stableProviderMessageId
     )
+  }
+
+  func saveMessageBody(
+    _ write: GmailMessageBodyCacheWrite,
+    productAccountId: String,
+    stableProviderMessageId: String
+  ) throws -> Bool {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
+    try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+    let destination = fileURL(
+      productAccountId: productAccountId,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    let entry = FileGmailMessageBodyCacheEntry(
+      cachedAt: write.cachedAt,
+      isPinned: write.isPinned,
+      isProtected: write.isProtected,
+      lastReadAt: write.retention == .opened ? write.cachedAt : nil,
+      payload: write.payload,
+      retention: write.retention
+    )
+    return try writeEntryIfFits(entry, to: destination)
+  }
+
+  private func writeEntryIfFits(
+    _ entry: FileGmailMessageBodyCacheEntry,
+    to destination: URL
+  ) throws -> Bool {
+    let encodedEntry = try JSONEncoder().encode(entry)
+    guard encodedEntry.count <= maximumByteCount else { return false }
+
+    var cachedFiles = try cachedFiles(excluding: destination)
+    var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
+    cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
+    while cachedByteCount > maximumByteCount - encodedEntry.count,
+      let eviction = cachedFiles.first(where: { !$0.isProtected })
+        ?? (entry.retention == .prefetched ? cachedFiles.first : nil)
+    {
+      try fileManager.removeItem(at: eviction.url)
+      cachedByteCount -= eviction.byteCount
+      cachedFiles.removeAll { $0.url == eviction.url }
+    }
+    guard cachedByteCount <= maximumByteCount - encodedEntry.count else { return false }
+    try encodedEntry.write(to: destination, options: [.atomic])
+    return true
+  }
+
+  // swiftlint:disable:next function_body_length
+  func reconcileSelection(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    protectedMessageIds: Set<String>,
+    pinnedMessageIds: Set<String>
+  ) throws {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
+    guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
+    try clearProtectedSelections(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    let prefix = [
+      gmailSafeFileComponent(productAccountId),
+      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+    ].joined(separator: "-")
+    let protectedFileNames = Set(
+      protectedMessageIds.map {
+        fileURL(productAccountId: productAccountId, stableProviderMessageId: $0).lastPathComponent
+      })
+    let pinnedFileNames = Set(
+      pinnedMessageIds.map {
+        fileURL(productAccountId: productAccountId, stableProviderMessageId: $0).lastPathComponent
+      })
+    for fileURL in try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: [.contentModificationDateKey]
+    ) where fileURL.lastPathComponent.hasPrefix(prefix) {
+      guard let data = try dataIfPresent(at: fileURL) else { continue }
+      var entry: FileGmailMessageBodyCacheEntry
+      if let storedEntry = try? JSONDecoder().decode(
+        FileGmailMessageBodyCacheEntry.self,
+        from: data
+      ) {
+        entry = storedEntry
+      } else if let payload = try? JSONDecoder().decode(
+        ProductSyncEncryptedPayload.self,
+        from: data
+      ) {
+        let cachedAt =
+          try fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+          .contentModificationDate ?? .distantPast
+        entry = FileGmailMessageBodyCacheEntry(
+          cachedAt: cachedAt,
+          isPinned: false,
+          isProtected: false,
+          lastReadAt: cachedAt,
+          payload: payload,
+          retention: .opened
+        )
+      } else {
+        try? fileManager.removeItem(at: fileURL)
+        continue
+      }
+      entry.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
+      entry.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
+      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
+    }
+    try enforceMaximumByteCount()
+  }
+
+  private func clearProtectedSelections(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    let productPrefix = [
+      gmailSafeFileComponent(productAccountId),
+      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+    ].joined(separator: "-")
+    for fileURL in try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: nil
+    ) where fileURL.lastPathComponent.hasPrefix(productPrefix) {
+      guard
+        var entry = try? JSONDecoder().decode(
+          FileGmailMessageBodyCacheEntry.self,
+          from: Data(contentsOf: fileURL)
+        )
+      else { continue }
+      entry.isProtected = false
+      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
+    }
+  }
+
+  private func dataIfPresent(at fileURL: URL) throws -> Data? {
+    do {
+      return try Data(contentsOf: fileURL)
+    } catch let error as NSError
+      where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError
+    {
+      return nil
+    }
+  }
+
+  func recordMessageBodyAccess(
+    productAccountId: String,
+    stableProviderMessageId: String,
+    accessedAt: Date
+  ) throws {
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
+    let fileURL = fileURL(
+      productAccountId: productAccountId,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    guard fileManager.fileExists(atPath: fileURL.path) else { return }
+    let data = try Data(contentsOf: fileURL)
+    var entry: FileGmailMessageBodyCacheEntry
+    if let storedEntry = try? JSONDecoder().decode(
+      FileGmailMessageBodyCacheEntry.self,
+      from: data
+    ) {
+      entry = storedEntry
+    } else {
+      let payload = try JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: data)
+      entry = FileGmailMessageBodyCacheEntry(
+        cachedAt: accessedAt,
+        isPinned: false,
+        isProtected: false,
+        lastReadAt: nil,
+        payload: payload,
+        retention: .opened
+      )
+    }
+    entry.lastReadAt = accessedAt
+    entry.retention = .opened
+    _ = try writeEntryIfFits(entry, to: fileURL)
   }
 
   private func fileURL(productAccountId: String, stableProviderMessageId: String) -> URL {
@@ -190,6 +527,118 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     )
   }
 
+  private func enforceMaximumByteCount() throws {
+    var cachedFiles = try cachedFiles(excluding: nil)
+    var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
+    cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
+    while cachedByteCount > maximumByteCount,
+      let eviction = cachedFiles.first(where: { !$0.isProtected }) ?? cachedFiles.first
+    {
+      try fileManager.removeItem(at: eviction.url)
+      cachedByteCount -= eviction.byteCount
+      cachedFiles.removeAll { $0.url == eviction.url }
+    }
+  }
+
+  private func cachedFiles(excluding excludedURL: URL?) throws
+    -> [FileGmailMessageBodyCacheFile]
+  {
+    guard fileManager.fileExists(atPath: rootDirectory.path) else { return [] }
+    var cachedFiles: [FileGmailMessageBodyCacheFile] = []
+    for fileURL in try fileManager.contentsOfDirectory(
+      at: rootDirectory,
+      includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
+    ) where excludedURL == nil || fileURL != excludedURL {
+      let values = try fileURL.resourceValues(forKeys: [
+        .contentModificationDateKey, .fileSizeKey,
+      ])
+      let data = try Data(contentsOf: fileURL)
+      let entry: FileGmailMessageBodyCacheEntry
+      if let storedEntry = try? JSONDecoder().decode(
+        FileGmailMessageBodyCacheEntry.self,
+        from: data
+      ) {
+        entry = storedEntry
+      } else if let legacyPayload = try? JSONDecoder().decode(
+        ProductSyncEncryptedPayload.self,
+        from: data
+      ) {
+        let cachedAt = values.contentModificationDate ?? .distantPast
+        entry = FileGmailMessageBodyCacheEntry(
+          cachedAt: cachedAt,
+          isPinned: false,
+          isProtected: false,
+          lastReadAt: cachedAt,
+          payload: legacyPayload,
+          retention: .opened
+        )
+      } else {
+        try fileManager.removeItem(at: fileURL)
+        continue
+      }
+      cachedFiles.append(
+        FileGmailMessageBodyCacheFile(
+          byteCount: values.fileSize ?? data.count,
+          cachedAt: entry.cachedAt,
+          isPinned: entry.isPinned,
+          isProtected: entry.isProtected,
+          lastReadAt: entry.lastReadAt,
+          retention: entry.retention,
+          url: fileURL
+        )
+      )
+    }
+    return cachedFiles
+  }
+
+}
+
+private struct FileGmailMessageBodyCacheEntry: Codable {
+  let cachedAt: Date
+  var isPinned: Bool
+  var isProtected: Bool
+  var lastReadAt: Date?
+  let payload: ProductSyncEncryptedPayload
+  var retention: GmailMessageBodyCacheRetention
+}
+
+private struct FileGmailMessageBodyCacheFile {
+  let byteCount: Int
+  let cachedAt: Date
+  let isPinned: Bool
+  let isProtected: Bool
+  let lastReadAt: Date?
+  let retention: GmailMessageBodyCacheRetention
+  let url: URL
+
+  static func evictionOrder(
+    _ first: FileGmailMessageBodyCacheFile,
+    _ second: FileGmailMessageBodyCacheFile
+  ) -> Bool {
+    let firstPriority = first.evictionPriority
+    let secondPriority = second.evictionPriority
+    if firstPriority != secondPriority {
+      return firstPriority < secondPriority
+    }
+    let firstDate = first.lastReadAt ?? first.cachedAt
+    let secondDate = second.lastReadAt ?? second.cachedAt
+    if firstDate != secondDate {
+      return firstDate < secondDate
+    }
+    return first.url.lastPathComponent < second.url.lastPathComponent
+  }
+
+  private var evictionPriority: Int {
+    if isPinned { return 2 }
+    return retention == .opened ? 0 : 1
+  }
+}
+
+private struct GmailMessageBodyPrefetchContext {
+  let accessToken: String
+  let keyMaterial: ProductSyncKeyMaterial
+  let pinnedMessageIds: Set<String>
+  let session: ProductAccountSessionSnapshot
 }
 
 enum GmailMessageBodyError: LocalizedError, Equatable {
@@ -219,6 +668,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   private let cache: GmailMessageBodyCaching
   private let gmailBaseURL: URL
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let metadataStore: GmailMessageMetadataPersisting
   private let oauthClientId: String?
   private let session: URLSession
   private let tokenStore: GmailProviderTokenPersisting
@@ -229,6 +679,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     gmailBaseURL: URL = URL(string: "https://gmail.googleapis.com/gmail/v1")!,
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     oauthClientId: String? =
       ProcessInfo.processInfo.environment["GMAIL_OAUTH_CLIENT_ID"]
       ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
@@ -241,6 +692,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     self.cache = cache
     self.gmailBaseURL = gmailBaseURL
     self.keyMaterialStore = keyMaterialStore
+    self.metadataStore = metadataStore
     self.oauthClientId = oauthClientId
     self.session = session
     self.tokenStore = tokenStore
@@ -253,6 +705,11 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody {
     if let cachedBody = try loadCachedMessageBody(message: message, session: session) {
+      try? cache.recordMessageBodyAccess(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId,
+        accessedAt: Date()
+      )
       return cachedBody
     }
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
@@ -282,6 +739,113 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       stableProviderMessageId: message.stableProviderMessageId
     )
     return body
+  }
+
+  func prefetchMessageBodies(
+    connection: GmailProviderConnectionStatus,
+    pinnedMessageIds: Set<String>,
+    referenceDate: Date,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try Task.checkCancellation()
+    let messages = try metadataStore.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let plan = GmailMessageBodyPrefetchPlan(
+      messages: messages,
+      pinnedMessageIds: pinnedMessageIds,
+      referenceDate: referenceDate
+    )
+    let protectedMessageIds = Set(plan.messages.map(\.stableProviderMessageId))
+    try Task.checkCancellation()
+    try cache.reconcileSelection(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier,
+      protectedMessageIds: protectedMessageIds,
+      pinnedMessageIds: pinnedMessageIds
+    )
+    let messagesToPrefetch = try uncachedMessages(from: plan.messages, session: session)
+    guard !messagesToPrefetch.isEmpty else { return }
+
+    let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
+    guard
+      let tokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    else {
+      throw GmailMessageBodyError.missingLocalGmailTokens
+    }
+    let refreshedTokens = try await refreshedTokens(
+      tokens,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    try await validateRefreshedToken(
+      refreshedTokens.accessToken,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let context = GmailMessageBodyPrefetchContext(
+      accessToken: refreshedTokens.accessToken,
+      keyMaterial: material,
+      pinnedMessageIds: pinnedMessageIds,
+      session: session
+    )
+    for message in messagesToPrefetch {
+      try Task.checkCancellation()
+      _ = try await prefetchMessageBody(message, context: context)
+    }
+  }
+
+  private func prefetchMessageBody(
+    _ message: GmailMessageMetadata,
+    context: GmailMessageBodyPrefetchContext
+  ) async throws -> Bool {
+    if try loadCachedMessageBody(message: message, session: context.session) != nil {
+      return true
+    }
+    let body: GmailMessageBody
+    do {
+      body = try await fetchMessageBody(
+        message: message,
+        accessToken: context.accessToken
+      )
+    } catch GmailMessageBodyError.missingMessageBody {
+      return true
+    }
+    try Task.checkCancellation()
+    let encryptedPayload = try context.keyMaterial.encryptPayload(
+      Data(body.text.utf8),
+      associatedData: associatedData(for: message)
+    )
+    return try cache.saveMessageBody(
+      GmailMessageBodyCacheWrite(
+        cachedAt: Date(
+          timeIntervalSince1970: TimeInterval(message.providerInternalDateMilliseconds) / 1_000
+        ),
+        isPinned: context.pinnedMessageIds.contains(message.stableProviderMessageId),
+        isProtected: true,
+        payload: encryptedPayload,
+        retention: .prefetched
+      ),
+      productAccountId: context.session.productAccountId,
+      stableProviderMessageId: message.stableProviderMessageId
+    )
+  }
+
+  private func uncachedMessages(
+    from messages: [GmailMessageMetadata],
+    session: ProductAccountSessionSnapshot
+  ) throws -> [GmailMessageMetadata] {
+    var uncachedMessages: [GmailMessageMetadata] = []
+    for message in messages {
+      try Task.checkCancellation()
+      if try loadCachedMessageBody(message: message, session: session) == nil {
+        uncachedMessages.append(message)
+      }
+    }
+    return uncachedMessages
   }
 
   func loadCachedMessageBody(
@@ -383,7 +947,9 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let text: String
     if bodyPart.mimeType == "text/html" {
-      text = await MainActor.run { htmlText(decodedText) }
+      text = await MainActor.run {
+        htmlText(decodedText)
+      }
     } else {
       text = decodedText
     }
