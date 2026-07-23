@@ -88,7 +88,7 @@ struct AccountView: View {
     ) {
       MailShellSidebar(
         connections: gmailViewModel.connections,
-        errorMessage: gmailViewModel.errorMessage,
+        errorMessage: gmailViewModel.errorMessage ?? pinViewModel.errorMessage,
         isLoading: gmailViewModel.isLoading,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedMailbox: selectedMailboxBinding,
@@ -1573,6 +1573,7 @@ final class PinViewModel {
 
   private let service: PinSyncing
   private let session: ProductAccountSessionSnapshot
+  private var completedToggleGenerations: [StableProviderMessageIdentity: Int] = [:]
   private var updatingMessageIds: Set<StableProviderMessageIdentity> = []
 
   init(
@@ -1584,11 +1585,23 @@ final class PinViewModel {
   }
 
   func load() async {
+    let generationsAtLoadStart = completedToggleGenerations
     do {
       let loadedMessageIds = try await service.loadPinnedMessageIds(session: session)
+      let changedMessageIds = Set(
+        completedToggleGenerations.compactMap { messageId, generation in
+          generation == generationsAtLoadStart[messageId, default: 0] ? nil : messageId
+        }
+      )
       pinnedMessageIds = Set(
-        loadedMessageIds.filter { !updatingMessageIds.contains($0) }
-      ).union(pinnedMessageIds.filter { updatingMessageIds.contains($0) })
+        loadedMessageIds.filter {
+          !updatingMessageIds.contains($0) && !changedMessageIds.contains($0)
+        }
+      ).union(
+        pinnedMessageIds.filter {
+          updatingMessageIds.contains($0) || changedMessageIds.contains($0)
+        }
+      )
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -1611,6 +1624,7 @@ final class PinViewModel {
         messageId: messageId,
         session: session
       )
+      completedToggleGenerations[messageId, default: 0] += 1
     } catch is CancellationError {
       setPinnedLocally(wasPinned, messageId: messageId)
     } catch {
@@ -2034,9 +2048,8 @@ final class GmailInboxViewModel {
   }
 
   func refreshPinnedBodyPrefetch(connections: [MailboxConnection]) {
-    refreshBodyPrefetch(
-      afterChanging: navigationSnapshot.pinnedMessageIds,
-      connections: connections
+    startBodyPrefetch(
+      connections: connections.filter { $0.authorizationState == .authorized }
     )
   }
 

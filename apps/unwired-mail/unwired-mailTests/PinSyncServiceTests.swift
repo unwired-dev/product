@@ -394,6 +394,29 @@ extension PinSyncServiceTests {
     await service.releaseSave()
     await update.value
   }
+
+  @MainActor
+  func testPinLoadDoesNotOverwriteAToggleThatCompletedDuringTheLoad() async {
+    let service = StaleLoadingPinSyncService()
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+
+    let update = Task {
+      await viewModel.togglePin(Self.messageId)
+    }
+    await service.waitUntilSaveStarted()
+
+    let load = Task {
+      await viewModel.load()
+    }
+    await service.waitUntilLoadStarted()
+
+    await service.releaseSave()
+    await update.value
+    await service.releaseLoad()
+    await load.value
+
+    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+  }
 }
 
 private actor DelayedPinSyncService: PinSyncing {
@@ -423,6 +446,56 @@ private actor DelayedPinSyncService: PinSyncing {
     while !saveStarted {
       await Task.yield()
     }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
+  }
+}
+
+private actor StaleLoadingPinSyncService: PinSyncing {
+  private var loadContinuation: CheckedContinuation<Void, Never>?
+  private var loadStarted = false
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var saveStarted = false
+
+  func loadPinnedMessageIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableProviderMessageIdentity> {
+    loadStarted = true
+    await withCheckedContinuation { continuation in
+      loadContinuation = continuation
+    }
+    return []
+  }
+
+  func setPinned(
+    _: Bool,
+    messageId _: StableProviderMessageIdentity,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    saveStarted = true
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+  }
+
+  func waitUntilLoadStarted() async {
+    while !loadStarted {
+      await Task.yield()
+    }
+  }
+
+  func waitUntilSaveStarted() async {
+    while !saveStarted {
+      await Task.yield()
+    }
+  }
+
+  func releaseLoad() {
+    loadContinuation?.resume()
+    loadContinuation = nil
   }
 
   func releaseSave() {
