@@ -1897,8 +1897,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") },
       [
-        "maxResults=25",
-        "maxResults=25&pageToken=next-page-token",
+        "maxResults=25&includeSpamTrash=true",
+        "maxResults=25&includeSpamTrash=true&pageToken=next-page-token",
       ]
     )
     XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
