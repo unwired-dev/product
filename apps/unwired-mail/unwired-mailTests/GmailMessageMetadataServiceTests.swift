@@ -729,6 +729,79 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testLoadMailboxProjectsCanonicalRolesAndConnectionScopedLabels() async throws {
+    let store = RecordingGmailMessageMetadataStore()
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-shared",
+      internalDateMilliseconds: 10
+    )
+    inboxMessage.providerLabelIds = ["INBOX", "UNREAD", "Label_projects"]
+    var sentReply = metadata(
+      messageId: "message-sent",
+      threadId: "thread-shared",
+      internalDateMilliseconds: 20
+    )
+    sentReply.providerLabelIds = ["SENT"]
+    var archivedMessage = metadata(
+      messageId: "message-archived",
+      threadId: "thread-archived",
+      internalDateMilliseconds: 30
+    )
+    archivedMessage.providerLabelIds = ["Label_projects"]
+    store.messages = [inboxMessage, sentReply, archivedMessage]
+    let service = GmailMessageMetadataService(
+      store: store,
+      tokenStore: RecordingGmailProviderTokenStore()
+    )
+
+    let sent = try await service.loadMailbox(
+      .role(.sent),
+      connection: connection,
+      session: session
+    )
+    let archive = try await service.loadMailbox(
+      .role(.archive),
+      connection: connection,
+      session: session
+    )
+    let projects = try await service.loadMailbox(
+      .providerMailbox("Label_projects"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(sent.messages.map(\.providerMessageId), ["message-sent"])
+    XCTAssertEqual(
+      sent.threads[0].messages.map(\.providerMessageId),
+      ["message-sent", "message-inbox"]
+    )
+    XCTAssertEqual(archive.messages.map(\.providerMessageId), ["message-archived"])
+    XCTAssertEqual(
+      projects.messages.map(\.providerMessageId),
+      ["message-archived", "message-inbox"]
+    )
+  }
+
+  func testLoadProviderMailboxesUsesGmailNamesAndKeepsEmptyLabels() async throws {
+    let fixture = try makeSyncFixture()
+
+    let mailboxes = try await fixture.service.loadProviderMailboxes(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      mailboxes,
+      [
+        ProviderMailbox(id: "Label_empty", title: "Empty label"),
+        ProviderMailbox(id: "Label_projects", title: "Projects"),
+        ProviderMailbox(id: "STARRED", title: "Starred"),
+      ]
+    )
+    XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/labels"))
+  }
+
   func testOverrideCategoryPersistsUpdatedMessageMetadata() async throws {
     let message = metadata(
       messageId: "message-001",
@@ -806,6 +879,26 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
     XCTAssertEqual(fixture.service.syncInboxCallCount, fixture.connections.count)
+  }
+
+  @MainActor
+  func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: fixture.connections[1].id,
+      providerMessageId: "message-second"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(
+        outboxStates: [.failed],
+        pinnedMessageIds: [pinnedMessageId]
+      )
+    )
+
+    await fixture.viewModel.loadUnifiedMailbox(.pins, connections: fixture.connections)
+
+    XCTAssertEqual(fixture.viewModel.threads.flatMap(\.messages).map(\.id), [pinnedMessageId])
+    XCTAssertTrue(fixture.viewModel.navigationSnapshot.showsOutbox)
   }
 
   @MainActor
@@ -1370,8 +1463,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
       [
-        "maxResults=50",
-        "maxResults=50&pageToken=next-page-token",
+        "maxResults=50&includeSpamTrash=true",
+        "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
       ]
     )
     XCTAssertEqual(
@@ -1419,8 +1512,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
       [
-        "maxResults=50",
-        "maxResults=50&pageToken=next-page-token",
+        "maxResults=50&includeSpamTrash=true",
+        "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
       ]
     )
     XCTAssertNotNil(fixture.store.syncState)
@@ -1437,7 +1530,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      ["maxResults=50"]
+      ["maxResults=50&includeSpamTrash=true"]
     )
   }
 
@@ -1460,7 +1553,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(deferred.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
-      ["maxResults=50"]
+      ["maxResults=50&includeSpamTrash=true"]
     )
 
     shouldContinueBackfill = true
@@ -1497,10 +1590,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=50") },
       [
-        "maxResults=50",
-        "maxResults=50&pageToken=next-page-token",
-        "maxResults=50",
-        "maxResults=50&pageToken=next-page-token",
+        "maxResults=50&includeSpamTrash=true",
+        "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
+        "maxResults=50&includeSpamTrash=true",
+        "maxResults=50&includeSpamTrash=true&pageToken=next-page-token",
       ]
     )
   }
@@ -1720,7 +1813,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     XCTAssertEqual(
       fixture.requestRecorder.queries.first { $0.contains("startHistoryId") },
-      "startHistoryId=123&labelId=INBOX"
+      "startHistoryId=123"
     )
     XCTAssertTrue(result.messages.contains { $0.providerMessageId == "message-preserved" })
     XCTAssertFalse(result.messages.contains { $0.providerMessageId == "message-archived" })
@@ -1804,8 +1897,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("maxResults=25") },
       [
-        "maxResults=25",
-        "maxResults=25&pageToken=next-page-token",
+        "maxResults=25&includeSpamTrash=true",
+        "maxResults=25&includeSpamTrash=true&pageToken=next-page-token",
       ]
     )
     XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages/message-003"))
@@ -1922,7 +2015,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           }]
         }
         """.utf8
-      )
+      ),
+      labelIdsByMessageId: ["message-sent": ["SENT"]]
     )
 
     let result = try await fixture.service.syncRecentInbox(
@@ -1934,6 +2028,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(result.newMessageIds, ["message-002"])
+    XCTAssertEqual(
+      fixture.store.savedMessages.first { $0.providerMessageId == "message-sent" }?
+        .providerLabelIds,
+      ["SENT"]
+    )
+    let sent = try await fixture.service.loadMailbox(
+      .role(.sent),
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(sent.messages.map(\.providerMessageId), ["message-sent"])
   }
 
   func testSyncRecentInboxStopsHistoryCandidatesAtWakeHistoryId() async throws {
@@ -1982,7 +2087,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(result.newMessageIds, ["message-002"])
     XCTAssertEqual(
       fixture.requestRecorder.queries.filter { $0.contains("startHistoryId") },
-      ["startHistoryId=123&labelId=INBOX"]
+      ["startHistoryId=123"]
     )
   }
 
@@ -2468,7 +2573,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         Self.httpResponse(for: request, statusCode: 200),
         Data(
           """
-          {"sub":"\(tokenInfoSubject)","email":"user@example.com"}
+          {
+            "sub":"\(tokenInfoSubject)",
+            "email":"user@example.com",
+            "scope":"https://www.googleapis.com/auth/gmail.modify"
+          }
           """.utf8
         )
       )
@@ -2481,6 +2590,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     if request.url?.path == "/gmail/v1/users/me/history" {
       return (Self.httpResponse(for: request, statusCode: historyStatusCode), historyResponseData)
+    }
+
+    if request.url?.path == "/gmail/v1/users/me/labels" {
+      return (
+        Self.httpResponse(for: request, statusCode: 200),
+        Data(
+          """
+          {"labels":[
+            {"id":"INBOX","name":"Inbox"},
+            {"id":"STARRED","name":"Starred"},
+            {"id":"Label_projects","name":"Projects"},
+            {"id":"Label_empty","name":"Empty label"}
+          ]}
+          """.utf8
+        )
+      )
     }
 
     if request.url?.path == "/gmail/v1/users/me/messages" {

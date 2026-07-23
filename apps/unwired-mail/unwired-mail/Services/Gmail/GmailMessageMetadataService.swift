@@ -76,6 +76,43 @@ struct GmailMetadataSyncResult: Equatable {
   }
 }
 
+extension GmailMetadataSyncResult {
+  func projected(to collection: MailboxMessageCollection) -> GmailMetadataSyncResult {
+    let observedMessages = Dictionary(
+      (threads.flatMap(\.messages) + messages).map {
+        ($0.stableProviderMessageId, $0)
+      },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    let visibleMessages =
+      observedMessages
+      .filter { collection.contains(providerStateIds: $0.providerLabelIds) }
+      .sorted(by: Self.messagesAreOrdered)
+    let visibleThreadIds = Set(visibleMessages.map(\.providerThreadId))
+    let visibleThreads = GmailInboxThread.group(Array(observedMessages))
+      .filter { visibleThreadIds.contains($0.providerThreadId) }
+    return GmailMetadataSyncResult(
+      hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historyIsExpired: historyIsExpired,
+      hasUnlistedNewMessages: hasUnlistedNewMessages,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
+      messages: visibleMessages,
+      newMessageIds: newMessageIds,
+      threads: visibleThreads
+    )
+  }
+
+  private static func messagesAreOrdered(
+    _ lhs: GmailMessageMetadata,
+    _ rhs: GmailMessageMetadata
+  ) -> Bool {
+    if lhs.providerInternalDateMilliseconds == rhs.providerInternalDateMilliseconds {
+      return lhs.providerMessageId < rhs.providerMessageId
+    }
+    return lhs.providerInternalDateMilliseconds > rhs.providerInternalDateMilliseconds
+  }
+}
+
 struct GmailMetadataSyncState: Equatable {
   let historicalMetadataBackfillIsComplete: Bool
   let initialHistoricalCutoffMilliseconds: Int64?
@@ -199,6 +236,17 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
 
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult
+
+  func loadProviderMailboxes(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox]
+
   func continueHistoricalBackfill(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -235,6 +283,27 @@ protocol GmailMessageSearching {
 }
 
 extension GmailMessageMetadataSyncing {
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await loadInbox(connection: connection, session: session)
+      .projected(to: collection)
+  }
+
+  func loadProviderMailboxes(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    let result = try await loadMailbox(.allObserved, connection: connection, session: session)
+    return MailboxMessageCollection.providerMailboxIds(
+      in: result.messages.map {
+        $0.mailboxMetadata(connectionId: $0.mailboxConnectionId)
+      }
+    ).map { ProviderMailbox(id: $0, title: $0) }
+  }
+
   func continueHistoricalBackfill(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -894,6 +963,14 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
+    try await loadMailbox(.role(.inbox), connection: connection, session: session)
+  }
+
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
     let messages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -902,14 +979,38 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let visibleMessages = inboxMessages(messages)
     return GmailMetadataSyncResult(
       hasInitialMailboxAvailability: state != nil || !messages.isEmpty,
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false,
-      messages: visibleMessages,
-      threads: inboxThreads(messages)
+      messages: messages,
+      threads: GmailInboxThread.group(messages)
     )
+    .projected(to: collection)
+  }
+
+  func loadProviderMailboxes(
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    let accessToken = try await authorizedAccessToken(
+      connection: connection,
+      session: session,
+      requiredScopes: [
+        "https://mail.google.com/",
+        "https://www.googleapis.com/auth/gmail.modify",
+        "https://www.googleapis.com/auth/gmail.readonly",
+      ]
+    )
+    let response = try await sendAuthorizedRequest(
+      url: gmailBaseURL.appendingPathComponent("users/me/labels"),
+      accessToken: accessToken,
+      responseType: GmailListLabelsResponse.self
+    )
+    return (response.labels ?? [])
+      .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+      .map { ProviderMailbox(id: $0.id, title: $0.name) }
+      .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
   }
 
   func searchProvider(
@@ -1624,6 +1725,8 @@ struct GmailMessageMetadataService:
       ]
       if inboxOnly {
         queryItems.insert(URLQueryItem(name: "labelIds", value: "INBOX"), at: 0)
+      } else {
+        queryItems.append(URLQueryItem(name: "includeSpamTrash", value: "true"))
       }
       if let nextPageToken {
         queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
@@ -1665,7 +1768,8 @@ struct GmailMessageMetadataService:
       resolvingAgainstBaseURL: false
     )
     var queryItems = [
-      URLQueryItem(name: "maxResults", value: "50")
+      URLQueryItem(name: "maxResults", value: "50"),
+      URLQueryItem(name: "includeSpamTrash", value: "true"),
     ]
     if let pageToken {
       queryItems.append(URLQueryItem(name: "pageToken", value: pageToken))
@@ -1736,8 +1840,7 @@ struct GmailMessageMetadataService:
         resolvingAgainstBaseURL: false
       )
       var queryItems = [
-        URLQueryItem(name: "startHistoryId", value: sinceHistoryId),
-        URLQueryItem(name: "labelId", value: "INBOX"),
+        URLQueryItem(name: "startHistoryId", value: sinceHistoryId)
       ]
       if let nextPageToken {
         queryItems.append(URLQueryItem(name: "pageToken", value: nextPageToken))
@@ -2287,6 +2390,15 @@ private struct GmailListMessagesResponse: Decodable {
   let nextPageToken: String?
 }
 
+private struct GmailListLabelsResponse: Decodable {
+  let labels: [GmailLabel]?
+}
+
+private struct GmailLabel: Decodable {
+  let id: String
+  let name: String
+}
+
 private struct GmailListHistoryResponse: Decodable {
   let history: [GmailHistoryRecord]?
   let nextPageToken: String?
@@ -2332,6 +2444,7 @@ private struct GmailInboxHistoryChangesAccumulator {
 
   mutating func apply(_ record: GmailHistoryRecord) {
     for addition in record.messagesAdded ?? [] {
+      stateChangedMessageIds.insert(addition.message.id)
       if addition.message.labelIds?.contains("INBOX") != false {
         addedMessageIds.insert(addition.message.id)
         historyAddedMessageIds.insert(addition.message.id)
