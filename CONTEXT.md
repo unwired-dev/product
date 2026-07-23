@@ -56,6 +56,10 @@ _Avoid_: Remove Mailbox Connection Everywhere
 A product-account-scoped action that removes a **Mailbox Connection** and its product-owned state from every trusted device without deleting provider mail.
 _Avoid_: Remove Device Authorization, delete provider mailbox
 
+**Delete Product Account**:
+An immediate, irreversible action that deletes the user's product identity, operational data, encrypted Product Sync data, and push routes without deleting provider mail.
+_Avoid_: Remove Mailbox Connection Everywhere, delete provider mailbox, recoverable deactivation
+
 **Standards-Based Mailbox Connection**:
 A **Mailbox Connection** that uses IMAP for mailbox access and synchronization and SMTP for outgoing mail delivery.
 _Avoid_: IMAP-only account, read-only mailbox connection
@@ -63,6 +67,14 @@ _Avoid_: IMAP-only account, read-only mailbox connection
 **Full-Capability Mailbox Connection**:
 A **Mailbox Connection** that provides the product's complete reading, organization, drafting, sending, and recovery action set.
 _Avoid_: Legacy POP3 Connection, receive-only connection
+
+**Message Read State**:
+The provider-visible read or unread state of a message within a **Mailbox Connection**.
+_Avoid_: Read Receipt, local viewing history
+
+**Read Receipt**:
+An acknowledgement that may tell a sender their message was opened, kept separate from the message's **Message Read State**.
+_Avoid_: Read status, unread indicator
 
 **Secure Mail Transport**:
 Encrypted provider communication using TLS 1.2 or newer with valid server identity before any mailbox authentication occurs.
@@ -104,6 +116,10 @@ _Avoid_: Sent Mailbox, sent folder
 An immutable attempt to send one Outbox message through a selected **Mailbox Connection**.
 _Avoid_: Draft edit, Provider Mail Action
 
+**Undo Send Window**:
+A user-selected delay before an **Outgoing Delivery Attempt** is handed to its provider, during which the Outbox message remains cancellable.
+_Avoid_: Provider recall, retract delivered message
+
 **Pin**:
 A product-owned marker that keeps a message in the unified pinned-message view across trusted devices without changing provider flags.
 _Avoid_: Gmail star, IMAP flag, provider pin
@@ -113,7 +129,7 @@ The provider strategy where multiple Gmail **Mailbox Connections** precede gener
 _Avoid_: Provider-agnostic v1
 
 **Category**:
-A user-defined grouping used by the product to organize messages independently of provider folders and labels.
+A product-owned grouping used to organize messages independently of provider folders and labels; it may be product-provided or user-created.
 _Avoid_: Folder, Gmail label, Outlook category
 
 **System Category**:
@@ -184,6 +200,14 @@ _Avoid_: Blocking loading state, hidden sync error
 Locally encrypted storage for prefetched recent body text and opened older body text, excluding attachments and constrained by eviction controls.
 _Avoid_: On-demand-only body cache, permanent body store, attachment archive
 
+**Remote Message Content**:
+Content referenced by a message but fetched from an external server only when the message is viewed, such as remote images.
+_Avoid_: Message body, downloaded attachment
+
+**Tracking Pixel**:
+Remote message content intended to reveal that a message was opened or viewed.
+_Avoid_: Read Receipt, ordinary embedded image
+
 **Minimal Push Metadata**:
 The smallest mailbox-change data the backend may see to route sync wakeups to trusted devices.
 _Avoid_: Server-side mailbox sync, backend mail access
@@ -232,6 +256,14 @@ _Avoid_: Password-first account
 Backend-readable account data needed to run identity, billing, device routing, and encrypted sync operations.
 _Avoid_: User organization data, mailbox content
 
+**Trusted Device**:
+A user-approved device authorized to access one **Product Account** and participate in **End-to-End Encrypted Product Sync**.
+_Avoid_: Mailbox Authorization, remembered login
+
+**Device Revocation**:
+A Product Account action that blocks one former **Trusted Device** from account APIs, push routing, and future encrypted sync data.
+_Avoid_: Guaranteed remote erase, provider-token revocation
+
 **Product Sync**:
 Synchronization of product-owned user data across devices through the product's backend.
 _Avoid_: iCloud sync, provider sync
@@ -239,6 +271,18 @@ _Avoid_: iCloud sync, provider sync
 **End-to-End Encrypted Product Sync**:
 **Product Sync** where synced product data is readable only by the user's trusted devices.
 _Avoid_: Server-readable sync, plaintext sync
+
+**Mail Workflow Preference**:
+A user-owned choice about handling mail that follows the user across trusted devices through **End-to-End Encrypted Product Sync**.
+_Avoid_: Device setting, provider credential
+
+**Device-Local Preference**:
+A choice tied to one device's hardware, operating-system permission, appearance, storage, or diagnostics.
+_Avoid_: Synced mail workflow
+
+**Preference Conflict**:
+Two changes to the same field of a **Mail Workflow Preference** that were made from the same older synchronized revision.
+_Avoid_: Non-overlapping edit, upload-order winner
 
 **Recovery Key**:
 A user-held secret that can restore access to encrypted product data when no trusted device is available.
@@ -261,9 +305,15 @@ _Avoid_: Password reset, support recovery
 - **Remove Mailbox Connection Everywhere** removes synchronized connection and product-owned state from all trusted devices but never deletes provider mail
 - A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
 - After wake or reconnect, a trusted device processes synchronized connection-removal tombstones before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection
+- **Delete Product Account** requires recent authentication and explicit confirmation, has no recovery grace period, and cannot be undone
+- **Delete Product Account** removes backend operational account data, encrypted Product Sync payloads, and push routes and instructs reachable devices to purge local product data and mailbox credentials
+- **Delete Product Account** never deletes provider mail and does not promise to revoke authorization already issued by a **Mail Provider**
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
 - Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections** only when every **Mailbox Role** required by their supported actions is mapped or successfully created; otherwise they remain incomplete for actions requiring a missing role
 - A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
+- **Read Receipt** preferences distinguish responding to incoming requests from requesting receipts for outgoing messages
+- Incoming **Read Receipt** requests default to asking the user every time and are never acknowledged silently
+- Outgoing **Read Receipt** requests are off by default
 - Pin and unpin are product-owned actions available across full and reduced connection types
 - IMAP, SMTP, POP3, and Exchange Web Services require **Secure Mail Transport**
 - **Secure Mail Transport** prefers implicit TLS, permits STARTTLS only before authentication, and has no invalid-certificate override
@@ -290,6 +340,8 @@ _Avoid_: Password reset, support recovery
 - The unified **Sent Mailbox** is always available
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
 - The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
+- The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
+- Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems
 - Pending and failed Outbox messages remain editable and cancellable until an **Outgoing Delivery Attempt** has been handed to its provider; an in-flight attempt must first reach a terminal state
@@ -334,6 +386,7 @@ _Avoid_: Password reset, support recovery
 - **Historical Categorization Opt-In** permits categorization of old mail when the user chooses it
 - **Bounded Historical Categorization** limits **Historical Categorization Opt-In** to a user-selected scope
 - A **Category** may be a **System Category** or a **Custom Category**
+- A **Product Account** may have at most one **Custom Category**
 - A **Custom Category** may have a **Category Description**
 - **System Categorization** uses **Minimized Classification Input** before inspecting message body text
 - A message in **Uncategorized State** has no **Message Category**
@@ -341,6 +394,11 @@ _Avoid_: Password reset, support recovery
 - Historical mail remains in **Uncategorized State** under **New-Mail-Only Categorization**
 - A **User Override** may become a **Future Learning Signal**
 - A **Future Learning Signal** must not change existing **Message Categories**
+- Automatic categorization of new mail may be disabled globally
+- A **System Category** may be disabled for future **System Categorization** without removing or changing existing **Message Categories**
+- The identities and names of **System Categories** are product-defined and cannot be edited as custom categories
+- Resetting learned sender signals affects only future categorization and does not change existing **Message Categories**
+- **Bounded Historical Categorization** exposes progress and may be cancelled without undoing assignments already completed
 - The **Category Conflict Rule** gives user actions priority over system actions and otherwise keeps the first assignment
 - **Durable Message Metadata** is retained separately from the **Bounded Encrypted Body Cache**
 - **Durable Message Metadata** is read locally before mailbox synchronization updates it
@@ -359,6 +417,9 @@ _Avoid_: Password reset, support recovery
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; the current cache-fitting protected set is never eligible, and a later selection may stop protecting a pinned body when the hard cap requires it
 - Evicting a pinned body preserves its **Pin** and fetches the body again on demand
 - Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
+- **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
+- Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
+- Clearing cached bodies or downloaded attachments removes only device-local copies and never deletes provider mail
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
 - **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data; Gmail's provider-supplied email address and history identifier are permitted only as transient push-routing inputs, must not be persisted or included in application logs, and must be discarded after the wakeup is routed
 - **Best-Effort Background Freshness** uses provider push where available, active IMAP connections, system-scheduled background refresh, and foreground synchronization
@@ -374,6 +435,20 @@ _Avoid_: Password reset, support recovery
 - **Apple-First Sign-In** identifies a **Product Account**
 - The backend may read **Operational Account Data** but not user organization data or mailbox content
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
+- Category eligibility and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
+- Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
+- Appearance, operating-system notification permission, sounds, badges, quiet schedules, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
+- Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**
+- **Device-Local Preferences** save without network access
+- **Mail Workflow Preferences** save locally while offline and visibly remain pending until their encrypted Product Sync updates complete
+- Non-overlapping offline preference changes merge by field
+- A **Preference Conflict** preserves both values for explicit user resolution rather than choosing by device clock, upload order, or device identity
+- Conflicting signatures and templates may preserve the competing value as a conflict copy
+- **Device Revocation**, **Delete Product Account**, connection removal, mailbox authorization, server verification, and mailbox-role remapping require connectivity and cannot appear complete while offline
+- **Device Revocation** immediately blocks the revoked device from Product Account APIs and push routing
+- **Device Revocation** rotates Product Sync key material for the remaining **Trusted Devices**, preventing the revoked device from reading future synchronized changes
+- A revoked device purges local product data and mailbox credentials when it next connects, but revocation cannot guarantee erasure of data already copied from an offline or compromised device
+- Provider authorization must be revoked separately through the **Mail Provider** when its device-local credential may be compromised
 
 ## Example dialogue
 

@@ -1,0 +1,3 @@
+# Save workflow preferences offline with explicit conflicts
+
+Device-local preferences always save offline, and Mail Workflow Preferences save locally while queuing encrypted Product Sync updates with visible pending state. Changes to different fields merge automatically. When two devices change the same field from the same older revision, the product preserves both values for explicit user resolution instead of trusting wall-clock time, upload order, or device identity; signatures and templates may retain the competing value as a conflict copy. Security and provider operations require connectivity and never appear complete offline. This preserves offline usability without silently discarding user intent.

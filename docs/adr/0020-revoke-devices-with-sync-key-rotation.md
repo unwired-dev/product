@@ -1,0 +1,3 @@
+# Revoke devices with Product Sync key rotation
+
+Revoking a Trusted Device immediately denies it access to Product Account APIs and push routing, then rotates Product Sync key material for the remaining trusted devices so the revoked device cannot decrypt future synchronized changes. If the revoked app reconnects, it is instructed to purge local product data and mailbox credentials, but the product does not claim that remote revocation can erase data already copied from an offline or compromised device. Because mailbox credentials are device-local and belong to the Mail Provider, Settings also directs the user to revoke provider authorization separately when those credentials may be compromised.

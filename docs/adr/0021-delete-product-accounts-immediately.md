@@ -1,0 +1,3 @@
+# Delete Product Accounts immediately
+
+Deleting a Product Account is immediate and irreversible after recent authentication and explicit confirmation, with no recovery grace period. The operation deletes backend operational account data, encrypted Product Sync payloads, and push routes and instructs reachable devices to purge local product data and mailbox credentials. It never deletes mail held by a Mail Provider and does not claim to revoke provider-issued authorization, which the user may need to revoke separately. This favors a clear privacy and deletion guarantee over recovery from an accidental confirmed deletion.
