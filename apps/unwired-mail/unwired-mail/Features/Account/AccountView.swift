@@ -234,6 +234,7 @@ struct AccountView: View {
   }
 
   private func selectConnection(_ connection: MailboxConnection) {
+    gmailViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id)
     guard connection.authorizationState == .authorized else { return }
