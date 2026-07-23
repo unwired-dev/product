@@ -35,7 +35,7 @@ The released experience must not contain empty or “Coming Soon” destinations
 - Regular-width iPad layouts use the two-pane Settings layout in a resizable sheet.
 - iPhone and compact-width iPad layouts use a full-height sheet with a settings list that pushes destinations.
 - Email Accounts is selected the first time Settings opens after Product Account sign-in. Before sign-in, Appearance is selected first so an available destination is shown.
-- Later openings restore the last destination on that device. A missing destination falls back to Email Accounts.
+- Later openings restore the last destination on that device. A missing destination falls back to Email Accounts after sign-in or Appearance before sign-in.
 - macOS does not add a Done button to its Settings window. iPhone and iPad use platform-appropriate dismissal controls.
 - The same destination registry, labels, grouping, search metadata, and deep-link routes drive every platform layout.
 
@@ -192,7 +192,7 @@ Default sender selection remains in Email Accounts.
 - Show progress and allow cancellation.
 - Reset learned sender signals after confirmation.
 
-Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization and clears or versions the current device's cached learning context before its next background categorization. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
+Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization: it deletes or versions the synchronized Future Learning Signal payloads and clears or versions the current device's cached learning context before its next background categorization. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
 
 ### Notifications
 
@@ -326,7 +326,7 @@ Concrete names may follow nearby repository conventions, but the destination reg
 
 ## Delivery plan
 
-Implementation is tracked by [GitHub issues #115 through #133](https://github.com/unwired-dev/product/issues?q=is%3Aissue+number%3A115..133). Each issue is a tracer-bullet slice with native blocking relationships.
+Implementation is tracked by [#115](https://github.com/unwired-dev/product/issues/115), [#116](https://github.com/unwired-dev/product/issues/116), [#117](https://github.com/unwired-dev/product/issues/117), [#118](https://github.com/unwired-dev/product/issues/118), [#119](https://github.com/unwired-dev/product/issues/119), [#120](https://github.com/unwired-dev/product/issues/120), [#121](https://github.com/unwired-dev/product/issues/121), [#122](https://github.com/unwired-dev/product/issues/122), [#123](https://github.com/unwired-dev/product/issues/123), [#124](https://github.com/unwired-dev/product/issues/124), [#125](https://github.com/unwired-dev/product/issues/125), [#126](https://github.com/unwired-dev/product/issues/126), [#127](https://github.com/unwired-dev/product/issues/127), [#128](https://github.com/unwired-dev/product/issues/128), [#129](https://github.com/unwired-dev/product/issues/129), [#130](https://github.com/unwired-dev/product/issues/130), [#131](https://github.com/unwired-dev/product/issues/131), [#132](https://github.com/unwired-dev/product/issues/132), and [#133](https://github.com/unwired-dev/product/issues/133). Each issue is a tracer-bullet slice with native blocking relationships.
 
 1. Add the Settings feature shell, adaptive navigation, search, and deep-link routing.
 2. Add versioned preference schemas, device-local persistence, encrypted synchronization, migration, offline queueing, and conflict resolution.
