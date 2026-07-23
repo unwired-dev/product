@@ -302,7 +302,8 @@ extension AccountView {
 
           GmailProviderConnectionPanel(
             viewModel: gmailViewModel,
-            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
+            selectMailbox: selectConnection
           )
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
@@ -1862,7 +1863,6 @@ final class GmailInboxViewModel {
       if !result.historicalMetadataBackfillIsComplete {
         startUnifiedHistoricalBackfill(connection: connection)
       }
-      errorMessage = nil
       return true
     } catch is CancellationError {
       return false
@@ -2503,6 +2503,7 @@ private struct NotificationRulePanel: View {
 private struct GmailProviderConnectionPanel: View {
   @Bindable var viewModel: GmailProviderConnectionViewModel
   let isMailboxBusy: Bool
+  let selectMailbox: (MailboxConnection) -> Void
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -2540,7 +2541,7 @@ private struct GmailProviderConnectionPanel: View {
       ForEach(viewModel.connections) { connection in
         HStack {
           Button {
-            viewModel.selectedConnectionId = connection.id
+            selectMailbox(connection)
           } label: {
             VStack(alignment: .leading, spacing: 2) {
               Label(
