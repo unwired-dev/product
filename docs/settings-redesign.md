@@ -192,7 +192,7 @@ Default sender selection remains in Email Accounts.
 - Show progress and allow cancellation.
 - Reset learned sender signals after confirmation.
 
-Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization: it deletes or versions the synchronized Future Learning Signal payloads and clears or versions the current device's cached learning context before its next background categorization. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
+Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization: the reset first advances a synchronized learning generation, then invalidates Future Learning Signal payloads and the current device's cached learning context. Every automatic, manual, and historical categorization run captures that generation before work begins and discards results or merged signals from an older generation, so reset learning cannot reappear. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
 
 ### Notifications
 
@@ -297,7 +297,7 @@ Device-Local Preferences remain on one device:
 
 Provider credentials remain in the current device's Keychain.
 
-Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
+Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state, except Notification Rules: their save contract remains fail-closed as specified in [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md), so an uncertain remote write leaves no background-eligible rules cache. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
 
 Device Revocation, Delete Product Account, Mailbox Connection removal, authorization or reauthorization, server verification, and Mailbox Role remapping require connectivity and cannot appear complete offline. Removing Mailbox Authorization from the current device remains available offline and immediately deletes its local Keychain credentials and cached mailbox data.
 
