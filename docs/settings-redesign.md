@@ -34,14 +34,14 @@ The released experience must not contain empty or “Coming Soon” destinations
 - macOS uses a dedicated Settings window available from the app menu and `Command-,`.
 - Regular-width iPad layouts use the two-pane Settings layout in a resizable sheet.
 - iPhone and compact-width iPad layouts use a full-height sheet with a settings list that pushes destinations.
-- Email Accounts is selected the first time Settings opens.
+- Email Accounts is selected the first time Settings opens after Product Account sign-in. Before sign-in, Appearance is selected first so an available destination is shown.
 - Later openings restore the last destination on that device. A missing destination falls back to Email Accounts.
 - macOS does not add a Done button to its Settings window. iPhone and iPad use platform-appropriate dismissal controls.
 - The same destination registry, labels, grouping, search metadata, and deep-link routes drive every platform layout.
 
 ## Navigation and search
 
-Settings search runs only on the device. It matches destination names, section names, and control labels, then opens and briefly highlights the selected control. It never searches mailbox content, account addresses, signature or template bodies, or diagnostics.
+Settings search runs only on the device. It matches destination names, section names, and control labels, then opens and briefly highlights the selected control. Diagnostic content and reports, mailbox content, account addresses, and signature or template bodies are never searched; labels for diagnostic controls, such as Run diagnostics and Export a redacted diagnostics report, remain searchable.
 
 Contextual product actions may deep-link to a destination and control:
 
@@ -97,9 +97,9 @@ Settings updates apply to the running mail experience without requiring an app r
 - Sign out on the current device.
 - Delete the Product Account after recent authentication and explicit confirmation.
 
-Device Revocation immediately blocks Product Account APIs and push routing, rotates Product Sync key material for remaining Trusted Devices, and requests a local purge if the revoked app reconnects. Settings must explain that revocation cannot erase data already copied from an offline or compromised device and that provider authorization may need separate revocation.
+Device Revocation immediately blocks Product Account APIs and push routing, then rotates Product Sync key material for remaining Trusted Devices. It remains incomplete until the new key epoch is durably committed and every remaining Trusted Device has fenced on it; future ciphertext cannot use the old key. When the revoked app reconnects, it must purge local product data, credentials, and provider credentials stored in the Keychain. Settings must explain that revocation cannot erase data already copied from an offline or compromised device and that provider authorization may need separate revocation.
 
-Delete Product Account is immediate and irreversible. It deletes backend operational account data, encrypted Product Sync payloads, and push routes and asks reachable devices to purge local product data and credentials. It never deletes provider mail or promises to revoke provider-issued authorization.
+Delete Product Account is immediate and irreversible. It deletes backend operational account data, encrypted Product Sync payloads, and push routes and asks reachable devices to purge local product data, credentials, and provider credentials stored in the Keychain. Offline or compromised devices may retain local copies until they reconnect and process the purge or account-rejection rule. It never deletes provider mail or promises to revoke provider-issued authorization.
 
 Billing and subscriptions are excluded until the product has a commercial plan.
 
@@ -193,7 +193,7 @@ Disabling a Category stops future System Categorization into it but preserves ex
 ### Notifications
 
 - Show operating-system authorization status and link to System Settings when permission is denied.
-- Global notification switch with per-connection overrides.
+- Global notification switch, synchronized as a Mail Workflow Preference, with per-connection overrides.
 - Choose notifying Categories per connection.
 - Configure the device-local Generic Notification Fallback.
 - Lock-screen content level: count only, sender, sender and subject, or full preview.
@@ -202,7 +202,7 @@ Disabling a Category stops future System Categorization into it but preserves ex
 - Explain which controls synchronize and which remain device-local.
 - Preview a sample notification without sending mail.
 
-Category eligibility and per-connection notification policy are encrypted Mail Workflow Preferences. Operating-system authorization, Generic Notification Fallback, lock-screen presentation, sound, badge, and quiet schedule are Device-Local Preferences.
+The global notification switch, category eligibility, and per-connection notification policy are encrypted Mail Workflow Preferences. Operating-system authorization, Generic Notification Fallback, lock-screen presentation, sound, badge, and quiet schedule are Device-Local Preferences.
 
 ### Appearance
 
@@ -274,6 +274,7 @@ Mail Workflow Preferences follow the user through End-to-End Encrypted Product S
 - Signatures
 - Templates
 - Category configuration
+- Global notification switch
 - Per-connection notification policy
 - Per-connection Read Receipt policy
 
@@ -299,7 +300,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 
 - Preserve every Mailbox Connection and the Default Sending Connection.
 - Preserve the existing Custom Category.
-- Migrate existing Notification Rules into the new global notification default without creating per-connection overrides.
+- Migrate existing Notification Rules into the global category-eligibility default, preserving their selected Category IDs; each connection inherits that default until the user creates an override.
 - Preserve the current device's Generic Notification Fallback.
 - Initialize genuinely new preferences from the defaults in this document.
 
@@ -337,6 +338,7 @@ Each slice includes its own tests and documentation. The new production entry po
 - Accessibility validation covers VoiceOver labels, keyboard navigation, focus order, Dynamic Type, contrast, and reduced motion.
 - Regression tests prove existing connections, Categories, Notification Rules, and Generic Notification Fallback survive migration.
 - Apple formatting, lint, and the relevant full test suite pass.
+- When a slice touches Convex or other TypeScript support, `pnpm lint`, `pnpm format`, `pnpm turbo run check-types`, `pnpm test`, and `pnpm fallow` pass.
 
 ## Related decisions
 
