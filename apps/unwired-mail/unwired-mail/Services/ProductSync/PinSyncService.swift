@@ -143,6 +143,7 @@ final class PinSyncService: PinSyncing {
       )
       if let remotePayload {
         let current = try decrypt(remotePayload, material: material)
+        advanceChangeClock(to: current.changedAtMilliseconds)
         if !proposedPayload.isNewer(than: current) {
           guard current.isPinned == isPinned else {
             throw PinSyncError.concurrentModification

@@ -126,6 +126,7 @@ final class PinSyncServiceTests: XCTestCase {
     )
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
     let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let stableProviderMessageId = Self.messageId.rawValue
     let cachedBody = ProductSyncEncryptedPayload(
       algorithm: ProductSyncEncryptedPayload.algorithmName,
       ciphertextBase64: "ciphertext",
@@ -137,18 +138,18 @@ final class PinSyncServiceTests: XCTestCase {
     try bodyCache.saveMessageBody(
       cachedBody,
       productAccountId: firstDeviceSession.productAccountId,
-      stableProviderMessageId: "gmail:gmail-user-001:message-001"
+      stableProviderMessageId: stableProviderMessageId
     )
 
     try bodyCache.removeMessageBody(
       productAccountId: firstDeviceSession.productAccountId,
-      stableProviderMessageId: "gmail:gmail-user-001:message-001"
+      stableProviderMessageId: stableProviderMessageId
     )
 
     XCTAssertNil(
       try bodyCache.loadMessageBody(
         productAccountId: firstDeviceSession.productAccountId,
-        stableProviderMessageId: "gmail:gmail-user-001:message-001"
+        stableProviderMessageId: stableProviderMessageId
       )
     )
     let pins = try await services.secondDevice.loadPinnedMessageIds(session: secondDeviceSession)
@@ -284,6 +285,34 @@ extension PinSyncServiceTests {
       session: firstDeviceSession
     )
     XCTAssertEqual(firstDevicePins, [Self.messageId])
+    try await services.firstDevice.setPinned(
+      false,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+
+    let secondDevicePins = try await services.secondDevice.loadPinnedMessageIds(
+      session: secondDeviceSession
+    )
+    XCTAssertEqual(secondDevicePins, [])
+  }
+
+  func testPinAfterObservingNewerMatchingRemoteChangeAdvancesLogicalClock() async throws {
+    let services = try makeServices(
+      firstDeviceNowMilliseconds: { 100 },
+      secondDeviceNowMilliseconds: { 200 }
+    )
+    try await services.secondDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: secondDeviceSession
+    )
+
+    try await services.firstDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
     try await services.firstDevice.setPinned(
       false,
       messageId: Self.messageId,
