@@ -331,7 +331,7 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             genericMailSetupViewModel.invalidate()
             Task {
-              await inboxViewModel.cancelBodyPrefetch()
+              await inboxViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -1469,6 +1469,7 @@ final class GmailInboxViewModel {
   private var backfillTaskId: UUID?
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
   private var bodyPrefetchTask: Task<Void, Never>?
+  private var hasSignedOut = false
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -1719,7 +1720,7 @@ final class GmailInboxViewModel {
         session: session
       )
       try Task.checkCancellation()
-      guard currentConnectionId == connection.id
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return
       }
@@ -1847,6 +1848,7 @@ final class GmailInboxViewModel {
         guard
           !Task.isCancelled,
           backfillTaskId == taskId,
+          !hasSignedOut,
           currentConnectionId == connection.id
         else { return }
         threads = backfill.threads
@@ -1882,6 +1884,12 @@ final class GmailInboxViewModel {
     bodyPrefetchTask = nil
     task.cancel()
     await task.value
+  }
+
+  func prepareForSignOut() async {
+    hasSignedOut = true
+    cancelBackfill()
+    await cancelBodyPrefetch()
   }
 
   func refresh(connection: MailboxConnection) async -> Bool {

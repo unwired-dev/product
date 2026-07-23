@@ -390,6 +390,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     return true
   }
 
+  // swiftlint:disable:next function_body_length
   func reconcileSelection(
     productAccountId: String,
     providerAccountIdentifier: String,
@@ -426,8 +427,10 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
         from: data
       ) {
         entry = storedEntry
-      } else {
-        let payload = try JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: data)
+      } else if let payload = try? JSONDecoder().decode(
+        ProductSyncEncryptedPayload.self,
+        from: data
+      ) {
         let cachedAt =
           try fileURL.resourceValues(forKeys: [.contentModificationDateKey])
           .contentModificationDate ?? .distantPast
@@ -439,6 +442,9 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
           payload: payload,
           retention: .opened
         )
+      } else {
+        try? fileManager.removeItem(at: fileURL)
+        continue
       }
       entry.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
       entry.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
