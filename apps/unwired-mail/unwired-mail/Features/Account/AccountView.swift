@@ -1180,6 +1180,24 @@ private struct MailShellThreadRow: View {
   }
 }
 
+@MainActor
+struct MailShellMessageInteractionRouter {
+  let mailActionViewModel: GmailMailActionViewModel
+  let pinViewModel: PinViewModel
+
+  func togglePin(_ messageId: StableProviderMessageIdentity) async {
+    await pinViewModel.togglePin(messageId)
+  }
+
+  func performProviderAction(
+    _ action: ProviderMailAction,
+    for messages: [MailboxMessageMetadata],
+    connection: MailboxConnection
+  ) async -> Bool {
+    await mailActionViewModel.perform(action, for: messages, connection: connection)
+  }
+}
+
 private struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
   @Bindable var inboxViewModel: GmailInboxViewModel
@@ -1218,7 +1236,7 @@ private struct MailShellConversationReader: View {
                 },
                 togglePin: {
                   Task {
-                    await pinViewModel.togglePin(message.id)
+                    await messageInteractionRouter.togglePin(message.id)
                     if let errorMessage = pinViewModel.errorMessage {
                       readerErrorMessage = errorMessage
                     }
@@ -1292,6 +1310,13 @@ private struct MailShellConversationReader: View {
     )
   }
 
+  private var messageInteractionRouter: MailShellMessageInteractionRouter {
+    MailShellMessageInteractionRouter(
+      mailActionViewModel: mailActionViewModel,
+      pinViewModel: pinViewModel
+    )
+  }
+
   private func connection(for thread: MailboxThread) -> MailboxConnection? {
     connections.first { $0.id == thread.id.connectionId }
   }
@@ -1341,7 +1366,7 @@ private struct MailShellConversationReader: View {
     connection: MailboxConnection
   ) {
     Task {
-      let didPerform = await mailActionViewModel.perform(
+      let didPerform = await messageInteractionRouter.performProviderAction(
         action,
         for: selection.selectedMailboxMessages(
           in: thread,

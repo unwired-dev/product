@@ -180,17 +180,20 @@ final class PinSyncServiceTests: XCTestCase {
   func testPinInteractionDoesNotInvokeProviderMailActions() async throws {
     let services = try makeServices()
     let providerActions = RecordingProviderMailActionService()
-    _ = GmailMailActionViewModel(service: providerActions, session: firstDeviceSession)
-    let viewModel = PinViewModel(
-      service: services.firstDevice,
-      session: firstDeviceSession
+    let pinViewModel = PinViewModel(service: services.firstDevice, session: firstDeviceSession)
+    let interactionRouter = MailShellMessageInteractionRouter(
+      mailActionViewModel: GmailMailActionViewModel(
+        service: providerActions,
+        session: firstDeviceSession
+      ),
+      pinViewModel: pinViewModel
     )
 
-    await viewModel.togglePin(Self.messageId)
+    await interactionRouter.togglePin(Self.messageId)
 
     let providerMutationCount = await providerActions.mutationCount()
     XCTAssertEqual(providerMutationCount, 0)
-    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+    XCTAssertEqual(pinViewModel.pinnedMessageIds, [Self.messageId])
   }
 
   @MainActor
