@@ -378,9 +378,8 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
     cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
     while cachedByteCount > maximumByteCount - encodedEntry.count,
-      let eviction = cachedFiles.first(where: {
-        !$0.isProtected
-      })
+      let eviction = cachedFiles.first(where: { !$0.isProtected })
+        ?? (entry.retention == .prefetched ? cachedFiles.first : nil)
     {
       try fileManager.removeItem(at: eviction.url)
       cachedByteCount -= eviction.byteCount

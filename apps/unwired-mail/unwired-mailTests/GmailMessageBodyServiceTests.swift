@@ -512,6 +512,69 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testPrefetchedBodyCanEvictProtectedCacheEntryWhenNecessary() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let protectedMessageId = "gmail:gmail-user-001:protected"
+    let incomingMessageId = "gmail:gmail-user-002:incoming"
+    let unlimitedCache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    XCTAssertTrue(
+      try unlimitedCache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: protectedMessageId
+      )
+    )
+    try unlimitedCache.reconcileSelection(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001",
+      protectedMessageIds: [protectedMessageId],
+      pinnedMessageIds: []
+    )
+
+    let incomingSize = try encodedCacheEntrySize(payload: payload, rootDirectory: sizingDirectory)
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: try cacheByteCount(rootDirectory: rootDirectory) + incomingSize - 1,
+      rootDirectory: rootDirectory
+    )
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 2),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: incomingMessageId
+      )
+    )
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: protectedMessageId
+      )
+    )
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: incomingMessageId
+      )
+    )
+  }
+
   func testFileCacheEvictsOpenedThenPrefetchedThenPinnedBodiesAcrossConnections() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
