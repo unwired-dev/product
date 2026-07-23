@@ -82,6 +82,24 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "too-old" })
     XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "spam" })
     XCTAssertFalse(plan.messages.contains { $0.providerMessageId == "trash" })
+
+    let dateWindowPlan = GmailMessageBodyPrefetchPlan(
+      messages: [
+        prefetchMessage(
+          id: "boundary",
+          internalDateMilliseconds: referenceMilliseconds - 30 * 24 * 60 * 60 * 1_000,
+          labels: ["INBOX"]
+        ),
+        prefetchMessage(
+          id: "too-old",
+          internalDateMilliseconds: referenceMilliseconds - 30 * 24 * 60 * 60 * 1_000 - 1,
+          labels: ["INBOX"]
+        ),
+      ],
+      pinnedMessageIds: [],
+      referenceDate: referenceDate
+    )
+    XCTAssertEqual(dateWindowPlan.recentMessages.map(\.providerMessageId), ["boundary"])
   }
 
   func testPrefetchPlanIncludesEligiblePinnedBodiesRegardlessOfAge() {

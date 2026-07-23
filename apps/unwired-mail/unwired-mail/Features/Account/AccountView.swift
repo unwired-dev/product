@@ -1495,13 +1495,14 @@ final class GmailInboxViewModel {
   private func startBodyPrefetch(connection: MailboxConnection) {
     guard let bodyPrefetcher else { return }
     bodyPrefetchTask?.cancel()
-    bodyPrefetchTask = Task {
+    bodyPrefetchTask = Task { [weak self] in
+      guard let self else { return }
       do {
         try await bodyPrefetcher.prefetchMessageBodies(
           connection: connection,
           pinnedMessageIds: [],
           referenceDate: Date(),
-          session: session
+          session: self.session
         )
       } catch {
         // Prefetch is best effort and must not block cached mailbox use.

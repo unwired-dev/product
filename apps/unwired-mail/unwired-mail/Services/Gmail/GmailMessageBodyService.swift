@@ -418,7 +418,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       at: rootDirectory,
       includingPropertiesForKeys: [.contentModificationDateKey]
     ) where fileURL.lastPathComponent.hasPrefix(prefix) {
-      let data = try Data(contentsOf: fileURL)
+      guard let data = try dataIfPresent(at: fileURL) else { continue }
       var entry: FileGmailMessageBodyCacheEntry
       if let storedEntry = try? JSONDecoder().decode(
         FileGmailMessageBodyCacheEntry.self,
@@ -462,6 +462,16 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     }
   }
 
+  private func dataIfPresent(at fileURL: URL) throws -> Data? {
+    do {
+      return try Data(contentsOf: fileURL)
+    } catch let error as NSError
+      where error.domain == NSCocoaErrorDomain && error.code == NSFileReadNoSuchFileError
+    {
+      return nil
+    }
+  }
+
   func recordMessageBodyAccess(
     productAccountId: String,
     stableProviderMessageId: String,
@@ -494,7 +504,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     }
     entry.lastReadAt = accessedAt
     entry.retention = .opened
-    try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
+    _ = try writeEntryIfFits(entry, to: fileURL)
   }
 
   private func fileURL(productAccountId: String, stableProviderMessageId: String) -> URL {
@@ -727,6 +737,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       referenceDate: referenceDate
     )
     let protectedMessageIds = Set(plan.messages.map(\.stableProviderMessageId))
+    try Task.checkCancellation()
     try cache.reconcileSelection(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier,
@@ -901,7 +912,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let text: String
     if bodyPart.mimeType == "text/html" {
-      text = await MainActor.run { htmlText(decodedText) }
+      text = htmlText(decodedText)
     } else {
       text = decodedText
     }
