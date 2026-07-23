@@ -181,15 +181,25 @@ final class PinSyncServiceTests: XCTestCase {
     let services = try makeServices()
     let providerActions = RecordingProviderMailActionService()
     let pinViewModel = PinViewModel(service: services.firstDevice, session: firstDeviceSession)
-    let interactionRouter = MailShellMessageInteractionRouter(
+    let mailboxService = EmptyMailboxService()
+    let reader = MailShellConversationReader(
+      connections: [],
+      inboxViewModel: GmailInboxViewModel(
+        service: mailboxService,
+        searchService: mailboxService,
+        session: firstDeviceSession
+      ),
+      isConnectionBusy: false,
       mailActionViewModel: GmailMailActionViewModel(
         service: providerActions,
         session: firstDeviceSession
       ),
-      pinViewModel: pinViewModel
+      messageReader: mailboxService,
+      pinViewModel: pinViewModel,
+      selection: MailShellSelectionModel()
     )
 
-    await interactionRouter.togglePin(Self.messageId)
+    await reader.togglePin(Self.messageId)
 
     let providerMutationCount = await providerActions.mutationCount()
     XCTAssertEqual(providerMutationCount, 0)
@@ -340,6 +350,84 @@ private actor RecordingProviderMailActionService: MailboxProviderMailActing {
 
   func mutationCount() -> Int {
     mutations
+  }
+}
+
+private final class EmptyMailboxService:
+  MailboxMessageReading, MailboxMessageSearching, MailboxMetadataSyncing
+{
+  func categorizeHistorical(
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    emptyResult
+  }
+
+  func loadInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    emptyResult
+  }
+
+  func syncInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    emptyResult
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: MailboxConnection,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
+    emptyResult
+  }
+
+  func overrideCategory(
+    _: String,
+    for message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    message
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxMessageMetadata] {
+    []
+  }
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func loadMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageBody {
+    MailboxMessageBody(text: "")
+  }
+
+  func removeCachedMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  private var emptyResult: MailboxMetadataSyncResult {
+    MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [],
+      newMessageIds: [],
+      providerCursorIsExpired: false,
+      threads: []
+    )
   }
 }
 
