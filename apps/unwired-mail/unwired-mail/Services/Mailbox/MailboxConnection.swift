@@ -105,6 +105,113 @@ enum MailboxAuthorizationState: Equatable, Sendable {
   case required
 }
 
+enum UnifiedMailbox: CaseIterable, Hashable, Sendable {
+  case inbox
+  case pins
+  case drafts
+  case sent
+  case archive
+  case allMail
+  case spam
+  case trash
+
+  var collection: MailboxMessageCollection {
+    switch self {
+    case .inbox:
+      return .role(.inbox)
+    case .pins:
+      return .pins
+    case .drafts:
+      return .role(.drafts)
+    case .sent:
+      return .role(.sent)
+    case .archive:
+      return .role(.archive)
+    case .allMail:
+      return .allMail
+    case .spam:
+      return .role(.spam)
+    case .trash:
+      return .role(.trash)
+    }
+  }
+}
+
+enum MailboxRole: Hashable, Sendable {
+  case inbox
+  case drafts
+  case sent
+  case archive
+  case spam
+  case trash
+}
+
+enum MailboxMessageCollection: Hashable, Sendable {
+  case role(MailboxRole)
+  case pins
+  case allMail
+  case allObserved
+  case providerMailbox(String)
+
+  private static let gmailSystemStateIds: Set<String> = [
+    "DRAFT",
+    "INBOX",
+    "SENT",
+    "SPAM",
+    "TRASH",
+    "UNREAD",
+  ]
+
+  func contains(providerStateIds: [String]?, isPinned: Bool = false) -> Bool {
+    let states = Set(providerStateIds ?? ["INBOX"])
+    switch self {
+    case .role(.inbox):
+      return states.contains("INBOX")
+    case .role(.drafts):
+      return states.contains("DRAFT")
+    case .role(.sent):
+      return states.contains("SENT")
+    case .role(.archive):
+      return states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
+    case .role(.spam):
+      return states.contains("SPAM")
+    case .role(.trash):
+      return states.contains("TRASH")
+    case .pins:
+      return isPinned
+    case .allMail:
+      return states.isDisjoint(with: ["SPAM", "TRASH"])
+    case .allObserved:
+      return true
+    case .providerMailbox(let providerStateId):
+      return states.contains(providerStateId)
+    }
+  }
+
+  static func providerMailboxIds(in messages: [MailboxMessageMetadata]) -> [String] {
+    Set(
+      messages
+        .flatMap { $0.providerStateIds ?? [] }
+        .filter { !gmailSystemStateIds.contains($0) }
+    )
+    .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
+  }
+
+  static func isProviderMailboxId(_ providerStateId: String) -> Bool {
+    !gmailSystemStateIds.contains(providerStateId)
+  }
+}
+
+struct MailboxItemCount: Equatable, Sendable {
+  let itemCount: Int
+  let unreadCount: Int
+}
+
+struct ProviderMailbox: Equatable, Hashable, Sendable {
+  let id: String
+  let title: String
+}
+
 struct MailboxConnection: Equatable, Identifiable, Sendable {
   let authorizationState: MailboxAuthorizationState
   let capabilities: MailboxConnectionCapabilities
@@ -357,6 +464,56 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
   }
 }
 
+extension MailboxMetadataSyncResult {
+  func projected(
+    to collection: MailboxMessageCollection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity> = []
+  ) -> MailboxMetadataSyncResult {
+    let observedMessages = Dictionary(
+      (threads.flatMap(\.messages) + messages).map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    let visibleMessages =
+      observedMessages
+      .filter {
+        collection.contains(
+          providerStateIds: $0.providerStateIds,
+          isPinned: pinnedMessageIds.contains($0.id)
+        )
+      }
+      .sorted(by: Self.messagesAreOrdered)
+    let visibleThreadIds = Set(visibleMessages.map(\.threadIdentity))
+    let visibleThreads = MailboxThread.group(Array(observedMessages))
+      .filter { visibleThreadIds.contains($0.id) }
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: hasUnlistedNewMessages,
+      messages: visibleMessages,
+      newMessageIds: newMessageIds,
+      providerCursorIsExpired: providerCursorIsExpired,
+      threads: visibleThreads,
+      hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
+    )
+  }
+
+  var itemCount: MailboxItemCount {
+    MailboxItemCount(
+      itemCount: messages.count,
+      unreadCount: messages.count { $0.providerStateIds?.contains("UNREAD") == true }
+    )
+  }
+
+  private static func messagesAreOrdered(
+    _ lhs: MailboxMessageMetadata,
+    _ rhs: MailboxMessageMetadata
+  ) -> Bool {
+    if lhs.providerInternalDateMilliseconds == rhs.providerInternalDateMilliseconds {
+      return lhs.providerMessageId < rhs.providerMessageId
+    }
+    return lhs.providerInternalDateMilliseconds > rhs.providerInternalDateMilliseconds
+  }
+}
+
 extension GmailMessageMetadata {
   func mailboxMetadata(connectionId: MailboxConnectionId) -> MailboxMessageMetadata {
     MailboxMessageMetadata(
@@ -530,6 +687,17 @@ protocol MailboxMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult
 
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult
+
+  func loadProviderMailboxes(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox]
+
   func continueHistoricalBackfill(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -558,6 +726,25 @@ protocol MailboxMetadataSyncing {
 }
 
 extension MailboxMetadataSyncing {
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await loadInbox(connection: connection, session: session)
+      .projected(to: collection)
+  }
+
+  func loadProviderMailboxes(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    let result = try await loadMailbox(.allObserved, connection: connection, session: session)
+    return MailboxMessageCollection.providerMailboxIds(in: result.messages).map {
+      ProviderMailbox(id: $0, title: $0)
+    }
+  }
+
   func continueHistoricalBackfill(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -907,6 +1094,37 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     )
     return result.mailboxResult(connectionId: connection.id)
+  }
+
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    let result = try await metadataService.loadMailbox(
+      collection,
+      connection: gmailConnection,
+      session: session
+    )
+    return result.mailboxResult(connectionId: connection.id)
+  }
+
+  func loadProviderMailboxes(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    return try await metadataService.loadProviderMailboxes(
+      connection: gmailConnection,
+      session: session
+    )
   }
 
   func continueHistoricalBackfill(

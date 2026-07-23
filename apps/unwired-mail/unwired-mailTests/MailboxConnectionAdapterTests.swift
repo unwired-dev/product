@@ -724,6 +724,191 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(viewModel.selectedThreadId)
   }
 
+  func testCanonicalUnifiedMailboxCountsAggregateObservedDataAcrossConnections() {
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let firstMessages = canonicalMailboxMessages()
+    let secondMessages = canonicalMailboxMessages(connectionId: secondConnectionId)
+    let snapshot = MailboxNavigationSnapshot(
+      messagesByConnection: [
+        adapterConnectionId: firstMessages,
+        secondConnectionId: secondMessages,
+      ],
+      pinnedMessageIds: [firstMessages[2].id],
+      outboxStates: []
+    )
+
+    XCTAssertEqual(snapshot.count(for: .inbox), MailboxItemCount(itemCount: 2, unreadCount: 1))
+    XCTAssertEqual(snapshot.count(for: .pins), MailboxItemCount(itemCount: 1, unreadCount: 0))
+    XCTAssertEqual(snapshot.count(for: .drafts), MailboxItemCount(itemCount: 1, unreadCount: 0))
+    XCTAssertEqual(snapshot.count(for: .sent), MailboxItemCount(itemCount: 1, unreadCount: 0))
+    XCTAssertEqual(snapshot.count(for: .archive), MailboxItemCount(itemCount: 1, unreadCount: 0))
+    XCTAssertEqual(snapshot.count(for: .allMail), MailboxItemCount(itemCount: 5, unreadCount: 1))
+    XCTAssertEqual(snapshot.count(for: .spam), MailboxItemCount(itemCount: 1, unreadCount: 1))
+    XCTAssertEqual(snapshot.count(for: .trash), MailboxItemCount(itemCount: 1, unreadCount: 0))
+    XCTAssertEqual(
+      snapshot.providerMailboxIds(for: adapterConnectionId),
+      ["Label_projects"]
+    )
+    XCTAssertTrue(snapshot.providerMailboxIds(for: secondConnectionId).isEmpty)
+  }
+
+  func testCanonicalMailboxProjectionUsesNativeGmailStatesWithoutMutatingThem() {
+    let message = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX", "UNREAD", "Label_projects"]
+    )
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+
+    XCTAssertEqual(result.projected(to: .role(.inbox)).messages, [message])
+    XCTAssertEqual(result.projected(to: .providerMailbox("Label_projects")).messages, [message])
+    XCTAssertTrue(result.projected(to: .role(.archive)).messages.isEmpty)
+    XCTAssertEqual(result.messages.first?.providerStateIds, ["INBOX", "UNREAD", "Label_projects"])
+  }
+
+  func testProviderSpecificGmailLabelsRemainConnectionScoped() {
+    let message = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX", "IMPORTANT", "STARRED", "CATEGORY_UPDATES", "Label_projects"]
+    )
+    let snapshot = MailboxNavigationSnapshot(
+      messagesByConnection: [adapterConnectionId: [message]],
+      pinnedMessageIds: [],
+      outboxStates: [],
+      providerMailboxesByConnection: [
+        adapterConnectionId: [
+          ProviderMailbox(id: "Label_empty", title: "Empty label"),
+          ProviderMailbox(id: "Label_projects", title: "Projects"),
+        ]
+      ]
+    )
+
+    XCTAssertEqual(
+      snapshot.providerMailboxIds(for: adapterConnectionId),
+      ["CATEGORY_UPDATES", "Label_empty", "IMPORTANT", "Label_projects", "STARRED"]
+    )
+    XCTAssertEqual(
+      snapshot.providerMailboxes(for: adapterConnectionId).first {
+        $0.id == "Label_projects"
+      }?.title,
+      "Projects"
+    )
+    XCTAssertEqual(
+      snapshot.count(for: .providerMailbox("STARRED"), in: adapterConnectionId).itemCount,
+      1
+    )
+  }
+
+  func testOutboxNavigationIsConditionalOnActionableDeliveryState() {
+    XCTAssertFalse(
+      MailboxNavigationSnapshot(
+        messagesByConnection: [:],
+        pinnedMessageIds: [],
+        outboxStates: []
+      ).showsOutbox
+    )
+    XCTAssertFalse(
+      MailboxNavigationSnapshot(
+        messagesByConnection: [:],
+        pinnedMessageIds: [],
+        outboxStates: [.sent]
+      ).showsOutbox
+    )
+    XCTAssertTrue(
+      MailboxNavigationSnapshot(
+        messagesByConnection: [:],
+        pinnedMessageIds: [],
+        outboxStates: [.pending, .retrying, .failed]
+      ).showsOutbox
+    )
+  }
+
+  func testCanonicalRoleTransitionRecomputesCountsFromObservedState() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+    let archivedMessage = mailShellMessage(
+      providerMessageId: "message-001",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: []
+    )
+
+    let before = MailboxNavigationSnapshot(
+      messagesByConnection: [adapterConnectionId: [inboxMessage]],
+      pinnedMessageIds: [],
+      outboxStates: []
+    )
+    let after = MailboxNavigationSnapshot(
+      messagesByConnection: [adapterConnectionId: [archivedMessage]],
+      pinnedMessageIds: [],
+      outboxStates: []
+    )
+
+    XCTAssertEqual(before.count(for: .inbox).itemCount, 1)
+    XCTAssertEqual(before.count(for: .archive).itemCount, 0)
+    XCTAssertEqual(after.count(for: .inbox).itemCount, 0)
+    XCTAssertEqual(after.count(for: .archive).itemCount, 1)
+  }
+
+  func testMailShellScopesActionsToMessagesVisibleInSelectedMailbox() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-inbox",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX"]
+    )
+    let sentMessage = mailShellMessage(
+      providerMessageId: "message-sent",
+      providerThreadId: "thread-001",
+      receivedAt: 200,
+      providerStateIds: ["SENT", "Label_projects"]
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [inboxMessage, sentMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+
+    viewModel.selectUnifiedMailbox(.sent)
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
+      [sentMessage]
+    )
+
+    viewModel.selectMailbox(
+      connectionId: adapterConnectionId,
+      collection: .providerMailbox("Label_projects")
+    )
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
+      [sentMessage]
+    )
+
+    viewModel.selectUnifiedMailbox(.pins)
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]),
+      [sentMessage]
+    )
+  }
+
   func testMailShellScopesThreadsToSelectedMailbox() {
     let selectedThread = mailShellThread(
       providerThreadId: "thread-selected",
@@ -998,6 +1183,63 @@ private func mailShellConnection(
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
   ).mailboxConnection(productAccountId: productAccountId)
+}
+
+private func canonicalMailboxMessages() -> [MailboxMessageMetadata] {
+  [
+    mailShellMessage(
+      providerMessageId: "inbox-unread",
+      providerThreadId: "thread-inbox-unread",
+      receivedAt: 800,
+      providerStateIds: ["INBOX", "UNREAD", "Label_projects"]
+    ),
+    mailShellMessage(
+      providerMessageId: "draft",
+      providerThreadId: "thread-draft",
+      receivedAt: 600,
+      providerStateIds: ["DRAFT"]
+    ),
+    mailShellMessage(
+      providerMessageId: "archived",
+      providerThreadId: "thread-archived",
+      receivedAt: 400,
+      providerStateIds: ["Label_projects"]
+    ),
+    mailShellMessage(
+      providerMessageId: "spam",
+      providerThreadId: "thread-spam",
+      receivedAt: 300,
+      providerStateIds: ["SPAM", "UNREAD"]
+    ),
+  ]
+}
+
+private func canonicalMailboxMessages(
+  connectionId: MailboxConnectionId
+) -> [MailboxMessageMetadata] {
+  [
+    mailShellMessage(
+      connectionId: connectionId,
+      providerMessageId: "inbox-read",
+      providerThreadId: "thread-inbox-read",
+      receivedAt: 700,
+      providerStateIds: ["INBOX"]
+    ),
+    mailShellMessage(
+      connectionId: connectionId,
+      providerMessageId: "sent",
+      providerThreadId: "thread-sent",
+      receivedAt: 500,
+      providerStateIds: ["SENT"]
+    ),
+    mailShellMessage(
+      connectionId: connectionId,
+      providerMessageId: "trash",
+      providerThreadId: "thread-trash",
+      receivedAt: 200,
+      providerStateIds: ["TRASH"]
+    ),
+  ]
 }
 
 private func mailShellMessage(
