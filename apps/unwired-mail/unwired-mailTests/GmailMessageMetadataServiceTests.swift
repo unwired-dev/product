@@ -1318,11 +1318,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let connectionId = connection.mailboxConnection(
       productAccountId: session.productAccountId
     ).id
-    await gate.acquire(connectionId)
+    let initialAcquired = await gate.acquire(connectionId)
+    XCTAssertTrue(initialAcquired)
     let pollAttempted = expectation(description: "poll attempted to acquire sync gate")
     let poll = Task {
       pollAttempted.fulfill()
-      await gate.acquire(connectionId)
+      let pollAcquired = await gate.acquire(connectionId)
+      XCTAssertTrue(pollAcquired)
       await probe.markPollAcquired()
       await gate.release(connectionId)
     }
@@ -1338,6 +1340,44 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await poll.value
     let acquiredAfterPush = await probe.pollAcquired
     XCTAssertTrue(acquiredAfterPush)
+  }
+
+  func testMailboxConnectionSyncGateKeepsLockWhenQueuedTaskIsCancelled() async {
+    let gate = MailboxConnectionSyncGate()
+    let probe = MailboxSyncGateProbe()
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).id
+    let initialAcquired = await gate.acquire(connectionId)
+    XCTAssertTrue(initialAcquired)
+
+    let cancelledWaiter = Task {
+      try? await gate.withLock(connectionId) {
+        await probe.markPollAcquired()
+      }
+    }
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+    cancelledWaiter.cancel()
+    await cancelledWaiter.value
+
+    let nextWaiter = Task {
+      let nextAcquired = await gate.acquire(connectionId)
+      XCTAssertTrue(nextAcquired)
+      await probe.markPollAcquired()
+      await gate.release(connectionId)
+    }
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+    let acquiredBeforeRelease = await probe.pollAcquired
+    XCTAssertFalse(acquiredBeforeRelease)
+
+    await gate.release(connectionId)
+    await nextWaiter.value
+    let acquiredAfterRelease = await probe.pollAcquired
+    XCTAssertTrue(acquiredAfterRelease)
   }
 
   @MainActor

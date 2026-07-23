@@ -54,21 +54,21 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
 actor MailboxConnectionSyncGate {
   static let shared = MailboxConnectionSyncGate()
 
-  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Void, Never>)
+  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Bool, Never>)
 
   private var lockedConnectionIds: Set<MailboxConnectionId> = []
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
-  func acquire(_ connectionId: MailboxConnectionId) async {
+  func acquire(_ connectionId: MailboxConnectionId) async -> Bool {
     guard lockedConnectionIds.contains(connectionId) else {
       lockedConnectionIds.insert(connectionId)
-      return
+      return true
     }
     let waiterId = UUID()
-    await withTaskCancellationHandler {
+    return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
         guard !Task.isCancelled else {
-          continuation.resume()
+          continuation.resume(returning: false)
           return
         }
         waiters[connectionId, default: []].append((waiterId, continuation))
@@ -84,7 +84,7 @@ actor MailboxConnectionSyncGate {
     else { return }
     let waiter = connectionWaiters.remove(at: index)
     waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
-    waiter.continuation.resume()
+    waiter.continuation.resume(returning: false)
   }
 
   func release(_ connectionId: MailboxConnectionId) {
@@ -95,14 +95,16 @@ actor MailboxConnectionSyncGate {
     }
     let next = connectionWaiters.removeFirst().continuation
     waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
-    next.resume()
+    next.resume(returning: true)
   }
 
   func withLock<T>(
     _ connectionId: MailboxConnectionId,
     operation: () async throws -> T
-  ) async rethrows -> T {
-    await acquire(connectionId)
+  ) async throws -> T {
+    guard await acquire(connectionId) else {
+      throw CancellationError()
+    }
     defer { release(connectionId) }
     return try await operation()
   }

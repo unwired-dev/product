@@ -280,17 +280,22 @@ final class MailboxFreshnessViewModel {
       uniqueKeysWithValues: connections.map { ($0.id, $0) }
     )
     let connectionIds = Set(updatedConnections.keys)
+    let activeConnectionIds = Set(
+      connections.lazy
+        .filter { $0.authorizationState == .authorized }
+        .map(\.id)
+    )
     if prunesPersistedState {
       successStore.clear(
         productAccountId: session.productAccountId,
         except: connectionIds
       )
     }
-    for connectionId in historicalBackfills.keys where !connectionIds.contains(connectionId) {
+    for connectionId in historicalBackfills.keys where !activeConnectionIds.contains(connectionId) {
       historicalBackfills[connectionId]?.cancel()
       historicalBackfills[connectionId] = nil
     }
-    for connectionId in inFlightSyncs.keys where !connectionIds.contains(connectionId) {
+    for connectionId in inFlightSyncs.keys where !activeConnectionIds.contains(connectionId) {
       inFlightSyncs[connectionId]?.task.cancel()
       inFlightSyncs[connectionId] = nil
     }
