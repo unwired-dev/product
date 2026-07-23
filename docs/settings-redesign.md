@@ -297,7 +297,7 @@ Device-Local Preferences remain on one device:
 
 Provider credentials remain in the current device's Keychain.
 
-Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state, except Notification Rules: their save contract remains fail-closed as specified in [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md), so an uncertain remote write leaves no background-eligible rules cache. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
+Device-local preferences always save offline. Mail Workflow Preferences save locally while offline, queue encrypted Product Sync updates, and show pending state, except the global notification switch, notification category eligibility, and per-connection notification policy: their Notification Rule save contract remains fail-closed as specified in [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md), so an uncertain remote write leaves no background-eligible rules cache. Non-overlapping fields merge automatically. If two devices change the same field from the same older revision, both values are preserved for explicit resolution; device clocks, upload order, and device identity never silently choose the winner. Signatures and templates may preserve the competing value as a conflict copy.
 
 Device Revocation, Delete Product Account, Mailbox Connection removal, authorization or reauthorization, server verification, and Mailbox Role remapping require connectivity and cannot appear complete offline. Removing Mailbox Authorization from the current device remains available offline and immediately deletes its local Keychain credentials and cached mailbox data.
 
@@ -307,7 +307,7 @@ Migration is idempotent and never resets settings merely because the new UI open
 
 - Preserve every Mailbox Connection and the Default Sending Connection.
 - Preserve the existing Custom Category.
-- Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty.
+- Migrate existing Notification Rules into the synchronized Notification category eligibility preference, preserving their selected Category IDs as the global default; each connection inherits that default until the user creates an override. Enable the global notification switch when migrated rules are non-empty and leave it off when they are empty. Before these migrated controls become authoritative, advance the [ADR 0008](adr/0008-device-evaluated-category-aware-notifications.md) minimum-client generation fence, invalidate older payloads and cached rules, and wait until every Trusted Device acknowledges that generation or is revoked.
 - Preserve the current device's Generic Notification Fallback.
 - Initialize genuinely new preferences from the explicit defaults in this document.
 

@@ -435,12 +435,12 @@ _Avoid_: Password reset, support recovery
 - **Apple-First Sign-In** identifies a **Product Account**
 - The backend may read **Operational Account Data** but not user organization data or mailbox content
 - A **Notification Rule** is encrypted user data and is evaluated on trusted devices
-- Category eligibility and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
+- Global notification switch, category eligibility, and per-connection notification policy synchronize as encrypted **Mail Workflow Preferences**
 - Inbox behavior, read-state rules, swipe assignments, compose behavior, signatures, templates, category configuration, and per-connection notification and **Read Receipt** policies are **Mail Workflow Preferences**
 - Appearance, operating-system notification permission, sounds, badges, quiet schedules, lock-screen content level, **Generic Notification Fallback**, remote-content and download behavior, storage controls, diagnostics, and the last-opened settings destination are **Device-Local Preferences**
 - Provider credentials remain device-local Keychain material rather than preferences synchronized through **Product Sync**
 - **Device-Local Preferences** save without network access
-- **Mail Workflow Preferences** save locally while offline and visibly remain pending until their encrypted Product Sync updates complete
+- **Mail Workflow Preferences** save locally while offline and visibly remain pending until their encrypted Product Sync updates complete, except the global notification switch, category eligibility, and per-connection notification policy: their **Notification Rule** save contract requires connectivity and fails closed so an uncertain remote write leaves no background-eligible rules cache
 - Non-overlapping offline preference changes merge by field
 - A **Preference Conflict** preserves both values for explicit user resolution rather than choosing by device clock, upload order, or device identity
 - Conflicting signatures and templates may preserve the competing value as a conflict copy
