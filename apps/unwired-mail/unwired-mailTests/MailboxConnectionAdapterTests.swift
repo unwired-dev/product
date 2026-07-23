@@ -888,13 +888,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let viewModel = MailShellSelectionModel()
 
     viewModel.selectUnifiedMailbox(.sent)
-    XCTAssertEqual(viewModel.selectedMailboxMessages(in: thread), [sentMessage])
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
+      [sentMessage]
+    )
 
     viewModel.selectMailbox(
       connectionId: adapterConnectionId,
       collection: .providerMailbox("Label_projects")
     )
-    XCTAssertEqual(viewModel.selectedMailboxMessages(in: thread), [sentMessage])
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
+      [sentMessage]
+    )
+
+    viewModel.selectUnifiedMailbox(.pins)
+    XCTAssertEqual(
+      viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]),
+      [sentMessage]
+    )
   }
 
   func testMailShellScopesThreadsToSelectedMailbox() {
