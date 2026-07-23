@@ -15,7 +15,7 @@ struct GmailMessageBodyPrefetchPlan {
   let recentMessages: [GmailMessageMetadata]
 
   var messages: [GmailMessageMetadata] {
-    recentMessages + pinnedMessages
+    pinnedMessages + recentMessages
   }
 
   init(
@@ -744,7 +744,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       protectedMessageIds: protectedMessageIds,
       pinnedMessageIds: pinnedMessageIds
     )
-    guard !plan.messages.isEmpty else { return }
+    let messagesToPrefetch = try uncachedMessages(from: plan.messages, session: session)
+    guard !messagesToPrefetch.isEmpty else { return }
 
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
     guard
@@ -771,18 +772,18 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       referenceDate: referenceDate,
       session: session
     )
-    for message in plan.messages {
+    for message in messagesToPrefetch {
       try Task.checkCancellation()
-      try await prefetchMessageBody(message, context: context)
+      guard try await prefetchMessageBody(message, context: context) else { return }
     }
   }
 
   private func prefetchMessageBody(
     _ message: GmailMessageMetadata,
     context: GmailMessageBodyPrefetchContext
-  ) async throws {
+  ) async throws -> Bool {
     if try loadCachedMessageBody(message: message, session: context.session) != nil {
-      return
+      return true
     }
     let body: GmailMessageBody
     do {
@@ -793,14 +794,14 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      return
+      return true
     }
     try Task.checkCancellation()
     let encryptedPayload = try context.keyMaterial.encryptPayload(
       Data(body.text.utf8),
       associatedData: associatedData(for: message)
     )
-    _ = try cache.saveMessageBody(
+    return try cache.saveMessageBody(
       GmailMessageBodyCacheWrite(
         cachedAt: context.referenceDate,
         isPinned: context.pinnedMessageIds.contains(message.stableProviderMessageId),
@@ -811,6 +812,13 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       productAccountId: context.session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     )
+  }
+
+  private func uncachedMessages(
+    from messages: [GmailMessageMetadata],
+    session: ProductAccountSessionSnapshot
+  ) throws -> [GmailMessageMetadata] {
+    try messages.filter { try loadCachedMessageBody(message: $0, session: session) == nil }
   }
 
   func loadCachedMessageBody(
@@ -912,7 +920,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let text: String
     if bodyPart.mimeType == "text/html" {
-      text = htmlText(decodedText)
+      text = await MainActor.run { htmlText(decodedText) }
     } else {
       text = decodedText
     }
