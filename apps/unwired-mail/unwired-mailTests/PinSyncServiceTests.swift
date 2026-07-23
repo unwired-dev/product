@@ -1,0 +1,287 @@
+import Foundation
+import XCTest
+
+@testable import unwired_mail
+
+final class PinSyncServiceTests: XCTestCase {
+  private let firstDeviceSession = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user-001",
+    identityToken: "first-device-token",
+    productAccountId: "product-account-001",
+    trustedDeviceId: "trusted-device-001"
+  )
+  private let secondDeviceSession = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user-001",
+    identityToken: "second-device-token",
+    productAccountId: "product-account-001",
+    trustedDeviceId: "trusted-device-002"
+  )
+
+  func testPinSynchronizesAcrossTrustedDevicesWithoutExposingMessageIdentity() async throws {
+    let services = try makeServices()
+
+    try await services.firstDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    let secondDevicePins = try await services.secondDevice.loadPinnedMessageIds(
+      session: secondDeviceSession
+    )
+
+    XCTAssertEqual(secondDevicePins, [Self.messageId])
+    let firstPayload = await services.transport.firstPayload()
+    let storedPayload = try XCTUnwrap(firstPayload)
+    XCTAssertFalse(storedPayload.payloadIdentifier.contains(Self.messageId.providerMessageId))
+    XCTAssertFalse(
+      storedPayload.encryptedPayload.ciphertextBase64.contains(Self.messageId.providerMessageId)
+    )
+    XCTAssertFalse(
+      storedPayload.encryptedPayload.ciphertextBase64.contains(
+        Self.messageId.connectionId.providerMailboxIdentity.value
+      )
+    )
+  }
+
+  func testUnpinTombstoneConvergesWithoutRemovingAnotherConnectionPin() async throws {
+    let services = try makeServices()
+    let otherConnectionMessageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "gmail-user-002"
+        )
+      ),
+      providerMessageId: Self.messageId.providerMessageId
+    )
+    try await services.firstDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    try await services.secondDevice.setPinned(
+      true,
+      messageId: otherConnectionMessageId,
+      session: secondDeviceSession
+    )
+
+    try await services.firstDevice.setPinned(
+      false,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+
+    let pins = try await services.secondDevice.loadPinnedMessageIds(
+      session: secondDeviceSession
+    )
+    XCTAssertEqual(pins, [otherConnectionMessageId])
+    let payloadCount = await services.transport.payloadCount()
+    XCTAssertEqual(payloadCount, 2)
+  }
+
+  @MainActor
+  func testPinInteractionUpdatesLocallyBeforeProductSyncCompletes() async {
+    let service = DelayedPinSyncService()
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+
+    let update = Task {
+      await viewModel.togglePin(Self.messageId)
+    }
+    await service.waitUntilSaveStarted()
+
+    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+    XCTAssertTrue(viewModel.isUpdating(Self.messageId))
+
+    await service.releaseSave()
+    await update.value
+
+    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+    XCTAssertFalse(viewModel.isUpdating(Self.messageId))
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  @MainActor
+  func testPinInteractionRollsBackWhenProductSyncFails() async {
+    let viewModel = PinViewModel(
+      service: FailingPinSyncService(),
+      session: firstDeviceSession
+    )
+
+    await viewModel.togglePin(Self.messageId)
+
+    XCTAssertTrue(viewModel.pinnedMessageIds.isEmpty)
+    XCTAssertEqual(viewModel.errorMessage, PinSyncError.concurrentModification.localizedDescription)
+  }
+
+  private func makeServices() throws -> Services {
+    let keyMaterial = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let firstStore = InMemoryProductSyncKeyMaterialStore()
+    let secondStore = InMemoryProductSyncKeyMaterialStore()
+    try firstStore.save(keyMaterial, productAccountId: firstDeviceSession.productAccountId)
+    try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
+    let transport = PinSyncTestTransport()
+    return Services(
+      firstDevice: PinSyncService(keyMaterialStore: firstStore, transport: transport),
+      secondDevice: PinSyncService(keyMaterialStore: secondStore, transport: transport),
+      transport: transport
+    )
+  }
+
+  private struct Services {
+    let firstDevice: PinSyncService
+    let secondDevice: PinSyncService
+    let transport: PinSyncTestTransport
+  }
+
+  private static let messageId = StableProviderMessageIdentity(
+    connectionId: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-001"
+      )
+    ),
+    providerMessageId: "message-001"
+  )
+}
+
+private actor DelayedPinSyncService: PinSyncing {
+  private var saveContinuation: CheckedContinuation<Void, Never>?
+  private var saveStarted = false
+
+  func loadPinnedMessageIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableProviderMessageIdentity> {
+    []
+  }
+
+  func setPinned(
+    _ isPinned: Bool,
+    messageId: StableProviderMessageIdentity,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = isPinned
+    _ = messageId
+    saveStarted = true
+    await withCheckedContinuation { continuation in
+      saveContinuation = continuation
+    }
+  }
+
+  func waitUntilSaveStarted() async {
+    while !saveStarted {
+      await Task.yield()
+    }
+  }
+
+  func releaseSave() {
+    saveContinuation?.resume()
+    saveContinuation = nil
+  }
+}
+
+private struct FailingPinSyncService: PinSyncing {
+  func loadPinnedMessageIds(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> Set<StableProviderMessageIdentity> {
+    []
+  }
+
+  func setPinned(
+    _ isPinned: Bool,
+    messageId: StableProviderMessageIdentity,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = isPinned
+    _ = messageId
+    throw PinSyncError.concurrentModification
+  }
+}
+
+private actor PinSyncTestTransport: ProductSyncPayloadTransport {
+  private var payloads: [String: EncryptedProductSyncPayload] = [:]
+  private var updatedAt: Int64 = 1_781_200_000_000
+
+  func firstPayload() -> EncryptedProductSyncPayload? {
+    payloads.values.first
+  }
+
+  func payloadCount() -> Int {
+    payloads.count
+  }
+
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix: String?
+  ) async throws -> [EncryptedProductSyncPayload] {
+    payloads.values
+      .filter { payload in
+        guard let payloadIdentifierPrefix else { return true }
+        return payload.payloadIdentifier.hasPrefix(payloadIdentifierPrefix)
+      }
+      .sorted { $0.payloadIdentifier < $1.payloadIdentifier }
+  }
+
+  func getEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    payloads[payloadIdentifier]
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    payloadIdentifiers.compactMap { payloads[$0] }
+  }
+
+  func putEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    payloads[payloadIdentifier]
+      ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken _: String,
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    let existing = payloads[payloadIdentifier]
+    guard existing?.updatedAt == expectedUpdatedAt else {
+      return try XCTUnwrap(existing)
+    }
+    return write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+  }
+
+  private func write(
+    payloadIdentifier: String,
+    encryptedPayload: ProductSyncEncryptedPayload
+  ) -> EncryptedProductSyncPayload {
+    updatedAt += 1
+    let payload = EncryptedProductSyncPayload(
+      encryptedPayload: encryptedPayload,
+      payloadIdentifier: payloadIdentifier,
+      updatedAt: updatedAt
+    )
+    payloads[payloadIdentifier] = payload
+    return payload
+  }
+}

@@ -1170,6 +1170,83 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelReprojectsUnifiedPinsImmediatelyAfterLocalPinChange() async {
+    let cachedMessage = metadata(
+      messageId: "message-cached",
+      threadId: "thread-cached",
+      internalDateMilliseconds: 1
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: cachedMessage
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    await viewModel.loadNavigation(connections: [mailboxConnection])
+    await viewModel.loadUnifiedMailbox(.pins, connections: [mailboxConnection])
+    XCTAssertTrue(viewModel.threads.isEmpty)
+
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: mailboxConnection.id,
+      providerMessageId: cachedMessage.providerMessageId
+    )
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+    )
+
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+      ])
+    )
+  }
+
+  @MainActor
+  func testInboxViewModelRefreshesBodyPrefetchAfterLocalPinChange() async {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:]
+    )
+    let prefetcher = DelayedMailboxBodyPrefetcher()
+    let viewModel = GmailInboxViewModel(
+      bodyPrefetcher: prefetcher,
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: mailboxConnection.id,
+      providerMessageId: "message-pinned"
+    )
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+    )
+
+    viewModel.refreshBodyPrefetch(
+      afterChanging: [pinnedMessageId],
+      connections: [mailboxConnection]
+    )
+    await prefetcher.waitUntilStarted()
+
+    let receivedConnectionIds = await prefetcher.receivedConnectionIds()
+    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
+    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    await prefetcher.release()
+  }
+
+  @MainActor
   func testInboxViewModelDisablesRefreshWhileHistoricalBackfillRuns() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
