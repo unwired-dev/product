@@ -148,6 +148,8 @@ Non-draft pull request and default-branch CI must run the same checks agents are
 
 Keep TypeScript, Fallow, and Apple validation in separate CI jobs so failures identify the affected toolchain clearly. The Fallow job uses the [`fallow-rs/fallow@v2`](https://docs.fallow.tools/integrations/ci) GitHub Action (equivalent to `pnpm fallow --ci`). Any temporarily non-blocking bootstrap job must include a comment naming why it is non-blocking and what issue will make it required.
 
+Apple validation uses an affected-project matrix in `.github/workflows/ci.yml`. Add a path filter and matching matrix entry for each Apple project. Changes to shared Apple tooling run every configured Apple project; otherwise, macOS runners start only for the affected projects.
+
 ## Completion Checklist
 
 Before finishing:
