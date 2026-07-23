@@ -55,6 +55,7 @@ struct AccountView: View {
     )
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
+        bodyPrefetcher: mailboxConnection,
         service: mailboxConnection,
         searchService: mailboxConnection,
         session: snapshot
@@ -335,6 +336,7 @@ extension AccountView {
           )
 
           GmailProviderConnectionPanel(
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             viewModel: gmailViewModel,
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
             selectMailbox: { selectConnection($0) }
@@ -362,6 +364,7 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             genericMailSetupViewModel.invalidate()
             Task {
+              await inboxViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -1789,6 +1792,9 @@ final class GmailMailActionViewModel {
 final class GmailInboxViewModel {
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
+  private let bodyPrefetcher: MailboxMessageBodyPrefetching?
+  private var bodyPrefetchTask: Task<Void, Never>?
+  private var hasSignedOut = false
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -1816,11 +1822,13 @@ final class GmailInboxViewModel {
   private let session: ProductAccountSessionSnapshot
 
   init(
+    bodyPrefetcher: MailboxMessageBodyPrefetching? = nil,
     service: MailboxMetadataSyncing,
     searchService: MailboxMessageSearching,
     session: ProductAccountSessionSnapshot,
     productMailboxState: MailShellProductMailboxState = .empty
   ) {
+    self.bodyPrefetcher = bodyPrefetcher
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: [:],
       pinnedMessageIds: productMailboxState.pinnedMessageIds,
@@ -1857,6 +1865,8 @@ final class GmailInboxViewModel {
 
   func clear() {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     currentConnectionId = nil
     unifiedConnectionIds = []
     unifiedLoadId = nil
@@ -2143,13 +2153,14 @@ final class GmailInboxViewModel {
         session: session
       )
       try Task.checkCancellation()
-      guard currentConnectionId == connection.id
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return
       }
       threads = result.threads
       errorMessage = nil
       if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
+        startBodyPrefetch(connection: connection)
         startHistoricalBackfill(connection: connection)
       }
     } catch is CancellationError {
@@ -2233,6 +2244,8 @@ final class GmailInboxViewModel {
 
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = nil
     if currentConnectionId != connection.id {
       currentConnectionId = connection.id
       unifiedConnectionIds = []
@@ -2256,13 +2269,16 @@ final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
-      guard currentConnectionId == connection.id
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return false
       }
       threads = result.threads
       await refreshNavigationSnapshot(for: connection)
       errorMessage = nil
+      if syncResult.hasInitialMailboxAvailability {
+        startBodyPrefetch(connection: connection)
+      }
       if !syncResult.historicalMetadataBackfillIsComplete {
         startHistoricalBackfill(connection: connection)
       }
@@ -2300,16 +2316,49 @@ final class GmailInboxViewModel {
         guard
           !Task.isCancelled,
           backfillTaskId == taskId,
+          !hasSignedOut,
           currentConnectionId == connection.id
         else { return }
         threads = backfill.threads
         await refreshNavigationSnapshot(for: connection)
+        startBodyPrefetch(connection: connection)
       } catch is CancellationError {
       } catch {
         guard !Task.isCancelled, backfillTaskId == taskId else { return }
         errorMessage = error.localizedDescription
       }
     }
+  }
+
+  private func startBodyPrefetch(connection: MailboxConnection) {
+    guard let bodyPrefetcher else { return }
+    bodyPrefetchTask?.cancel()
+    bodyPrefetchTask = Task { [weak self] in
+      guard let self else { return }
+      do {
+        try await bodyPrefetcher.prefetchMessageBodies(
+          connection: connection,
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
+          referenceDate: Date(),
+          session: self.session
+        )
+      } catch {
+        // Prefetch is best effort and must not block cached mailbox use.
+      }
+    }
+  }
+
+  func cancelBodyPrefetch() async {
+    guard let task = bodyPrefetchTask else { return }
+    bodyPrefetchTask = nil
+    task.cancel()
+    await task.value
+  }
+
+  func prepareForSignOut() async {
+    hasSignedOut = true
+    cancelBackfill()
+    await cancelBodyPrefetch()
   }
 
   func refresh(connection: MailboxConnection) async -> Bool {
@@ -2327,7 +2376,7 @@ final class GmailInboxViewModel {
         connection: connection,
         pinnedMessageIds: navigationSnapshot.pinnedMessageIds
       )
-      guard unifiedConnectionIds.contains(connection.id) else { return false }
+      guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
       let otherMessages =
         threads
@@ -3026,6 +3075,7 @@ private struct NotificationRulePanel: View {
 }
 
 private struct GmailProviderConnectionPanel: View {
+  let cancelBodyPrefetch: () async -> Void
   @Bindable var viewModel: GmailProviderConnectionViewModel
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
@@ -3114,6 +3164,7 @@ private struct GmailProviderConnectionPanel: View {
 
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
+                  await cancelBodyPrefetch()
                   await viewModel.removeLocalAuthorization(connection)
                 }
               }
@@ -3121,6 +3172,7 @@ private struct GmailProviderConnectionPanel: View {
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
+                await cancelBodyPrefetch()
                 await viewModel.removeEverywhere(connection)
               }
             }
@@ -3319,6 +3371,7 @@ private struct GmailInboxPanel: View {
           Button("Remove Cached Bodies", role: .destructive) {
             Task {
               do {
+                await viewModel.cancelBodyPrefetch()
                 if let connection {
                   try messageReader.clearCachedMessageBodies(
                     connection: connection,

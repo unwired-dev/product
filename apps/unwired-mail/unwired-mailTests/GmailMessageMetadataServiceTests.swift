@@ -1123,6 +1123,53 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelStartsBodyPrefetchAfterPublishingInitialAvailability() async {
+    let cachedMessage = metadata(
+      messageId: "message-cached",
+      threadId: "thread-cached",
+      internalDateMilliseconds: 1
+    )
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [
+        connection.providerAccountIdentifier: cachedMessage
+      ]
+    )
+    let prefetcher = DelayedMailboxBodyPrefetcher()
+    let viewModel = GmailInboxViewModel(
+      bodyPrefetcher: prefetcher,
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: mailboxConnection.id,
+      providerMessageId: "message-pinned"
+    )
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+    )
+
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+    await prefetcher.waitUntilStarted()
+
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        cachedMessage.mailboxMetadata(connectionId: cachedMessage.mailboxConnectionId)
+      ])
+    )
+    XCTAssertFalse(viewModel.isBusy)
+    let receivedConnectionIds = await prefetcher.receivedConnectionIds()
+    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
+    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    await prefetcher.release()
+  }
+
+  @MainActor
   func testInboxViewModelDisablesRefreshWhileHistoricalBackfillRuns() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
@@ -2933,6 +2980,51 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
       messages: [message],
       threads: GmailInboxThread.group([message])
     ).mailboxResult(connectionId: connection.id)
+  }
+}
+
+private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
+  private var connectionIds: [MailboxConnectionId] = []
+  private var pinnedMessageIds: [Set<StableProviderMessageIdentity>] = []
+  private var continuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func prefetchMessageBodies(
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    referenceDate _: Date,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+    self.pinnedMessageIds.append(pinnedMessageIds)
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func receivedConnectionIds() -> [MailboxConnectionId] {
+    connectionIds
+  }
+
+  func receivedPinnedMessageIds() -> [Set<StableProviderMessageIdentity>] {
+    pinnedMessageIds
+  }
+
+  func waitUntilStarted() async {
+    guard connectionIds.isEmpty else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    continuation?.resume()
+    continuation = nil
   }
 }
 
