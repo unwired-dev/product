@@ -1297,41 +1297,76 @@ struct GmailPushWakeupHandler {
     let notificationRules = try await failClosed {
       try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
     }
-    guard let notificationRules else {
-      return false
-    }
     guard hasProcessingTimeRemaining() else {
-      guard !notificationRules.categoryIds.isEmpty else { return false }
+      guard notificationRules?.categoryIds.isEmpty == false else { return false }
       return try await completeWithGenericFallback()
     }
     guard currentWatchForRoute() != nil else { return false }
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: productSession.productAccountId
     )
+    publishSyncStatus(
+      .syncing,
+      connection: mailboxConnection,
+      productAccountId: productSession.productAccountId
+    )
     let syncResult: MailboxMetadataSyncResult
     do {
       syncResult = try await syncService.syncRecentInbox(
         connection: mailboxConnection,
-        includingHistoryCandidates: !notificationRules.categoryIds.isEmpty,
+        includingHistoryCandidates: notificationRules?.categoryIds.isEmpty == false,
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
         throughHistoryId: historyId,
         shouldPersist: routeIsCurrent
       )
     } catch is CancellationError {
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
       throw CancellationError()
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
       return false
     } catch MailboxConnectionAdapterError.connectionRemoved {
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
       return false
     } catch {
+      publishSyncStatus(
+        .failure(for: error),
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
       let currentNotificationRules = try await failClosed {
         try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
       }
       guard currentNotificationRules?.categoryIds.isEmpty == false else { throw error }
       return try await completeWithGenericFallback()
     }
+    let successfulSyncAt = Date()
+    UserDefaultsMailboxSyncSuccessStore().save(
+      successfulSyncAt,
+      productAccountId: productSession.productAccountId,
+      connectionId: mailboxConnection.id
+    )
+    publishSyncStatus(
+      .idle,
+      connection: mailboxConnection,
+      productAccountId: productSession.productAccountId,
+      successfulSyncAt: successfulSyncAt
+    )
     guard currentWatchForRoute() != nil else { return false }
+    guard notificationRules != nil else { return false }
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
     }
@@ -1418,6 +1453,25 @@ struct GmailPushWakeupHandler {
       deliveredGenericFallback || (!shouldDeliverGenericFallback && canAdvanceWatermark)
     else { return false }
     return try advanceWatermark()
+  }
+
+  private func publishSyncStatus(
+    _ phase: MailboxSyncPhase,
+    connection: MailboxConnection,
+    productAccountId: String,
+    successfulSyncAt: Date? = nil
+  ) {
+    var userInfo: [AnyHashable: Any] = [
+      MailboxSyncNotificationUserInfoKey.connectionId: connection.id.rawValue,
+      MailboxSyncNotificationUserInfoKey.phase: phase,
+      MailboxSyncNotificationUserInfoKey.productAccountId: productAccountId,
+    ]
+    userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
+    NotificationCenter.default.post(
+      name: .mailboxMetadataDidSynchronize,
+      object: nil,
+      userInfo: userInfo
+    )
   }
 
   private func deliverGenericFallback(
