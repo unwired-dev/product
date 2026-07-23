@@ -1267,7 +1267,9 @@ private struct MailShellConversationReader: View {
         if connection.capabilities.supports(.markUnread) {
           Button("Mark Unread") { perform(.markUnread, thread: thread, connection: connection) }
         }
-        if connection.capabilities.supports(.archive) {
+        if selection.selectedMailbox?.collection == .role(.inbox),
+          connection.capabilities.supports(.archive)
+        {
           Button("Archive") { perform(.archive, thread: thread, connection: connection) }
         }
         if connection.capabilities.supports(.delete) {
@@ -2450,11 +2452,20 @@ final class GmailInboxViewModel {
         session: session
       )
     else { return }
-    updateNavigationSnapshot(result: result, for: connection.id)
+    let providerMailboxes = try? await service.loadProviderMailboxes(
+      connection: connection,
+      session: session
+    )
+    updateNavigationSnapshot(
+      result: result,
+      providerMailboxes: providerMailboxes,
+      for: connection.id
+    )
   }
 
   private func updateNavigationSnapshot(
     result: MailboxMetadataSyncResult,
+    providerMailboxes: [ProviderMailbox]?,
     for connectionId: MailboxConnectionId
   ) {
     var messagesByConnection = navigationSnapshot.messagesByConnection
@@ -2463,11 +2474,15 @@ final class GmailInboxViewModel {
     }) {
       messagesByConnection[connectionId] = result.messages
     }
+    var providerMailboxesByConnection = navigationSnapshot.providerMailboxesByConnection
+    if let providerMailboxes {
+      providerMailboxesByConnection[connectionId] = providerMailboxes
+    }
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
       outboxStates: navigationSnapshot.outboxStates,
-      providerMailboxesByConnection: navigationSnapshot.providerMailboxesByConnection
+      providerMailboxesByConnection: providerMailboxesByConnection
     )
   }
 
