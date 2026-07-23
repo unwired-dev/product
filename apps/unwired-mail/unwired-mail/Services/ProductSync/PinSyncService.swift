@@ -31,13 +31,22 @@ enum PinSyncError: LocalizedError, Equatable {
 }
 
 private struct PinSyncPayload: Codable, Equatable {
+  let changedAtMilliseconds: Int64
+  let changedByTrustedDeviceId: String
   let isPinned: Bool
   let provider: String
   let providerAccountIdentifier: String
   let providerMessageId: String
   let schemaVersion: Int
 
-  init(isPinned: Bool, messageId: StableProviderMessageIdentity) {
+  init(
+    changedAtMilliseconds: Int64,
+    changedByTrustedDeviceId: String,
+    isPinned: Bool,
+    messageId: StableProviderMessageIdentity
+  ) {
+    self.changedAtMilliseconds = changedAtMilliseconds
+    self.changedByTrustedDeviceId = changedByTrustedDeviceId
     self.isPinned = isPinned
     provider = messageId.connectionId.providerId.rawValue
     providerAccountIdentifier = messageId.connectionId.providerMailboxIdentity.value
@@ -56,6 +65,13 @@ private struct PinSyncPayload: Codable, Equatable {
       providerMessageId: providerMessageId
     )
   }
+
+  func isNewer(than other: PinSyncPayload) -> Bool {
+    if changedAtMilliseconds != other.changedAtMilliseconds {
+      return changedAtMilliseconds > other.changedAtMilliseconds
+    }
+    return changedByTrustedDeviceId > other.changedByTrustedDeviceId
+  }
 }
 
 final class PinSyncService: PinSyncing {
@@ -65,13 +81,20 @@ final class PinSyncService: PinSyncing {
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let lastChangeLock = NSLock()
+  private let nowMilliseconds: @Sendable () -> Int64
   private let transport: ProductSyncPayloadTransport
+  private var lastChangeAtMilliseconds: Int64 = 0
 
   init(
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    nowMilliseconds: @escaping @Sendable () -> Int64 = {
+      Int64(Date().timeIntervalSince1970 * 1_000)
+    },
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
     self.keyMaterialStore = keyMaterialStore
+    self.nowMilliseconds = nowMilliseconds
     self.transport = transport
   }
 
@@ -102,6 +125,12 @@ final class PinSyncService: PinSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws {
     let payloadIdentifier = Self.payloadIdentifier(for: messageId)
+    let proposedPayload = PinSyncPayload(
+      changedAtMilliseconds: nextChangeAtMilliseconds(),
+      changedByTrustedDeviceId: session.trustedDeviceId,
+      isPinned: isPinned,
+      messageId: messageId
+    )
     for _ in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await transport.getEncryptedProductSyncPayload(
         identityToken: session.identityToken,
@@ -113,12 +142,15 @@ final class PinSyncService: PinSyncing {
       )
       if let remotePayload {
         let current = try decrypt(remotePayload, material: material)
-        guard current.isPinned != isPinned else { return }
+        if !proposedPayload.isNewer(than: current) {
+          guard current.isPinned == isPinned else {
+            throw PinSyncError.concurrentModification
+          }
+          return
+        }
       }
 
-      let plaintext = try encoder.encode(
-        PinSyncPayload(isPinned: isPinned, messageId: messageId)
-      )
+      let plaintext = try encoder.encode(proposedPayload)
       let encryptedPayload = try material.encryptPayload(
         plaintext,
         associatedData: Data(payloadIdentifier.utf8)
@@ -133,6 +165,13 @@ final class PinSyncService: PinSyncing {
       guard writtenPayload.encryptedPayload != encryptedPayload else { return }
     }
     throw PinSyncError.concurrentModification
+  }
+
+  private func nextChangeAtMilliseconds() -> Int64 {
+    lastChangeLock.lock()
+    defer { lastChangeLock.unlock() }
+    lastChangeAtMilliseconds = max(nowMilliseconds(), lastChangeAtMilliseconds + 1)
+    return lastChangeAtMilliseconds
   }
 
   private func decrypt(

@@ -1176,9 +1176,24 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       threadId: "thread-cached",
       internalDateMilliseconds: 1
     )
+    let otherCachedMessage = metadata(
+      messageId: "message-other",
+      threadId: "thread-other",
+      internalDateMilliseconds: 2
+    )
+    let otherConnection = GmailProviderConnectionStatus(
+      connectedAt: 2,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: 2,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 2
+    )
     let service = DelayedMailboxSwitchingService(
       messagesByProviderAccountIdentifier: [
-        connection.providerAccountIdentifier: cachedMessage
+        connection.providerAccountIdentifier: cachedMessage,
+        otherConnection.providerAccountIdentifier: otherCachedMessage,
       ]
     )
     let viewModel = GmailInboxViewModel(
@@ -1189,24 +1204,40 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: session.productAccountId
     )
+    let otherMailboxConnection = otherConnection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
 
-    await viewModel.loadNavigation(connections: [mailboxConnection])
-    await viewModel.loadUnifiedMailbox(.pins, connections: [mailboxConnection])
+    await viewModel.loadNavigation(connections: [mailboxConnection, otherMailboxConnection])
+    await viewModel.loadUnifiedMailbox(
+      .pins,
+      connections: [mailboxConnection, otherMailboxConnection]
+    )
     XCTAssertTrue(viewModel.threads.isEmpty)
 
     let pinnedMessageId = StableProviderMessageIdentity(
       connectionId: mailboxConnection.id,
       providerMessageId: cachedMessage.providerMessageId
     )
+    let otherPinnedMessageId = StableProviderMessageIdentity(
+      connectionId: otherMailboxConnection.id,
+      providerMessageId: otherCachedMessage.providerMessageId
+    )
     viewModel.updateProductMailboxState(
-      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+      MailShellProductMailboxState(
+        outboxStates: [],
+        pinnedMessageIds: [pinnedMessageId, otherPinnedMessageId]
+      )
     )
 
     XCTAssertEqual(
       viewModel.threads,
-      MailboxThread.group([
-        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
-      ])
+      MailboxThread.group(
+        [
+          cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id),
+          otherCachedMessage.mailboxMetadata(connectionId: otherMailboxConnection.id),
+        ]
+      )
     )
   }
 
@@ -1242,6 +1273,39 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
     XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
     let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
+    await prefetcher.release()
+  }
+
+  @MainActor
+  func testInboxViewModelRefreshesSynchronizedPinsAfterConnectionsLoad() async {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:]
+    )
+    let prefetcher = DelayedMailboxBodyPrefetcher()
+    let viewModel = GmailInboxViewModel(
+      bodyPrefetcher: prefetcher,
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: mailboxConnection.id,
+      providerMessageId: "message-pinned"
+    )
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+    )
+
+    viewModel.refreshPinnedBodyPrefetch(connections: [mailboxConnection])
+    await prefetcher.waitUntilStarted()
+
+    let receivedConnectionIds = await prefetcher.receivedConnectionIds()
+    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
     XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
     await prefetcher.release()
   }

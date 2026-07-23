@@ -131,11 +131,7 @@ struct AccountView: View {
           )
           : nil
       )
-      await pinViewModel.load()
-      updateProductMailboxState()
-      await gmailViewModel.load()
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
-      await genericMailSetupViewModel.loadSyncedDefinitions()
+      await reloadSyncedMailState()
       if mailShellSelection.selectedMailbox == nil {
         if let connection = gmailViewModel.connection {
           mailShellSelection.selectMailbox(connectionId: connection.id)
@@ -152,11 +148,7 @@ struct AccountView: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
-        await pinViewModel.load()
-        updateProductMailboxState()
-        await gmailViewModel.load()
-        await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
-        await genericMailSetupViewModel.loadSyncedDefinitions()
+        await reloadSyncedMailState()
         if mailShellSelection.selectedMailbox?.isUnified == true {
           loadUnifiedMailbox()
         }
@@ -241,6 +233,15 @@ struct AccountView: View {
         pinnedMessageIds: pinViewModel.pinnedMessageIds
       )
     )
+  }
+
+  private func reloadSyncedMailState() async {
+    await pinViewModel.load()
+    updateProductMailboxState()
+    await gmailViewModel.load()
+    inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+    await genericMailSetupViewModel.loadSyncedDefinitions()
   }
 }
 
@@ -2021,6 +2022,13 @@ final class GmailInboxViewModel {
       connections: connections.filter {
         $0.authorizationState == .authorized && connectionIds.contains($0.id)
       }
+    )
+  }
+
+  func refreshPinnedBodyPrefetch(connections: [MailboxConnection]) {
+    refreshBodyPrefetch(
+      afterChanging: navigationSnapshot.pinnedMessageIds,
+      connections: connections
     )
   }
 

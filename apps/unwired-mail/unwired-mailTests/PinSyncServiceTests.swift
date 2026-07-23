@@ -3,6 +3,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 final class PinSyncServiceTests: XCTestCase {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -79,6 +81,80 @@ final class PinSyncServiceTests: XCTestCase {
     XCTAssertEqual(payloadCount, 2)
   }
 
+  func testDelayedOlderPinCannotOverwriteNewerUnpin() async throws {
+    let services = try makeServices(
+      firstDeviceNowMilliseconds: { 100 },
+      secondDeviceNowMilliseconds: { 200 }
+    )
+    await services.transport.blockNextGet(identityToken: firstDeviceSession.identityToken)
+    let delayedPin = Task {
+      try await services.firstDevice.setPinned(
+        true,
+        messageId: Self.messageId,
+        session: firstDeviceSession
+      )
+    }
+    await services.transport.waitUntilGetIsBlocked()
+
+    try await services.secondDevice.setPinned(
+      false,
+      messageId: Self.messageId,
+      session: secondDeviceSession
+    )
+    await services.transport.releaseBlockedGet()
+
+    do {
+      try await delayedPin.value
+      XCTFail("Expected the older Pin to lose to the newer Unpin")
+    } catch PinSyncError.concurrentModification {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+    let pins = try await services.firstDevice.loadPinnedMessageIds(session: firstDeviceSession)
+    XCTAssertEqual(pins, [])
+  }
+
+  func testPinMetadataSurvivesBodyCacheEviction() async throws {
+    let services = try makeServices()
+    try await services.firstDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let bodyCache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let cachedBody = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: "ciphertext",
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    try bodyCache.saveMessageBody(
+      cachedBody,
+      productAccountId: firstDeviceSession.productAccountId,
+      stableProviderMessageId: "gmail:gmail-user-001:message-001"
+    )
+
+    try bodyCache.removeMessageBody(
+      productAccountId: firstDeviceSession.productAccountId,
+      stableProviderMessageId: "gmail:gmail-user-001:message-001"
+    )
+
+    XCTAssertNil(
+      try bodyCache.loadMessageBody(
+        productAccountId: firstDeviceSession.productAccountId,
+        stableProviderMessageId: "gmail:gmail-user-001:message-001"
+      )
+    )
+    let pins = try await services.secondDevice.loadPinnedMessageIds(session: secondDeviceSession)
+    XCTAssertEqual(pins, [Self.messageId])
+  }
+
   @MainActor
   func testPinInteractionUpdatesLocallyBeforeProductSyncCompletes() async {
     let service = DelayedPinSyncService()
@@ -101,6 +177,23 @@ final class PinSyncServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testPinInteractionDoesNotInvokeProviderMailActions() async throws {
+    let services = try makeServices()
+    let providerActions = RecordingProviderMailActionService()
+    _ = GmailMailActionViewModel(service: providerActions, session: firstDeviceSession)
+    let viewModel = PinViewModel(
+      service: services.firstDevice,
+      session: firstDeviceSession
+    )
+
+    await viewModel.togglePin(Self.messageId)
+
+    let providerMutationCount = await providerActions.mutationCount()
+    XCTAssertEqual(providerMutationCount, 0)
+    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+  }
+
+  @MainActor
   func testPinInteractionRollsBackWhenProductSyncFails() async {
     let viewModel = PinViewModel(
       service: FailingPinSyncService(),
@@ -113,7 +206,14 @@ final class PinSyncServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.errorMessage, PinSyncError.concurrentModification.localizedDescription)
   }
 
-  private func makeServices() throws -> Services {
+  private func makeServices(
+    firstDeviceNowMilliseconds: @escaping @Sendable () -> Int64 = {
+      1_781_200_000_001
+    },
+    secondDeviceNowMilliseconds: @escaping @Sendable () -> Int64 = {
+      1_781_200_000_002
+    }
+  ) throws -> Services {
     let keyMaterial = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
       recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
@@ -124,8 +224,16 @@ final class PinSyncServiceTests: XCTestCase {
     try secondStore.save(keyMaterial, productAccountId: secondDeviceSession.productAccountId)
     let transport = PinSyncTestTransport()
     return Services(
-      firstDevice: PinSyncService(keyMaterialStore: firstStore, transport: transport),
-      secondDevice: PinSyncService(keyMaterialStore: secondStore, transport: transport),
+      firstDevice: PinSyncService(
+        keyMaterialStore: firstStore,
+        nowMilliseconds: firstDeviceNowMilliseconds,
+        transport: transport
+      ),
+      secondDevice: PinSyncService(
+        keyMaterialStore: secondStore,
+        nowMilliseconds: secondDeviceNowMilliseconds,
+        transport: transport
+      ),
       transport: transport
     )
   }
@@ -200,7 +308,42 @@ private struct FailingPinSyncService: PinSyncing {
   }
 }
 
+private actor RecordingProviderMailActionService: MailboxProviderMailActing {
+  private var mutations = 0
+
+  func perform(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = action
+    _ = messages
+    _ = connection
+    _ = session
+    mutations += 1
+  }
+
+  func send(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = message
+    _ = connection
+    _ = session
+    mutations += 1
+  }
+
+  func mutationCount() -> Int {
+    mutations
+  }
+}
+
 private actor PinSyncTestTransport: ProductSyncPayloadTransport {
+  private var blockedGetContinuation: CheckedContinuation<Void, Never>?
+  private var blockedGetHasStarted = false
+  private var blockedIdentityToken: String?
   private var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var updatedAt: Int64 = 1_781_200_000_000
 
@@ -225,10 +368,33 @@ private actor PinSyncTestTransport: ProductSyncPayloadTransport {
   }
 
   func getEncryptedProductSyncPayload(
-    identityToken _: String,
+    identityToken: String,
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
-    payloads[payloadIdentifier]
+    if blockedIdentityToken == identityToken {
+      blockedIdentityToken = nil
+      blockedGetHasStarted = true
+      await withCheckedContinuation { continuation in
+        blockedGetContinuation = continuation
+      }
+    }
+    return payloads[payloadIdentifier]
+  }
+
+  func blockNextGet(identityToken: String) {
+    blockedIdentityToken = identityToken
+    blockedGetHasStarted = false
+  }
+
+  func waitUntilGetIsBlocked() async {
+    while !blockedGetHasStarted {
+      await Task.yield()
+    }
+  }
+
+  func releaseBlockedGet() {
+    blockedGetContinuation?.resume()
+    blockedGetContinuation = nil
   }
 
   func getEncryptedProductSyncPayloads(
