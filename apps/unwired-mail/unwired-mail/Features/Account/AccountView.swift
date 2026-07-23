@@ -248,6 +248,7 @@ extension AccountView {
           )
 
           GmailProviderConnectionPanel(
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             viewModel: gmailViewModel,
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
           )
@@ -2118,6 +2119,7 @@ private struct NotificationRulePanel: View {
 }
 
 private struct GmailProviderConnectionPanel: View {
+  let cancelBodyPrefetch: () async -> Void
   @Bindable var viewModel: GmailProviderConnectionViewModel
   let isMailboxBusy: Bool
   @State private var connectTask: Task<Void, Never>?
@@ -2205,6 +2207,7 @@ private struct GmailProviderConnectionPanel: View {
 
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
+                  await cancelBodyPrefetch()
                   await viewModel.removeLocalAuthorization(connection)
                 }
               }
@@ -2212,6 +2215,7 @@ private struct GmailProviderConnectionPanel: View {
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
+                await cancelBodyPrefetch()
                 await viewModel.removeEverywhere(connection)
               }
             }

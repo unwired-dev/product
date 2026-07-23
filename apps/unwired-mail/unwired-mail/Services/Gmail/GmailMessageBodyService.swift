@@ -380,7 +380,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     let canEvictProtectedEntries = entry.retention == .opened
     while cachedByteCount > maximumByteCount - encodedEntry.count,
       let eviction = cachedFiles.first(where: {
-        canEvictProtectedEntries || !$0.entry.isProtected
+        canEvictProtectedEntries || !$0.isProtected
       })
     {
       try fileManager.removeItem(at: eviction.url)
@@ -519,7 +519,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
     cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
     while cachedByteCount > maximumByteCount,
-      let eviction = cachedFiles.first(where: { !$0.entry.isProtected })
+      let eviction = cachedFiles.first(where: { !$0.isProtected }) ?? cachedFiles.first
     {
       try fileManager.removeItem(at: eviction.url)
       cachedByteCount -= eviction.byteCount
@@ -566,7 +566,11 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       cachedFiles.append(
         FileGmailMessageBodyCacheFile(
           byteCount: values.fileSize ?? data.count,
-          entry: entry,
+          cachedAt: entry.cachedAt,
+          isPinned: entry.isPinned,
+          isProtected: entry.isProtected,
+          lastReadAt: entry.lastReadAt,
+          retention: entry.retention,
           url: fileURL
         )
       )
@@ -587,7 +591,11 @@ private struct FileGmailMessageBodyCacheEntry: Codable {
 
 private struct FileGmailMessageBodyCacheFile {
   let byteCount: Int
-  let entry: FileGmailMessageBodyCacheEntry
+  let cachedAt: Date
+  let isPinned: Bool
+  let isProtected: Bool
+  let lastReadAt: Date?
+  let retention: GmailMessageBodyCacheRetention
   let url: URL
 
   static func evictionOrder(
@@ -599,8 +607,8 @@ private struct FileGmailMessageBodyCacheFile {
     if firstPriority != secondPriority {
       return firstPriority < secondPriority
     }
-    let firstDate = first.entry.lastReadAt ?? first.entry.cachedAt
-    let secondDate = second.entry.lastReadAt ?? second.entry.cachedAt
+    let firstDate = first.lastReadAt ?? first.cachedAt
+    let secondDate = second.lastReadAt ?? second.cachedAt
     if firstDate != secondDate {
       return firstDate < secondDate
     }
@@ -608,8 +616,8 @@ private struct FileGmailMessageBodyCacheFile {
   }
 
   private var evictionPriority: Int {
-    if entry.isPinned { return 2 }
-    return entry.retention == .opened ? 0 : 1
+    if isPinned { return 2 }
+    return retention == .opened ? 0 : 1
   }
 }
 
@@ -775,7 +783,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     )
     for message in messagesToPrefetch {
       try Task.checkCancellation()
-      guard try await prefetchMessageBody(message, context: context) else { return }
+      _ = try await prefetchMessageBody(message, context: context)
     }
   }
 

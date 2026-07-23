@@ -471,7 +471,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertFalse(FileManager.default.fileExists(atPath: legacyFirstURL.path))
   }
 
-  func testReconcilePreservesProtectedLegacyCacheWhenOverBudget() throws {
+  func testReconcileEnforcesMaximumByteCountForProtectedLegacyCache() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
     defer { try? FileManager.default.removeItem(at: rootDirectory) }
@@ -506,17 +506,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       pinnedMessageIds: []
     )
 
-    XCTAssertNotNil(
-      try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: messageIds[0]
-      )
-    )
-    XCTAssertNotNil(
-      try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: messageIds[1]
-      )
+    XCTAssertLessThanOrEqual(
+      try cacheByteCount(rootDirectory: rootDirectory),
+      encodedPayload.count
     )
   }
 
