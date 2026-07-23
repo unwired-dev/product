@@ -377,10 +377,9 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     var cachedFiles = try cachedFiles(excluding: destination)
     var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
     cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
-    let canEvictProtectedEntries = entry.retention == .opened
     while cachedByteCount > maximumByteCount - encodedEntry.count,
       let eviction = cachedFiles.first(where: {
-        canEvictProtectedEntries || !$0.isProtected
+        !$0.isProtected
       })
     {
       try fileManager.removeItem(at: eviction.url)
@@ -401,7 +400,10 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     Self.fileLock.lock()
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
-    try clearProtectedSelections(productAccountId: productAccountId)
+    try clearProtectedSelections(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     let prefix = [
       gmailSafeFileComponent(productAccountId),
       gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
@@ -446,8 +448,14 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     try enforceMaximumByteCount()
   }
 
-  private func clearProtectedSelections(productAccountId: String) throws {
-    let productPrefix = "\(gmailSafeFileComponent(productAccountId))-"
+  private func clearProtectedSelections(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    let productPrefix = [
+      gmailSafeFileComponent(productAccountId),
+      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+    ].joined(separator: "-")
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: nil

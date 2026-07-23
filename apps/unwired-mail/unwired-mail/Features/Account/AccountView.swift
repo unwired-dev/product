@@ -273,6 +273,7 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             genericMailSetupViewModel.invalidate()
             Task {
+              await inboxViewModel.cancelBodyPrefetch()
               await session.signOut()
             }
           }
