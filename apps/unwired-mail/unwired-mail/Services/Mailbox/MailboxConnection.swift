@@ -54,17 +54,37 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
 actor MailboxConnectionSyncGate {
   static let shared = MailboxConnectionSyncGate()
 
+  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Void, Never>)
+
   private var lockedConnectionIds: Set<MailboxConnectionId> = []
-  private var waiters: [MailboxConnectionId: [CheckedContinuation<Void, Never>]] = [:]
+  private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
   func acquire(_ connectionId: MailboxConnectionId) async {
     guard lockedConnectionIds.contains(connectionId) else {
       lockedConnectionIds.insert(connectionId)
       return
     }
-    await withCheckedContinuation { continuation in
-      waiters[connectionId, default: []].append(continuation)
+    let waiterId = UUID()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume()
+          return
+        }
+        waiters[connectionId, default: []].append((waiterId, continuation))
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId, for: connectionId) }
     }
+  }
+
+  private func cancelWaiter(_ waiterId: UUID, for connectionId: MailboxConnectionId) {
+    guard var connectionWaiters = waiters[connectionId],
+      let index = connectionWaiters.firstIndex(where: { $0.id == waiterId })
+    else { return }
+    let waiter = connectionWaiters.remove(at: index)
+    waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
+    waiter.continuation.resume()
   }
 
   func release(_ connectionId: MailboxConnectionId) {
@@ -73,9 +93,18 @@ actor MailboxConnectionSyncGate {
       waiters[connectionId] = nil
       return
     }
-    let next = connectionWaiters.removeFirst()
+    let next = connectionWaiters.removeFirst().continuation
     waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
     next.resume()
+  }
+
+  func withLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: () async throws -> T
+  ) async rethrows -> T {
+    await acquire(connectionId)
+    defer { release(connectionId) }
+    return try await operation()
   }
 }
 
@@ -1162,18 +1191,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    await syncGate.acquire(connection.id)
-    do {
+    try await syncGate.withLock(connection.id) {
       try Task.checkCancellation()
       let result = try await metadataService.continueHistoricalBackfill(
         connection: try await gmailConnectionForProviderAccess(connection, session: session),
         session: session
       )
-      await syncGate.release(connection.id)
       return result.mailboxResult(connectionId: connection.id)
-    } catch {
-      await syncGate.release(connection.id)
-      throw error
     }
   }
 
@@ -1181,8 +1205,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    await syncGate.acquire(connection.id)
-    do {
+    try await syncGate.withLock(connection.id) {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
@@ -1192,11 +1215,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
-      await syncGate.release(connection.id)
       return result.mailboxResult(connectionId: connection.id)
-    } catch {
-      await syncGate.release(connection.id)
-      throw error
     }
   }
 
@@ -1209,8 +1228,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    await syncGate.acquire(connection.id)
-    do {
+    try await syncGate.withLock(connection.id) {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
@@ -1224,11 +1242,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         throughHistoryId: throughHistoryId,
         shouldPersist: shouldPersist
       )
-      await syncGate.release(connection.id)
       return result.mailboxResult(connectionId: connection.id)
-    } catch {
-      await syncGate.release(connection.id)
-      throw error
     }
   }
 

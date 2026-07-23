@@ -720,7 +720,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: session.productAccountId
     )
-    let successStore = UserDefaultsMailboxSyncSuccessStore()
+    let suiteName = "MailboxSyncSuccessStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let successStore = UserDefaultsMailboxSyncSuccessStore(defaults: defaults)
     successStore.clear(
       productAccountId: session.productAccountId,
       connectionId: mailboxConnection.id
@@ -758,6 +761,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       connectionStore: connectionStore,
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
+      successStore: successStore,
       syncService: syncService,
       watchStore: watchStore
     )
@@ -1240,9 +1244,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    XCTAssertNil(watchStore.savedStatus)
   }
 
   func testGmailWakeupDoesNotShowFallbackAfterBackgroundDeadline() async throws {
@@ -1498,9 +1502,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    XCTAssertNil(watchStore.savedStatus)
   }
 
   func testGmailWakeupDoesNotFallbackWhenRulesAreDisabledDuringFailedMetadataSync()

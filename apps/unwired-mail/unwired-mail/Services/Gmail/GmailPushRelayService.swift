@@ -1138,6 +1138,7 @@ struct GmailPushWakeupHandler {
   private let notificationReceiptStore: GmailPushNotificationReceiptPersisting
   private let notificationRuleSync: NotificationRuleSyncing
   private let sessionStore: ProductAccountSessionPersisting
+  private let successStore: MailboxSyncSuccessPersisting
   private let syncService: MailboxMetadataSyncing
   private let watchStore: GmailPushWatchPersisting
 
@@ -1160,6 +1161,7 @@ struct GmailPushWakeupHandler {
     notificationReceiptStore: GmailPushNotificationReceiptPersisting? = nil,
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    successStore: MailboxSyncSuccessPersisting? = nil,
     syncService: MailboxMetadataSyncing = GmailMailboxConnectionAdapter(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
@@ -1188,6 +1190,7 @@ struct GmailPushWakeupHandler {
         : NoopGmailPushNotificationReceiptStore())
     self.notificationRuleSync = notificationRuleSync
     self.sessionStore = sessionStore
+    self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
     self.syncService = syncService
     self.watchStore = watchStore
   }
@@ -1351,10 +1354,11 @@ struct GmailPushWakeupHandler {
         try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
       }
       guard currentNotificationRules?.categoryIds.isEmpty == false else { throw error }
-      return try await completeWithGenericFallback()
+      _ = try await scheduleGenericFallback()
+      return false
     }
     let successfulSyncAt = Date()
-    UserDefaultsMailboxSyncSuccessStore().save(
+    successStore.save(
       successfulSyncAt,
       productAccountId: productSession.productAccountId,
       connectionId: mailboxConnection.id
@@ -1366,11 +1370,11 @@ struct GmailPushWakeupHandler {
       successfulSyncAt: successfulSyncAt
     )
     guard currentWatchForRoute() != nil else { return false }
-    guard notificationRules != nil else { return true }
+    guard notificationRules != nil else { return false }
     let currentNotificationRules = try await failClosed {
       try await notificationRuleSync.loadRulesForBackground(session: productSession).rules
     }
-    guard let currentNotificationRules else { return true }
+    guard let currentNotificationRules else { return false }
     guard currentWatchForRoute() != nil else { return false }
     let durableEligibleMessageIds = try notificationEligibilityStore.eligibleStableMessageIds(
       after: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,

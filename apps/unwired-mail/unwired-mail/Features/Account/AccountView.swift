@@ -3436,31 +3436,35 @@ final class GmailProviderConnectionViewModel {
 
     do {
       try await refreshConnections()
-      if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        if defaultSendingConnectionId?.providerId == .gmail {
-          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
-        } else {
-          selectedConnectionId = connections.first?.id
-        }
-      }
-      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
-        connections.contains { $0.id == connectionId }
-      }
-      errorMessage = nil
-      for connection in connections {
-        await refreshPushWatch(connection: connection)
-      }
+      await completeLoadingConnections()
       return true
     } catch {
       let originalError = error
       do {
         try await refreshConnections()
-        errorMessage = originalError.localizedDescription
+        await completeLoadingConnections()
         return true
       } catch {
         errorMessage = originalError.localizedDescription
         return false
       }
+    }
+  }
+
+  private func completeLoadingConnections() async {
+    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+      if defaultSendingConnectionId?.providerId == .gmail {
+        selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
+      } else {
+        selectedConnectionId = connections.first?.id
+      }
+    }
+    pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+      connections.contains { $0.id == connectionId }
+    }
+    errorMessage = nil
+    for connection in connections {
+      await refreshPushWatch(connection: connection)
     }
   }
 
