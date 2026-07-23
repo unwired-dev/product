@@ -229,13 +229,20 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
   func testPrefetchStopsAfterGmailRequestFailure() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
-    let prefetchedMessage = prefetchMessage(
+    let firstPrefetchedMessage = prefetchMessage(
       id: "message-001",
       internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
       labels: ["INBOX"]
     )
+    let secondPrefetchedMessage = prefetchMessage(
+      id: "message-002",
+      internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000) - 1,
+      labels: ["INBOX"]
+    )
     let fixture = try makeFixture(
-      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      metadataStore: RecordingBodyPrefetchMetadataStore(
+        messages: [firstPrefetchedMessage, secondPrefetchedMessage]
+      ),
       messageStatusCode: 503
     )
 

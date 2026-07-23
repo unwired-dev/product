@@ -947,7 +947,9 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
     let text: String
     if bodyPart.mimeType == "text/html" {
-      text = htmlText(decodedText)
+      text = await MainActor.run {
+        htmlText(decodedText)
+      }
     } else {
       text = decodedText
     }

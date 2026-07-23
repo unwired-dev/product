@@ -2269,7 +2269,7 @@ final class GmailInboxViewModel {
         connection: connection,
         session: session
       )
-      guard currentConnectionId == connection.id
+      guard !hasSignedOut, currentConnectionId == connection.id
       else {
         return false
       }
@@ -2338,7 +2338,7 @@ final class GmailInboxViewModel {
       do {
         try await bodyPrefetcher.prefetchMessageBodies(
           connection: connection,
-          pinnedMessageIds: [],
+          pinnedMessageIds: navigationSnapshot.pinnedMessageIds,
           referenceDate: Date(),
           session: self.session
         )
@@ -2376,7 +2376,7 @@ final class GmailInboxViewModel {
         connection: connection,
         pinnedMessageIds: navigationSnapshot.pinnedMessageIds
       )
-      guard unifiedConnectionIds.contains(connection.id) else { return false }
+      guard !hasSignedOut, unifiedConnectionIds.contains(connection.id) else { return false }
 
       let otherMessages =
         threads

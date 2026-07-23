@@ -1144,6 +1144,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: session.productAccountId
     )
+    let pinnedMessageId = StableProviderMessageIdentity(
+      connectionId: mailboxConnection.id,
+      providerMessageId: "message-pinned"
+    )
+    viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [pinnedMessageId])
+    )
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
     await prefetcher.waitUntilStarted()
@@ -1157,6 +1164,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.isBusy)
     let receivedConnectionIds = await prefetcher.receivedConnectionIds()
     XCTAssertEqual(receivedConnectionIds, [mailboxConnection.id])
+    let receivedPinnedMessageIds = await prefetcher.receivedPinnedMessageIds()
+    XCTAssertEqual(receivedPinnedMessageIds, [[pinnedMessageId]])
     await prefetcher.release()
   }
 
@@ -2976,16 +2985,18 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
 
 private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
   private var connectionIds: [MailboxConnectionId] = []
+  private var pinnedMessageIds: [Set<StableProviderMessageIdentity>] = []
   private var continuation: CheckedContinuation<Void, Never>?
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
 
   func prefetchMessageBodies(
     connection: MailboxConnection,
-    pinnedMessageIds _: Set<StableProviderMessageIdentity>,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
     referenceDate _: Date,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
+    self.pinnedMessageIds.append(pinnedMessageIds)
     let continuations = startContinuations
     startContinuations.removeAll()
     for continuation in continuations {
@@ -2998,6 +3009,10 @@ private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
 
   func receivedConnectionIds() -> [MailboxConnectionId] {
     connectionIds
+  }
+
+  func receivedPinnedMessageIds() -> [Set<StableProviderMessageIdentity>] {
+    pinnedMessageIds
   }
 
   func waitUntilStarted() async {
