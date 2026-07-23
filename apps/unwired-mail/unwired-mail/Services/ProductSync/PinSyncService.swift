@@ -114,6 +114,7 @@ final class PinSyncService: PinSyncing {
     return try Set(
       encryptedPayloads.compactMap { encryptedPayload in
         let payload = try decrypt(encryptedPayload, material: material)
+        advanceChangeClock(to: payload.changedAtMilliseconds)
         return payload.isPinned ? payload.messageId : nil
       }
     )
@@ -172,6 +173,12 @@ final class PinSyncService: PinSyncing {
     defer { lastChangeLock.unlock() }
     lastChangeAtMilliseconds = max(nowMilliseconds(), lastChangeAtMilliseconds + 1)
     return lastChangeAtMilliseconds
+  }
+
+  private func advanceChangeClock(to changedAtMilliseconds: Int64) {
+    lastChangeLock.lock()
+    defer { lastChangeLock.unlock() }
+    lastChangeAtMilliseconds = max(lastChangeAtMilliseconds, changedAtMilliseconds)
   }
 
   private func decrypt(

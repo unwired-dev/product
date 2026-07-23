@@ -144,6 +144,7 @@ struct AccountView: View {
       } else if mailShellSelection.selectedMailbox?.isUnified == true {
         loadUnifiedMailbox()
       }
+      inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
@@ -152,6 +153,7 @@ struct AccountView: View {
         if mailShellSelection.selectedMailbox?.isUnified == true {
           loadUnifiedMailbox()
         }
+        inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
       }
     }
     .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
@@ -239,7 +241,6 @@ struct AccountView: View {
     await pinViewModel.load()
     updateProductMailboxState()
     await gmailViewModel.load()
-    inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await genericMailSetupViewModel.loadSyncedDefinitions()
   }
@@ -1584,7 +1585,10 @@ final class PinViewModel {
 
   func load() async {
     do {
-      pinnedMessageIds = try await service.loadPinnedMessageIds(session: session)
+      let loadedMessageIds = try await service.loadPinnedMessageIds(session: session)
+      pinnedMessageIds = Set(
+        loadedMessageIds.filter { !updatingMessageIds.contains($0) }
+      ).union(pinnedMessageIds.filter { updatingMessageIds.contains($0) })
       errorMessage = nil
     } catch is CancellationError {
     } catch {

@@ -268,6 +268,52 @@ final class PinSyncServiceTests: XCTestCase {
   )
 }
 
+extension PinSyncServiceTests {
+  func testPinAfterLoadingNewerRemoteChangeAdvancesLogicalClock() async throws {
+    let services = try makeServices(
+      firstDeviceNowMilliseconds: { 100 },
+      secondDeviceNowMilliseconds: { 200 }
+    )
+    try await services.secondDevice.setPinned(
+      true,
+      messageId: Self.messageId,
+      session: secondDeviceSession
+    )
+
+    let firstDevicePins = try await services.firstDevice.loadPinnedMessageIds(
+      session: firstDeviceSession
+    )
+    XCTAssertEqual(firstDevicePins, [Self.messageId])
+    try await services.firstDevice.setPinned(
+      false,
+      messageId: Self.messageId,
+      session: firstDeviceSession
+    )
+
+    let secondDevicePins = try await services.secondDevice.loadPinnedMessageIds(
+      session: secondDeviceSession
+    )
+    XCTAssertEqual(secondDevicePins, [])
+  }
+
+  @MainActor
+  func testPinLoadPreservesAnInFlightOptimisticToggle() async {
+    let service = DelayedPinSyncService()
+    let viewModel = PinViewModel(service: service, session: firstDeviceSession)
+
+    let update = Task {
+      await viewModel.togglePin(Self.messageId)
+    }
+    await service.waitUntilSaveStarted()
+    await viewModel.load()
+
+    XCTAssertEqual(viewModel.pinnedMessageIds, [Self.messageId])
+
+    await service.releaseSave()
+    await update.value
+  }
+}
+
 private actor DelayedPinSyncService: PinSyncing {
   private var saveContinuation: CheckedContinuation<Void, Never>?
   private var saveStarted = false
