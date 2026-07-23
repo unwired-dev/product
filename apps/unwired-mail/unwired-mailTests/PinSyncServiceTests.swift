@@ -325,6 +325,59 @@ extension PinSyncServiceTests {
     XCTAssertEqual(secondDevicePins, [])
   }
 
+  func testEqualTimestampConflictsUseTrustedDeviceIdRegardlessOfWriteOrder() async throws {
+    for secondDeviceWritesFirst in [true, false] {
+      let services = try makeServices(
+        firstDeviceNowMilliseconds: { 100 },
+        secondDeviceNowMilliseconds: { 100 }
+      )
+      if secondDeviceWritesFirst {
+        await services.transport.blockNextGet(identityToken: secondDeviceSession.identityToken)
+        let unpin = Task {
+          try await services.secondDevice.setPinned(
+            false,
+            messageId: Self.messageId,
+            session: secondDeviceSession
+          )
+        }
+        await services.transport.waitUntilGetIsBlocked()
+
+        try await services.firstDevice.setPinned(
+          true,
+          messageId: Self.messageId,
+          session: firstDeviceSession
+        )
+        await services.transport.releaseBlockedGet()
+        try await unpin.value
+      } else {
+        await services.transport.blockNextGet(identityToken: firstDeviceSession.identityToken)
+        let pin = Task {
+          try await services.firstDevice.setPinned(
+            true,
+            messageId: Self.messageId,
+            session: firstDeviceSession
+          )
+        }
+        await services.transport.waitUntilGetIsBlocked()
+
+        try await services.secondDevice.setPinned(
+          false,
+          messageId: Self.messageId,
+          session: secondDeviceSession
+        )
+        await services.transport.releaseBlockedGet()
+        do {
+          try await pin.value
+          XCTFail("Expected the lower trusted device ID to lose the tie-breaker")
+        } catch PinSyncError.concurrentModification {
+        }
+      }
+
+      let pins = try await services.firstDevice.loadPinnedMessageIds(session: firstDeviceSession)
+      XCTAssertEqual(pins, [])
+    }
+  }
+
   @MainActor
   func testPinLoadPreservesAnInFlightOptimisticToggle() async {
     let service = DelayedPinSyncService()
