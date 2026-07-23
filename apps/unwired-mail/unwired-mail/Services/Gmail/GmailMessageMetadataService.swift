@@ -332,6 +332,10 @@ enum GmailProviderMailAction: Equatable {
   case delete
   case markRead
   case markUnread
+  case move(targetProviderMailboxId: String)
+  case notSpam
+  case restore
+  case spam
   case star
   case unstar
 }
@@ -1557,6 +1561,7 @@ struct GmailMessageMetadataService:
       session: session
     )
     var didReplaceMessage = false
+    var persistedMessage = overriddenMessage
     var messages = try store.loadMessages(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: message.providerAccountIdentifier
@@ -1565,7 +1570,10 @@ struct GmailMessageMetadataService:
         return storedMessage
       }
       didReplaceMessage = true
-      return overriddenMessage
+      persistedMessage = storedMessage.assigningCategory(
+        overriddenMessage.categoryId ?? categoryId
+      )
+      return persistedMessage
     }
     if !didReplaceMessage {
       messages.append(overriddenMessage)
@@ -1575,9 +1583,10 @@ struct GmailMessageMetadataService:
       productAccountId: session.productAccountId,
       providerAccountIdentifier: message.providerAccountIdentifier
     )
-    return overriddenMessage
+    return persistedMessage
   }
 
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func perform(
     _ action: GmailProviderMailAction,
     messageIds: [String],
@@ -1598,8 +1607,19 @@ struct GmailMessageMetadataService:
       switch action {
       case .delete:
         try await sendAuthorizedRequest(
-          url: url.appendingPathComponent("trash"), accessToken: accessToken, method: "POST")
-      case .archive, .markRead, .markUnread, .star, .unstar:
+          url: url.appendingPathComponent("trash"),
+          accessToken: accessToken,
+          method: "POST",
+          providerActionRequest: true
+        )
+      case .restore:
+        try await sendAuthorizedRequest(
+          url: url.appendingPathComponent("untrash"),
+          accessToken: accessToken,
+          method: "POST",
+          providerActionRequest: true
+        )
+      case .archive, .markRead, .markUnread, .move, .notSpam, .spam, .star, .unstar:
         let labels: (add: [String], remove: [String])
         switch action {
         case .archive:
@@ -1608,11 +1628,17 @@ struct GmailMessageMetadataService:
           labels = ([], ["UNREAD"])
         case .markUnread:
           labels = (["UNREAD"], [])
+        case .move(let targetProviderMailboxId):
+          labels = ([targetProviderMailboxId], ["INBOX"])
+        case .notSpam:
+          labels = (["INBOX"], ["SPAM"])
+        case .spam:
+          labels = (["SPAM"], ["INBOX"])
         case .star:
           labels = (["STARRED"], [])
         case .unstar:
           labels = ([], ["STARRED"])
-        case .delete:
+        case .delete, .restore:
           fatalError("Handled above")
         }
         let body = try JSONEncoder().encode([
@@ -1623,7 +1649,8 @@ struct GmailMessageMetadataService:
           url: url.appendingPathComponent("modify"),
           accessToken: accessToken,
           method: "POST",
-          body: body
+          body: body,
+          providerActionRequest: true
         )
       }
     }
@@ -2069,7 +2096,8 @@ struct GmailMessageMetadataService:
     url: URL,
     accessToken: String,
     method: String,
-    body: Data? = nil
+    body: Data? = nil,
+    providerActionRequest: Bool = false
   ) async throws {
     var request = URLRequest(url: url)
     request.httpMethod = method
@@ -2080,9 +2108,13 @@ struct GmailMessageMetadataService:
     }
 
     let (_, response) = try await session.data(for: request)
-    guard let httpResponse = response as? HTTPURLResponse,
-      (200..<300).contains(httpResponse.statusCode)
-    else {
+    guard let httpResponse = response as? HTTPURLResponse else {
+      throw GmailMessageMetadataSyncError.gmailRequestFailed
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      if providerActionRequest {
+        throw GmailProviderMailActionError.responseStatus(httpResponse.statusCode)
+      }
       throw GmailMessageMetadataSyncError.gmailRequestFailed
     }
   }
@@ -2301,6 +2333,17 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Gmail did not refresh local mail access for this account."
     case .staleLocalConnection:
       return "The Gmail connection changed while mailbox sync was running."
+    }
+  }
+}
+
+enum GmailProviderMailActionError: LocalizedError, Equatable {
+  case responseStatus(Int)
+
+  var errorDescription: String? {
+    switch self {
+    case .responseStatus(let status):
+      return "Gmail rejected the message action (HTTP \(status))."
     }
   }
 }

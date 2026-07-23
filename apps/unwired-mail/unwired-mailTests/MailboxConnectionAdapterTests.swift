@@ -531,6 +531,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       mailActionService: mailActionService,
       metadataService: metadataService,
       pushWatchService: pushService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
       searchService: searchService
     )
     let gmailStatus = RecordingAdapterConnectionService.status
@@ -552,6 +553,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
+    _ = await adapter.resumePendingActions(connections: [connection], session: session)
     try await adapter.send(
       OutgoingMessage(body: "Hello", recipient: "reader@example.com", subject: "Subject"),
       connection: connection,
@@ -569,6 +571,103 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.action, .archive)
     XCTAssertEqual(mailActionService.messageIds, ["message-001"])
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testPendingActionsResumeIndependentlyAcrossConnections() async throws {
+    let firstStarted = expectation(description: "first connection started")
+    let secondPerformed = expectation(description: "second connection performed")
+    let mailActionService = GatedAdapterMailActionService(
+      blockedProviderIdentifier: "gmail-user-001",
+      firstStarted: firstStarted,
+      secondPerformed: secondPerformed
+    )
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: mailActionService,
+      pendingActionService: pendingActionService
+    )
+    let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    ).mailboxConnection(productAccountId: session.productAccountId)
+    let secondMessage = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: secondConnection.id,
+      from: "sender@example.com",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 1_781_200_000_000,
+      providerMessageId: "message-002",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-002",
+      recipientHeaders: ["second@example.com"],
+      replyTo: nil,
+      rfcMessageId: "<message-002@example.com>",
+      snippet: "Message",
+      subject: "Subject"
+    )
+    try await adapter.perform(
+      .archive,
+      messages: [adapterMessage],
+      connection: firstConnection,
+      session: session
+    )
+    try await adapter.perform(
+      .markRead,
+      messages: [secondMessage],
+      connection: secondConnection,
+      session: session
+    )
+
+    let resumeTask = Task {
+      await adapter.resumePendingActions(
+        connections: [firstConnection, secondConnection],
+        session: session
+      )
+    }
+    await fulfillment(of: [firstStarted, secondPerformed], timeout: 1)
+    await mailActionService.release()
+    let error = await resumeTask.value
+    XCTAssertNil(error)
+  }
+
+  func testTerminalPendingActionDoesNotFailMetadataSync() async throws {
+    let pendingActionService = PendingProviderActionService(
+      failureDisposition: { _ in .permanent },
+      store: AdapterPendingActionStore()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    do {
+      try await pendingActionService.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      ) { _, _, _ in
+        throw PendingAdapterActionError.rejected
+      }
+    } catch {
+    }
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: RecordingAdapterMetadataService(),
+      pendingActionService: pendingActionService
+    )
+
+    let result = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(result.messages, [adapterMessage])
   }
 
   func testMailShellPreservesSelectedThreadAcrossReordering() {
@@ -1120,6 +1219,47 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
   }
 
+  func testMailActionViewModelRestoresBlockedConnectionState() async {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: RestoredBlockedActionService(),
+      session: session
+    )
+
+    await viewModel.resume(connections: [connection])
+
+    XCTAssertEqual(viewModel.blockedConnectionId, connection.id)
+    XCTAssertEqual(viewModel.errorMessage, "Pending action requires attention.")
+  }
+
+  func testMailActionViewModelAdvancesAcrossMultipleFailedConnections() async {
+    let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "second@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    ).mailboxConnection(productAccountId: session.productAccountId)
+    let service = MultiplePendingFailureService(
+      failedConnectionIds: [firstConnection.id, secondConnection.id]
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    await viewModel.resume(connections: [firstConnection, secondConnection])
+
+    await viewModel.acknowledgeFailures(connection: firstConnection)
+
+    XCTAssertEqual(viewModel.failedConnectionIds, [secondConnection.id])
+    XCTAssertEqual(viewModel.pendingFailureConnectionId, secondConnection.id)
+    XCTAssertEqual(viewModel.errorMessage, "second@example.com requires attention.")
+  }
+
   func testMailboxThreadInboxMessagesIncludesLegacyMessagesWithoutProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
@@ -1476,6 +1616,15 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     return Self.result
   }
 
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    loadedConnection = connection
+    return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
+  }
+
   func syncInbox(
     connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
@@ -1573,4 +1722,140 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   ) async throws {
     outgoingMessage = message
   }
+}
+
+private final class AdapterPendingActionStore: PendingProviderActionPersisting {
+  private var actions: [PendingProviderAction] = []
+
+  func load(productAccountId: String) throws -> [PendingProviderAction] {
+    actions.filter { $0.productAccountId == productAccountId }
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId: String
+  ) throws {
+    self.actions.removeAll { $0.productAccountId == productAccountId }
+    self.actions += actions
+  }
+}
+
+private actor GatedAdapterMailActionService: GmailProviderMailActing {
+  private let blockedProviderIdentifier: String
+  private let firstStarted: XCTestExpectation
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private let secondPerformed: XCTestExpectation
+
+  init(
+    blockedProviderIdentifier: String,
+    firstStarted: XCTestExpectation,
+    secondPerformed: XCTestExpectation
+  ) {
+    self.blockedProviderIdentifier = blockedProviderIdentifier
+    self.firstStarted = firstStarted
+    self.secondPerformed = secondPerformed
+  }
+
+  func perform(
+    _: GmailProviderMailAction,
+    messageIds _: [String],
+    connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    if connection.providerAccountIdentifier == blockedProviderIdentifier {
+      firstStarted.fulfill()
+      await withCheckedContinuation { continuation in
+        releaseContinuation = continuation
+      }
+    } else {
+      secondPerformed.fulfill()
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+
+  func send(
+    _: GmailOutgoingMessage,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private struct RestoredBlockedActionService: MailboxProviderMailActing {
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    "Pending action requires attention."
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    connections.map(\.id)
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private enum PendingAdapterActionError: Error {
+  case rejected
+}
+
+private actor MultiplePendingFailureService: MailboxProviderMailActing {
+  private var failedConnectionIds: Set<MailboxConnectionId>
+
+  init(failedConnectionIds: Set<MailboxConnectionId>) {
+    self.failedConnectionIds = failedConnectionIds
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    connections.first(where: { failedConnectionIds.contains($0.id) })
+      .map { "\($0.displayName) requires attention." }
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    connections.map(\.id).filter { failedConnectionIds.contains($0) }
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async {
+    failedConnectionIds.remove(connection.id)
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }

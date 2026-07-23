@@ -817,13 +817,16 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       tokenStore: RecordingGmailProviderTokenStore()
     )
 
+    var projectedMessage = message
+    projectedMessage.providerLabelIds = []
     let overridden = try await service.overrideCategory(
       "system:invoices",
-      for: message,
+      for: projectedMessage,
       session: session
     )
 
     XCTAssertEqual(overridden.categoryId, "system:invoices")
+    XCTAssertEqual(overridden.providerLabelIds, message.providerLabelIds)
     XCTAssertEqual(store.savedMessages, [overridden])
   }
 
@@ -1907,17 +1910,55 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
+    try await fixture.service.perform(
+      .move(targetProviderMailboxId: "Label_projects"),
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
+    try await fixture.service.perform(
+      .spam,
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
+    try await fixture.service.perform(
+      .notSpam,
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
+    try await fixture.service.perform(
+      .restore,
+      messageIds: ["message-001"],
+      connection: connection,
+      session: session
+    )
 
     XCTAssertEqual(
       fixture.recorder.requests.map(\.path),
       [
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/trash",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/untrash",
       ])
     XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["removeLabelIds"] as? [String], [])
     XCTAssertEqual(fixture.recorder.requests[5].method, "POST")
+    XCTAssertEqual(
+      fixture.recorder.requests[8].jsonBody["addLabelIds"] as? [String],
+      ["Label_projects"]
+    )
+    XCTAssertEqual(fixture.recorder.requests[8].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(fixture.recorder.requests[11].jsonBody["addLabelIds"] as? [String], ["SPAM"])
+    XCTAssertEqual(fixture.recorder.requests[11].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(fixture.recorder.requests[14].jsonBody["addLabelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(fixture.recorder.requests[14].jsonBody["removeLabelIds"] as? [String], ["SPAM"])
+    XCTAssertEqual(fixture.recorder.requests[17].method, "POST")
   }
 
   func testProviderThreadActionsAuthorizeOnce() async throws {
