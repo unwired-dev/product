@@ -1,6 +1,636 @@
+import Combine
 import SwiftUI
 
 // swiftlint:disable file_length
+
+extension Notification.Name {
+  static let mailboxMetadataDidSynchronize = Notification.Name(
+    "MailboxMetadataDidSynchronize"
+  )
+}
+
+enum MailboxSyncNotificationUserInfoKey {
+  static let connectionId = "connectionId"
+  static let phase = "phase"
+  static let productAccountId = "productAccountId"
+  static let reloadObservedMetadata = "reloadObservedMetadata"
+  static let successfulSyncAt = "successfulSyncAt"
+}
+
+@MainActor
+protocol MailboxSyncSuccessPersisting {
+  func clear(
+    productAccountId: String
+  )
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  )
+
+  func clear(
+    productAccountId: String,
+    except connectionIds: Set<MailboxConnectionId>
+  )
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> Date?
+
+  func save(
+    _ date: Date,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  )
+}
+
+struct UserDefaultsMailboxSyncSuccessStore: MailboxSyncSuccessPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func clear(productAccountId: String) {
+    let prefix = keyPrefix(productAccountId)
+    for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+      defaults.removeObject(forKey: key)
+    }
+  }
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    defaults.removeObject(forKey: key(productAccountId, connectionId))
+  }
+
+  func clear(
+    productAccountId: String,
+    except connectionIds: Set<MailboxConnectionId>
+  ) {
+    let retainedKeys = Set(connectionIds.map { key(productAccountId, $0) })
+    let prefix = keyPrefix(productAccountId)
+    for key in defaults.dictionaryRepresentation().keys
+    where key.hasPrefix(prefix) && !retainedKeys.contains(key) {
+      defaults.removeObject(forKey: key)
+    }
+  }
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> Date? {
+    defaults.object(forKey: key(productAccountId, connectionId)) as? Date
+  }
+
+  func save(
+    _ date: Date,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    defaults.set(date, forKey: key(productAccountId, connectionId))
+  }
+
+  private func key(
+    _ productAccountId: String,
+    _ connectionId: MailboxConnectionId
+  ) -> String {
+    "\(keyPrefix(productAccountId))\(connectionId.rawValue)"
+  }
+
+  private func keyPrefix(_ productAccountId: String) -> String {
+    "mailbox-sync-success.\(productAccountId)."
+  }
+}
+
+enum MailboxSyncPhase: Equatable {
+  case authorizationRequired
+  case backfillPending
+  case idle
+  case syncing
+  case offline
+  case failed(String)
+
+  static func failure(for error: Error) -> MailboxSyncPhase {
+    let error = error as NSError
+    guard error.domain == NSURLErrorDomain else {
+      return .failed(error.localizedDescription)
+    }
+    let offlineCodes: Set<URLError.Code> = [
+      .dataNotAllowed,
+      .internationalRoamingOff,
+      .networkConnectionLost,
+      .notConnectedToInternet,
+    ]
+    return offlineCodes.contains(URLError.Code(rawValue: error.code))
+      ? .offline : .failed(error.localizedDescription)
+  }
+}
+
+struct MailboxSyncStatus: Equatable {
+  let lastSuccessfulSyncAt: Date?
+  let phase: MailboxSyncPhase
+
+  static let idle = MailboxSyncStatus(
+    lastSuccessfulSyncAt: nil,
+    phase: .idle
+  )
+
+  static func authorizationRequired(lastSuccessfulSyncAt: Date?) -> MailboxSyncStatus {
+    MailboxSyncStatus(
+      lastSuccessfulSyncAt: lastSuccessfulSyncAt,
+      phase: .authorizationRequired
+    )
+  }
+
+  var summary: String {
+    switch phase {
+    case .authorizationRequired:
+      return "Authorization required"
+    case .backfillPending:
+      return lastSuccessfulSummary(prefix: "Backfill pending")
+    case .syncing:
+      return "Syncing…"
+    case .offline:
+      return lastSuccessfulSummary(prefix: "Offline")
+    case .failed(let message):
+      return lastSuccessfulSummary(prefix: "Sync failed: \(message)")
+    case .idle:
+      return lastSuccessfulSummary(prefix: nil)
+    }
+  }
+
+  private func lastSuccessfulSummary(prefix: String?) -> String {
+    let lastSuccess =
+      if let lastSuccessfulSyncAt {
+        "Last synced \(lastSuccessfulSyncAt.formatted(date: .abbreviated, time: .shortened))"
+      } else {
+        "Not yet synced"
+      }
+    guard let prefix else { return lastSuccess }
+    return "\(prefix) · \(lastSuccess)"
+  }
+}
+
+// swiftlint:disable type_body_length
+@MainActor
+@Observable
+final class MailboxFreshnessViewModel {
+  private struct HistoricalBackfill {
+    let cancel: () -> Void
+    let completion: Task<Void, Never>
+    let id: UUID
+  }
+
+  private struct InFlightSync {
+    let id: UUID
+    let task: Task<MailboxMetadataSyncResult, Error>
+  }
+
+  private static let activePollInterval = Duration.seconds(300)
+
+  private var inFlightSyncs: [MailboxConnectionId: InFlightSync] = [:]
+  private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private let now: () -> Date
+  private let service: MailboxMetadataSyncing
+  private let session: ProductAccountSessionSnapshot
+  private let sleep: (Duration) async throws -> Void
+  private let successStore: MailboxSyncSuccessPersisting
+  private var historicalBackfills: [MailboxConnectionId: HistoricalBackfill] = [:]
+  private var knownConnections: [MailboxConnectionId: MailboxConnection] = [:]
+  private var statuses: [MailboxConnectionId: MailboxSyncStatus] = [:]
+
+  init(
+    service: MailboxMetadataSyncing,
+    session: ProductAccountSessionSnapshot,
+    isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    now: @escaping () -> Date = Date.init,
+    successStore: MailboxSyncSuccessPersisting? = nil,
+    sleep: @escaping (Duration) async throws -> Void = { duration in
+      try await Task.sleep(for: duration)
+    }
+  ) {
+    self.isSessionCurrent = isSessionCurrent
+    self.now = now
+    self.service = service
+    self.session = session
+    self.sleep = sleep
+    self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
+  }
+
+  var isSynchronizing: Bool {
+    !inFlightSyncs.isEmpty
+  }
+
+  var lastSuccessfulSyncAt: Date? {
+    knownConnections.values.compactMap { status(for: $0).lastSuccessfulSyncAt }.max()
+  }
+
+  func status(for connection: MailboxConnection) -> MailboxSyncStatus {
+    let lastSuccessfulSyncAt =
+      statuses[connection.id]?.lastSuccessfulSyncAt
+      ?? successStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    if connection.authorizationState == .required {
+      return .authorizationRequired(lastSuccessfulSyncAt: lastSuccessfulSyncAt)
+    }
+    return statuses[connection.id]
+      ?? MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .idle)
+  }
+
+  func recordExternalSync(
+    connectionIdRawValue: String,
+    phase: MailboxSyncPhase,
+    successfulSyncAt: Date?
+  ) {
+    guard
+      let connection = knownConnections.values.first(where: {
+        $0.id.rawValue == connectionIdRawValue
+      })
+    else { return }
+    let currentStatus = status(for: connection)
+    if let successfulSyncAt {
+      successStore.save(
+        successfulSyncAt,
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    }
+    let reportedPhase =
+      if inFlightSyncs[connection.id] != nil, phase != .syncing {
+        MailboxSyncPhase.syncing
+      } else {
+        phase
+      }
+    statuses[connection.id] = MailboxSyncStatus(
+      lastSuccessfulSyncAt: successfulSyncAt ?? currentStatus.lastSuccessfulSyncAt,
+      phase: reportedPhase
+    )
+  }
+
+  func updateConnections(
+    _ connections: [MailboxConnection],
+    prunesPersistedState: Bool = true
+  ) {
+    let updatedConnections = Dictionary(
+      uniqueKeysWithValues: connections.map { ($0.id, $0) }
+    )
+    let connectionIds = Set(updatedConnections.keys)
+    let activeConnectionIds = Set(
+      connections.lazy
+        .filter { $0.authorizationState == .authorized }
+        .map(\.id)
+    )
+    if prunesPersistedState {
+      successStore.clear(
+        productAccountId: session.productAccountId,
+        except: connectionIds
+      )
+    }
+    for connectionId in historicalBackfills.keys where !activeConnectionIds.contains(connectionId) {
+      historicalBackfills[connectionId]?.cancel()
+      historicalBackfills[connectionId] = nil
+    }
+    for connectionId in inFlightSyncs.keys where !activeConnectionIds.contains(connectionId) {
+      inFlightSyncs[connectionId]?.task.cancel()
+      inFlightSyncs[connectionId] = nil
+    }
+    for connectionId in statuses.keys where !connectionIds.contains(connectionId) {
+      statuses[connectionId] = nil
+    }
+    knownConnections = updatedConnections
+  }
+
+  func clearPersistedState() {
+    successStore.clear(productAccountId: session.productAccountId)
+    knownConnections.removeAll()
+    statuses.removeAll()
+  }
+
+  func synchronize(connections: [MailboxConnection]) async {
+    guard isSessionCurrent(session) else {
+      cancelAll()
+      return
+    }
+    updateConnections(connections, prunesPersistedState: false)
+    let connectionIds = Set(connections.map(\.id))
+    statuses = statuses.filter { connectionIds.contains($0.key) }
+    for connection in connections {
+      guard connection.authorizationState == .authorized else {
+        statuses[connection.id] = .authorizationRequired(
+          lastSuccessfulSyncAt: successStore.load(
+            productAccountId: session.productAccountId,
+            connectionId: connection.id
+          )
+        )
+        continue
+      }
+      guard connection.capabilities.canSynchronizeMetadata else { continue }
+      do {
+        let result = try await syncInbox(connection: connection, session: session)
+        if !result.historicalMetadataBackfillIsComplete {
+          startHistoricalBackfill(connection: connection)
+        }
+      } catch is CancellationError {
+        return
+      } catch {
+        continue
+      }
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
+  func syncInbox(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    guard requestedSession == session, isSessionCurrent(session) else {
+      throw CancellationError()
+    }
+    await cancelHistoricalBackfill(connectionId: connection.id)
+    if let inFlightSync = inFlightSyncs[connection.id] {
+      return try await inFlightSync.task.value
+    }
+
+    let priorStatus = status(for: connection)
+    statuses[connection.id] = MailboxSyncStatus(
+      lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+      phase: .syncing
+    )
+    let syncId = UUID()
+    let task = Task {
+      try await service.syncInbox(
+        connection: connection,
+        session: requestedSession
+      )
+    }
+    inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
+
+    do {
+      let result = try await task.value
+      guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
+        throw CancellationError()
+      }
+      removeSync(connectionId: connection.id, syncId: syncId)
+      let completionDate = now()
+      successStore.save(
+        completionDate,
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+      statuses[connection.id] = MailboxSyncStatus(
+        lastSuccessfulSyncAt: completionDate,
+        phase: .idle
+      )
+      try Task.checkCancellation()
+      return result
+    } catch is CancellationError {
+      removeSync(connectionId: connection.id, syncId: syncId)
+      statuses[connection.id] = MailboxSyncStatus(
+        lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
+        phase: .idle
+      )
+      throw CancellationError()
+    } catch {
+      removeSync(connectionId: connection.id, syncId: syncId)
+      if Self.isCancellation(error) {
+        statuses[connection.id] = MailboxSyncStatus(
+          lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
+          phase: .idle
+        )
+        throw CancellationError()
+      }
+      statuses[connection.id] = MailboxSyncStatus(
+        lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
+        phase: .failure(for: error)
+      )
+      throw error
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
+  func continueHistoricalBackfill(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    guard requestedSession == session, isSessionCurrent(session) else {
+      throw CancellationError()
+    }
+    await cancelHistoricalBackfill(connectionId: connection.id)
+    let priorStatus = status(for: connection)
+    statuses[connection.id] = MailboxSyncStatus(
+      lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+      phase: .syncing
+    )
+    let backfillId = UUID()
+    let resultTask = Task {
+      let result = try await service.continueHistoricalBackfill(
+        connection: connection,
+        session: requestedSession
+      )
+      try Task.checkCancellation()
+      return result
+    }
+    let completion = Task {
+      _ = try? await resultTask.value
+    }
+    historicalBackfills[connection.id] = HistoricalBackfill(
+      cancel: { resultTask.cancel() },
+      completion: completion,
+      id: backfillId
+    )
+    defer {
+      removeHistoricalBackfill(connectionId: connection.id, backfillId: backfillId)
+    }
+
+    do {
+      let result = try await withTaskCancellationHandler {
+        try await resultTask.value
+      } onCancel: {
+        resultTask.cancel()
+      }
+      guard isSessionCurrent(session) else {
+        throw CancellationError()
+      }
+      finishHistoricalBackfill(
+        connection: connection,
+        priorStatus: priorStatus,
+        result: .success(result)
+      )
+      return result
+    } catch {
+      if Task.isCancelled || error is CancellationError || Self.isCancellation(error) {
+        if historicalBackfills[connection.id]?.id == backfillId {
+          statuses[connection.id] = priorStatus
+        }
+        throw CancellationError()
+      }
+      finishHistoricalBackfill(
+        connection: connection,
+        priorStatus: priorStatus,
+        result: .failure(error)
+      )
+      throw error
+    }
+  }
+
+  func pollWhileActive(
+    connections: @escaping () -> [MailboxConnection],
+    didSynchronize: @escaping () async -> Void
+  ) async {
+    while isSessionCurrent(session) {
+      do {
+        try await sleep(Self.activePollInterval)
+      } catch {
+        return
+      }
+      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      await synchronize(connections: connections())
+      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      await didSynchronize()
+    }
+  }
+
+  func cancelAll() {
+    for sync in inFlightSyncs.values {
+      sync.task.cancel()
+    }
+    for backfill in historicalBackfills.values {
+      backfill.cancel()
+    }
+    inFlightSyncs.removeAll()
+    historicalBackfills.removeAll()
+    statuses = statuses.mapValues { status in
+      guard status.phase == .syncing else { return status }
+      return MailboxSyncStatus(
+        lastSuccessfulSyncAt: status.lastSuccessfulSyncAt,
+        phase: .idle
+      )
+    }
+  }
+
+  private func removeSync(connectionId: MailboxConnectionId, syncId: UUID) {
+    guard inFlightSyncs[connectionId]?.id == syncId else { return }
+    inFlightSyncs[connectionId] = nil
+  }
+
+  private func startHistoricalBackfill(connection: MailboxConnection) {
+    guard historicalBackfills[connection.id] == nil else { return }
+    let priorStatus = status(for: connection)
+    statuses[connection.id] = MailboxSyncStatus(
+      lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+      phase: .syncing
+    )
+    let backfillId = UUID()
+    let service = service
+    let session = session
+    let task = Task { [weak self, service, session] in
+      defer {
+        self?.removeHistoricalBackfill(
+          connectionId: connection.id,
+          backfillId: backfillId
+        )
+      }
+      do {
+        let result = try await service.continueHistoricalBackfill(
+          connection: connection,
+          session: session
+        )
+        self?.finishHistoricalBackfill(
+          connection: connection,
+          priorStatus: priorStatus,
+          result: .success(result)
+        )
+      } catch {
+        self?.finishHistoricalBackfill(
+          connection: connection,
+          priorStatus: priorStatus,
+          result: .failure(error)
+        )
+      }
+    }
+    historicalBackfills[connection.id] = HistoricalBackfill(
+      cancel: { task.cancel() },
+      completion: task,
+      id: backfillId
+    )
+  }
+
+  private func removeHistoricalBackfill(
+    connectionId: MailboxConnectionId,
+    backfillId: UUID
+  ) {
+    guard historicalBackfills[connectionId]?.id == backfillId else { return }
+    historicalBackfills[connectionId] = nil
+  }
+
+  private func cancelHistoricalBackfill(connectionId: MailboxConnectionId) async {
+    guard let backfill = historicalBackfills[connectionId] else { return }
+    backfill.cancel()
+    await backfill.completion.value
+    removeHistoricalBackfill(connectionId: connectionId, backfillId: backfill.id)
+  }
+
+  private func finishHistoricalBackfill(
+    connection: MailboxConnection,
+    priorStatus: MailboxSyncStatus,
+    result: Result<MailboxMetadataSyncResult, Error>
+  ) {
+    guard
+      !Task.isCancelled,
+      isSessionCurrent(session),
+      knownConnections[connection.id] != nil
+    else { return }
+    let successfulSyncAt: Date?
+    switch result {
+    case .success(let result):
+      let completionDate = now()
+      successfulSyncAt = completionDate
+      successStore.save(
+        completionDate,
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+      statuses[connection.id] = MailboxSyncStatus(
+        lastSuccessfulSyncAt: completionDate,
+        phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending
+      )
+    case .failure(let error):
+      guard !Self.isCancellation(error) else { return }
+      successfulSyncAt = nil
+      statuses[connection.id] = MailboxSyncStatus(
+        lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+        phase: .failure(for: error)
+      )
+    }
+    var userInfo: [AnyHashable: Any] = [
+      MailboxSyncNotificationUserInfoKey.connectionId: connection.id.rawValue,
+      MailboxSyncNotificationUserInfoKey.phase: statuses[connection.id]?.phase
+        ?? MailboxSyncPhase.idle,
+      MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
+      MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
+    ]
+    if let successfulSyncAt {
+      userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
+    }
+    NotificationCenter.default.post(
+      name: .mailboxMetadataDidSynchronize,
+      object: nil,
+      userInfo: userInfo
+    )
+  }
+
+  private static func isCancellation(_ error: Error) -> Bool {
+    let error = error as NSError
+    return error.domain == NSURLErrorDomain
+      && error.code == URLError.cancelled.rawValue
+  }
+}
+// swiftlint:enable type_body_length
 
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
@@ -14,6 +644,7 @@ struct AccountView: View {
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
+  @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadTask: Task<Void, Never>?
   @State private var mailActionViewModel: GmailMailActionViewModel
@@ -25,6 +656,7 @@ struct AccountView: View {
   @State private var showsAccountSettings = false
 
   @MainActor
+  // swiftlint:disable:next function_body_length
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
@@ -57,11 +689,18 @@ struct AccountView: View {
         session: snapshot
       )
     )
+    let mailboxFreshnessViewModel = MailboxFreshnessViewModel(
+      service: mailboxConnection,
+      session: snapshot,
+      isSessionCurrent: { session.isCurrent($0) }
+    )
+    _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
       initialValue: GmailInboxViewModel(
         bodyPrefetcher: mailboxConnection,
         service: mailboxConnection,
         searchService: mailboxConnection,
+        syncCoordinator: mailboxFreshnessViewModel,
         session: snapshot
       )
     )
@@ -93,9 +732,15 @@ struct AccountView: View {
         errorMessage: gmailViewModel.errorMessage ?? pinViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
         isLoading: gmailViewModel.isLoading,
+        isRefreshing: mailboxFreshnessViewModel.isSynchronizing,
+        lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
+        refreshMailboxes: {
+          Task { await synchronizeMailboxes() }
+        },
         selectedMailbox: selectedMailboxBinding,
-        showAccountSettings: { showsAccountSettings = true }
+        showAccountSettings: { showsAccountSettings = true },
+        syncStatus: mailboxFreshnessViewModel.status
       )
     } content: {
       MailShellThreadList(
@@ -164,22 +809,57 @@ struct AccountView: View {
         if let connection = gmailViewModel.connection,
           connection.authorizationState == .authorized
         {
-          await inboxViewModel.loadAfterConnectionChange(connection: connection)
+          await inboxViewModel.loadAfterConnectionChange(
+            connection: connection,
+            synchronizes: false
+          )
         }
       } else if mailShellSelection.selectedMailbox?.isUnified == true {
-        loadUnifiedMailbox()
+        loadUnifiedMailbox(synchronizes: false)
       }
+      await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+      await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+    }
+    .task(id: scenePhase) {
+      guard scenePhase == .active else { return }
+      await mailboxFreshnessViewModel.pollWhileActive(
+        connections: { gmailViewModel.connections },
+        didSynchronize: { await reloadObservedMailboxes() }
+      )
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
         await reloadSyncedMailState()
-        if mailShellSelection.selectedMailbox?.isUnified == true {
-          loadUnifiedMailbox()
-        }
+        await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
       }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId,
+        let connectionId =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+        let phase = notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase
+      else { return }
+      let successfulSyncAt =
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
+      mailboxFreshnessViewModel.recordExternalSync(
+        connectionIdRawValue: connectionId,
+        phase: phase,
+        successfulSyncAt: successfulSyncAt
+      )
+      let reloadObservedMetadata =
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+        as? Bool == true
+      guard successfulSyncAt != nil || reloadObservedMetadata else { return }
+      Task { await reloadObservedMailboxes() }
     }
     .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
       updateProductMailboxState()
@@ -224,6 +904,10 @@ struct AccountView: View {
       selectConnection(connection, collection: collection)
     }
     .onChange(of: gmailViewModel.connections) { _, _ in
+      mailboxFreshnessViewModel.updateConnections(
+        gmailViewModel.connections,
+        prunesPersistedState: false
+      )
       Task {
         await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
       }
@@ -248,7 +932,7 @@ struct AccountView: View {
     }
     .onChange(of: genericMailSetupViewModel.defaultSendingConnectionId) { _, _ in
       Task {
-        await gmailViewModel.load()
+        _ = await gmailViewModel.load()
       }
     }
     .onChange(of: inboxViewModel.threads) { _, threads in
@@ -268,6 +952,10 @@ struct AccountView: View {
     .onChange(of: mailShellSelection.navigationLevel) { _, _ in
       preferredCompactColumn = mailShellSelection.preferredCompactColumn
     }
+    .onDisappear {
+      inboxLoadTask?.cancel()
+      mailboxFreshnessViewModel.cancelAll()
+    }
   }
 
   private func updateProductMailboxState() {
@@ -282,7 +970,11 @@ struct AccountView: View {
   private func reloadSyncedMailState() async {
     await pinViewModel.load()
     updateProductMailboxState()
-    await gmailViewModel.load()
+    let connectionsAreAuthoritative = await gmailViewModel.load()
+    mailboxFreshnessViewModel.updateConnections(
+      gmailViewModel.connections,
+      prunesPersistedState: connectionsAreAuthoritative
+    )
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
@@ -339,23 +1031,47 @@ extension AccountView {
     )
   }
 
-  private func loadMailbox(for connection: MailboxConnection) {
+  private func loadMailbox(
+    for connection: MailboxConnection,
+    synchronizes: Bool = true
+  ) {
     inboxLoadTask?.cancel()
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
     inboxLoadTask = Task {
       await inboxViewModel.loadAfterConnectionChange(
         connection: connection,
-        collection: collection
+        collection: collection,
+        synchronizes: synchronizes
       )
     }
   }
 
-  private func loadUnifiedMailbox() {
+  private func loadUnifiedMailbox(synchronizes: Bool = true) {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
     let connections = gmailViewModel.connections
     inboxLoadTask = Task {
-      await inboxViewModel.loadUnifiedMailbox(mailbox, connections: connections)
+      await inboxViewModel.loadUnifiedMailbox(
+        mailbox,
+        connections: connections,
+        synchronizes: synchronizes
+      )
+    }
+  }
+
+  private func synchronizeMailboxes() async {
+    await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+    await reloadObservedMailboxes()
+  }
+
+  private func reloadObservedMailboxes() async {
+    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+    if mailShellSelection.selectedMailbox?.isUnified == true {
+      loadUnifiedMailbox(synchronizes: false)
+    } else if let connection = selectedConnection,
+      connection.authorizationState == .authorized
+    {
+      loadMailbox(for: connection, synchronizes: false)
     }
   }
 
@@ -465,6 +1181,8 @@ extension AccountView {
 
           Button("Sign Out", role: .destructive) {
             genericMailSetupViewModel.invalidate()
+            mailboxFreshnessViewModel.cancelAll()
+            mailboxFreshnessViewModel.clearPersistedState()
             Task {
               await inboxViewModel.prepareForSignOut()
               await session.signOut()
@@ -949,9 +1667,13 @@ private struct MailShellSidebar: View {
   let connections: [MailboxConnection]
   let errorMessage: String?
   let isLoading: Bool
+  let isRefreshing: Bool
+  let lastSuccessfulSyncAt: Date?
   let navigationSnapshot: MailboxNavigationSnapshot
+  let refreshMailboxes: () -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
+  let syncStatus: (MailboxConnection) -> MailboxSyncStatus
 
   var body: some View {
     List(selection: $selectedMailbox) {
@@ -1026,12 +1748,27 @@ private struct MailShellSidebar: View {
                   )
                 }
               }
-              if connection.authorizationState == .required {
-                Text("Authorization required")
-                  .font(.caption2)
-                  .foregroundStyle(.orange)
-              }
+              Text(syncStatus(connection).summary)
+                .font(.caption2)
+                .foregroundStyle(statusColor(for: connection))
             }
+          }
+        }
+      }
+
+      if !connections.isEmpty {
+        Section("Synchronization") {
+          if let lastSuccessfulSyncAt {
+            Text(
+              "Last successful sync "
+                + lastSuccessfulSyncAt.formatted(date: .abbreviated, time: .shortened)
+            )
+            .font(.caption)
+            .foregroundStyle(.secondary)
+          } else {
+            Text("No successful synchronization yet")
+              .font(.caption)
+              .foregroundStyle(.secondary)
           }
         }
       }
@@ -1050,6 +1787,33 @@ private struct MailShellSidebar: View {
       }
     }
     .navigationTitle("Unwired Mail")
+    .toolbar {
+      if !connections.isEmpty {
+        ToolbarItem(placement: .primaryAction) {
+          Button(action: refreshMailboxes) {
+            Label("Refresh All Mailboxes", systemImage: "arrow.clockwise")
+          }
+          .disabled(
+            isLoading || isRefreshing
+              || !connections.contains {
+                $0.authorizationState == .authorized
+                  && $0.capabilities.canSynchronizeMetadata
+              }
+          )
+        }
+      }
+    }
+  }
+
+  private func statusColor(for connection: MailboxConnection) -> Color {
+    switch syncStatus(connection).phase {
+    case .authorizationRequired, .backfillPending, .offline:
+      return .orange
+    case .failed:
+      return .red
+    case .idle, .syncing:
+      return .secondary
+    }
   }
 }
 
@@ -2224,11 +2988,13 @@ final class GmailInboxViewModel {
   private let searchService: MailboxMessageSearching
   private let service: MailboxMetadataSyncing
   private let session: ProductAccountSessionSnapshot
+  private let syncCoordinator: MailboxFreshnessViewModel?
 
   init(
     bodyPrefetcher: MailboxMessageBodyPrefetching? = nil,
     service: MailboxMetadataSyncing,
     searchService: MailboxMessageSearching,
+    syncCoordinator: MailboxFreshnessViewModel? = nil,
     session: ProductAccountSessionSnapshot,
     productMailboxState: MailShellProductMailboxState = .empty
   ) {
@@ -2241,6 +3007,7 @@ final class GmailInboxViewModel {
     self.searchService = searchService
     self.service = service
     self.session = session
+    self.syncCoordinator = syncCoordinator
   }
 
   var isRefreshDisabled: Bool {
@@ -2367,9 +3134,11 @@ final class GmailInboxViewModel {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func loadUnifiedMailbox(
     _ mailbox: UnifiedMailbox,
-    connections: [MailboxConnection]
+    connections: [MailboxConnection],
+    synchronizes: Bool = true
   ) async {
     cancelBackfill()
     currentConnectionId = nil
@@ -2401,6 +3170,10 @@ final class GmailInboxViewModel {
         threadsByConnection: &loadedThreadsByConnection
       )
     else { return }
+    guard synchronizes else {
+      errorMessage = cacheErrors.isEmpty ? nil : cacheErrors.joined(separator: "\n")
+      return
+    }
     guard
       let syncResult = await syncUnifiedInboxes(
         for: authorizedConnections,
@@ -2496,7 +3269,7 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async throws -> Bool? {
-    let syncedResult = try await service.syncInbox(connection: connection, session: session)
+    let syncedResult = try await synchronizeInbox(connection: connection)
     let projectedResult = try await loadProjectedMailbox(
       collection,
       connection: connection,
@@ -2534,10 +3307,7 @@ final class GmailInboxViewModel {
     var errors: [String] = []
     for connection in connections {
       do {
-        _ = try await service.continueHistoricalBackfill(
-          connection: connection,
-          session: session
-        )
+        _ = try await continueHistoricalBackfill(connection: connection)
         let backfillResult = try await loadProjectedMailbox(
           collection,
           connection: connection,
@@ -2563,7 +3333,8 @@ final class GmailInboxViewModel {
 
   func load(
     connection: MailboxConnection,
-    collection: MailboxMessageCollection = .role(.inbox)
+    collection: MailboxMessageCollection = .role(.inbox),
+    startsBackfill: Bool = true
   ) async {
     isLoading = true
     defer {
@@ -2583,7 +3354,10 @@ final class GmailInboxViewModel {
       }
       threads = result.threads
       errorMessage = nil
-      if result.hasInitialMailboxAvailability && !result.historicalMetadataBackfillIsComplete {
+      if startsBackfill,
+        result.hasInitialMailboxAvailability,
+        !result.historicalMetadataBackfillIsComplete
+      {
         startBodyPrefetch(connections: [connection])
         startHistoricalBackfill(connection: connection)
       }
@@ -2640,7 +3414,8 @@ final class GmailInboxViewModel {
 
   func loadAfterConnectionChange(
     connection: MailboxConnection,
-    collection: MailboxMessageCollection = .role(.inbox)
+    collection: MailboxMessageCollection = .role(.inbox),
+    synchronizes: Bool = true
   ) async {
     if currentConnectionId != connection.id || currentCollection != collection {
       cancelBackfill()
@@ -2654,14 +3429,18 @@ final class GmailInboxViewModel {
       errorMessage = nil
     }
 
-    await load(connection: connection, collection: collection)
+    await load(
+      connection: connection,
+      collection: collection,
+      startsBackfill: synchronizes
+    )
     guard
       !Task.isCancelled,
       currentConnectionId == connection.id
     else {
       return
     }
-    if backfillTask == nil {
+    if synchronizes, backfillTask == nil {
       _ = await sync(connection: connection)
     }
   }
@@ -2684,10 +3463,7 @@ final class GmailInboxViewModel {
     }
 
     do {
-      let syncResult = try await service.syncInbox(
-        connection: connection,
-        session: session
-      )
+      let syncResult = try await synchronizeInbox(connection: connection)
       let result = try await service.loadMailbox(
         currentCollection,
         connection: connection,
@@ -2728,10 +3504,7 @@ final class GmailInboxViewModel {
         }
       }
       do {
-        _ = try await service.continueHistoricalBackfill(
-          connection: connection,
-          session: session
-        )
+        _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await service.loadMailbox(
           currentCollection,
           connection: connection,
@@ -2819,7 +3592,7 @@ final class GmailInboxViewModel {
     isSyncing = true
     defer { isSyncing = false }
     do {
-      let syncResult = try await service.syncInbox(connection: connection, session: session)
+      let syncResult = try await synchronizeInbox(connection: connection)
       let result = try await loadProjectedMailbox(
         unifiedCollection,
         connection: connection,
@@ -2888,6 +3661,30 @@ final class GmailInboxViewModel {
     backfillTaskId = nil
   }
 
+  private func synchronizeInbox(
+    connection: MailboxConnection
+  ) async throws -> MailboxMetadataSyncResult {
+    if let syncCoordinator {
+      return try await syncCoordinator.syncInbox(connection: connection, session: session)
+    }
+    return try await service.syncInbox(connection: connection, session: session)
+  }
+
+  private func continueHistoricalBackfill(
+    connection: MailboxConnection
+  ) async throws -> MailboxMetadataSyncResult {
+    if let syncCoordinator {
+      return try await syncCoordinator.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    return try await service.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+  }
+
   private func startUnifiedHistoricalBackfill(connection: MailboxConnection) {
     guard backfillTask == nil else { return }
     let taskId = UUID()
@@ -2901,10 +3698,7 @@ final class GmailInboxViewModel {
         }
       }
       do {
-        _ = try await service.continueHistoricalBackfill(
-          connection: connection,
-          session: session
-        )
+        _ = try await continueHistoricalBackfill(connection: connection)
         let backfill = try await loadProjectedMailbox(
           unifiedCollection,
           connection: connection,
@@ -3117,7 +3911,7 @@ final class GmailProviderConnectionViewModel {
     connections.first { $0.id == selectedConnectionId }
   }
 
-  func load() async {
+  func load() async -> Bool {
     isLoading = true
     defer {
       isLoading = false
@@ -3125,23 +3919,35 @@ final class GmailProviderConnectionViewModel {
 
     do {
       try await refreshConnections()
-      if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        if defaultSendingConnectionId?.providerId == .gmail {
-          selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
-        } else {
-          selectedConnectionId = connections.first?.id
-        }
-      }
-      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
-        connections.contains { $0.id == connectionId }
-      }
-      errorMessage = nil
-      for connection in connections {
-        await refreshPushWatch(connection: connection)
-      }
+      await completeLoadingConnections()
+      return true
     } catch {
-      try? await refreshConnections()
-      errorMessage = error.localizedDescription
+      let originalError = error
+      do {
+        try await refreshConnections()
+        await completeLoadingConnections()
+        return true
+      } catch {
+        errorMessage = originalError.localizedDescription
+        return false
+      }
+    }
+  }
+
+  private func completeLoadingConnections() async {
+    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+      if defaultSendingConnectionId?.providerId == .gmail {
+        selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
+      } else {
+        selectedConnectionId = connections.first?.id
+      }
+    }
+    pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+      connections.contains { $0.id == connectionId }
+    }
+    errorMessage = nil
+    for connection in connections {
+      await refreshPushWatch(connection: connection)
     }
   }
 

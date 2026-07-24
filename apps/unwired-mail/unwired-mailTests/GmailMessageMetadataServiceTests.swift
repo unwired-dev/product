@@ -972,6 +972,449 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessLaunchSynchronizesEveryAuthorizedConnection() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let unauthorizedConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "authorization-required@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-003",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    .mailboxConnection(productAccountId: session.productAccountId)
+    .definition
+    .mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    await fixture.viewModel.synchronize(
+      connections: fixture.connections + [unauthorizedConnection]
+    )
+
+    let syncedConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertEqual(syncedConnectionIds, fixture.connections.map(\.id))
+    XCTAssertEqual(
+      fixture.viewModel.status(for: unauthorizedConnection).phase,
+      .authorizationRequired
+    )
+    for connection in fixture.connections {
+      XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+      XCTAssertEqual(
+        fixture.viewModel.status(for: connection).lastSuccessfulSyncAt,
+        fixture.now
+      )
+    }
+    XCTAssertEqual(fixture.viewModel.lastSuccessfulSyncAt, fixture.now)
+  }
+
+  @MainActor
+  func testMailboxFreshnessCoalescesOverlappingSyncForOneConnection() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+
+    let first = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts()
+    let second = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await Task.yield()
+
+    let overlappingCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(overlappingCallCount, 1)
+
+    await fixture.service.releaseSync()
+    _ = try await first.value
+    _ = try await second.value
+    let completedCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(completedCallCount, 1)
+  }
+
+  @MainActor
+  func testMailboxFreshnessKeepsCoalescedSyncRunningWhenFirstCallerIsCancelled() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+
+    let first = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts()
+    let second = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    first.cancel()
+    await fixture.service.releaseSync()
+
+    do {
+      _ = try await first.value
+      XCTFail("Expected cancelled caller to stop waiting for the shared sync")
+    } catch is CancellationError {
+    }
+    _ = try await second.value
+
+    let completedCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(completedCallCount, 1)
+    XCTAssertEqual(
+      fixture.viewModel.status(for: connection).lastSuccessfulSyncAt,
+      fixture.now
+    )
+  }
+
+  @MainActor
+  func testMailboxFreshnessForegroundRecoversAfterOfflineFailure() async {
+    let fixture = makeMailboxFreshnessFixture(outcomes: [.offline, .success])
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .offline)
+    XCTAssertNil(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt)
+
+    await fixture.viewModel.synchronize(connections: [connection])
+
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(syncCallCount, 2)
+  }
+
+  @MainActor
+  func testMailboxFreshnessForegroundCompletesReconciliationAfterMissedPush() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
+    XCTAssertEqual(reconciledConnectionIds, [connection.id])
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+
+    let statusPublished = expectation(description: "backfill completion status published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase == .idle,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
+      else { return }
+      statusPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [statusPublished], timeout: 1)
+
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
+  func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
+    let sleeper = OneShotMailboxPollSleeper()
+    let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
+
+    await fixture.viewModel.pollWhileActive(
+      connections: { fixture.connections },
+      didSynchronize: {}
+    )
+
+    let receivedDurations = await sleeper.receivedDurations()
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(receivedDurations, [.seconds(300), .seconds(300)])
+    XCTAssertEqual(syncCallCount, fixture.connections.count)
+  }
+
+  @MainActor
+  func testMailboxFreshnessCancelAllCancelsInFlightSync() async {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+    let sync = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts()
+
+    fixture.viewModel.cancelAll()
+
+    do {
+      _ = try await sync.value
+      XCTFail("Expected the in-flight mailbox synchronization to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
+  func testMailboxFreshnessRejectsSynchronizationAfterSessionChanges() async {
+    let fixture = makeMailboxFreshnessFixture()
+    fixture.sessionState.isCurrent = false
+
+    await fixture.viewModel.synchronize(connections: fixture.connections)
+
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(syncCallCount, 0)
+  }
+
+  @MainActor
+  func testMailboxFreshnessRestoresLastSuccessAcrossViewModels() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let connection = fixture.connections[0]
+    await fixture.viewModel.synchronize(connections: [connection])
+    let restoredViewModel = MailboxFreshnessViewModel(
+      service: fixture.service,
+      session: session,
+      isSessionCurrent: { _ in true },
+      successStore: fixture.successStore
+    )
+
+    XCTAssertEqual(
+      restoredViewModel.status(for: connection).lastSuccessfulSyncAt,
+      fixture.now
+    )
+  }
+
+  @MainActor
+  func testMailboxFreshnessClearsLastSuccessWhenConnectionIsRemoved() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let connection = fixture.connections[0]
+    await fixture.viewModel.synchronize(connections: [connection])
+
+    fixture.viewModel.updateConnections([])
+
+    XCTAssertNil(
+      fixture.successStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+  }
+
+  @MainActor
+  func testMailboxFreshnessClearsLastSuccessRemovedBeforeViewModelStarts() {
+    let fixture = makeMailboxFreshnessFixture()
+    let removedConnection = fixture.connections[0]
+    fixture.successStore.save(
+      fixture.now,
+      productAccountId: session.productAccountId,
+      connectionId: removedConnection.id
+    )
+
+    fixture.viewModel.updateConnections([fixture.connections[1]])
+
+    XCTAssertNil(
+      fixture.successStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: removedConnection.id
+      )
+    )
+  }
+
+  @MainActor
+  func testMailboxFreshnessRetainsLastSuccessWhenConnectionsAreNotAuthoritative() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let connection = fixture.connections[0]
+    fixture.successStore.save(
+      fixture.now,
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+
+    fixture.viewModel.updateConnections([], prunesPersistedState: false)
+    await fixture.viewModel.synchronize(connections: [])
+
+    XCTAssertEqual(
+      fixture.successStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      ),
+      fixture.now
+    )
+  }
+
+  @MainActor
+  func testMailboxFreshnessKeepsIncompleteBackfillVisible() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      completesBackfill: false
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    let statusPublished = expectation(description: "pending backfill status published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase == .backfillPending
+      else { return }
+      statusPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+
+    await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [statusPublished], timeout: 1)
+
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+  }
+
+  @MainActor
+  func testMailboxFreshnessPreemptsBackfillForForegroundSync() async throws {
+    let fixture = makeMailboxFreshnessFixture(
+      suspendsBackfill: true
+    )
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    _ = try await fixture.viewModel.syncInbox(connection: connection, session: session)
+
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(syncCallCount, 1)
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    do {
+      _ = try await backfill.value
+      XCTFail("Expected foreground synchronization to cancel historical backfill")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+  }
+
+  @MainActor
+  func testMailboxFreshnessReloadsObservedMetadataAfterBackfillFailure() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      failsBackfill: true
+    )
+    let connection = fixture.connections[0]
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    let statusPublished = expectation(description: "backfill failure reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        let phase =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase] as? MailboxSyncPhase,
+        case .failed = phase
+      else { return }
+      statusPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+
+    await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [statusPublished], timeout: 1)
+
+    guard case .failed = fixture.viewModel.status(for: connection).phase else {
+      XCTFail("Expected the partial backfill failure to remain visible")
+      return
+    }
+  }
+
+  func testMailboxConnectionSyncGateSerializesPushAndPollForOneConnection() async {
+    let gate = MailboxConnectionSyncGate()
+    let probe = MailboxSyncGateProbe()
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).id
+    let initialAcquired = await gate.acquire(connectionId)
+    XCTAssertTrue(initialAcquired)
+    let pollAttempted = expectation(description: "poll attempted to acquire sync gate")
+    let poll = Task {
+      pollAttempted.fulfill()
+      let pollAcquired = await gate.acquire(connectionId)
+      XCTAssertTrue(pollAcquired)
+      await probe.markPollAcquired()
+      await gate.release(connectionId)
+    }
+    await fulfillment(of: [pollAttempted], timeout: 1)
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+
+    let acquiredDuringPush = await probe.pollAcquired
+    XCTAssertFalse(acquiredDuringPush)
+
+    await gate.release(connectionId)
+    await poll.value
+    let acquiredAfterPush = await probe.pollAcquired
+    XCTAssertTrue(acquiredAfterPush)
+  }
+
+  func testMailboxConnectionSyncGateKeepsLockWhenQueuedTaskIsCancelled() async {
+    let gate = MailboxConnectionSyncGate()
+    let probe = MailboxSyncGateProbe()
+    let connectionId = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).id
+    let initialAcquired = await gate.acquire(connectionId)
+    XCTAssertTrue(initialAcquired)
+
+    let cancelledWaiter = Task {
+      try? await gate.withLock(connectionId) {
+        await probe.markPollAcquired()
+      }
+    }
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+    cancelledWaiter.cancel()
+    await cancelledWaiter.value
+
+    let nextWaiter = Task {
+      let nextAcquired = await gate.acquire(connectionId)
+      XCTAssertTrue(nextAcquired)
+      await probe.markPollAcquired()
+      await gate.release(connectionId)
+    }
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+    let acquiredBeforeRelease = await probe.pollAcquired
+    XCTAssertFalse(acquiredBeforeRelease)
+
+    await gate.release(connectionId)
+    await nextWaiter.value
+    let acquiredAfterRelease = await probe.pollAcquired
+    XCTAssertTrue(acquiredAfterRelease)
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresOverrideResultAfterProviderAccountChanges() async {
     let originalMessage = metadata(
       messageId: "message-001",
@@ -2966,6 +3409,54 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  @MainActor
+  private func makeMailboxFreshnessFixture(
+    outcomes: [RecordingMailboxFreshnessService.Outcome] = [],
+    suspendsSync: Bool = false,
+    suspendsBackfill: Bool = false,
+    completesBackfill: Bool = true,
+    failsBackfill: Bool = false,
+    sleep: @escaping (Duration) async throws -> Void = { _ in throw CancellationError() }
+  ) -> MailboxFreshnessFixture {
+    let secondConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let service = RecordingMailboxFreshnessService(
+      outcomes: outcomes,
+      suspendsSync: suspendsSync,
+      suspendsBackfill: suspendsBackfill,
+      completesBackfill: completesBackfill,
+      failsBackfill: failsBackfill
+    )
+    let now = Date(timeIntervalSince1970: 1_781_200_000)
+    let sessionState = MailboxFreshnessSessionState()
+    let successStore = InMemoryMailboxSyncSuccessStore()
+    return MailboxFreshnessFixture(
+      connections: [
+        connection.mailboxConnection(productAccountId: session.productAccountId),
+        secondConnection.mailboxConnection(productAccountId: session.productAccountId),
+      ],
+      now: now,
+      sessionState: sessionState,
+      service: service,
+      successStore: successStore,
+      viewModel: MailboxFreshnessViewModel(
+        service: service,
+        session: session,
+        isSessionCurrent: { _ in sessionState.isCurrent },
+        now: { now },
+        successStore: successStore,
+        sleep: sleep
+      )
+    )
+  }
+
   private func metadata(
     messageId: String,
     threadId: String,
@@ -2989,10 +3480,285 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 }
 
+private struct MailboxFreshnessFixture {
+  let connections: [MailboxConnection]
+  let now: Date
+  let sessionState: MailboxFreshnessSessionState
+  let service: RecordingMailboxFreshnessService
+  let successStore: InMemoryMailboxSyncSuccessStore
+  let viewModel: MailboxFreshnessViewModel
+}
+
+@MainActor
+private final class MailboxFreshnessSessionState {
+  var isCurrent = true
+}
+
+@MainActor
+private final class InMemoryMailboxSyncSuccessStore: MailboxSyncSuccessPersisting {
+  private var dates: [String: Date] = [:]
+
+  func clear(productAccountId: String) {
+    let prefix = "\(productAccountId)."
+    dates = dates.filter { !$0.key.hasPrefix(prefix) }
+  }
+
+  func clear(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    dates["\(productAccountId).\(connectionId.rawValue)"] = nil
+  }
+
+  func clear(
+    productAccountId: String,
+    except connectionIds: Set<MailboxConnectionId>
+  ) {
+    let prefix = "\(productAccountId)."
+    let retainedKeys = Set(connectionIds.map { "\(prefix)\($0.rawValue)" })
+    dates = dates.filter { !$0.key.hasPrefix(prefix) || retainedKeys.contains($0.key) }
+  }
+
+  func load(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) -> Date? {
+    dates["\(productAccountId).\(connectionId.rawValue)"]
+  }
+
+  func save(
+    _ date: Date,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) {
+    dates["\(productAccountId).\(connectionId.rawValue)"] = date
+  }
+}
+
 private struct UnifiedInboxViewModelFixture {
   let connections: [MailboxConnection]
   let service: DelayedMailboxSwitchingService
   let viewModel: GmailInboxViewModel
+}
+
+private actor OneShotMailboxPollSleeper {
+  private var durations: [Duration] = []
+
+  func sleep(for duration: Duration) async throws {
+    durations.append(duration)
+    if durations.count > 1 {
+      throw CancellationError()
+    }
+  }
+
+  func receivedDurations() -> [Duration] {
+    durations
+  }
+}
+
+private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
+  enum Outcome {
+    case incomplete
+    case offline
+    case success
+  }
+
+  private var backfillConnectionIds: [MailboxConnectionId] = []
+  private var backfillContinuation: CheckedContinuation<Void, Never>?
+  private var backfillStartContinuations: [CheckedContinuation<Void, Never>] = []
+  private var connectionIds: [MailboxConnectionId] = []
+  private var outcomes: [Outcome]
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+  private var syncContinuation: CheckedContinuation<Void, Error>?
+  private let completesBackfill: Bool
+  private let failsBackfill: Bool
+  private let suspendsBackfill: Bool
+  private let suspendsSync: Bool
+
+  init(
+    outcomes: [Outcome],
+    suspendsSync: Bool,
+    suspendsBackfill: Bool,
+    completesBackfill: Bool,
+    failsBackfill: Bool
+  ) {
+    self.completesBackfill = completesBackfill
+    self.failsBackfill = failsBackfill
+    self.outcomes = outcomes
+    self.suspendsBackfill = suspendsBackfill
+    self.suspendsSync = suspendsSync
+  }
+
+  func categorizeHistorical(
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    .empty
+  }
+
+  func loadInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    .empty
+  }
+
+  func syncInbox(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    connectionIds.append(connection.id)
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    if suspendsSync {
+      try await withTaskCancellationHandler {
+        try await withCheckedThrowingContinuation { continuation in
+          syncContinuation = continuation
+        }
+      } onCancel: {
+        Task { await self.cancelSuspendedSync() }
+      }
+    }
+    let outcome = outcomes.isEmpty ? .success : outcomes.removeFirst()
+    switch outcome {
+    case .incomplete:
+      return MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: [],
+        historicalMetadataBackfillIsComplete: false
+      )
+    case .offline:
+      throw URLError(.notConnectedToInternet)
+    case .success:
+      return .empty
+    }
+  }
+
+  func continueHistoricalBackfill(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    backfillConnectionIds.append(connection.id)
+    let continuations = backfillStartContinuations
+    backfillStartContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    if suspendsBackfill {
+      await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+          backfillContinuation = continuation
+        }
+      } onCancel: {
+        Task { await self.cancelSuspendedBackfill() }
+      }
+    }
+    if failsBackfill {
+      throw URLError(.timedOut)
+    }
+    guard !completesBackfill else { return .empty }
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: [],
+      historicalMetadataBackfillIsComplete: false
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: MailboxConnection,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
+    .empty
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    message.gmailMetadata.assigningCategory(categoryId).mailboxMetadata(
+      connectionId: message.connectionId
+    )
+  }
+
+  func syncCallCount() -> Int {
+    connectionIds.count
+  }
+
+  func syncedConnectionIds() -> [MailboxConnectionId] {
+    connectionIds
+  }
+
+  func reconciledConnectionIds() -> [MailboxConnectionId] {
+    backfillConnectionIds
+  }
+
+  func waitUntilSyncStarts() async {
+    guard connectionIds.isEmpty else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func waitUntilHistoricalBackfillStarts() async {
+    guard backfillConnectionIds.isEmpty else { return }
+    await withCheckedContinuation { continuation in
+      backfillStartContinuations.append(continuation)
+    }
+  }
+
+  func releaseHistoricalBackfill() {
+    backfillContinuation?.resume()
+    backfillContinuation = nil
+  }
+
+  private func cancelSuspendedBackfill() {
+    backfillContinuation?.resume()
+    backfillContinuation = nil
+  }
+
+  func releaseSync() {
+    syncContinuation?.resume()
+    syncContinuation = nil
+  }
+
+  private func cancelSuspendedSync() {
+    syncContinuation?.resume(throwing: CancellationError())
+    syncContinuation = nil
+  }
+}
+
+private actor MailboxSyncGateProbe {
+  private(set) var pollAcquired = false
+
+  func markPollAcquired() {
+    pollAcquired = true
+  }
+}
+
+extension MailboxMetadataSyncResult {
+  fileprivate static let empty = MailboxMetadataSyncResult(
+    hasUnlistedNewMessages: false,
+    messages: [],
+    newMessageIds: nil,
+    providerCursorIsExpired: false,
+    threads: []
+  )
 }
 
 private actor OverrideGate {
