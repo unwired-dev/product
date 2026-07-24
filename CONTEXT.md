@@ -420,7 +420,7 @@ _Avoid_: Password reset, support recovery
 - Composer edits continuously autosave to an encrypted **Draft**; closing a composer preserves the Draft, while explicit discard requires confirmation when it contains user state
 - Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**
 - **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
-- Discarding a **Draft** or durably admitting it to the **Outbox** eventually removes its synchronized **Draft Assets**
+- Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
 - Formatting controls and context actions edit the same **Semantic Message Document**
 - Outgoing delivery derives interoperable HTML and plain-text alternatives from the **Semantic Message Document**

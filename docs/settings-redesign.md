@@ -105,14 +105,13 @@ Billing and subscriptions are excluded until the product has a commercial plan.
 
 ### Inbox
 
-- Default mailbox on launch: last viewed, Unified Inbox, or one connection's Inbox
 - Thread-list density: compact, comfortable, or spacious
 - Preview length: none, one, two, or three lines
 - Show contact images
 - Show Category badges
 - Show attachment indicators
 
-Defaults are the last-viewed mailbox (Unified Inbox on first launch), comfortable density, two preview lines, and shown contact images, Category badges, and attachment indicators.
+Defaults are Unified Inbox with the Important Mail View at the start of each application session, comfortable density, two preview lines, and shown contact images, Category badges, and attachment indicators.
 
 Thread grouping, latest-message ordering, source-connection identity in Unified Inbox, and the latest message opening expanded remain fixed product behavior.
 
@@ -186,13 +185,13 @@ Default sender selection remains in Email Accounts.
 ### Categories
 
 - Master switch for automatic categorization of new mail.
-- Enable or disable Promotions, Invites, Invoices, and Flights without renaming them.
-- Edit the single Custom Category's name and description.
+- Enable or disable System Categories, including People, Invites, Orders, Newsletters & Promotions, and Flights, without renaming them.
+- Create, edit, and delete multiple Custom Categories with names and descriptions.
 - Run Bounded Historical Categorization by Mailbox Connection, date range, mailbox, and category target.
 - Show progress and allow cancellation.
 - Reset learned sender signals after confirmation.
 
-Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization: the reset first advances a synchronized learning generation, then invalidates Future Learning Signal payloads and the current device's cached learning context. Every automatic, manual, and historical categorization run captures that generation before work begins and discards results or merged signals from an older generation, so reset learning cannot reappear. Cancelling a historical run preserves assignments already completed. Multiple Custom Categories are excluded from this redesign.
+Disabling a Category stops future System Categorization into it but preserves existing Message Categories. Resetting learning affects only future categorization: the reset first advances a synchronized learning generation, then invalidates Future Learning Signal payloads and the current device's cached learning context. Every automatic, manual, and historical categorization run captures that generation before work begins and discards results or merged signals from an older generation, so reset learning cannot reappear. Cancelling a historical run preserves assignments already completed.
 
 ### Notifications
 
