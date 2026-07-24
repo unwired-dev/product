@@ -329,15 +329,15 @@ extension GenericMailSetupViewModel {
   func removeEverywhere(_ definition: GenericMailConnectionDefinition) async {
     guard let syncSession else { return }
     do {
+      let clearedLocalData = try await clearLocalData(definition, syncSession)
+      if !clearedLocalData {
+        try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
+      }
       try await service.removeEverywhere(
         definition,
         session: syncSession,
         shouldRemoveLocalAuthorization: false
       )
-      let clearedLocalData = try await clearLocalData(definition, syncSession)
-      if !clearedLocalData {
-        try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
-      }
       if connectedDefinition?.connectionId == definition.connectionId {
         connectedDefinition = nil
       }

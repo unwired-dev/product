@@ -210,6 +210,7 @@ protocol IMAPMessageMetadataPersisting {
   func beginScan(
     activeMailboxes: Set<String>,
     state: IMAPMetadataSyncState,
+    markExistingRecords: Bool,
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws
@@ -358,6 +359,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
   func beginScan(
     activeMailboxes: Set<String>,
     state: IMAPMetadataSyncState,
+    markExistingRecords: Bool = true,
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws {
@@ -371,7 +373,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         IMAPProviderMessage.mailboxNamesEqual($0, record.mailbox)
       }) {
         context.delete(record)
-      } else if !state.historicalMetadataBackfillIsComplete {
+      } else if markExistingRecords, !state.historicalMetadataBackfillIsComplete {
         record.pendingRemovalScanId = state.scanId
       }
     }
@@ -808,6 +810,7 @@ struct IMAPMessageMetadataService {
     try store.beginScan(
       activeMailboxes: Set(descriptors.map(\.name)),
       state: state,
+      markExistingRecords: true,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
     )
@@ -940,6 +943,7 @@ struct IMAPMessageMetadataService {
     try store.beginScan(
       activeMailboxes: activeNames,
       state: state,
+      markExistingRecords: false,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
     )
@@ -986,7 +990,7 @@ struct IMAPMessageMetadataService {
         page.messages,
         mailbox: descriptor.name,
         reconciliation: .newest(
-          coversEntireMailbox: !hadCompletedBackfill && page.nextOlderUID == nil
+          coversEntireMailbox: page.nextOlderUID == nil
         ),
         state: state,
         uidValidity: page.uidValidity,

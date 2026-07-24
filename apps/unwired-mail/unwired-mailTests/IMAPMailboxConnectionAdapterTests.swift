@@ -394,7 +394,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
-    XCTAssertEqual(persisted.messages.count, 50)
+    XCTAssertEqual(persisted.messages.count, 100)
 
     client.failOnMetadataRequest = nil
     let completed = try await adapter.continueHistoricalBackfill(

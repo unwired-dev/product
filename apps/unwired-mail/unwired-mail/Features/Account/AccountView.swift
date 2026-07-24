@@ -686,12 +686,17 @@ struct AccountView: View {
         productAccountId: ProductAccountId(snapshot.productAccountId),
         clearLocalData: { definition, session in
           guard definition.incomingEndpoint.mailProtocol == .imap else { return false }
-          let connections = try await mailboxConnection.loadConnections(session: session)
-          guard
-            let connection = connections.first(where: {
-              $0.id == definition.connectionId
-            })
-          else { return false }
+          let connection = MailboxConnection(
+            authorizationState: .required,
+            capabilities: .none,
+            connectedAt: 0,
+            displayName: definition.emailAddress,
+            id: definition.connectionId,
+            lastVerifiedAt: 0,
+            productAccountId: ProductAccountId(session.productAccountId),
+            trustedDeviceId: session.trustedDeviceId,
+            updatedAt: 0
+          )
           try await mailboxConnection.clearLocalConnection(connection, session: session)
           return true
         },
