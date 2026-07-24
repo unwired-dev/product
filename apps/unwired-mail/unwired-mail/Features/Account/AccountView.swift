@@ -371,10 +371,8 @@ final class MailboxFreshnessViewModel {
     inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
 
     do {
-      let result = try await withTaskCancellationHandler(
-        operation: { try await task.value },
-        onCancel: { task.cancel() }
-      )
+      let result = try await task.value
+      try Task.checkCancellation()
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }

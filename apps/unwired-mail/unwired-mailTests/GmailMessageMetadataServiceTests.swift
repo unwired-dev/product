@@ -1034,6 +1034,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessKeepsCoalescedSyncRunningWhenFirstCallerIsCancelled() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+
+    let first = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts()
+    let second = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    first.cancel()
+    await fixture.service.releaseSync()
+
+    do {
+      _ = try await first.value
+      XCTFail("Expected cancelled caller to stop waiting for the shared sync")
+    } catch is CancellationError {
+    }
+    _ = try await second.value
+
+    let completedCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(completedCallCount, 1)
+  }
+
+  @MainActor
   func testMailboxFreshnessForegroundRecoversAfterOfflineFailure() async {
     let fixture = makeMailboxFreshnessFixture(outcomes: [.offline, .success])
     let connection = fixture.connections[0]
