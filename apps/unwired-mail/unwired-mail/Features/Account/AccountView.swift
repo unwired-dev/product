@@ -1418,6 +1418,84 @@ struct MailboxBulkActionBatch: Equatable, Sendable {
   }
 }
 
+struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
+  struct Identity: Equatable, Hashable, Sendable {
+    let normalizedTitle: String
+  }
+
+  let id: Identity
+  let providerMailboxIdsByConnection: [MailboxConnectionId: String]
+  let title: String
+
+  static func shared(
+    connectionIds: [MailboxConnectionId],
+    providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]]
+  ) -> [MailboxBulkMoveDestination] {
+    let mailboxesByConnection = Dictionary(
+      uniqueKeysWithValues: connectionIds.map { connectionId in
+        (
+          connectionId,
+          uniqueMailboxesByTitle(providerMailboxesByConnection[connectionId] ?? [])
+        )
+      }
+    )
+    guard
+      let firstConnectionId = connectionIds.first,
+      let firstMailboxes = mailboxesByConnection[firstConnectionId]
+    else { return [] }
+    let commonIds = connectionIds.dropFirst().reduce(Set(firstMailboxes.keys)) {
+      $0.intersection(Set(mailboxesByConnection[$1]?.keys.map { $0 } ?? []))
+    }
+    return commonIds.compactMap { id in
+      guard let firstMailbox = firstMailboxes[id] else { return nil }
+      let providerIds = Dictionary(
+        uniqueKeysWithValues: connectionIds.compactMap { connectionId in
+          mailboxesByConnection[connectionId]?[id].map { (connectionId, $0.id) }
+        }
+      )
+      guard providerIds.count == connectionIds.count else { return nil }
+      return MailboxBulkMoveDestination(
+        id: id,
+        providerMailboxIdsByConnection: providerIds,
+        title: firstMailbox.title
+      )
+    }
+    .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+  }
+
+  func targeting(_ batches: [MailboxBulkActionBatch]) -> [MailboxBulkActionBatch]? {
+    guard Set(batches.map(\.connection.id)) == Set(providerMailboxIdsByConnection.keys) else {
+      return nil
+    }
+    var targetedBatches: [MailboxBulkActionBatch] = []
+    for batch in batches {
+      guard let providerMailboxId = providerMailboxIdsByConnection[batch.connection.id] else {
+        return nil
+      }
+      targetedBatches.append(
+        MailboxBulkActionBatch(
+          connection: batch.connection,
+          messages: batch.messages,
+          targetProviderMailboxId: providerMailboxId
+        )
+      )
+    }
+    return targetedBatches
+  }
+
+  private static func uniqueMailboxesByTitle(
+    _ mailboxes: [ProviderMailbox]
+  ) -> [Identity: ProviderMailbox] {
+    Dictionary(
+      uniqueKeysWithValues: Dictionary(grouping: mailboxes) {
+        Identity(normalizedTitle: $0.title.lowercased())
+      }.compactMap { id, matches in
+        matches.count == 1 ? (id, matches[0]) : nil
+      }
+    )
+  }
+}
+
 struct MailboxBulkActionFailure: Equatable, Sendable {
   let connectionId: MailboxConnectionId
   let connectionDisplayName: String
@@ -2353,14 +2431,20 @@ struct MailShellConversationReader: View {
     if !actions.isEmpty {
       Menu {
         ProviderMailActionButtons(
-          actions: actions,
-          moveDestinations: moveDestinations
-        ) { action, targetProviderMailboxTitle in
-          let actionBatches =
-            targetProviderMailboxTitle.map {
-              bulkMoveBatches(batches, destinationTitle: $0)
-            } ?? batches
-          performBulk(action, batches: actionBatches)
+          actions: actions.subtracting([.move]),
+          moveDestinations: []
+        ) { action, _ in
+          performBulk(action, batches: batches)
+        }
+        if actions.contains(.move) {
+          Menu("Move to") {
+            ForEach(moveDestinations) { destination in
+              Button(destination.title) {
+                guard let targetedBatches = destination.targeting(batches) else { return }
+                performBulk(.move, batches: targetedBatches)
+              }
+            }
+          }
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -2437,37 +2521,21 @@ struct MailShellConversationReader: View {
 
   private func bulkMoveDestinations(
     batches: [MailboxBulkActionBatch]
-  ) -> [ProviderMailbox] {
-    let mailboxesByConnection = batches.map {
-      inboxViewModel.navigationSnapshot.providerMailboxes(for: $0.connection.id)
-        .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
-    }
-    guard let firstMailboxes = mailboxesByConnection.first else { return [] }
-    let commonTitles = mailboxesByConnection.dropFirst().reduce(Set(firstMailboxes.map(\.title))) {
-      $0.intersection(Set($1.map(\.title)))
-    }
-    return firstMailboxes.compactMap { mailbox -> ProviderMailbox? in
-      guard commonTitles.contains(mailbox.title) else { return nil }
-      return ProviderMailbox(id: mailbox.title, title: mailbox.title)
-    }
-  }
-
-  private func bulkMoveBatches(
-    _ batches: [MailboxBulkActionBatch],
-    destinationTitle: String
-  ) -> [MailboxBulkActionBatch] {
-    batches.compactMap { batch -> MailboxBulkActionBatch? in
-      guard
-        let mailbox = inboxViewModel.navigationSnapshot.providerMailboxes(
-          for: batch.connection.id
-        ).first(where: { $0.title == destinationTitle })
-      else { return nil }
-      return MailboxBulkActionBatch(
-        connection: batch.connection,
-        messages: batch.messages,
-        targetProviderMailboxId: mailbox.id
-      )
-    }
+  ) -> [MailboxBulkMoveDestination] {
+    let connectionIds = batches.map(\.connection.id)
+    let mailboxesByConnection = Dictionary(
+      uniqueKeysWithValues: connectionIds.map { connectionId in
+        (
+          connectionId,
+          inboxViewModel.navigationSnapshot.providerMailboxes(for: connectionId)
+            .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+        )
+      }
+    )
+    return MailboxBulkMoveDestination.shared(
+      connectionIds: connectionIds,
+      providerMailboxesByConnection: mailboxesByConnection
+    )
   }
 
   private func perform(

@@ -1037,6 +1037,48 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testBulkMoveDestinationTargetsEveryConnectionWithoutUsingDisplayTitleAsIdentity() {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let batches = [
+      mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+      mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+    ]
+
+    let destinations = MailboxBulkMoveDestination.shared(
+      connectionIds: [firstConnection.id, secondConnection.id],
+      providerMailboxesByConnection: [
+        firstConnection.id: [
+          ProviderMailbox(id: "Label_101", title: "Projects"),
+          ProviderMailbox(id: "Label_102", title: "First only"),
+        ],
+        secondConnection.id: [
+          ProviderMailbox(id: "Label_201", title: "Projects"),
+          ProviderMailbox(id: "Label_202", title: "Second only"),
+        ],
+      ]
+    )
+
+    XCTAssertEqual(destinations.map(\.title), ["Projects"])
+    XCTAssertEqual(
+      destinations.first?.providerMailboxIdsByConnection,
+      [firstConnection.id: "Label_101", secondConnection.id: "Label_201"]
+    )
+    XCTAssertEqual(
+      destinations.first?.targeting(batches)?.map(\.targetProviderMailboxId),
+      ["Label_101", "Label_201"]
+    )
+    XCTAssertNil(destinations.first?.targeting([batches[0]]))
+  }
+
   func testMailShellBulkSelectionSurvivesRefreshAndDropsOnlyRemovedThreads() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
