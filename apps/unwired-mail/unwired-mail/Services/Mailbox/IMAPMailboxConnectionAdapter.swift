@@ -1231,13 +1231,10 @@ struct IMAPMessageBodyService {
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>,
     referenceDate: Date,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
   ) async throws {
     try Task.checkCancellation()
-    let authorization = try requiredAuthorization(
-      connectionId: connection.id,
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
     let providerMessages = try metadataStore.loadMessages(
       productAccountId: session.productAccountId,
       connectionId: connection.id
@@ -1724,12 +1721,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try validate(connection: connection, session: session, requiresAuthorization: true)
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
     try await bodyReader.prefetchMessageBodies(
       connection: connection,
       pinnedMessageIds: pinnedMessageIds,
       referenceDate: referenceDate,
-      session: session
+      session: session,
+      authorization: authorization
     )
   }
 
@@ -1790,6 +1791,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+    guard hasMatchingCredentials(authorization.definition, definition) else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     return DeviceLocalGenericMailAuthorization(
       credential: authorization.credential,
       definition: definition
@@ -1827,6 +1831,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         .genericMailDefinition
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard hasMatchingCredentials(authorization.definition, definition) else {
+      throw MailboxConnectionAdapterError.authorizationRequired
     }
     return definition
   }
@@ -2032,7 +2039,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   }
 
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
-    try gmail.clearCachedMessageBodies(session: session)
+    var firstError: Error?
+    do {
+      try gmail.clearCachedMessageBodies(session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try imap.clearCachedMessageBodies(session: session)
+    } catch {
+      if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
   }
 
   func clearCachedMessageBodies(
