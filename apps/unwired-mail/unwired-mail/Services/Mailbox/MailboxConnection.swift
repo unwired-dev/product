@@ -1317,8 +1317,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: gmailConnection,
       session: session
     )
+    let observedMessages = try await metadataService.loadMailbox(
+      .allObserved,
+      connection: gmailConnection,
+      session: session
+    )
     try await reconcileAndResumePendingActions(
-      messages: result.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+      messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
       connection: connection,
       session: session
     )
@@ -1351,8 +1356,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       throughHistoryId: throughHistoryId,
       shouldPersist: shouldPersist
     )
+    let observedMessages = try await metadataService.loadMailbox(
+      .allObserved,
+      connection: gmailConnection,
+      session: session
+    )
     try await reconcileAndResumePendingActions(
-      messages: result.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+      messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
       connection: connection,
       session: session
     )

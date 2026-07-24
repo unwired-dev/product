@@ -781,6 +781,41 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(pendingActions.isEmpty)
   }
 
+  func testProviderSyncRemovesSupersededMailboxStateAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-restored",
+      providerStateIds: ["TRASH"]
+    )
+
+    try await service.perform(
+      .delete,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.perform(
+      .restore,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: "message-restored",
+          providerStateIds: ["INBOX"]
+        )
+      ],
+      connection: connection,
+      session: session
+    )
+
+    let pendingActions = try await service.pendingActions(session: session)
+    XCTAssertTrue(pendingActions.isEmpty)
+  }
+
   func testEnqueueRejectsMismatchedAccountAndConnection() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(

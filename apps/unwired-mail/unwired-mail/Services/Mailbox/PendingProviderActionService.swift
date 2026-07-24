@@ -638,6 +638,19 @@ extension ProviderMailAction {
       (.star, .star), (.star, .unstar),
       (.unstar, .star), (.unstar, .unstar):
       true
+    case (.archive, .archive), (.archive, .delete), (.archive, .move),
+      (.archive, .notSpam), (.archive, .restore), (.archive, .spam),
+      (.delete, .archive), (.delete, .delete), (.delete, .move),
+      (.delete, .notSpam), (.delete, .restore), (.delete, .spam),
+      (.move, .archive), (.move, .delete), (.move, .move),
+      (.move, .notSpam), (.move, .restore), (.move, .spam),
+      (.notSpam, .archive), (.notSpam, .delete), (.notSpam, .move),
+      (.notSpam, .notSpam), (.notSpam, .restore), (.notSpam, .spam),
+      (.restore, .archive), (.restore, .delete), (.restore, .move),
+      (.restore, .notSpam), (.restore, .restore), (.restore, .spam),
+      (.spam, .archive), (.spam, .delete), (.spam, .move),
+      (.spam, .notSpam), (.spam, .restore), (.spam, .spam):
+      true
     default:
       false
     }
