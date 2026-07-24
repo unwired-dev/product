@@ -1264,7 +1264,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     await fulfillment(of: [statusPublished], timeout: 1)
     XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertNil(watchStore.savedStatus)
+    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
 
   func testGmailWakeupDoesNotShowFallbackAfterBackgroundDeadline() async throws {

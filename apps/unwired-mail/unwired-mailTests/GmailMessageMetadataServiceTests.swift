@@ -1058,6 +1058,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let completedCallCount = await fixture.service.syncCallCount()
     XCTAssertEqual(completedCallCount, 1)
+    XCTAssertEqual(
+      fixture.viewModel.status(for: connection).lastSuccessfulSyncAt,
+      fixture.now
+    )
   }
 
   @MainActor

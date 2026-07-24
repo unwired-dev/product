@@ -156,7 +156,7 @@ struct MailboxSyncStatus: Equatable {
     case .offline:
       return lastSuccessfulSummary(prefix: "Offline")
     case .failed(let message):
-      return "Sync failed: \(message)"
+      return lastSuccessfulSummary(prefix: "Sync failed: \(message)")
     case .idle:
       return lastSuccessfulSummary(prefix: nil)
     }
@@ -372,7 +372,6 @@ final class MailboxFreshnessViewModel {
 
     do {
       let result = try await task.value
-      try Task.checkCancellation()
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
@@ -387,11 +386,12 @@ final class MailboxFreshnessViewModel {
         lastSuccessfulSyncAt: completionDate,
         phase: .idle
       )
+      try Task.checkCancellation()
       return result
     } catch is CancellationError {
       removeSync(connectionId: connection.id, syncId: syncId)
       statuses[connection.id] = MailboxSyncStatus(
-        lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+        lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
         phase: .idle
       )
       throw CancellationError()
@@ -399,13 +399,13 @@ final class MailboxFreshnessViewModel {
       removeSync(connectionId: connection.id, syncId: syncId)
       if Self.isCancellation(error) {
         statuses[connection.id] = MailboxSyncStatus(
-          lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+          lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
           phase: .idle
         )
         throw CancellationError()
       }
       statuses[connection.id] = MailboxSyncStatus(
-        lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
+        lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
         phase: .failure(for: error)
       )
       throw error

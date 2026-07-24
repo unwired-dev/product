@@ -1364,7 +1364,7 @@ struct GmailPushWakeupHandler {
       connectionId: mailboxConnection.id
     )
     if syncResult.providerCursorIsExpired {
-      _ = try await scheduleGenericFallback()
+      _ = try await completeWithGenericFallback()
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,
