@@ -1492,11 +1492,46 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     XCTAssertEqual(
       viewModel.errorMessage,
-      "second@example.com — Subject message-second: "
+      "second@example.com — Subject message-second "
+        + "[\(result?.failures.first?.messageIds.first?.rawValue ?? "")]: "
         + "Authorize this Mailbox Connection on this device before accessing mail."
     )
   }
 
+  func testMailActionViewModelRetriesBlockedBulkConnection() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let service = RetryableBulkMailActionService(blockedConnectionId: secondConnection.id)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [secondConnection.id])
+    XCTAssertEqual(viewModel.blockedConnectionId, secondConnection.id)
+
+    await viewModel.retryBlockedAction(connection: secondConnection)
+
+    XCTAssertNil(viewModel.blockedConnectionId)
+    XCTAssertNil(viewModel.errorMessage)
+    let retryCount = await service.retryCount()
+    XCTAssertEqual(retryCount, 1)
+  }
+
+  // swiftlint:disable:next function_body_length
   func testBulkBatchesStartIndependentlyAcrossConnections() async {
     let firstStarted = expectation(description: "First connection started")
     let secondStarted = expectation(description: "Second connection started")
@@ -1516,21 +1551,44 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       secondStarted: secondStarted
     )
     let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let firstThread = mailShellThread(
+      connectionId: firstConnection.id,
+      providerMessageId: "message-first",
+      providerThreadId: "thread-first",
+      receivedAt: 200
+    )
+    let secondThread = mailShellThread(
+      connectionId: secondConnection.id,
+      providerMessageId: "message-second",
+      providerThreadId: "thread-second",
+      receivedAt: 100
+    )
+    let selection = MailShellSelectionModel()
+    selection.selectUnifiedInbox()
+    selection.updateThreads([firstThread], for: firstConnection.id)
+    selection.updateThreads([secondThread], for: secondConnection.id)
+    selection.selectThreads([firstThread.id, secondThread.id])
     let task = Task {
       await viewModel.performBulk(
         .markRead,
         batches: [
-          mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
-          mailShellBulkActionBatch(
-            connection: secondConnection,
-            suffix: "second",
-            receivedAt: 100
-          ),
+          MailboxBulkActionBatch(connection: firstConnection, messages: firstThread.messages),
+          MailboxBulkActionBatch(connection: secondConnection, messages: secondThread.messages),
         ]
       )
     }
 
     await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
+    XCTAssertEqual(
+      viewModel.bulkActionProgress,
+      MailboxBulkActionProgress(
+        action: .markRead,
+        completedConnectionCount: 1,
+        totalConnectionCount: 2
+      )
+    )
+    selection.updateThreads([], for: firstConnection.id)
+    XCTAssertEqual(selection.selectedThreadIds, [secondThread.id])
     XCTAssertEqual(
       viewModel.bulkActionProgress,
       MailboxBulkActionProgress(
@@ -2251,6 +2309,61 @@ private actor RecordingBulkMailActionService: MailboxProviderMailActing {
 
   func recordedConnectionIds() -> [MailboxConnectionId] {
     connectionIds
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor RetryableBulkMailActionService: MailboxProviderMailActing {
+  private let blockedConnectionId: MailboxConnectionId
+  private var isBlocked = true
+  private var retries = 0
+
+  init(blockedConnectionId: MailboxConnectionId) {
+    self.blockedConnectionId = blockedConnectionId
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    guard isBlocked, connections.contains(where: { $0.id == blockedConnectionId }) else {
+      return nil
+    }
+    return "Authorization expired."
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    guard connection.id == blockedConnectionId else { return nil }
+    retries += 1
+    isBlocked = false
+    return nil
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    guard isBlocked else { return [] }
+    return connections.map(\.id).filter { $0 == blockedConnectionId }
+  }
+
+  func retryCount() -> Int {
+    retries
   }
 
   func send(

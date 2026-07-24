@@ -1439,9 +1439,12 @@ private struct MailboxBulkActionBatchOutcome: Sendable {
 final class MailShellSelectionModel {
   private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
   private(set) var selectedMailbox: MailShellMailboxSelection?
-  private(set) var selectedThreadId: MailboxThreadIdentity?
   private(set) var selectedThreadIds: Set<MailboxThreadIdentity> = []
   private var threadsByConnection: [MailboxConnectionId: [MailboxThread]] = [:]
+
+  var selectedThreadId: MailboxThreadIdentity? {
+    selectedThreadIds.count == 1 ? selectedThreadIds.first : nil
+  }
 
   var selectedConnectionId: MailboxConnectionId? {
     guard case .connection(let connectionId, _) = selectedMailbox else { return nil }
@@ -1493,14 +1496,12 @@ final class MailShellSelectionModel {
 
   func clearSelection() {
     selectedMailbox = nil
-    selectedThreadId = nil
     selectedThreadIds = []
     threadsByConnection = [:]
     expandedMessageIds = []
   }
 
   func clearThreadSelection() {
-    selectedThreadId = nil
     selectedThreadIds = []
     expandedMessageIds = []
   }
@@ -1512,7 +1513,6 @@ final class MailShellSelectionModel {
     let mailbox = MailShellMailboxSelection.connection(connectionId, collection)
     guard selectedMailbox != mailbox else { return }
     selectedMailbox = mailbox
-    selectedThreadId = nil
     selectedThreadIds = []
     expandedMessageIds = []
   }
@@ -1525,7 +1525,6 @@ final class MailShellSelectionModel {
     let selection = MailShellMailboxSelection.unified(mailbox)
     guard selectedMailbox != selection else { return }
     selectedMailbox = selection
-    selectedThreadId = nil
     selectedThreadIds = []
     expandedMessageIds = []
   }
@@ -1533,14 +1532,12 @@ final class MailShellSelectionModel {
   func selectOutbox() {
     guard selectedMailbox != .outbox else { return }
     selectedMailbox = .outbox
-    selectedThreadId = nil
     selectedThreadIds = []
     expandedMessageIds = []
   }
 
   func selectThread(_ threadId: MailboxThreadIdentity) {
     guard let thread = threads.first(where: { $0.id == threadId }) else { return }
-    selectedThreadId = threadId
     selectedThreadIds = [threadId]
     expandedMessageIds = [thread.latestMessage.id]
   }
@@ -1579,11 +1576,9 @@ final class MailShellSelectionModel {
     guard selectedThreadIds.count == 1, let selectedThreadId = selectedThreadIds.first,
       let selectedThread = threads.first(where: { $0.id == selectedThreadId })
     else {
-      selectedThreadId = nil
       expandedMessageIds = []
       return
     }
-    self.selectedThreadId = selectedThreadId
     let availableMessageIds = Set(selectedThread.messages.map(\.id))
     expandedMessageIds.formIntersection(availableMessageIds)
     expandedMessageIds.insert(selectedThread.latestMessage.id)
@@ -2109,6 +2104,50 @@ private struct MailShellThreadRow: View {
   }
 }
 
+private struct ProviderMailActionButtons: View {
+  let actions: Set<ProviderMailAction>
+  let moveDestinations: [ProviderMailbox]
+  let perform: (ProviderMailAction, String?) -> Void
+
+  @ViewBuilder
+  var body: some View {
+    if actions.contains(.markRead) {
+      Button("Mark Read") { perform(.markRead, nil) }
+    }
+    if actions.contains(.markUnread) {
+      Button("Mark Unread") { perform(.markUnread, nil) }
+    }
+    if actions.contains(.archive) {
+      Button("Archive") { perform(.archive, nil) }
+    }
+    if actions.contains(.move), !moveDestinations.isEmpty {
+      Menu("Move to") {
+        ForEach(moveDestinations, id: \.id) { mailbox in
+          Button(mailbox.title) { perform(.move, mailbox.id) }
+        }
+      }
+    }
+    if actions.contains(.delete) {
+      Button("Delete", role: .destructive) { perform(.delete, nil) }
+    }
+    if actions.contains(.restore) {
+      Button("Restore") { perform(.restore, nil) }
+    }
+    if actions.contains(.notSpam) {
+      Button("Not Spam") { perform(.notSpam, nil) }
+    }
+    if actions.contains(.spam) {
+      Button("Mark as Spam") { perform(.spam, nil) }
+    }
+    if actions.contains(.star) {
+      Button("Star") { perform(.star, nil) }
+    }
+    if actions.contains(.unstar) {
+      Button("Unstar") { perform(.unstar, nil) }
+    }
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
@@ -2143,23 +2182,6 @@ struct MailShellConversationReader: View {
                 pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
               )
             )
-          }
-        }
-        .overlay {
-          if let progress = mailActionViewModel.bulkActionProgress {
-            VStack(spacing: 8) {
-              ProgressView(
-                value: Double(progress.completedConnectionCount),
-                total: Double(progress.totalConnectionCount)
-              )
-              Text(
-                "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
-              )
-              .font(.caption)
-              .foregroundStyle(.secondary)
-            }
-            .padding()
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
           }
         }
       } else if let thread = selection.selectedThread,
@@ -2231,6 +2253,23 @@ struct MailShellConversationReader: View {
         )
       }
     }
+    .overlay {
+      if let progress = mailActionViewModel.bulkActionProgress {
+        VStack(spacing: 8) {
+          ProgressView(
+            value: Double(progress.completedConnectionCount),
+            total: Double(progress.totalConnectionCount)
+          )
+          Text(
+            "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      }
+    }
     .sheet(item: $compositionDraft) { draft in
       MailShellComposer(
         draft: draft,
@@ -2289,55 +2328,19 @@ struct MailShellConversationReader: View {
   }
 
   @ViewBuilder
-  // swiftlint:disable:next function_body_length
   private func bulkProviderActionMenu(
     batches: [MailboxBulkActionBatch]
   ) -> some View {
-    let actions = selection.bulkProviderActions(connections: connections)
     let messages = batches.flatMap(\.messages)
+    let actions = contextualProviderActions(
+      supported: selection.bulkProviderActions(connections: connections),
+      messages: messages,
+      allowsMove: false
+    )
     if !actions.isEmpty {
       Menu {
-        if actions.contains(.markRead) {
-          Button("Mark Read") { performBulk(.markRead, batches: batches) }
-        }
-        if actions.contains(.markUnread) {
-          Button("Mark Unread") { performBulk(.markUnread, batches: batches) }
-        }
-        if selection.selectedMailbox?.collection == .role(.inbox),
-          actions.contains(.archive)
-        {
-          Button("Archive") { performBulk(.archive, batches: batches) }
-        }
-        if actions.contains(.delete) {
-          Button("Delete", role: .destructive) {
-            performBulk(.delete, batches: batches)
-          }
-        }
-        if selection.selectedMailbox?.collection == .role(.trash),
-          actions.contains(.restore)
-        {
-          Button("Restore") { performBulk(.restore, batches: batches) }
-        }
-        if selection.selectedMailbox?.collection == .role(.spam),
-          actions.contains(.notSpam)
-        {
-          Button("Not Spam") { performBulk(.notSpam, batches: batches) }
-        } else if selection.selectedMailbox?.collection != .role(.trash),
-          selection.selectedMailbox?.collection != .role(.spam),
-          selection.selectedMailbox?.collection != .role(.sent),
-          !messages.contains(where: {
-            let states = Set($0.providerStateIds ?? [])
-            return states.contains("DRAFT") || states.contains("SENT")
-          }),
-          actions.contains(.spam)
-        {
-          Button("Mark as Spam") { performBulk(.spam, batches: batches) }
-        }
-        if actions.contains(.star) {
-          Button("Star") { performBulk(.star, batches: batches) }
-        }
-        if actions.contains(.unstar) {
-          Button("Unstar") { performBulk(.unstar, batches: batches) }
+        ProviderMailActionButtons(actions: actions, moveDestinations: []) { action, _ in
+          performBulk(action, batches: batches)
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -2350,73 +2353,30 @@ struct MailShellConversationReader: View {
   }
 
   @ViewBuilder
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func providerActionMenu(
     thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
-    if !connection.capabilities.providerActions.isEmpty {
+    let actions = contextualProviderActions(
+      supported: connection.capabilities.providerActions,
+      messages: thread.messages,
+      allowsMove: true
+    )
+    if !actions.isEmpty {
       Menu {
-        if connection.capabilities.supports(.markRead) {
-          Button("Mark Read") { perform(.markRead, thread: thread, connection: connection) }
-        }
-        if connection.capabilities.supports(.markUnread) {
-          Button("Mark Unread") { perform(.markUnread, thread: thread, connection: connection) }
-        }
-        if selection.selectedMailbox?.collection == .role(.inbox),
-          connection.capabilities.supports(.archive)
-        {
-          Button("Archive") { perform(.archive, thread: thread, connection: connection) }
-        }
         let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
           for: connection.id
         ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
-        if selection.selectedMailbox?.collection == .role(.inbox),
-          connection.capabilities.supports(.move), !providerMailboxes.isEmpty
-        {
-          Menu("Move to") {
-            ForEach(providerMailboxes, id: \.id) { mailbox in
-              Button(mailbox.title) {
-                perform(
-                  .move,
-                  targetProviderMailboxId: mailbox.id,
-                  thread: thread,
-                  connection: connection
-                )
-              }
-            }
-          }
-        }
-        if connection.capabilities.supports(.delete) {
-          Button("Delete", role: .destructive) {
-            perform(.delete, thread: thread, connection: connection)
-          }
-        }
-        if selection.selectedMailbox?.collection == .role(.trash),
-          connection.capabilities.supports(.restore)
-        {
-          Button("Restore") { perform(.restore, thread: thread, connection: connection) }
-        }
-        if selection.selectedMailbox?.collection == .role(.spam),
-          connection.capabilities.supports(.notSpam)
-        {
-          Button("Not Spam") { perform(.notSpam, thread: thread, connection: connection) }
-        } else if selection.selectedMailbox?.collection != .role(.trash),
-          selection.selectedMailbox?.collection != .role(.spam),
-          selection.selectedMailbox?.collection != .role(.sent),
-          !thread.messages.contains(where: {
-            let states = Set($0.providerStateIds ?? [])
-            return states.contains("DRAFT") || states.contains("SENT")
-          }),
-          connection.capabilities.supports(.spam)
-        {
-          Button("Mark as Spam") { perform(.spam, thread: thread, connection: connection) }
-        }
-        if connection.capabilities.supports(.star) {
-          Button("Star") { perform(.star, thread: thread, connection: connection) }
-        }
-        if connection.capabilities.supports(.unstar) {
-          Button("Unstar") { perform(.unstar, thread: thread, connection: connection) }
+        ProviderMailActionButtons(
+          actions: actions,
+          moveDestinations: providerMailboxes
+        ) { action, targetProviderMailboxId in
+          perform(
+            action,
+            targetProviderMailboxId: targetProviderMailboxId,
+            thread: thread,
+            connection: connection
+          )
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -2426,6 +2386,33 @@ struct MailShellConversationReader: View {
           || mailActionViewModel.isPerformingAction
       )
     }
+  }
+
+  private func contextualProviderActions(
+    supported: Set<ProviderMailAction>,
+    messages: [MailboxMessageMetadata],
+    allowsMove: Bool
+  ) -> Set<ProviderMailAction> {
+    var actions = supported
+    let collection = selection.selectedMailbox?.collection
+    if collection != .role(.inbox) {
+      actions.subtract([.archive, .move])
+    } else if !allowsMove {
+      actions.remove(.move)
+    }
+    if collection != .role(.trash) {
+      actions.remove(.restore)
+    }
+    if collection != .role(.spam) {
+      actions.remove(.notSpam)
+    }
+    if collection == .role(.trash) || collection == .role(.spam)
+      || collection == .role(.sent)
+      || messages.contains(where: { $0.belongs(to: .drafts) || $0.belongs(to: .sent) })
+    {
+      actions.remove(.spam)
+    }
+    return actions
   }
 
   private func perform(
@@ -2464,23 +2451,21 @@ struct MailShellConversationReader: View {
     batches: [MailboxBulkActionBatch]
   ) {
     Task {
-      guard let result = await mailActionViewModel.performBulk(action, batches: batches)
+      guard
+        let result = await mailActionViewModel.performBulk(
+          action,
+          batches: batches,
+          onEnqueued: { connection in
+            _ = await inboxViewModel.reloadLocal(connection: connection)
+          }
+        )
       else { return }
-      let immediateErrorMessage = mailActionViewModel.errorMessage
       let attemptedConnections = batches.map(\.connection)
       for connection in attemptedConnections {
         _ = await inboxViewModel.reloadLocal(connection: connection)
       }
-      await mailActionViewModel.resume(connections: attemptedConnections)
-      for connection in attemptedConnections {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-      }
-      if let immediateErrorMessage {
-        mailActionViewModel.errorMessage = immediateErrorMessage
-      }
       guard let errorMessage = mailActionViewModel.errorMessage else { return }
-      readerErrorConnectionId =
-        result.failures.count == 1 ? result.failures.first?.connectionId : nil
+      readerErrorConnectionId = result.failures.first?.connectionId
       readerErrorMessage = errorMessage
     }
   }
@@ -2497,9 +2482,7 @@ struct MailShellConversationReader: View {
       }
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorMessage = mailActionViewModel.errorMessage
-      if readerErrorMessage == nil {
-        readerErrorConnectionId = nil
-      }
+      readerErrorConnectionId = mailActionViewModel.pendingFailureConnectionId
     }
   }
 
@@ -3180,7 +3163,8 @@ final class GmailMailActionViewModel {
 extension GmailMailActionViewModel {
   func performBulk(
     _ action: ProviderMailAction,
-    batches: [MailboxBulkActionBatch]
+    batches: [MailboxBulkActionBatch],
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
   ) async -> MailboxBulkActionResult? {
     guard !batches.isEmpty,
       batches.allSatisfy({
@@ -3199,7 +3183,15 @@ extension GmailMailActionViewModel {
       isPerformingAction = false
     }
 
-    let outcomes = await performBulkBatches(action, batches: batches)
+    for batch in batches {
+      remember(batch.connection)
+    }
+    let outcomes = await performBulkBatches(
+      action,
+      batches: batches,
+      onEnqueued: onEnqueued
+    )
+    await refreshFailureConnections(knownConnections)
     let result = bulkActionResult(outcomes)
     errorMessage =
       result.failures.isEmpty
@@ -3210,7 +3202,8 @@ extension GmailMailActionViewModel {
 
   private func performBulkBatches(
     _ action: ProviderMailAction,
-    batches: [MailboxBulkActionBatch]
+    batches: [MailboxBulkActionBatch],
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
     let session = self.session
@@ -3227,9 +3220,26 @@ extension GmailMailActionViewModel {
               connection: batch.connection,
               session: session
             )
-            return Self.bulkActionOutcome(batch, index: batchIndex, error: nil)
+            await onEnqueued(batch.connection)
+            let resumeError = await service.resumePendingActions(
+              connection: batch.connection,
+              session: session
+            )
+            let retryError = await service.waitForPendingActionRetries(
+              connection: batch.connection,
+              session: session
+            )
+            return Self.bulkActionOutcome(
+              batch,
+              index: batchIndex,
+              errorDescription: Self.combinedErrorDescription([resumeError, retryError])
+            )
           } catch {
-            return Self.bulkActionOutcome(batch, index: batchIndex, error: error)
+            return Self.bulkActionOutcome(
+              batch,
+              index: batchIndex,
+              errorDescription: error.localizedDescription
+            )
           }
         }
       }
@@ -3246,15 +3256,24 @@ extension GmailMailActionViewModel {
     }
   }
 
+  nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
+    let descriptions = errors.compactMap { $0 }.reduce(into: [String]()) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
+    }
+    return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
+  }
+
   nonisolated private static func bulkActionOutcome(
     _ batch: MailboxBulkActionBatch,
     index: Int,
-    error: Error?
+    errorDescription: String?
   ) -> MailboxBulkActionBatchOutcome {
     MailboxBulkActionBatchOutcome(
       batchIndex: index,
       connection: batch.connection,
-      errorDescription: error?.localizedDescription,
+      errorDescription: errorDescription,
       messages: batch.messages
     )
   }
@@ -3282,10 +3301,9 @@ extension GmailMailActionViewModel {
   }
 
   private static func failureDescription(_ failure: MailboxBulkActionFailure) -> String {
-    let subjects = failure.messageSubjects.prefix(3).joined(separator: ", ")
-    let remainingCount = failure.messageSubjects.count - min(failure.messageSubjects.count, 3)
-    let messageDescription =
-      remainingCount > 0 ? "\(subjects), and \(remainingCount) more" : subjects
+    let messageDescription = zip(failure.messageSubjects, failure.messageIds)
+      .map { "\($0.0) [\($0.1.rawValue)]" }
+      .joined(separator: ", ")
     return "\(failure.connectionDisplayName) — \(messageDescription): \(failure.description)"
   }
 }
