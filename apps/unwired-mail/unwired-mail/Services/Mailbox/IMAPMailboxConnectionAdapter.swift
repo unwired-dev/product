@@ -1488,17 +1488,24 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
-    try authorizationStore.remove(
-      productAccountId: ProductAccountId(session.productAccountId),
-      connectionId: connection.id
-    )
+    try clearLocalConnectionWithoutLock(connection.id, session: session)
+  }
+
+  private func clearLocalConnectionWithoutLock(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws {
     try metadataStore.clear(
       productAccountId: session.productAccountId,
-      connectionId: connection.id
+      connectionId: connectionId
     )
     try cache.clearMessageBodies(
       productAccountId: session.productAccountId,
-      connectionId: connection.id
+      connectionId: connectionId
+    )
+    try authorizationStore.remove(
+      productAccountId: ProductAccountId(session.productAccountId),
+      connectionId: connectionId
     )
   }
 
@@ -1522,18 +1529,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> [MailboxConnection] {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
-      try authorizationStore.remove(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: removedId
-      )
-      try metadataStore.clear(
-        productAccountId: session.productAccountId,
-        connectionId: removedId
-      )
-      try cache.clearMessageBodies(
-        productAccountId: session.productAccountId,
-        connectionId: removedId
-      )
+      try await syncGate.withLock(removedId) {
+        try clearLocalConnectionWithoutLock(removedId, session: session)
+      }
     }
     return try snapshot.connections.compactMap { definition in
       guard
