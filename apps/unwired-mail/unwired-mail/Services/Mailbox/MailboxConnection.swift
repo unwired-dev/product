@@ -111,11 +111,15 @@ actor MailboxConnectionSyncGate {
   }
 }
 
-enum ProviderMailAction: CaseIterable, Hashable, Sendable {
+enum ProviderMailAction: String, CaseIterable, Codable, Hashable, Sendable {
   case archive
   case delete
   case markRead
   case markUnread
+  case move
+  case notSpam
+  case restore
+  case spam
   case star
   case unstar
 }
@@ -227,11 +231,19 @@ enum MailboxMessageCollection: Hashable, Sendable {
 
   private static let gmailSystemStateIds: Set<String> = [
     "ARCHIVE",
+    "CATEGORY_FORUMS",
+    "CATEGORY_PERSONAL",
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "CATEGORY_UPDATES",
+    "CHAT",
     "DRAFT",
+    "IMPORTANT",
     "INBOX",
     "IMAP_CUSTOM_MAILBOX",
     "SENT",
     "SPAM",
+    "STARRED",
     "TRASH",
     "UNREAD",
   ]
@@ -888,11 +900,121 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String?
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String?
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String?
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId]
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId]
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String?
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async
+
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws
+}
+
+extension MailboxProviderMailActing {
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard targetProviderMailboxId == nil else {
+      throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+    }
+    try await perform(
+      action,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    nil
+  }
+
+  func retryBlockedPendingAction(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    nil
+  }
+
+  func discardBlockedPendingAction(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    nil
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    []
+  }
+
+  func failedPendingActionConnectionIds(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    []
+  }
+
+  func waitForPendingActionRetries(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    nil
+  }
+
+  func acknowledgePendingActionFailures(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async {}
 }
 
 protocol MailboxConnectionAdapter:
@@ -907,6 +1029,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
   case unsupportedCapability
   case unexpectedAuthorizedAccount
   case productAccountMismatch
+  case providerMailboxTargetRequired
   case unsupportedProvider
 
   var errorDescription: String? {
@@ -921,6 +1044,8 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
       return "Sign in to the Google account for the selected Mailbox Connection."
     case .productAccountMismatch:
       return "The mailbox connection does not belong to the current Product Account."
+    case .providerMailboxTargetRequired:
+      return "Choose a provider mailbox before moving this message."
     case .unsupportedProvider:
       return "The selected mail provider is not supported by this adapter."
     }
@@ -937,6 +1062,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let metadataService: GmailMessageMetadataSyncing
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
+  private let pendingActionService: PendingProviderActionService
   private let searchService: GmailMessageSearching
   private let syncGate: MailboxConnectionSyncGate
 
@@ -950,6 +1076,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
+    pendingActionService: PendingProviderActionService = .shared,
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
@@ -961,22 +1088,49 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.metadataService = metadataService
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
+    self.pendingActionService = pendingActionService
     self.searchService = searchService
     self.syncGate = syncGate
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    try await connectionService.clearLocalConnection(session: session)
+    var firstError: Error?
+    do {
+      try await connectionService.clearLocalConnection(session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError {
+      throw firstError
+    }
   }
 
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await connectionService.clearLocalConnection(
-      try gmailConnection(connection, session: session),
-      session: session
-    )
+    var firstError: Error?
+    do {
+      try await connectionService.clearLocalConnection(
+        try gmailConnection(connection, session: session),
+        session: session
+      )
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError {
+      throw firstError
+    }
   }
 
   @MainActor
@@ -1063,7 +1217,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     else { return localConnections }
     for removedConnectionId in snapshot.removedConnectionIds {
       guard let localStatus = localStatusesById[removedConnectionId] else { continue }
+      let removedConnection = localStatus.mailboxConnection(
+        productAccountId: session.productAccountId
+      )
       try await connectionService.clearLocalConnection(localStatus, session: session)
+      try await pendingActionService.clear(connection: removedConnection, session: session)
     }
     var definitions = snapshot.connections
     if usedCachedSnapshot {
@@ -1125,6 +1283,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection, session: session, requiresAuthorization: false)
     try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    try await pendingActionService.clear(connection: connection, session: session)
   }
 
   func setDefaultSendingConnection(
@@ -1159,7 +1318,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: gmailConnection,
       session: session
     )
-    return result.mailboxResult(connectionId: connection.id)
+    return try await pendingActionService.project(
+      result.mailboxResult(connectionId: connection.id),
+      collection: .role(.inbox),
+      connection: connection,
+      session: session
+    )
   }
 
   func loadInbox(
@@ -1170,11 +1334,17 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    let result = try await metadataService.loadInbox(
+    let result = try await metadataService.loadMailbox(
+      .allObserved,
       connection: gmailConnection,
       session: session
     )
-    return result.mailboxResult(connectionId: connection.id)
+    return try await pendingActionService.project(
+      result.mailboxResult(connectionId: connection.id),
+      collection: .role(.inbox),
+      connection: connection,
+      session: session
+    )
   }
 
   func loadMailbox(
@@ -1187,11 +1357,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     )
     let result = try await metadataService.loadMailbox(
-      collection,
+      .allObserved,
       connection: gmailConnection,
       session: session
     )
-    return result.mailboxResult(connectionId: connection.id)
+    return try await pendingActionService.project(
+      result.mailboxResult(connectionId: connection.id),
+      collection: collection,
+      connection: connection,
+      session: session
+    )
   }
 
   func loadProviderMailboxes(
@@ -1232,11 +1407,32 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection,
         session: session
       )
-      let result = try await metadataService.syncInbox(
+      _ = try await metadataService.syncInbox(
         connection: gmailConnection,
         session: session
       )
-      return result.mailboxResult(connectionId: connection.id)
+      let observedMessages = try await metadataService.loadMailbox(
+        .allObserved,
+        connection: gmailConnection,
+        session: session
+      )
+      try await reconcileAndResumePendingActions(
+        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+        connection: connection,
+        session: session
+      )
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
+      _ = try await metadataService.loadMailbox(
+        .role(.inbox),
+        connection: gmailConnection,
+        session: session
+      )
+      return projectedInbox
     }
   }
 
@@ -1255,7 +1451,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection,
         session: session
       )
-      let result = try await metadataService.syncRecentInbox(
+      let recentSync = try await metadataService.syncRecentInbox(
         connection: gmailConnection,
         includingHistoryCandidates: includingHistoryCandidates,
         session: session,
@@ -1263,7 +1459,36 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         throughHistoryId: throughHistoryId,
         shouldPersist: shouldPersist
       )
-      return result.mailboxResult(connectionId: connection.id)
+      let observedMessages = try await metadataService.loadMailbox(
+        .allObserved,
+        connection: gmailConnection,
+        session: session
+      )
+      try await reconcileAndResumePendingActions(
+        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+        connection: connection,
+        session: session
+      )
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
+      _ = try await metadataService.loadMailbox(
+        .role(.inbox),
+        connection: gmailConnection,
+        session: session
+      )
+      return MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
+        messages: projectedInbox.messages,
+        newMessageIds: recentSync.newMessageIds,
+        providerCursorIsExpired: recentSync.historyIsExpired,
+        threads: projectedInbox.threads,
+        hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
+        historicalMetadataBackfillIsComplete: projectedInbox.historicalMetadataBackfillIsComplete
+      )
     }
   }
 
@@ -1367,16 +1592,221 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
+    try await perform(
+      action,
+      targetProviderMailboxId: nil,
+      messages: messages,
+      connection: connection,
       session: session
     )
-    try await mailActionService.perform(
-      gmailAction(action),
-      messageIds: messages.map(\.providerMessageId),
-      connection: gmailConnection,
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = try await gmailConnectionForProviderAccess(connection, session: session)
+    try await pendingActionService.enqueue(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
       session: session
     )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
+    return await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
+      for (index, connection) in authorizedConnections.enumerated() {
+        group.addTask {
+          (index, await resumePendingActions(connection: connection, session: session))
+        }
+      }
+      var indexedErrors: [(Int, String)] = []
+      for await (index, error) in group {
+        if let error {
+          indexedErrors.append((index, error))
+        }
+      }
+      let errors = indexedErrors.sorted { $0.0 < $1.0 }.map(\.1)
+      return errors.isEmpty ? nil : errors.joined(separator: "\n")
+    }
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(connection: connection, session: session, discard: false)
+  }
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(connection: connection, session: session, discard: true)
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var blockedConnectionIds: [MailboxConnectionId] = []
+    for connection in connections {
+      guard
+        (try? await pendingActionService.hasBlockedAction(
+          connection: connection,
+          session: session
+        )) == true
+      else { continue }
+      blockedConnectionIds.append(connection.id)
+    }
+    return blockedConnectionIds
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var failedConnectionIds: [MailboxConnectionId] = []
+    for connection in connections {
+      guard
+        (try? await pendingActionService.hasFailedAction(
+          connection: connection,
+          session: session
+        )) == true
+      else { continue }
+      failedConnectionIds.append(connection.id)
+    }
+    return failedConnectionIds
+  }
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
+    let tasks = authorizedConnections.enumerated().map { index, connection in
+      Task {
+        await pendingActionService.waitForScheduledRetries(
+          connection: connection,
+          session: session
+        )
+        let description = try? await pendingActionService.failureDescription(
+          connection: connection,
+          session: session
+        )
+        return (index, description.map { "\(connection.displayName): \($0)" })
+      }
+    }
+    var indexedErrors: [(Int, String)] = []
+    for task in tasks {
+      let (index, error) = await task.value
+      if let error {
+        indexedErrors.append((index, error))
+      }
+    }
+    let errors = indexedErrors.sorted { $0.0 < $1.0 }.map(\.1)
+    return errors.isEmpty ? nil : errors.joined(separator: "\n")
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    try? await pendingActionService.acknowledgeFailures(
+      connection: connection,
+      session: session
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    var errorDescription: String?
+    do {
+      try await pendingActionService.resume(
+        connection: connection,
+        session: session
+      ) { action, targetProviderMailboxId, messageIds in
+        try await performProviderAction(
+          action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          messageIds: messageIds,
+          connection: connection,
+          session: session
+        )
+      }
+    } catch is CancellationError {
+      return nil
+    } catch {
+      errorDescription = error.localizedDescription
+    }
+    if let persistedDescription = try? await pendingActionService.failureDescription(
+      connection: connection,
+      session: session
+    ) {
+      errorDescription = persistedDescription
+    }
+    return errorDescription.map { "\(connection.displayName): \($0)" }
+  }
+
+  private func resolveBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    discard: Bool
+  ) async -> String? {
+    do {
+      let provider = pendingActionPerformer(connection: connection, session: session)
+      if discard {
+        try await pendingActionService.discardBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      } else {
+        try await pendingActionService.retryBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      }
+      await pendingActionService.waitForScheduledRetries(
+        connection: connection,
+        session: session
+      )
+      return try await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private func pendingActionPerformer(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) -> PendingProviderActionPerformer {
+    { action, targetProviderMailboxId, messageIds in
+      try await performProviderAction(
+        action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messageIds: messageIds,
+        connection: connection,
+        session: session
+      )
+    }
   }
 
   func send(
@@ -1406,7 +1836,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
     let gmailConnection = try gmailConnection(connection, session: session)
-    try await ensureConnectionIsActive(connection.id, session: session)
+    do {
+      try await ensureConnectionIsActive(connection.id, session: session)
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try await pendingActionService.clear(connection: connection, session: session)
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
     return gmailConnection
   }
 
@@ -1456,7 +1891,43 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
   }
 
-  private func gmailAction(_ action: ProviderMailAction) -> GmailProviderMailAction {
+  private func reconcileAndResumePendingActions(
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await pendingActionService.reconcileProviderSync(
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    _ = await resumePendingActions(connections: [connection], session: session)
+  }
+
+  private func performProviderAction(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messageIds: [String],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    try await mailActionService.perform(
+      try gmailAction(action, targetProviderMailboxId: targetProviderMailboxId),
+      messageIds: messageIds,
+      connection: gmailConnection,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity
+  private func gmailAction(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?
+  ) throws -> GmailProviderMailAction {
     switch action {
     case .archive:
       return .archive
@@ -1466,6 +1937,17 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       return .markRead
     case .markUnread:
       return .markUnread
+    case .move:
+      guard let targetProviderMailboxId, !targetProviderMailboxId.isEmpty else {
+        throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+      }
+      return .move(targetProviderMailboxId: targetProviderMailboxId)
+    case .notSpam:
+      return .notSpam
+    case .restore:
+      return .restore
+    case .spam:
+      return .spam
     case .star:
       return .star
     case .unstar:

@@ -1784,8 +1784,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    guard let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-      .genericMailDefinition else {
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
+        .genericMailDefinition
+    else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     return DeviceLocalGenericMailAuthorization(
@@ -1820,8 +1822,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    guard let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-      .genericMailDefinition else {
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
+        .genericMailDefinition
+    else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     return definition
