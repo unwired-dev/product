@@ -1,0 +1,108 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+language: en-US
+early_access: false
+
+reviews:
+  profile: assertive
+  request_changes_workflow: false
+  high_level_summary: true
+  high_level_summary_in_walkthrough: true
+  high_level_summary_instructions: |
+    Summarize user-visible behavior, privacy and security boundary changes,
+    migrations or configuration changes, and the validation performed. Name the
+    affected Apple and TypeScript areas. Do not speculate or use marketing copy.
+  in_progress_fortune: false
+  poem: false
+  review_status: true
+  review_details: true
+  enable_prompt_for_ai_agents: true
+
+  path_filters:
+    - "!packages/convex/convex/_generated/**"
+    - "packages/convex/convex/_generated/ai/guidelines.md"
+
+  path_instructions:
+    - path: "apps/unwired-mail/**/*.swift"
+      instructions: |
+        Prioritize functional correctness, data protection, and Apple platform
+        behavior over style already enforced by swift-format and SwiftLint.
+        Check actor isolation, cancellation, lifecycle transitions, persistence,
+        retry and offline behavior, and Keychain accessibility. Flag credentials,
+        tokens, mail content, or decrypted Product Sync data that can be logged,
+        persisted outside approved device-local storage, or cross a documented
+        privacy boundary. Require focused tests for changed behavior and failure
+        paths.
+
+    - path: "packages/convex/convex/**/*.ts"
+      instructions: |
+        Treat authentication, authorization, input validation, and privacy
+        boundaries as mandatory. Flag public functions that do not validate
+        arguments and returns, data access that is not scoped to the authenticated
+        Product Account or trusted device, plaintext sensitive data, secrets in
+        logs, unbounded reads, and queries that bypass appropriate indexes.
+        Changes to runtime behavior should include focused Convex tests covering
+        success, unauthorized access, malformed input, and relevant retries.
+
+    - path: "packages/contracts/**/*.{ts,json}"
+      instructions: |
+        Treat exported types, validators, and fixtures as cross-boundary APIs.
+        Flag incompatible schema changes, semantic drift between types and
+        fixtures, loss of distinct identity types, and changes that omit consumer
+        updates or compatibility tests.
+
+    - path: "**/*Tests/**/*.swift"
+      instructions: |
+        Verify externally observable behavior, privacy invariants, error paths,
+        cancellation or restart behavior where relevant, and deterministic
+        isolation. Flag fragile sleeps, ordering dependencies, and tests that
+        duplicate the implementation instead of exercising it.
+
+    - path: "packages/*/test/**/*.ts"
+      instructions: |
+        Verify externally observable behavior, authorization and privacy
+        invariants, malformed inputs, and deterministic isolation. Flag tests that
+        duplicate the implementation or omit meaningful negative cases.
+
+    - path: ".github/workflows/**/*.{yml,yaml}"
+      instructions: |
+        Check least-privilege permissions, immutable third-party action pins,
+        cache safety, secret handling, path filters, and parity with the local
+        validation commands documented in AGENTS.md.
+
+  auto_review:
+    enabled: true
+    drafts: false
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 5
+    ignore_title_keywords:
+      - "[WIP]"
+      - "[skip review]"
+    labels:
+      - "!do-not-review"
+    ignore_usernames:
+      - "dependabot[bot]"
+      - "renovate[bot]"
+      - "github-actions[bot]"
+
+  tools:
+    github-checks:
+      enabled: true
+      timeout_ms: 900000
+    swiftlint:
+      enabled: true
+      config_file: ".swiftlint.yml"
+    oxc:
+      enabled: true
+    actionlint:
+      enabled: true
+    zizmor:
+      enabled: true
+    gitleaks:
+      enabled: true
+    osvScanner:
+      enabled: true
+
+chat:
+  art: false
+  auto_reply: true
