@@ -2,7 +2,7 @@ import Foundation
 
 // swiftlint:disable file_length
 
-struct ProductAccountId: Hashable, RawRepresentable, Sendable {
+struct ProductAccountId: Codable, Hashable, RawRepresentable, Sendable {
   let rawValue: String
 
   init(_ rawValue: String) {
@@ -14,19 +14,19 @@ struct ProductAccountId: Hashable, RawRepresentable, Sendable {
   }
 }
 
-struct MailProviderId: Hashable, RawRepresentable, Sendable {
+struct MailProviderId: Codable, Hashable, RawRepresentable, Sendable {
   static let gmail = MailProviderId(rawValue: "gmail")
   static let imapSMTP = MailProviderId(rawValue: "imap-smtp")
 
   let rawValue: String
 }
 
-struct StableProviderMailboxIdentity: Hashable, Sendable {
+struct StableProviderMailboxIdentity: Codable, Hashable, Sendable {
   let providerId: MailProviderId
   let value: String
 }
 
-struct MailboxConnectionId: Hashable, Sendable {
+struct MailboxConnectionId: Codable, Hashable, Sendable {
   let providerMailboxIdentity: StableProviderMailboxIdentity
 
   var providerId: MailProviderId {
@@ -684,8 +684,9 @@ extension HistoricalCategorizationScope {
   }
 }
 
-struct OutgoingMessage: Equatable, Sendable {
+struct OutgoingMessage: Codable, Equatable, Sendable {
   let body: String
+  let idempotencyKey: String?
   let recipient: String
   let subject: String
   let inReplyTo: String?
@@ -696,13 +697,34 @@ struct OutgoingMessage: Equatable, Sendable {
     recipient: String,
     subject: String,
     inReplyTo: String? = nil,
-    providerThreadId: String? = nil
+    providerThreadId: String? = nil,
+    idempotencyKey: String? = nil
   ) {
     self.body = body
+    self.idempotencyKey = idempotencyKey
     self.recipient = recipient
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.providerThreadId = providerThreadId
+  }
+
+  var rfcMessageId: String? {
+    idempotencyKey.map(Self.rfcMessageId)
+  }
+
+  static func rfcMessageId(for idempotencyKey: String) -> String {
+    "<\(idempotencyKey)@outbox.unwired.mail>"
+  }
+
+  func withIdempotencyKey(_ idempotencyKey: String) -> OutgoingMessage {
+    OutgoingMessage(
+      body: body,
+      recipient: recipient,
+      subject: subject,
+      inReplyTo: inReplyTo,
+      providerThreadId: providerThreadId,
+      idempotencyKey: idempotencyKey
+    )
   }
 }
 
@@ -908,6 +930,12 @@ protocol MailboxPushRegistering {
 }
 
 protocol MailboxProviderMailActing {
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus
+
   func perform(
     _ action: ProviderMailAction,
     messages: [MailboxMessageMetadata],
@@ -966,6 +994,14 @@ protocol MailboxProviderMailActing {
 }
 
 extension MailboxProviderMailActing {
+  func deliveryStatus(
+    idempotencyKey _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    .unknown
+  }
+
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
@@ -1839,11 +1875,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         recipient: message.recipient,
         subject: message.subject,
         inReplyTo: message.inReplyTo,
-        threadId: message.providerThreadId
+        threadId: message.providerThreadId,
+        rfcMessageId: message.rfcMessageId
       ),
       connection: gmailConnection,
       session: session
     )
+  }
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    let rfcMessageId = OutgoingMessage.rfcMessageId(for: idempotencyKey)
+    let messages = try await searchService.searchProvider(
+      query: "in:sent rfc822msgid:\(rfcMessageId)",
+      connection: gmailConnection,
+      session: session
+    )
+    return messages.isEmpty ? .notSent : .sent
   }
 
   private func gmailConnectionForProviderAccess(
