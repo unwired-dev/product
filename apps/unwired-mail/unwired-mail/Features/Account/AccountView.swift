@@ -648,6 +648,7 @@ struct AccountView: View {
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
+  @State private var compositionDraft: MailShellCompositionDraft?
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: GmailProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
@@ -798,6 +799,9 @@ struct AccountView: View {
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
         handleFailedConnectionIdsChange(from: oldIds, to: newIds)
       }
+      .onChange(of: mailActionViewModel.outboxItems) { _, _ in
+        updateProductMailboxState()
+      }
       .onChange(of: gmailViewModel.connection?.id) { _, _ in
         handleSelectedConnectionChange()
       }
@@ -823,6 +827,14 @@ struct AccountView: View {
       .sheet(isPresented: $showsAccountSettings) {
         accountSettings
       }
+      .sheet(item: $compositionDraft) { draft in
+        MailShellComposer(
+          connections: gmailViewModel.connections,
+          draft: draft,
+          isSending: mailActionViewModel.isPerformingAction,
+          send: sendNewMessage
+        )
+      }
       .alert(
         "Pending message action requires attention",
         isPresented: $showsBlockedActionAlert
@@ -839,6 +851,11 @@ struct AccountView: View {
       preferredCompactColumn: $preferredCompactColumn
     ) {
       MailShellSidebar(
+        compose: {
+          compositionDraft = .new(
+            defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId
+          )
+        },
         connections: gmailViewModel.connections,
         errorMessage: gmailViewModel.errorMessage ?? pinViewModel.errorMessage
           ?? mailActionViewModel.errorMessage,
@@ -856,8 +873,10 @@ struct AccountView: View {
     } content: {
       MailShellThreadList(
         connection: selectedConnection,
+        connections: gmailViewModel.connections,
         isConnectionBusy: gmailViewModel.isEditingDisabled,
         items: mailShellSelection.threadListItems(connections: gmailViewModel.connections),
+        mailActionViewModel: mailActionViewModel,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedThreadId: selectedThreadBinding,
@@ -879,7 +898,7 @@ struct AccountView: View {
   private func updateProductMailboxState() {
     inboxViewModel.updateProductMailboxState(
       MailShellProductMailboxState(
-        outboxStates: inboxViewModel.navigationSnapshot.outboxStates,
+        outboxStates: mailActionViewModel.outboxStates,
         pinnedMessageIds: pinViewModel.pinnedMessageIds
       )
     )
@@ -895,6 +914,7 @@ struct AccountView: View {
     )
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
+    updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await genericMailSetupViewModel.loadSyncedDefinitions()
@@ -1170,6 +1190,22 @@ extension AccountView {
     }
   }
 
+  private func sendNewMessage(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard
+      let connectionId = draft.connectionId,
+      let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+    else {
+      return false
+    }
+    return await mailActionViewModel.send(
+      recipient: draft.recipient,
+      subject: draft.subject,
+      body: draft.body,
+      replyTo: nil,
+      connection: connection
+    )
+  }
+
   private func selectConnection(
     _ connection: MailboxConnection,
     collection: MailboxMessageCollection = .role(.inbox)
@@ -1264,6 +1300,7 @@ extension AccountView {
               ),
               connection: gmailViewModel.connection?.authorizationState == .authorized
                 ? gmailViewModel.connection : nil,
+              defaultSendingConnectionId: gmailViewModel.defaultSendingConnectionId,
               isConnectionBusy: gmailViewModel.isEditingDisabled,
               mailActionViewModel: mailActionViewModel,
               messageReader: messageReader,
@@ -1280,6 +1317,7 @@ extension AccountView {
             mailboxFreshnessViewModel.clearPersistedState()
             Task {
               await inboxViewModel.prepareForSignOut()
+              await mailActionViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -1697,23 +1735,50 @@ final class MailShellSelectionModel {
 
 struct MailShellCompositionDraft: Identifiable {
   var body: String
-  let connectionId: MailboxConnectionId
+  var connectionId: MailboxConnectionId?
   let id = UUID()
   var recipient: String
   let replyToMessage: MailboxMessageMetadata?
-  let sourceMessage: MailboxMessageMetadata
+  let sourceMessage: MailboxMessageMetadata?
   var subject: String
 
-  var sourceMailboxIdentity: StableProviderMailboxIdentity {
-    sourceMessage.connectionId.providerMailboxIdentity
+  var sourceMailboxIdentity: StableProviderMailboxIdentity? {
+    sourceMessage?.connectionId.providerMailboxIdentity
   }
 
-  var sourceThreadId: MailboxThreadIdentity {
-    sourceMessage.threadIdentity
+  var sourceThreadId: MailboxThreadIdentity? {
+    sourceMessage?.threadIdentity
   }
 
   var forwardSourceMessage: MailboxMessageMetadata? {
     replyToMessage == nil ? sourceMessage : nil
+  }
+
+  var title: String {
+    if replyToMessage != nil { return "Reply" }
+    return sourceMessage == nil ? "New Message" : "Forward"
+  }
+
+  static func new(defaultSendingConnectionId: MailboxConnectionId?) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: "",
+      connectionId: defaultSendingConnectionId,
+      recipient: "",
+      replyToMessage: nil,
+      sourceMessage: nil,
+      subject: ""
+    )
+  }
+
+  static func editing(_ attempt: OutgoingDeliveryAttempt) -> MailShellCompositionDraft {
+    MailShellCompositionDraft(
+      body: attempt.message.body,
+      connectionId: attempt.mailboxConnectionId,
+      recipient: attempt.message.recipient,
+      replyToMessage: nil,
+      sourceMessage: nil,
+      subject: attempt.message.subject
+    )
   }
 
   static func reply(to message: MailboxMessageMetadata) -> MailShellCompositionDraft {
@@ -1725,6 +1790,26 @@ struct MailShellCompositionDraft: Identifiable {
       sourceMessage: message,
       subject: prefixedSubject("Re:", subject: message.subject)
     )
+  }
+
+  static func replyAll(
+    to message: MailboxMessageMetadata,
+    senderAddress: String
+  ) -> MailShellCompositionDraft {
+    let candidates =
+      [message.replyTo ?? message.from].compactMap(\.self)
+      + (message.recipientHeaders ?? [])
+    var seenAddresses: Set<String> = []
+    let recipients = candidates.filter { address in
+      let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      guard !normalizedAddress.isEmpty, normalizedAddress != senderAddress.lowercased() else {
+        return false
+      }
+      return seenAddresses.insert(normalizedAddress).inserted
+    }
+    var draft = reply(to: message)
+    draft.recipient = recipients.joined(separator: ", ")
+    return draft
   }
 
   static func replyRecipient(for message: MailboxMessageMetadata) -> String {
@@ -1759,6 +1844,7 @@ struct MailShellCompositionDraft: Identifiable {
 }
 
 private struct MailShellSidebar: View {
+  let compose: () -> Void
   let connections: [MailboxConnection]
   let errorMessage: String?
   let isLoading: Bool
@@ -1885,6 +1971,11 @@ private struct MailShellSidebar: View {
     .toolbar {
       if !connections.isEmpty {
         ToolbarItem(placement: .primaryAction) {
+          Button(action: compose) {
+            Label("New Message", systemImage: "square.and.pencil")
+          }
+        }
+        ToolbarItem(placement: .primaryAction) {
           Button(action: refreshMailboxes) {
             Label("Refresh All Mailboxes", systemImage: "arrow.clockwise")
           }
@@ -1939,17 +2030,22 @@ private struct MailShellMailboxLabel: View {
 
 private struct MailShellThreadList: View {
   let connection: MailboxConnection?
+  let connections: [MailboxConnection]
   let isConnectionBusy: Bool
   let items: [MailShellThreadListItem]
+  @Bindable var mailActionViewModel: GmailMailActionViewModel
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
   @Binding var selectedThreadId: MailboxThreadIdentity?
   @Bindable var viewModel: GmailInboxViewModel
+  @State private var editingAttempt: OutgoingDeliveryAttempt?
 
   var body: some View {
     Group {
       if mailboxSelection != nil {
-        if let connection, connection.authorizationState == .required {
+        if mailboxSelection == .outbox {
+          outboxContent
+        } else if let connection, connection.authorizationState == .required {
           ContentUnavailableView(
             "Authorization required",
             systemImage: "lock.trianglebadge.exclamationmark",
@@ -2015,11 +2111,129 @@ private struct MailShellThreadList: View {
       }
     }
     .overlay {
-      if viewModel.isLoading || viewModel.isSyncing {
+      if mailboxSelection != .outbox, viewModel.isLoading || viewModel.isSyncing {
         ProgressView(viewModel.isSyncing ? "Syncing mailbox…" : "Loading inbox…")
           .padding()
           .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
       }
+    }
+    .sheet(item: $editingAttempt) { attempt in
+      MailShellComposer(
+        connections: connections,
+        draft: .editing(attempt),
+        isSending: mailActionViewModel.isPerformingAction,
+        send: { draft in
+          guard
+            let connectionId = draft.connectionId,
+            let connection = connections.first(where: { $0.id == connectionId })
+          else { return false }
+          return await mailActionViewModel.editOutboxAttempt(
+            attempt,
+            recipient: draft.recipient,
+            subject: draft.subject,
+            body: draft.body,
+            connection: connection
+          )
+        }
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var outboxContent: some View {
+    if mailActionViewModel.outboxItems.isEmpty {
+      ContentUnavailableView(
+        "Outbox is empty",
+        systemImage: "paperplane",
+        description: Text("Pending, retrying, and failed deliveries appear here.")
+      )
+    } else {
+      List {
+        ForEach(mailActionViewModel.outboxItems) { attempt in
+          VStack(alignment: .leading, spacing: 8) {
+            HStack {
+              Text(attempt.message.subject.isEmpty ? "(No subject)" : attempt.message.subject)
+                .font(.headline)
+              Spacer()
+              Text(outboxStateTitle(attempt.state))
+                .font(.caption)
+                .foregroundStyle(attempt.state == .failed ? .red : .secondary)
+            }
+            Text("To: \(attempt.message.recipient)")
+              .font(.subheadline)
+            if let connection = connections.first(where: {
+              $0.id == attempt.mailboxConnectionId
+            }) {
+              Text("From: \(connection.displayName)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            if let lastErrorDescription = attempt.lastErrorDescription {
+              Text(lastErrorDescription)
+                .font(.caption)
+                .foregroundStyle(.orange)
+            }
+            HStack {
+              if attempt.state.canEditOrCancel {
+                Button("Edit") { editingAttempt = attempt }
+                Button("Cancel", role: .destructive) {
+                  Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }
+                }
+              }
+              if attempt.state == .failed || attempt.state == .userActionRequired {
+                Button("Retry") {
+                  Task { await mailActionViewModel.retryOutboxAttempt(attempt) }
+                }
+              }
+              if attempt.state == .outcomeUnknown {
+                Button("Mark Sent") {
+                  Task {
+                    await mailActionViewModel.resolveUnknownOutboxAttempt(
+                      attempt,
+                      asDelivered: true
+                    )
+                  }
+                }
+                Button("Not Sent") {
+                  Task {
+                    await mailActionViewModel.resolveUnknownOutboxAttempt(
+                      attempt,
+                      asDelivered: false
+                    )
+                  }
+                }
+              }
+            }
+            .buttonStyle(.bordered)
+          }
+          .padding(.vertical, 4)
+        }
+      }
+    }
+  }
+
+  private func outboxStateTitle(_ state: OutgoingDeliveryState) -> String {
+    switch state {
+    case .pending:
+      "Pending"
+    case .handingOff:
+      "Sending"
+    case .reconciling:
+      "Confirming"
+    case .retrying:
+      "Retrying"
+    case .failed:
+      "Failed"
+    case .userActionRequired:
+      "Needs attention"
+    case .outcomeUnknown:
+      "Outcome unknown"
+    case .cancelled:
+      "Cancelled"
+    case .sent:
+      "Sent"
+    case .superseded:
+      "Edited"
     }
   }
 
@@ -2148,6 +2362,12 @@ struct MailShellConversationReader: View {
                 },
                 message: message,
                 reply: { compositionDraft = .reply(to: message) },
+                replyAll: {
+                  compositionDraft = .replyAll(
+                    to: message,
+                    senderAddress: connection.displayName
+                  )
+                },
                 forward: { await prepareForward(message) },
                 toggleExpansion: {
                   selection.toggleMessageExpansion(message, in: thread)
@@ -2179,6 +2399,17 @@ struct MailShellConversationReader: View {
               .disabled(
                 isConnectionBusy || mailActionViewModel.isPerformingAction
               )
+              Button {
+                compositionDraft = .replyAll(
+                  to: thread.latestMessage,
+                  senderAddress: connection.displayName
+                )
+              } label: {
+                Label("Reply All", systemImage: "arrowshape.turn.up.left.2")
+              }
+              .disabled(
+                isConnectionBusy || mailActionViewModel.isPerformingAction
+              )
             }
             if connection.capabilities.canForward {
               Button {
@@ -2201,6 +2432,7 @@ struct MailShellConversationReader: View {
     }
     .sheet(item: $compositionDraft) { draft in
       MailShellComposer(
+        connections: connections,
         draft: draft,
         isSending: mailActionViewModel.isPerformingAction,
         send: send
@@ -2410,7 +2642,8 @@ struct MailShellConversationReader: View {
 
   private func send(_ draft: MailShellCompositionDraft) async -> Bool {
     guard
-      let connection = connections.first(where: { $0.id == draft.connectionId }),
+      let connectionId = draft.connectionId,
+      let connection = connections.first(where: { $0.id == connectionId }),
       connection.authorizationState == .authorized
     else {
       readerErrorMessage = "Authorize the source Mailbox Connection before sending."
@@ -2440,6 +2673,7 @@ private struct MailShellConversationMessage: View {
   let loadBody: () async throws -> MailboxMessageBody
   let message: MailboxMessageMetadata
   let reply: () -> Void
+  let replyAll: () -> Void
   let forward: () async -> Void
   let toggleExpansion: () -> Void
   let togglePin: () -> Void
@@ -2486,6 +2720,8 @@ private struct MailShellConversationMessage: View {
           .disabled(isUpdatingPin)
           if canReply {
             Button("Reply", action: reply)
+              .buttonStyle(.bordered)
+            Button("Reply All", action: replyAll)
               .buttonStyle(.bordered)
           }
           if canForward {
@@ -2550,16 +2786,19 @@ private struct MailShellMessageBody: View {
 }
 
 private struct MailShellComposer: View {
+  let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
   let isSending: Bool
   let send: (MailShellCompositionDraft) async -> Bool
   @Environment(\.dismiss) private var dismiss
 
   init(
+    connections: [MailboxConnection],
     draft: MailShellCompositionDraft,
     isSending: Bool,
     send: @escaping (MailShellCompositionDraft) async -> Bool
   ) {
+    self.connections = connections
     _draft = State(initialValue: draft)
     self.isSending = isSending
     self.send = send
@@ -2568,13 +2807,34 @@ private struct MailShellComposer: View {
   var body: some View {
     NavigationStack {
       Form {
+        Picker("From", selection: $draft.connectionId) {
+          Text("Choose a Mailbox Connection")
+            .tag(Optional<MailboxConnectionId>.none)
+          ForEach(connections) { connection in
+            Text(connection.displayName)
+              .tag(Optional(connection.id))
+              .disabled(
+                connection.authorizationState != .authorized
+                  || !connection.capabilities.canSend
+              )
+          }
+        }
+        if let selectedConnection, !selectedConnectionCanSend {
+          Text(
+            selectedConnection.authorizationState == .required
+              ? "Authorize this Mailbox Connection on this device before sending."
+              : "This Mailbox Connection cannot send mail."
+          )
+          .font(.footnote)
+          .foregroundStyle(.orange)
+        }
         TextField("To", text: $draft.recipient)
           .textInputAutocapitalization(.never)
         TextField("Subject", text: $draft.subject)
         TextField("Message", text: $draft.body, axis: .vertical)
           .lineLimit(8...24)
       }
-      .navigationTitle(draft.replyToMessage == nil ? "Forward" : "Reply")
+      .navigationTitle(draft.title)
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }
@@ -2588,11 +2848,22 @@ private struct MailShellComposer: View {
             }
           }
           .disabled(
-            isSending || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            isSending || !selectedConnectionCanSend
+              || draft.recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
           )
         }
       }
     }
+  }
+
+  private var selectedConnection: MailboxConnection? {
+    guard let connectionId = draft.connectionId else { return nil }
+    return connections.first { $0.id == connectionId }
+  }
+
+  private var selectedConnectionCanSend: Bool {
+    selectedConnection?.authorizationState == .authorized
+      && selectedConnection?.capabilities.canSend == true
   }
 }
 
@@ -2881,13 +3152,17 @@ final class NotificationRuleViewModel {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class GmailMailActionViewModel {
   private(set) var blockedConnectionIds: [MailboxConnectionId] = []
   var errorMessage: String?
   private(set) var failedConnectionIds: [MailboxConnectionId] = []
   var isPerformingAction = false
+  private(set) var outboxItems: [OutgoingDeliveryAttempt] = []
 
   private var knownConnections: [MailboxConnection] = []
+  private let outboxService: OutboxDeliveryService
+  private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
   private let service: MailboxProviderMailActing
   private let session: ProductAccountSessionSnapshot
@@ -2904,7 +3179,27 @@ final class GmailMailActionViewModel {
     blockedConnectionId ?? failedConnectionId
   }
 
-  init(service: MailboxProviderMailActing, session: ProductAccountSessionSnapshot) {
+  var outboxStates: [MailShellOutboxState] {
+    outboxItems.map {
+      switch $0.state {
+      case .handingOff, .pending:
+        .pending
+      case .reconciling, .retrying:
+        .retrying
+      case .failed, .outcomeUnknown, .userActionRequired:
+        .failed
+      case .cancelled, .sent, .superseded:
+        .sent
+      }
+    }
+  }
+
+  init(
+    service: MailboxProviderMailActing,
+    session: ProductAccountSessionSnapshot,
+    outboxService: OutboxDeliveryService = .shared
+  ) {
+    self.outboxService = outboxService
     self.service = service
     self.session = session
   }
@@ -2951,6 +3246,18 @@ final class GmailMailActionViewModel {
       connections: connections,
       session: session
     )
+    do {
+      try await outboxService.resume(
+        connections: connections,
+        session: session,
+        provider: outboxProvider(connections: connections),
+        reconcile: outboxReconciler(connections: connections)
+      )
+      await refreshOutbox()
+      observeOutboxRetries()
+    } catch {
+      errorMessage = error.localizedDescription
+    }
     await refreshFailureConnections(knownConnections)
     let service = self.service
     let session = self.session
@@ -3035,7 +3342,7 @@ final class GmailMailActionViewModel {
     defer { isPerformingAction = false }
 
     do {
-      try await service.send(
+      _ = try await outboxService.enqueue(
         OutgoingMessage(
           body: body,
           recipient: recipient,
@@ -3044,8 +3351,13 @@ final class GmailMailActionViewModel {
           providerThreadId: replyTo?.rfcMessageId == nil ? nil : replyTo?.providerThreadId
         ),
         connection: connection,
-        session: session
+        session: session,
+        provider: outboxProvider(connections: knownConnections + [connection]),
+        reconcile: outboxReconciler(connections: knownConnections + [connection])
       )
+      remember(connection)
+      await refreshOutbox()
+      observeOutboxRetries()
       errorMessage = nil
       return true
     } catch is CancellationError {
@@ -3053,6 +3365,165 @@ final class GmailMailActionViewModel {
     } catch {
       errorMessage = error.localizedDescription
       return false
+    }
+  }
+
+  func cancelOutboxAttempt(_ attempt: OutgoingDeliveryAttempt) async {
+    do {
+      _ = try await outboxService.cancel(attempt.id, session: session)
+      await refreshOutbox()
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func editOutboxAttempt(
+    _ attempt: OutgoingDeliveryAttempt,
+    recipient: String,
+    subject: String,
+    body: String,
+    connection: MailboxConnection
+  ) async -> Bool {
+    guard connection.authorizationState == .authorized, connection.capabilities.canSend else {
+      return false
+    }
+    do {
+      _ = try await outboxService.edit(
+        attempt.id,
+        message: OutgoingMessage(
+          body: body,
+          recipient: recipient,
+          subject: subject,
+          inReplyTo: attempt.message.inReplyTo,
+          providerThreadId: attempt.message.providerThreadId
+        ),
+        connection: connection,
+        session: session,
+        provider: outboxProvider(connections: knownConnections + [connection]),
+        reconcile: outboxReconciler(connections: knownConnections + [connection])
+      )
+      remember(connection)
+      await refreshOutbox()
+      observeOutboxRetries()
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  func retryOutboxAttempt(_ attempt: OutgoingDeliveryAttempt) async {
+    guard
+      let connection = knownConnections.first(where: {
+        $0.id == attempt.mailboxConnectionId
+      })
+    else {
+      errorMessage = "Authorize the sending Mailbox Connection before retrying."
+      return
+    }
+    do {
+      _ = try await outboxService.retry(
+        attempt.id,
+        connection: connection,
+        session: session,
+        provider: outboxProvider(connections: knownConnections),
+        reconcile: outboxReconciler(connections: knownConnections)
+      )
+      await refreshOutbox()
+      observeOutboxRetries()
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func resolveUnknownOutboxAttempt(
+    _ attempt: OutgoingDeliveryAttempt,
+    asDelivered: Bool
+  ) async {
+    do {
+      _ = try await outboxService.resolveUnknownOutcome(
+        attempt.id,
+        asDelivered: asDelivered,
+        session: session
+      )
+      await refreshOutbox()
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func refreshOutbox() async {
+    do {
+      outboxItems = try await outboxService.actionableItems(session: session)
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func prepareForSignOut() async {
+    outboxRetryObservationTask?.cancel()
+    retryObservationTask?.cancel()
+    do {
+      try await outboxService.clear(session: session)
+      outboxItems = []
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  private func observeOutboxRetries() {
+    outboxRetryObservationTask?.cancel()
+    let outboxService = self.outboxService
+    outboxRetryObservationTask = Task { [weak self] in
+      await outboxService.waitForScheduledRetries()
+      guard !Task.isCancelled, let self else { return }
+      await refreshOutbox()
+    }
+  }
+
+  private func outboxProvider(
+    connections: [MailboxConnection]
+  ) -> OutboxDeliveryPerformer {
+    let service = self.service
+    let session = self.session
+    let connectionsById = Dictionary(
+      connections.map { ($0.id, $0) },
+      uniquingKeysWith: { _, latest in latest }
+    )
+    return { message, idempotencyKey, connectionId in
+      guard let connection = connectionsById[connectionId] else {
+        throw MailboxConnectionAdapterError.authorizationRequired
+      }
+      try await service.send(
+        message.withIdempotencyKey(idempotencyKey),
+        connection: connection,
+        session: session
+      )
+    }
+  }
+
+  private func outboxReconciler(
+    connections: [MailboxConnection]
+  ) -> OutboxDeliveryReconciler {
+    let service = self.service
+    let session = self.session
+    let connectionsById = Dictionary(
+      connections.map { ($0.id, $0) },
+      uniquingKeysWith: { _, latest in latest }
+    )
+    return { idempotencyKey, connectionId in
+      guard let connection = connectionsById[connectionId] else {
+        return .unknown
+      }
+      return try await service.deliveryStatus(
+        idempotencyKey: idempotencyKey,
+        connection: connection,
+        session: session
+      )
     }
   }
 }
@@ -4735,6 +5206,7 @@ private struct GmailSearchPanel: View {
 private struct GmailInboxPanel: View {
   let categoryChoices: [MessageCategoryChoice]
   let connection: MailboxConnection?
+  let defaultSendingConnectionId: MailboxConnectionId?
   let isConnectionBusy: Bool
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let messageReader: MailboxMessageReading
@@ -4744,6 +5216,7 @@ private struct GmailInboxPanel: View {
   @State private var syncTask: Task<Void, Never>?
   @State private var cacheErrorMessage: String?
   @State private var composeBody = ""
+  @State private var isReplyOrForward = false
   @State private var recipient = ""
   @State private var replyToMessage: MailboxMessageMetadata?
   @State private var selectedMessage: MailboxMessageMetadata?
@@ -4807,10 +5280,13 @@ private struct GmailInboxPanel: View {
       }
 
       if let connection {
-        if connection.capabilities.canSend {
+        if connection.capabilities.canSend,
+          connection.id == defaultSendingConnectionId || isReplyOrForward
+        {
           GmailComposePanel(
             cancelReply: {
               replyToMessage = nil
+              isReplyOrForward = false
               recipient = ""
               subject = ""
               composeBody = ""
@@ -4819,6 +5295,7 @@ private struct GmailInboxPanel: View {
             isDisabled: mailActionViewModel.isPerformingAction || isConnectionBusy,
             isReplying: replyToMessage != nil,
             recipient: $recipient,
+            senderDisplayName: connection.displayName,
             subject: $subject,
             send: {
               Task {
@@ -4830,6 +5307,7 @@ private struct GmailInboxPanel: View {
                   connection: connection
                 ) {
                   replyToMessage = nil
+                  isReplyOrForward = false
                   recipient = ""
                   subject = ""
                   composeBody = ""
@@ -4907,6 +5385,7 @@ private struct GmailInboxPanel: View {
                   }
                 },
                 reply: { message in
+                  isReplyOrForward = true
                   replyToMessage = message
                   recipient = MailShellCompositionDraft.replyRecipient(for: message)
                   subject = message.subject == "(No subject)" ? "" : "Re: \(message.subject)"
@@ -4924,6 +5403,7 @@ private struct GmailInboxPanel: View {
                     )
                     guard !Task.isCancelled else { return }
                     cacheErrorMessage = nil
+                    isReplyOrForward = true
                     replyToMessage = nil
                     recipient = ""
                     subject = "Fwd: \(message.subject)"
@@ -5208,6 +5688,7 @@ private struct GmailComposePanel: View {
   let isDisabled: Bool
   let isReplying: Bool
   @Binding var recipient: String
+  let senderDisplayName: String
   @Binding var subject: String
   let send: () -> Void
 
@@ -5219,6 +5700,7 @@ private struct GmailComposePanel: View {
         Button("Cancel Reply", action: cancelReply)
           .buttonStyle(.borderless)
       }
+      LabeledContent("From", value: senderDisplayName)
       TextField("To", text: $recipient)
         .textFieldStyle(.roundedBorder)
       TextField("Subject", text: $subject)

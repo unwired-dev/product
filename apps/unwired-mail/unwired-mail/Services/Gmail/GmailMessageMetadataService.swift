@@ -343,6 +343,7 @@ enum GmailProviderMailAction: Equatable {
 struct GmailOutgoingMessage: Equatable {
   let body: String
   let recipient: String
+  let rfcMessageId: String?
   let subject: String
   let inReplyTo: String?
   let threadId: String?
@@ -352,10 +353,12 @@ struct GmailOutgoingMessage: Equatable {
     recipient: String,
     subject: String,
     inReplyTo: String? = nil,
-    threadId: String? = nil
+    threadId: String? = nil,
+    rfcMessageId: String? = nil
   ) {
     self.body = body
     self.recipient = recipient
+    self.rfcMessageId = rfcMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.threadId = threadId
@@ -1681,6 +1684,9 @@ struct GmailMessageMetadataService:
       let replyHeader = try headerValue(inReplyTo)
       headers.append("In-Reply-To: \(replyHeader)")
       headers.append("References: \(replyHeader)")
+    }
+    if let rfcMessageId = message.rfcMessageId {
+      headers.append("Message-ID: \(try headerValue(rfcMessageId))")
     }
     let mimeMessage = (headers + ["", message.body]).joined(separator: "\r\n")
     let raw = Data(mimeMessage.utf8)
