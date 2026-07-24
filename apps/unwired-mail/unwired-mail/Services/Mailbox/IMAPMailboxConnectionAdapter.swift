@@ -799,9 +799,7 @@ struct IMAPMessageMetadataService {
     if let state = try store.loadState(
       productAccountId: productAccountId,
       connectionId: definition.connectionId
-    ), state.hasInitialMailboxAvailability,
-      !state.historicalMetadataBackfillIsComplete
-    {
+    ), state.hasInitialMailboxAvailability {
       return try await refreshNewestPages(
         state: state,
         authorization: authorization,
@@ -1077,16 +1075,27 @@ struct IMAPMessageMetadataService {
     connectedAt: Int64,
     productAccountId: String
   ) throws -> MailboxMessageMetadata {
-    try store.updateCategory(
+    _ = try store.updateCategory(
       categoryId,
       stableProviderMessageId: message.stableProviderMessageId,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
-    ).mailboxMetadata(
-      connectionId: definition.connectionId,
-      connectedAt: connectedAt,
-      roleMappings: definition.roleMappings
     )
+    let messages = try store.loadMessages(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+    guard
+      let updatedMessage = mergedMetadata(
+        messages,
+        connectionId: definition.connectionId,
+        connectedAt: connectedAt,
+        roleMappings: definition.roleMappings
+      ).first(where: { $0.stableProviderMessageId == message.stableProviderMessageId })
+    else {
+      throw IMAPMailboxError.missingMessage
+    }
+    return updatedMessage
   }
 }
 
@@ -1558,6 +1567,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     if let connection {
       try validate(connection: connection, session: session, requiresAuthorization: true)
+      guard connection.capabilities.canSend else {
+        throw MailboxConnectionAdapterError.unsupportedCapability
+      }
     }
     _ = try await definitionSyncService.setDefaultSendingConnection(
       connection?.id,

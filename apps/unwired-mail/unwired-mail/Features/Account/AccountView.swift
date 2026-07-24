@@ -899,6 +899,11 @@ struct AccountView: View {
         _ = await gmailViewModel.load()
       }
     }
+    .onChange(of: genericMailSetupViewModel.authorizedSyncedConnectionIds) { _, _ in
+      Task {
+        _ = await gmailViewModel.load()
+      }
+    }
     .onChange(of: inboxViewModel.threads) { _, threads in
       if mailShellSelection.selectedMailbox?.isUnified == true {
         if let connectionId = inboxViewModel.currentConnectionId {
@@ -4156,7 +4161,7 @@ private struct GmailProviderConnectionPanel: View {
                   await viewModel.connect(expectedConnection: connection)
                 }
               }
-            } else {
+            } else if connection.capabilities.canSend {
               Button("Set as Default Sending Connection") {
                 Task {
                   await viewModel.setDefaultSendingConnection(connection)
