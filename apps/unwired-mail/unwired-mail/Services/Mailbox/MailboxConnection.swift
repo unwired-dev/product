@@ -16,6 +16,7 @@ struct ProductAccountId: Hashable, RawRepresentable, Sendable {
 
 struct MailProviderId: Hashable, RawRepresentable, Sendable {
   static let gmail = MailProviderId(rawValue: "gmail")
+  static let imapSMTP = MailProviderId(rawValue: "imap-smtp")
 
   let rawValue: String
 }
@@ -144,6 +145,18 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     canSend: true,
     canSynchronizeMetadata: true,
     providerActions: Set(ProviderMailAction.allCases)
+  )
+
+  static let imapRead = MailboxConnectionCapabilities(
+    canCategorizeHistorical: false,
+    canForward: false,
+    canReadMessages: true,
+    canRegisterPush: false,
+    canReply: false,
+    canSearchProvider: false,
+    canSend: false,
+    canSynchronizeMetadata: true,
+    providerActions: []
   )
 
   static let none = MailboxConnectionCapabilities(
@@ -888,6 +901,7 @@ protocol MailboxConnectionAdapter:
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {
   case authorizationRequired
   case connectionRemoved
+  case unsupportedCapability
   case unexpectedAuthorizedAccount
   case productAccountMismatch
   case unsupportedProvider
@@ -898,6 +912,8 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
       return "Authorize this Mailbox Connection on this device before accessing mail."
     case .connectionRemoved:
       return "This Mailbox Connection was removed on another trusted device."
+    case .unsupportedCapability:
+      return "This Mailbox Connection does not support that operation yet."
     case .unexpectedAuthorizedAccount:
       return "Sign in to the Google account for the selected Mailbox Connection."
     case .productAccountMismatch:

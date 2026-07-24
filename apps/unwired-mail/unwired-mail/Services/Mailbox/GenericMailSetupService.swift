@@ -522,7 +522,7 @@ struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
-    gmailConnection: MailboxConnectionClearing = GmailMailboxConnectionAdapter()
+    gmailConnection: MailboxConnectionClearing = MailboxConnectionRouter()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
     self.genericMailSetupService = genericMailSetupService

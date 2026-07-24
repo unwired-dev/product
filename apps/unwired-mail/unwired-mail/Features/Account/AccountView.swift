@@ -660,7 +660,7 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
-    mailboxConnection: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
+    mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     pinSyncService: PinSyncing = PinSyncService()
@@ -3641,11 +3641,9 @@ final class GmailProviderConnectionViewModel {
 
   private func completeLoadingConnections() async {
     if !connections.contains(where: { $0.id == selectedConnectionId }) {
-      if defaultSendingConnectionId?.providerId == .gmail {
-        selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
-      } else {
-        selectedConnectionId = connections.first?.id
-      }
+      selectedConnectionId =
+        connections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? connections.first?.id
     }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
@@ -4076,19 +4074,23 @@ private struct GmailProviderConnectionPanel: View {
   let selectMailbox: (MailboxConnection) -> Void
   @State private var connectTask: Task<Void, Never>?
 
+  private var gmailConnections: [MailboxConnection] {
+    viewModel.connections.filter { $0.providerId == .gmail }
+  }
+
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
         VStack(alignment: .leading, spacing: 4) {
           Text("Gmail")
             .font(.headline)
-          if viewModel.connections.isEmpty {
+          if gmailConnections.isEmpty {
             Text("Not connected")
               .font(.subheadline)
               .foregroundStyle(.secondary)
           } else {
             Text(
-              "\(viewModel.connections.count) mailbox connection\(viewModel.connections.count == 1 ? "" : "s")"
+              "\(gmailConnections.count) mailbox connection\(gmailConnections.count == 1 ? "" : "s")"
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -4108,7 +4110,7 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      ForEach(viewModel.connections) { connection in
+      ForEach(gmailConnections) { connection in
         HStack {
           Button {
             selectMailbox(connection)
@@ -4186,7 +4188,7 @@ private struct GmailProviderConnectionPanel: View {
         }
       } label: {
         Label(
-          viewModel.connections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
+          gmailConnections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
           systemImage: "person.crop.circle.badge.checkmark"
         )
         .frame(minHeight: 32)
