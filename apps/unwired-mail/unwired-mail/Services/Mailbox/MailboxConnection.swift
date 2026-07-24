@@ -1656,16 +1656,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
   ) async -> String? {
-    return await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
+    return await withTaskGroup(of: (Int, String?, String).self, returning: String?.self) { group in
       for (index, connection) in connections.enumerated() {
         group.addTask {
-          (index, await resumePendingActions(connection: connection, session: session))
+          (
+            index,
+            await resumePendingActions(connection: connection, session: session),
+            connection.displayName
+          )
         }
       }
       var indexedErrors: [(Int, String)] = []
-      for await (index, error) in group {
+      for await (index, error, displayName) in group {
         if let error {
-          indexedErrors.append((index, error))
+          indexedErrors.append((index, "\(displayName): \(error)"))
         }
       }
       let errors = indexedErrors.sorted { $0.0 < $1.0 }.map(\.1)

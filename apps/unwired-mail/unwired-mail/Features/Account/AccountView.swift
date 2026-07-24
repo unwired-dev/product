@@ -3436,7 +3436,7 @@ extension GmailMailActionViewModel {
     _ outcomes: [MailboxBulkActionBatchOutcome]
   ) -> MailboxBulkActionResult {
     let failures = outcomes.flatMap { outcome -> [MailboxBulkActionFailure] in
-      if let failureDetails = outcome.failureDetails {
+      if let failureDetails = outcome.failureDetails, !failureDetails.isEmpty {
         return failureDetails.map { detail in
           let failedMessages = outcome.messages.filter { detail.messageIds.contains($0.id) }
           return MailboxBulkActionFailure(
