@@ -496,9 +496,8 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     let existingRecords = try fetchRecords(
       productAccountId: productAccountId,
       connectionId: connectionId,
-      mailbox: mailbox,
       context: context
-    )
+    ).filter { IMAPProviderMessage.mailboxNamesEqual($0.mailbox, mailbox) }
     for record in existingRecords where record.uidValidity != uidValidity {
       context.delete(record)
     }
@@ -529,6 +528,11 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         existing.encodedMessage = try JSONEncoder().encode(message)
         existing.pendingRemovalScanId = nil
       } else {
+        message.categoryId = try loadProviderMessage(
+          stableProviderMessageId: stableId,
+          productAccountId: productAccountId,
+          connectionId: connectionId
+        )?.categoryId
         context.insert(
           DurableIMAPMessageMetadataRecord(
             connectionIdRawValue: connectionId.rawValue,
@@ -936,7 +940,11 @@ struct IMAPMessageMetadataService {
       productAccountId: productAccountId,
       connectionId: definition.connectionId
     )
-    state.mailboxes.removeAll { !activeNames.contains($0.descriptor.name) }
+    state.mailboxes.removeAll { mailbox in
+      !activeNames.contains(where: {
+        IMAPProviderMessage.mailboxNamesEqual($0, mailbox.descriptor.name)
+      })
+    }
 
     for descriptor in descriptors {
       try Task.checkCancellation()
@@ -1266,10 +1274,17 @@ struct IMAPMessageBodyService {
       try Task.checkCancellation()
       guard try loadCachedMessageBody(message: message, session: session) == nil else { continue }
       guard let providerMessage = messagesById[message.id] else { continue }
-      let body = try await client.loadTextBody(
-        message: providerMessage,
-        authorization: authorization
-      )
+      let body: String
+      do {
+        body = try await client.loadTextBody(
+          message: providerMessage,
+          authorization: authorization
+        )
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        continue
+      }
       let encrypted = try material.encryptPayload(
         Data(body.utf8),
         associatedData: associatedData(for: message.stableProviderMessageId)
@@ -1921,9 +1936,9 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let connections =
-      try await gmail.loadConnections(session: session)
-      + imap.loadConnections(session: session)
+    let gmailConnections = try await gmail.loadConnections(session: session)
+    let imapConnections = (try? await imap.loadConnections(session: session)) ?? []
+    let connections = gmailConnections + imapConnections
     return connections.sorted {
       if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
       return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
@@ -2108,6 +2123,109 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
       .perform(action, messages: messages, connection: connection, session: session)
   }
 
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await adapter(for: connection.id).perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await pendingActionErrors(
+      connections: connections,
+      session: session,
+      operation: { adapter, connections in
+        await adapter.resumePendingActions(connections: connections, session: session)
+      }
+    )
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    guard let adapter = try? adapter(for: connection.id) else { return nil }
+
+    return await adapter.retryBlockedPendingAction(
+      connection: connection,
+      session: session
+    )
+  }
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    guard let adapter = try? adapter(for: connection.id) else { return nil }
+
+    return await adapter.discardBlockedPendingAction(
+      connection: connection,
+      session: session
+    )
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    await pendingActionConnectionIds(
+      connections: connections,
+      session: session,
+      operation: { adapter, connections in
+        await adapter.blockedPendingActionConnectionIds(connections: connections, session: session)
+      }
+    )
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    await pendingActionConnectionIds(
+      connections: connections,
+      session: session,
+      operation: { adapter, connections in
+        await adapter.failedPendingActionConnectionIds(connections: connections, session: session)
+      }
+    )
+  }
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await pendingActionErrors(
+      connections: connections,
+      session: session,
+      operation: { adapter, connections in
+        await adapter.waitForPendingActionRetries(connections: connections, session: session)
+      }
+    )
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    guard let adapter = try? adapter(for: connection.id) else { return }
+    await adapter.acknowledgePendingActionFailures(
+      connection: connection,
+      session: session
+    )
+  }
+
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
@@ -2127,5 +2245,30 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     default:
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
+  }
+
+  private func pendingActionErrors(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    operation: (MailboxConnectionAdapter, [MailboxConnection]) async -> String?
+  ) async -> String? {
+    let gmailConnections = connections.filter { $0.id.providerId == .gmail }
+    let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
+    let gmailError = await operation(gmail, gmailConnections)
+    let imapError = await operation(imap, imapConnections)
+    let errors = [gmailError, imapError].compactMap { $0 }
+    return errors.isEmpty ? nil : errors.joined(separator: "\n")
+  }
+
+  private func pendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot,
+    operation: (MailboxConnectionAdapter, [MailboxConnection]) async -> [MailboxConnectionId]
+  ) async -> [MailboxConnectionId] {
+    let gmailConnections = connections.filter { $0.id.providerId == .gmail }
+    let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
+    let gmailIds = await operation(gmail, gmailConnections)
+    let imapIds = await operation(imap, imapConnections)
+    return gmailIds + imapIds
   }
 }

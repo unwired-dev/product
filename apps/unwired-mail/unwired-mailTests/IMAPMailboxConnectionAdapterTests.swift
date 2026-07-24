@@ -159,9 +159,15 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     ]
 
     let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+    let observed = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
 
     XCTAssertFalse(refreshed.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(refreshed.messages.count, 50)
+    XCTAssertEqual(observed.messages.count, 50)
   }
 
   func testObjectIdDeduplicatesOneMessageAcrossMailboxes() async throws {
