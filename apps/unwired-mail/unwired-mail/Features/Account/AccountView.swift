@@ -2009,7 +2009,7 @@ struct MailShellCompositionDraft: Identifiable {
   ) -> MailShellCompositionDraft {
     let candidates =
       [message.replyTo ?? message.from].compactMap(\.self)
-      + (message.recipientHeaders ?? [])
+      + (message.recipientHeaders ?? []).flatMap(mailboxValues)
     var seenAddresses: Set<String> = []
     let recipients = candidates.filter { address in
       let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -2021,6 +2021,44 @@ struct MailShellCompositionDraft: Identifiable {
     var draft = reply(to: message)
     draft.recipient = recipients.joined(separator: ", ")
     return draft
+  }
+
+  private static func mailboxValues(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<":
+        angleBracketDepth += 1
+      case ">":
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+      mailbox.append(character)
+    }
+    mailboxes.append(mailbox)
+    return mailboxes
   }
 
   static func replyRecipient(for message: MailboxMessageMetadata) -> String {

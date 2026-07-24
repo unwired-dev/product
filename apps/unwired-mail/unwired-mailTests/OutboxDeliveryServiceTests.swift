@@ -8,6 +8,7 @@ import XCTest
 @MainActor
 // swiftlint:disable:next type_body_length
 final class OutboxDeliveryServiceTests: XCTestCase {
+  private let immediateHandoffDelay: UInt64 = 0
   private let connection = MailboxConnection(
     authorizationState: .authorized,
     capabilities: .gmail,
@@ -40,6 +41,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let firstService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
@@ -59,6 +61,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     clock.advance(by: 61)
     let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 0 },
       store: store
@@ -82,6 +85,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let deliveries = DeliveryCounter()
     let service = OutboxDeliveryService(
       failureDisposition: { _ in .ambiguous },
+      handoffDelayNanoseconds: immediateHandoffDelay,
       store: store
     )
 
@@ -111,6 +115,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
   func testPermanentFailureCanBeEditedIntoANewImmutableAttempt() async throws {
     let service = OutboxDeliveryService(
       failureDisposition: { _ in .permanent },
+      handoffDelayNanoseconds: immediateHandoffDelay,
       store: InMemoryOutboxDeliveryStore()
     )
     let failed = try await service.enqueue(
@@ -148,6 +153,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       maximumAttempts: 2,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
@@ -179,6 +185,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
   func testRestartReconcilesInterruptedHandoffWithoutResending() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let firstService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
     )
@@ -193,7 +200,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     persisted[0].state = .handingOff
     try store.save(persisted, productAccountId: session.productAccountId)
     let deliveries = DeliveryCounter()
-    let restartedService = OutboxDeliveryService(store: store)
+    let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
 
     try await restartedService.resume(
       connections: [connection],
@@ -212,6 +222,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
@@ -227,6 +238,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     persisted[0].state = .handingOff
     try store.save(persisted, productAccountId: session.productAccountId)
     let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
@@ -259,6 +271,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       now: { clock.now() },
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: store
@@ -288,7 +301,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
   func testUnknownOutcomeRequiresExplicitResolutionBeforeRetry() async throws {
     let store = InMemoryOutboxDeliveryStore()
-    let service = OutboxDeliveryService(store: store)
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
     var attempt = try await service.enqueue(
       message,
       connection: connection,
@@ -311,7 +327,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
   func testEditAndCancelLoseRaceOnceProviderHandoffStarts() async throws {
     let gate = DeliveryHandoffGate()
-    let service = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
     let deliveryTask = Task {
       try await service.enqueue(
         message,
@@ -363,7 +382,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       trustedDeviceId: connection.trustedDeviceId,
       updatedAt: connection.updatedAt
     )
-    let service = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
 
     do {
       _ = try await service.enqueue(
@@ -389,6 +411,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       allowCreation: true
     )
     let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
       retryDelayNanoseconds: { _ in 60_000_000_000 },
       store: FileOutboxDeliveryStore(
         keyMaterialStore: keyStore,

@@ -234,6 +234,7 @@ actor OutboxDeliveryService {
   static let shared = OutboxDeliveryService()
 
   private let failureDisposition: @Sendable (Error) -> OutboxDeliveryFailureDisposition
+  private let handoffDelayNanoseconds: UInt64
   private let maximumAge: TimeInterval
   private let maximumAttempts: Int
   private let now: @Sendable () -> Date
@@ -245,6 +246,7 @@ actor OutboxDeliveryService {
   init(
     failureDisposition: @escaping @Sendable (Error) -> OutboxDeliveryFailureDisposition =
       defaultOutboxFailureDisposition,
+    handoffDelayNanoseconds: UInt64 = defaultOutboxHandoffDelay,
     maximumAge: TimeInterval = 7 * 24 * 60 * 60,
     maximumAttempts: Int = 10,
     now: @escaping @Sendable () -> Date = { Date() },
@@ -253,6 +255,7 @@ actor OutboxDeliveryService {
     store: OutboxDeliveryPersisting = FileOutboxDeliveryStore()
   ) {
     self.failureDisposition = failureDisposition
+    self.handoffDelayNanoseconds = handoffDelayNanoseconds
     self.maximumAge = maximumAge
     self.maximumAttempts = maximumAttempts
     self.now = now
@@ -279,7 +282,7 @@ actor OutboxDeliveryService {
     try store.save(attempts, productAccountId: session.productAccountId)
     scheduleRetry(
       attempt,
-      delay: defaultOutboxHandoffDelay,
+      delay: handoffDelayNanoseconds,
       provider: provider,
       reconcile: reconcile
     )
@@ -598,8 +601,8 @@ actor OutboxDeliveryService {
         try update(
           attemptId,
           productAccountId: productAccountId,
-          state: .pending,
-          errorDescription: nil
+          state: .reconciling,
+          errorDescription: "Confirming delivery after provider handoff was cancelled."
         )
         throw CancellationError()
       } catch {

@@ -1454,6 +1454,37 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(forward.body.contains("Decrypted body"))
   }
 
+  func testMailShellReplyAllSplitsRecipientHeaderMailboxes() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "Sender <sender@example.com>",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-001",
+      recipientHeaders: [
+        "reader@example.com, teammate@example.com",
+        "\"Doe, Jane\" <jane@example.com>",
+      ],
+      replyTo: "sender@example.com",
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message message-001",
+      subject: "Subject message-001"
+    )
+
+    let draft = MailShellCompositionDraft.replyAll(
+      to: message,
+      senderAddress: "reader@example.com"
+    )
+
+    XCTAssertEqual(
+      draft.recipient,
+      "sender@example.com, teammate@example.com, \"Doe, Jane\" <jane@example.com>"
+    )
+  }
+
   func testNewMessageKeepsUnavailableDefaultSendingConnectionWithoutSubstitution() {
     let unavailableDefault = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(

@@ -1703,7 +1703,8 @@ struct GmailMessageMetadataService:
       url: gmailBaseURL.appendingPathComponent("users/me/messages/send"),
       accessToken: accessToken,
       method: "POST",
-      body: body
+      body: body,
+      providerActionRequest: true
     )
   }
 
