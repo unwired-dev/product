@@ -85,7 +85,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(completed.messages.count, 76)
   }
 
-  func testInitialAvailabilityIsBoundedAcrossMultipleMailboxes() async throws {
+  func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
@@ -108,9 +108,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let connection = try XCTUnwrap(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let archive = try await adapter.loadMailbox(
+      .providerMailbox("Archive"),
+      connection: connection,
+      session: session
+    )
 
     XCTAssertEqual(initial.messages.count, 50)
-    XCTAssertEqual(initial.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
+    XCTAssertEqual(initial.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_060)
+    XCTAssertEqual(archive.messages.count, 50)
+    XCTAssertEqual(archive.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
     XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
   }
 
@@ -473,7 +480,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       responses: [
         "* OK ready\r\n",
         "A1 OK authenticated\r\n",
-        "* 1 EXISTS\r\nA2 OK selected\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
         "\(bodyStructure)\r\nA3 OK structure\r\n",
         "* 1 FETCH (UID 7 BODY[1] {12}\r\nHello=20IMAP)\r\nA4 OK body\r\n",
       ]
@@ -507,7 +514,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       responsesData: [
         Data("* OK ready\r\n".utf8),
         Data("A1 OK authenticated\r\n".utf8),
-        Data("* 1 EXISTS\r\nA2 OK selected\r\n".utf8),
+        Data("* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n".utf8),
         Data("\(bodyStructure)\r\nA3 OK structure\r\n".utf8),
         bodyResponse,
       ]
@@ -530,7 +537,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   func testSystemClientUsesObjectIdForStableIdentityAndThreading() async throws {
     let headers = "Message-ID: <fallback@example.com>\r\nSubject: Object identity\r\n"
     let fetch =
-      "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \"24-Jul-2026 09:00:00 +0000\" "
+      "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
       + "EMAILID (email-7) THREADID (thread-4) "
       + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
       + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"

@@ -498,7 +498,8 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     }
     let matchingRecords = existingRecords.filter { $0.uidValidity == uidValidity }
     let existingById = Dictionary(
-      uniqueKeysWithValues: matchingRecords.map { ($0.stableProviderMessageId, $0) }
+      matchingRecords.map { ($0.stableProviderMessageId, $0) },
+      uniquingKeysWith: { first, _ in first }
     )
     if case .newest(let coversEntireMailbox) = reconciliation {
       let incomingIds = Set(messages.map(\.providerMessageId))
@@ -732,20 +733,12 @@ struct IMAPMessageMetadataService {
       connectedAt: connectedAt,
       roleMappings: definition.roleMappings
     )
-    let messages =
-      if state?.hasInitialMailboxAvailability == true
-        && state?.historicalMetadataBackfillIsComplete == false
-      {
-        Array(allMessages.prefix(Self.initialPageSize))
-      } else {
-        allMessages
-      }
     return MailboxMetadataSyncResult(
       hasUnlistedNewMessages: false,
-      messages: messages,
+      messages: allMessages,
       newMessageIds: nil,
       providerCursorIsExpired: false,
-      threads: MailboxThread.group(messages),
+      threads: MailboxThread.group(allMessages),
       hasInitialMailboxAvailability: state?.hasInitialMailboxAvailability ?? false,
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false
@@ -784,9 +777,7 @@ struct IMAPMessageMetadataService {
     if let state = try store.loadState(
       productAccountId: productAccountId,
       connectionId: definition.connectionId
-    ), state.hasInitialMailboxAvailability,
-      !state.historicalMetadataBackfillIsComplete
-    {
+    ), state.hasInitialMailboxAvailability {
       return try await refreshNewestPages(
         state: state,
         authorization: authorization,
@@ -1060,16 +1051,27 @@ struct IMAPMessageMetadataService {
     connectedAt: Int64,
     productAccountId: String
   ) throws -> MailboxMessageMetadata {
-    try store.updateCategory(
+    _ = try store.updateCategory(
       categoryId,
       stableProviderMessageId: message.stableProviderMessageId,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
-    ).mailboxMetadata(
-      connectionId: definition.connectionId,
-      connectedAt: connectedAt,
-      roleMappings: definition.roleMappings
     )
+    let messages = try store.loadMessages(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+    guard
+      let updatedMessage = mergedMetadata(
+        messages,
+        connectionId: definition.connectionId,
+        connectedAt: connectedAt,
+        roleMappings: definition.roleMappings
+      ).first(where: { $0.stableProviderMessageId == message.stableProviderMessageId })
+    else {
+      throw IMAPMailboxError.missingMessage
+    }
+    return updatedMessage
   }
 }
 
@@ -1205,19 +1207,16 @@ struct IMAPMessageBodyService {
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>,
     referenceDate: Date,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
   ) async throws {
     try Task.checkCancellation()
-    let authorization = try requiredAuthorization(
-      connectionId: connection.id,
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
     let providerMessages = try metadataStore.loadMessages(
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )
     let messagesById = Dictionary(
-      uniqueKeysWithValues: providerMessages.map {
+      providerMessages.map {
         (
           StableProviderMessageIdentity(
             connectionId: connection.id,
@@ -1225,7 +1224,8 @@ struct IMAPMessageBodyService {
           ),
           $0
         )
-      }
+      },
+      uniquingKeysWith: { first, _ in first }
     )
     let plan = IMAPBodyPrefetchPlan(
       messages: providerMessages.map {
@@ -1436,6 +1436,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
     try metadataStore.clear(productAccountId: session.productAccountId)
+    try cache.clearMessageBodies(productAccountId: session.productAccountId)
   }
 
   func clearLocalConnection(
@@ -1500,7 +1501,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: definition.id
       )
-      let isAuthorized = authorization?.definition == genericDefinition
+      let isAuthorized =
+        authorization.map {
+          hasMatchingCredentials($0.definition, genericDefinition)
+        } ?? false
       return MailboxConnection(
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities: isAuthorized ? .imapRead : .none,
@@ -1536,6 +1540,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     if let connection {
       try validate(connection: connection, session: session, requiresAuthorization: true)
+      guard connection.capabilities.canSend else {
+        throw MailboxConnectionAdapterError.unsupportedCapability
+      }
     }
     _ = try await definitionSyncService.setDefaultSendingConnection(
       connection?.id,
@@ -1555,12 +1562,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let definition = try localDefinition(connection: connection, session: session)
+    let definition = try await localDefinition(connection: connection, session: session)
     return try metadataService.load(
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
-    ).projected(to: .role(.inbox))
+    )
+    .projected(to: .role(.inbox))
+    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadMailbox(
@@ -1568,12 +1577,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let definition = try localDefinition(connection: connection, session: session)
-    return try metadataService.load(
+    let definition = try await localDefinition(connection: connection, session: session)
+    let result = try metadataService.load(
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
-    ).projected(to: collection)
+    )
+    .projected(to: collection)
+    guard collection != .allObserved else { return result }
+    return result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadProviderMailboxes(
@@ -1581,7 +1593,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox] {
     try metadataService.loadProviderMailboxes(
-      definition: localDefinition(connection: connection, session: session),
+      definition: try await localDefinition(connection: connection, session: session),
       productAccountId: session.productAccountId
     )
   }
@@ -1600,6 +1612,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
+      .projected(to: .role(.inbox))
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
 
@@ -1617,6 +1631,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
+      .projected(to: .role(.inbox))
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
 
@@ -1644,7 +1660,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     return try metadataService.overrideCategory(
       categoryId,
       message: message,
-      definition: localDefinition(connection: connection, session: session),
+      definition: try await localDefinition(connection: connection, session: session),
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
     )
@@ -1677,6 +1693,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
+    _ = try await authorizationForProviderAccess(
+      connection: connection(id: message.connectionId, session: session),
+      session: session
+    )
     return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
@@ -1686,12 +1706,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try validate(connection: connection, session: session, requiresAuthorization: true)
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
     try await bodyReader.prefetchMessageBodies(
       connection: connection,
       pinnedMessageIds: pinnedMessageIds,
       referenceDate: referenceDate,
-      session: session
+      session: session,
+      authorization: authorization
     )
   }
 
@@ -1746,7 +1770,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    return authorization
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
+        .genericMailDefinition
+    else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard hasMatchingCredentials(authorization.definition, definition) else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    return DeviceLocalGenericMailAuthorization(
+      credential: authorization.credential,
+      definition: definition
+    )
   }
 
   private func connection(
@@ -1761,8 +1797,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func localDefinition(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
-  ) throws -> GenericMailConnectionDefinition {
+  ) async throws -> GenericMailConnectionDefinition {
     try validate(connection: connection, session: session, requiresAuthorization: false)
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    if snapshot.removedConnectionIds.contains(connection.id) {
+      try await clearLocalConnection(connection, session: session)
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
     guard
       let authorization = try authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
@@ -1770,7 +1811,27 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    return authorization.definition
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
+        .genericMailDefinition
+    else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard hasMatchingCredentials(authorization.definition, definition) else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    return definition
+  }
+
+  private func hasMatchingCredentials(
+    _ authorizationDefinition: GenericMailConnectionDefinition,
+    _ syncedDefinition: GenericMailConnectionDefinition
+  ) -> Bool {
+    authorizationDefinition.authorizationMethod == syncedDefinition.authorizationMethod
+      && authorizationDefinition.connectionId == syncedDefinition.connectionId
+      && authorizationDefinition.incomingEndpoint == syncedDefinition.incomingEndpoint
+      && authorizationDefinition.outgoingEndpoint == syncedDefinition.outgoingEndpoint
+      && authorizationDefinition.username == syncedDefinition.username
   }
 
   private func validate(
@@ -1963,7 +2024,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   }
 
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
-    try gmail.clearCachedMessageBodies(session: session)
+    var firstError: Error?
+    do {
+      try gmail.clearCachedMessageBodies(session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try imap.clearCachedMessageBodies(session: session)
+    } catch {
+      if firstError == nil { firstError = error }
+    }
+    if let firstError { throw firstError }
   }
 
   func clearCachedMessageBodies(

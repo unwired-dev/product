@@ -33,11 +33,12 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
         .contains("OBJECTID")
       let selectResponse = try await session.command("SELECT \(Self.quoted(mailbox.name))")
       let uidValidity = try IMAPResponseParser.uidValidity(selectResponse)
-      let searchResponse = try await session.command("UID SEARCH ALL")
-      let allUIDs = IMAPResponseParser.uids(searchResponse)
-      let eligibleUIDs = allUIDs.filter { uid in
-        beforeUID.map { uid < $0 } ?? true
-      }.sorted()
+      guard beforeUID != 1 else {
+        return IMAPMetadataPage(messages: [], nextOlderUID: nil, uidValidity: uidValidity)
+      }
+      let searchCommand = beforeUID.map { "UID SEARCH UID 1:\($0 - 1)" } ?? "UID SEARCH ALL"
+      let searchResponse = try await session.command(searchCommand)
+      let eligibleUIDs = IMAPResponseParser.uids(searchResponse).sorted()
       let selectedUIDs = Array(eligibleUIDs.suffix(max(0, limit)))
       let nextOlderUID =
         eligibleUIDs.count > selectedUIDs.count
@@ -74,7 +75,10 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
     try await withSession(authorization: authorization) { session in
-      _ = try await session.command("SELECT \(Self.quoted(message.mailbox))")
+      let selectResponse = try await session.command("SELECT \(Self.quoted(message.mailbox))")
+      guard try IMAPResponseParser.uidValidity(selectResponse) == message.uidValidity else {
+        throw IMAPMailboxError.invalidProviderResponse
+      }
       let structureResponse = try await session.command(
         "UID FETCH \(message.uid) (BODYSTRUCTURE)"
       )
@@ -812,7 +816,7 @@ private struct IMAPBodyStructure {
       guard case .list(let disposition) = value,
         let name = disposition.first?.stringValue?.uppercased()
       else { continue }
-      if name == "ATTACHMENT" { return true }
+      if name == "ATTACHMENT" || parameter(named: "FILENAME", in: value) != nil { return true }
     }
     return false
   }
