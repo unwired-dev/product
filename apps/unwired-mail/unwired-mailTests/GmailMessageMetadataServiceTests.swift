@@ -1012,6 +1012,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   func testMailboxFreshnessCoalescesOverlappingSyncForOneConnection() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
 
     let first = Task { @MainActor in
       try await fixture.viewModel.syncInbox(connection: connection, session: session)

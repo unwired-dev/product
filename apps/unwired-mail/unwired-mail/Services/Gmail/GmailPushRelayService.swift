@@ -1359,6 +1359,11 @@ struct GmailPushWakeupHandler {
     }
     if syncResult.providerCursorIsExpired {
       _ = try await scheduleGenericFallback()
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
       return false
     }
     let successfulSyncAt = Date()
