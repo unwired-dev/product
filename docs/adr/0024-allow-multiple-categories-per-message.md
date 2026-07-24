@@ -1,0 +1,3 @@
+# Allow multiple Categories per message
+
+A message may belong to multiple Categories so one classification can appear in several Category-backed Mail Views and users can edit membership through a message-level multiselect control. System Categorization may assign every confidently matching purpose Category while People remains a fallback; user additions and removals create positive and negative future-only learning signals. Concurrent membership changes merge per Category, with user actions beating system actions and concurrent user removal beating addition. Legacy single-category records migrate idempotently to compatible one-member sets without letting mixed-version devices collapse multi-category state.

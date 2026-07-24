@@ -104,6 +104,14 @@ _Avoid_: Folder name, localized-name inference
 A product-local aggregate of every message except Spam and Trash across all **Mailbox Connections**, available even when a provider has no native all-mail mailbox.
 _Avoid_: Required provider folder, Gmail-only mailbox
 
+**Mail View**:
+A user-selectable filter within the currently selected mailbox scope that narrows the **Threads** shown without changing mailbox membership or **Message Categories**.
+_Avoid_: Category, Mailbox, bottom tab
+
+**All Messages Mail View**:
+The permanent **Mail View** that shows every Thread in the selected mailbox scope and is labeled “All” in compact navigation.
+_Avoid_: All Mail, All emails
+
 **Sent Mailbox**:
 A mailbox containing messages whose delivery has completed successfully; its unified form aggregates sent messages across **Mailbox Connections**.
 _Avoid_: Outbox, sending queue
@@ -111,6 +119,14 @@ _Avoid_: Outbox, sending queue
 **Outbox**:
 A product-owned queue containing outgoing messages that are pending, retrying, or failed rather than confirmed as sent.
 _Avoid_: Sent Mailbox, sent folder
+
+**Draft**:
+An editable, unsent outgoing message retained by the product until it is explicitly discarded or durably admitted to the **Outbox**.
+_Avoid_: Outbox message, temporary composer
+
+**Semantic Message Document**:
+The editable message-body representation shared by Markdown input shortcuts, formatting controls, context actions, Draft synchronization, and outgoing format generation.
+_Avoid_: Stored Markdown, raw HTML draft
 
 **Outgoing Delivery Attempt**:
 An immutable attempt to send one Outbox message through a selected **Mailbox Connection**.
@@ -121,8 +137,8 @@ A user-selected delay before an **Outgoing Delivery Attempt** is handed to its p
 _Avoid_: Provider recall, retract delivered message
 
 **Pin**:
-A product-owned marker that keeps a message in the unified pinned-message view across trusted devices without changing provider flags.
-_Avoid_: Gmail star, IMAP flag, provider pin
+A product-owned marker that keeps a **Thread** in the unified pinned view across trusted devices without changing provider flags.
+_Avoid_: Message pin, Gmail star, IMAP flag, provider pin
 
 **Gmail-first provider support**:
 The provider strategy where multiple Gmail **Mailbox Connections** precede generic IMAP and SMTP, Microsoft Graph, POP3 and Exchange Web Services, while JMAP is deferred.
@@ -136,6 +152,18 @@ _Avoid_: Folder, Gmail label, Outlook category
 A product-provided **Category** available without user setup.
 _Avoid_: Default folder, provider label
 
+**Orders**:
+A **System Category** for transactional purchase messages, including confirmations, invoices, receipts, payment updates, shipping, delivery, cancellations, and returns.
+_Avoid_: Invoices
+
+**Newsletters & Promotions**:
+A **System Category** for subscribed newsletters and commercial marketing messages, including campaigns, coupons, sales, and advertising email.
+_Avoid_: Promotions, Newsletters & Ads
+
+**People**:
+A **System Category** for person-to-person correspondence primarily authored by a human for direct conversation, excluding bulk mail, newsletters, transactional notifications, and automated campaigns.
+_Avoid_: Contacts, human-looking sender
+
 **Custom Category**:
 A user-created **Category** for organizing messages according to the user's own needs.
 _Avoid_: Custom folder, provider label
@@ -144,24 +172,32 @@ _Avoid_: Custom folder, provider label
 Optional user-written guidance that explains when a **Custom Category** should apply.
 _Avoid_: Prompt, rule
 
+**Category Appearance**:
+The icon and color associated with a Category, used together with its text label and never as the sole indicator of meaning.
+_Avoid_: Custom artwork, color-only category
+
 **Message Category**:
-A category assigned to an individual message, such as promotions, invites, invoices, or flights.
-_Avoid_: Thread category, folder
+One of zero or more Categories assigned to an individual message, such as newsletters and promotions, invites, orders, or flights.
+_Avoid_: Exclusive category, Thread category, folder
 
 **Stable Provider Message Identity**:
 A provider-specific message identity used to match the same message across devices. Gmail uses its immutable message resource ID; Microsoft Graph connections require immutable IDs; IMAP uses its immutable provider-mailbox identity plus UIDVALIDITY and UID; POP3 connections require UIDL; and Exchange uses its provider item identity. A provider that cannot supply the required stable identity is not eligible for a synchronized Mailbox Connection. Provider adapters retain a verified repair mapping for provider-issued identity changes such as moves; if repair is ambiguous or unavailable, they create a distinct product record rather than applying product state to the wrong message.
 _Avoid_: Local database ID, backend message ID
 
 **Uncategorized State**:
-The state of a message when no **Message Category** has been assigned, including historical mail that is not automatically categorized.
+The state of a message when no **Message Categories** have been assigned, including historical mail that is not automatically categorized.
 _Avoid_: Uncategorized category, forced category
 
 **Thread**:
 A group of related messages within one **Mailbox Connection**, shown together as a conversation.
 _Avoid_: Category target
 
+**Stable Thread Identity**:
+A **Mailbox Connection**-scoped identity derived from a reliable provider conversation identity or verified RFC reply linkage and used to preserve product-owned Thread state across trusted devices.
+_Avoid_: Subject, latest message identity
+
 **System Categorization**:
-Automatic assignment of a **Message Category** by the product.
+Automatic assignment of one or more **Message Categories** by the product.
 _Avoid_: Manual category
 
 **New-Mail-Only Categorization**:
@@ -204,6 +240,18 @@ _Avoid_: On-demand-only body cache, permanent body store, attachment archive
 Content referenced by a message but fetched from an external server only when the message is viewed, such as remote images.
 _Avoid_: Message body, downloaded attachment
 
+**Inline Image**:
+A user-authored image placed at a position inside a **Semantic Message Document** and delivered as part of the outgoing message rather than fetched as **Remote Message Content**.
+_Avoid_: Image attachment, remote image
+
+**Attachment**:
+A user-authored file delivered with an outgoing message outside the ordered body content.
+_Avoid_: Inline Image, downloaded attachment
+
+**Draft Asset**:
+The encrypted source bytes and metadata for an **Attachment** or **Inline Image** retained with a **Draft** before Outbox admission.
+_Avoid_: Downloaded attachment, remote image
+
 **Tracking Pixel**:
 Remote message content intended to reveal that a message was opened or viewed.
 _Avoid_: Read Receipt, ordinary embedded image
@@ -233,11 +281,11 @@ A category change made by the user after **System Categorization**.
 _Avoid_: Recategorization
 
 **Future Learning Signal**:
-Information from a **User Override** that can improve categorization of future messages without changing already categorized messages.
+Positive or negative per-Category information from a **User Override** that can improve categorization of future messages without changing already categorized messages.
 _Avoid_: Retroactive recategorization
 
 **Category Conflict Rule**:
-The rule for resolving competing category assignments across trusted devices.
+The rule for merging concurrent per-Category membership changes across trusted devices.
 _Avoid_: Last-write-wins
 
 **Synced Category**:
@@ -275,6 +323,18 @@ _Avoid_: Server-readable sync, plaintext sync
 **Mail Workflow Preference**:
 A user-owned choice about handling mail that follows the user across trusted devices through **End-to-End Encrypted Product Sync**.
 _Avoid_: Device setting, provider credential
+
+**Compose Presentation Preference**:
+The global **Mail Workflow Preference** that chooses partial or full-screen presentation when any new-message, reply, reply-all, or forward composer opens.
+_Avoid_: Current composer size, per-draft layout
+
+**Formatting Toolbar Preference**:
+The global **Mail Workflow Preference** that controls whether the composer displays its formatting toolbar without disabling formatting capabilities.
+_Avoid_: Plain-text mode, formatting disablement
+
+**Recipient Suggestion**:
+An on-device autocomplete candidate derived from local correspondence, recent recipients, permissioned Apple Contacts, or an optional device-authenticated Mail Provider directory.
+_Avoid_: Backend contact, uploaded address query
 
 **Device-Local Preference**:
 A choice tied to one device's hardware, operating-system permission, appearance, storage, or diagnostics.
@@ -334,20 +394,53 @@ _Avoid_: Password reset, support recovery
 - Changing a **Mailbox Role** mapping reclassifies existing local metadata and applies to future synchronization; the prior mapping is retained until the new mapping completes and may be restored if the change fails
 - When a **Mailbox Role** mapping changes, every pending **Provider Mail Action** whose target or meaning changed is cancelled until the user reconfirms it against the new mapping
 - A user may select either a **Unified Mailbox** or a mailbox within one **Mailbox Connection** to scope the messages being viewed
+- A **Mail View** filters the **Threads** in the selected mailbox or **Unified Mailbox**
+- A **Thread** appears in a **Mail View** when any current message in that thread matches the view; the whole conversation remains available and retains latest-message ordering
+- Important and the **All Messages Mail View** are permanent **Mail Views**; the remaining **Mail Views** are user-configurable
+- The Important **Mail View** matches the union of user-selected **System Categories** and **Custom Categories**; it is neither a separate message classification nor a substitute for **Pins**
+- Important initially includes People, Invites, Orders, and Flights and excludes Newsletters & Promotions
+- Each configurable **Mail View** matches exactly one **System Category** or **Custom Category**
+- Every supported Apple layout exposes at most five **Mail Views**: Important, the **All Messages Mail View**, and up to three configurable Category views; additional Categories do not enter an overflow view
+- Important and the **All Messages Mail View** remain in the first and second **Mail View** positions; users may reorder only the three configurable Category views
+- New users start with Orders, Newsletters & Promotions, and Flights in the three configurable **Mail View** positions
+- Configurable **Mail Views** cannot duplicate a Category; deleting a Custom Category or disabling any Category removes it from Important and its configurable slot without substitution, allowing fewer than five visible views until the user fills the empty slot
+- If the selected configurable **Mail View** disappears, selection falls back to the **All Messages Mail View** while preserving the selected mailbox and Thread when possible
+- Each **Mail View** badge shows the selected mailbox scope's unread-Thread count capped at 99+; a Thread counts once in each matching view when any of its messages is unread
+- One global **Mail View** configuration applies across all mailboxes; changing the selected mailbox changes only the view's message scope
+- **Mail View** configuration is a **Mail Workflow Preference** synchronized through **End-to-End Encrypted Product Sync**
+- The selected mailbox and **Mail View** are transient device-local navigation state; a new application session starts in Unified Inbox with Important selected
+- The **Compose Presentation Preference** defaults to partial and applies globally to every compose type; changing one open composer to full screen does not change the preference
+- The **Formatting Toolbar Preference** synchronizes globally and hides only the formatting toolbar; Markdown, keyboard, context-menu, document, and delivery formatting remain available
 - A **Unified Mailbox** interleaves mailbox-scoped **Threads** by latest message time rather than grouping them by account
 - Every thread in a **Unified Mailbox** visibly identifies its source **Mailbox Connection**
 - Background synchronization preserves the selected **Thread** when newer threads enter the list
 - The unified **Sent Mailbox** is always available
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
 - The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
+- Composer edits continuously autosave to an encrypted **Draft**; closing a composer preserves the Draft, while explicit discard requires confirmation when it contains user state
+- Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**
+- **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
+- Discarding a **Draft** or durably admitting it to the **Outbox** eventually removes its synchronized **Draft Assets**
+- Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
+- Formatting controls and context actions edit the same **Semantic Message Document**
+- Outgoing delivery derives interoperable HTML and plain-text alternatives from the **Semantic Message Document**
+- The v1 **Semantic Message Document** supports paragraphs, headings one through three, bold, italic, underline, strikethrough, bulleted and numbered lists, blockquotes, inline code, code blocks, links, undo, and redo
+- The **Semantic Message Document** may contain **Inline Images** at authored cursor positions
+- Font families, arbitrary font sizes, text and background colors, alignment, and tables are outside the v1 formatting vocabulary
+- Rich-message delivery is verified against current Apple Mail on iOS and macOS, Gmail web and mobile, and Outlook web and desktop, while every message includes a standards-compatible plain-text alternative
+- Pointer right-click, touch long-press, and keyboard context-menu access expose the same current-block choices: paragraph, headings one through three, bulleted list, numbered list, blockquote, and code block; inline styles remain selection-based
+- Pasting or dropping image data into the message body creates an **Inline Image**, while choosing an image through the attachment picker creates an **Attachment**; an explicit context action converts either representation to the other
+- Before **Outbox** admission, the client computes final transfer-encoded MIME size and enforces a known limit from the selected sending **Mailbox Connection**; an unknown provider limit permits attempted delivery with a visible estimate, while excess size requires removal or local image compression
+- Outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** and never through the product backend
 - The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
 - Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
 - Permanently failed **Outgoing Delivery Attempts** stop until the user resolves authentication, policy, recipient, or message problems
 - Pending and failed Outbox messages remain editable and cancellable until an **Outgoing Delivery Attempt** has been handed to its provider; an in-flight attempt must first reach a terminal state
 - Editing an eligible Outbox message creates a new **Outgoing Delivery Attempt** rather than mutating an attempt already in flight
-- A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Provider Message Identity**, and remains independent of provider-visible flags
-- Pinned messages from all **Mailbox Connections** appear together in the unified pinned-message view
+- A **Pin** is protected by **End-to-End Encrypted Product Sync**, is keyed by its **Mailbox Connection** and **Stable Thread Identity**, and remains independent of provider-visible flags
+- Pinned **Threads** from all **Mailbox Connections** appear together in the unified pinned view
+- Legacy message Pins migrate idempotently to their containing **Thread**, deduplicate by **Stable Thread Identity**, and remain until the corresponding Thread **Pin** is durably synchronized; a message without reliable linkage forms a one-message Thread
 - A **True email client** supports **Provider Mail Actions**
 - An offline **Provider Mail Action** becomes a **Pending Provider Action** and updates local presentation optimistically
 - **Pending Provider Actions** are ordered per **Mailbox Connection** and retried when connectivity returns
@@ -365,17 +458,25 @@ _Avoid_: Password reset, support recovery
 - **End-to-End Encrypted Product Sync** prevents the product backend from reading **Synced Categories**
 - A **Recovery Key** can restore access to data protected by **End-to-End Encrypted Product Sync**
 - A **Message Category** is assigned to an individual message, not to a **Thread**
+- A message may have multiple **Message Categories**
 - A **Message Category** syncs across devices by its **Mailbox Connection** and **Stable Provider Message Identity**
+- Legacy single-category assignments migrate idempotently to one-member Category sets while preserving assignment source, override state, and learning signals; mixed-version synchronization remains readable and cannot collapse a multi-category set to one value
 - A **Thread** groups related messages without being the categorization target
 - A **Thread** never spans multiple **Mailbox Connections**, including when shown in a **Unified Mailbox**
 - A **Thread** uses a reliable provider conversation identity when available, otherwise RFC message and reply identifiers
 - Subject similarity alone never combines messages into a **Thread**, and messages without reliable linkage remain separate
 - Selecting a **Thread** opens its conversation rather than only its latest message
-- The conversation reader expands the latest message and keeps older messages available to expand
+- The conversation reader orders messages newest to oldest, expands the newest message at the top, and keeps older messages collapsed and available to expand below it
+- Reply, Reply All, and Forward target the currently expanded message; Archive, Delete, Move, Spam, **Pin**, and read-state actions target the entire **Thread**
+- The fixed reader toolbar includes a multi-select Category control that edits the **Message Categories** of the currently expanded message
+- The Category control stages multiple membership changes and commits them as one **User Override** only when the user applies them; cancelling commits nothing, while an offline apply updates local presentation and queues encrypted synchronization
+- The Category control includes Add New, which opens the same required-name and optional-**Category Description** creation flow used in Settings
+- Creating a Custom Category commits independently and preselects it in the open control; cancelling message assignment keeps the new Category but leaves the message unchanged
 - Replies from a **Thread** use that thread's **Mailbox Connection** identity
 - Replies and forwards default to their source **Thread** identity rather than the **Default Sending Connection**
 - If a source **Thread** connection cannot send on the current device, the user must authorize it or explicitly select another sender; the product never silently substitutes an identity
 - A new message defaults to the **Default Sending Connection** and always exposes its sending identity
+- Recipient autocomplete ranks local correspondents, recent recipients, permissioned Apple Contacts, and optional device-authenticated provider-directory results; manual valid addresses remain available and neither addresses nor queries pass through the product backend
 - The **Default Sending Connection** synchronizes across trusted devices without mailbox credentials
 - If the **Default Sending Connection** cannot send on the current device, the user must authorize it or explicitly select another sender
 - The product never silently substitutes a different sending identity
@@ -386,20 +487,30 @@ _Avoid_: Password reset, support recovery
 - **Historical Categorization Opt-In** permits categorization of old mail when the user chooses it
 - **Bounded Historical Categorization** limits **Historical Categorization Opt-In** to a user-selected scope
 - A **Category** may be a **System Category** or a **Custom Category**
-- A **Product Account** may have at most one **Custom Category**
+- **Orders** replaces the narrower Invoices **System Category** while preserving existing assignments and preferences through migration
+- **Newsletters & Promotions** replaces the narrower Promotions **System Category** while preserving existing assignments and preferences through migration
+- **People** contains direct person-to-person correspondence rather than every message with a human-looking sender
+- **People** follows **New-Mail-Only Categorization** on rollout; historical mail receives it only through explicit **Bounded Historical Categorization**
+- System Categorization independently assigns every confidently matching purpose-specific **System Category**; **People** is assigned only as the fallback when no purpose-specific Category matches direct correspondence
+- A **Product Account** may have multiple **Custom Categories**
+- The legacy single Custom Category migrates idempotently into the multi-category collection without changing its identity, name, description, assignments, notification rules, or learning signals and without automatically adding a **Mail View**
 - A **Custom Category** may have a **Category Description**
+- Custom Category names are trimmed, contain 1–40 characters, and are case-insensitively unique across System and Custom Categories; descriptions contain at most 500 characters
+- System Categories have fixed product-defined **Category Appearance**; Custom Categories choose from curated SF Symbols and an accessibility-tested color palette, and their appearance synchronizes through **End-to-End Encrypted Product Sync**
+- System Categorization evaluates every enabled **Custom Category** independently and may assign several alongside System Categories; disabling a Custom Category affects only future automatic assignment
 - **System Categorization** uses **Minimized Classification Input** before inspecting message body text
 - A message in **Uncategorized State** has no **Message Category**
-- **System Categorization** may assign a **Message Category** to a message in **Uncategorized State**
+- **System Categorization** may assign one or more **Message Categories** to a message in **Uncategorized State**
 - Historical mail remains in **Uncategorized State** under **New-Mail-Only Categorization**
 - A **User Override** may become a **Future Learning Signal**
+- Adding a Category through a **User Override** creates a positive **Future Learning Signal**, while removing one creates a negative signal for that Category
 - A **Future Learning Signal** must not change existing **Message Categories**
 - Automatic categorization of new mail may be disabled globally
 - A **System Category** may be disabled for future **System Categorization** without removing or changing existing **Message Categories**
 - The identities and names of **System Categories** are product-defined and cannot be edited as custom categories
 - Resetting learned sender signals affects only future categorization and does not change existing **Message Categories**
 - **Bounded Historical Categorization** exposes progress and may be cancelled without undoing assignments already completed
-- The **Category Conflict Rule** gives user actions priority over system actions and otherwise keeps the first assignment
+- The **Category Conflict Rule** merges concurrent changes to different Categories, gives user actions priority over system actions, and gives a concurrent user removal priority over a user addition of the same Category
 - **Durable Message Metadata** is retained separately from the **Bounded Encrypted Body Cache**
 - **Durable Message Metadata** is read locally before mailbox synchronization updates it
 - **Initial Mailbox Availability** requires the newest 50 message metadata, or all provider-visible messages when fewer exist, and does not wait for full history
@@ -409,16 +520,17 @@ _Avoid_: Password reset, support recovery
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
 - The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
 - For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive, ordered by newest applicable timestamp first; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
-- A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then pinned candidates in most-recently-read order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pinned-only protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
-- Pinned message bodies are eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise their metadata remains pinned and the body is fetched on demand until cache space becomes available
-- Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a **Pin** for body prefetch
-- Draft body content remains available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronizes through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; its body is admitted after space is freed. When trusted devices edit the same draft from the same synchronized revision while offline, synchronization preserves both bodies: the later upload remains the original draft and the other becomes a user-visible conflicted draft copy; neither body is silently overwritten
+- A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then bodies belonging to pinned **Threads** in most-recently-read Thread and message order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pin-only body protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned-Thread eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
+- Every non-Spam, non-Trash message body in a pinned **Thread** is eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise the Thread metadata and **Pin** remain while the missing body is fetched on demand
+- Spam, Trash, attachments, and older unpinned message bodies remain on-demand; Spam and Trash exclusion overrides a Thread **Pin** for body prefetch
+- Complete **Drafts**, including their **Semantic Message Document** and **Draft Assets**, remain available offline as product-authored local data in a separately encrypted 100 MB device-wide draft store and synchronize through **End-to-End Encrypted Product Sync** to trusted devices; drafts are never evicted automatically, and a full store prevents saving additional draft content until the user removes or shortens a draft. Incoming Draft content that would exceed the local limit remains encrypted in Product Sync and is marked pending local storage rather than discarded; it is admitted after space is freed. When trusted devices edit the same Draft from the same synchronized revision while offline, synchronization preserves both versions: the later upload remains the original Draft and the other becomes a user-visible conflicted Draft copy; neither is silently overwritten
 - The **Bounded Encrypted Body Cache** has a 500 MB device-wide limit
 - Cache eviction removes eligible opened older non-pinned bodies first, then eligible non-pinned prefetched bodies, then least-recently-read pinned bodies as a last resort; the current cache-fitting protected set is never eligible, and a later selection may stop protecting a pinned body when the hard cap requires it
-- Evicting a pinned body preserves its **Pin** and fetches the body again on demand
-- Draft bodies are stored separately and do not count against the body-cache limit, but are constrained by the separate draft-store limit
+- Evicting a body from a pinned **Thread** preserves the Thread's **Pin** and fetches the body again on demand
+- **Drafts** are stored separately and do not count against the body-cache limit, but their documents and assets together are constrained by the separate draft-store limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
+- Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them
 - Clearing cached bodies or downloaded attachments removes only device-local copies and never deletes provider mail
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
 - **Minimal Push Metadata** may route a mailbox-change wakeup without exposing message bodies, provider tokens, categories, or classification data; Gmail's provider-supplied email address and history identifier are permitted only as transient push-routing inputs, must not be persisted or included in application logs, and must be discarded after the wakeup is routed
@@ -427,7 +539,10 @@ _Avoid_: Password reset, support recovery
 - While the app remains active, provider signals are supplemented by a five-minute fallback poll and manual refresh
 - Mailbox views observe local **Durable Message Metadata** so synchronized changes appear without reopening the view
 - Each **Mailbox Connection** exposes **Mailbox Sync Status** without blocking cached mail use
-- Manual refresh and the last successful synchronization are visible globally, while **Historical Metadata Backfill** progress remains in connection details
+- Active initial availability, historical backfill, user-triggered refresh, synchronization needing attention, and failures appear in a bottom-anchored non-blocking status overlay above the **Mail View** bar; automatic background work appears only after one second
+- The synchronization overlay reports measurable progress, replaces failure progress with a retry action, and never shifts the visible **Threads**
+- A **Unified Mailbox** shows one aggregate synchronization overlay with combined measurable progress and expandable per-connection status; failures summarize how many connections need attention and expose retry
+- Manual refresh and the last successful synchronization are visible globally, while detailed **Historical Metadata Backfill** progress also remains in connection details
 - Missed or delayed background changes are reconciled when a trusted device next wakes or becomes active
 - **Best-Effort Background Freshness** does not permit the backend to hold **Mailbox Authorization** or synchronize mail itself
 - A **Category-Aware Notification** depends on local **System Categorization**
@@ -470,8 +585,8 @@ _Avoid_: Password reset, support recovery
 > **Domain expert:** "Not always — a **Unified Mailbox** combines the corresponding messages from every **Mailbox Connection**, while each connection also exposes its own mailboxes."
 > **Dev:** "Does Outbox contain mail that was already sent?"
 > **Domain expert:** "No — the **Sent Mailbox** contains successfully sent messages; the **Outbox** is a temporary queue for pending, retrying, or failed delivery."
-> **Dev:** "Does pinning a Gmail message add a star?"
-> **Domain expert:** "No — a **Pin** is product-owned, syncs across trusted devices, and does not change provider flags."
+> **Dev:** "Does pinning a Gmail Thread add stars to its messages?"
+> **Domain expert:** "No — a **Pin** is product-owned, syncs by **Stable Thread Identity** across trusted devices, and does not change provider flags."
 > **Dev:** "When a message is put in a **Category**, should Gmail see that as a label?"
 > **Domain expert:** "No — it should be a **Synced Category** that stays inside the product across Apple devices."
 > **Dev:** "Can automatic categorization create Gmail labels or move IMAP folders in v1?"
@@ -483,7 +598,7 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Can a password reset recover encrypted categories?"
 > **Domain expert:** "No — recovery requires a **Recovery Key** or an existing trusted device."
 > **Dev:** "Should categorization apply to the whole conversation?"
-> **Domain expert:** "No — assign a **Message Category** to each message, while the **Thread** only groups related messages."
+> **Domain expert:** "No — assign zero or more **Message Categories** to each message, while the **Thread** only groups related messages."
 > **Dev:** "How does a second device know which message an encrypted category assignment belongs to?"
 > **Domain expert:** "Use the **Mailbox Connection** and **Stable Provider Message Identity** to match the same message across devices."
 > **Dev:** "Can the system recategorize a message later?"
@@ -507,11 +622,11 @@ _Avoid_: Password reset, support recovery
 > **Dev:** "Can user corrections improve future automatic categorization?"
 > **Domain expert:** "Yes — a **User Override** can become a **Future Learning Signal**, but it must not recategorize existing messages."
 > **Dev:** "If two devices categorize the same message before syncing, which assignment wins?"
-> **Domain expert:** "Use the **Category Conflict Rule**: user action beats system action, otherwise first assignment wins."
+> **Domain expert:** "Use the **Category Conflict Rule** per membership: different Category changes merge, user action beats system action, and concurrent user removal beats addition."
 > **Dev:** "Should the app permanently store every email body?"
 > **Domain expert:** "No — store **Durable Message Metadata** and categorization, while using a **Bounded Encrypted Body Cache** for recent and previously opened body text."
 > **Dev:** "Which message bodies should be prefetched?"
-> **Domain expert:** "At each synchronization reference instant, select the newest up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days. Selected-recent bodies take priority in the cache-fitting protected set; admitting one may drop a pinned-only protection, after which that pinned body is eligible for last-resort pinned eviction. Candidates admitted by the same selection never evict one another; keep Spam, Trash, attachments, and older unpinned bodies on-demand, with Spam and Trash excluded even when pinned."
+> **Domain expert:** "At each synchronization reference instant, select the newest up to 500 distinct Inbox and **Sent Mailbox** bodies from the preceding 30 days. Selected-recent bodies take priority in the cache-fitting protected set; bodies in pinned **Threads** remain eligible afterward for bounded protection. Candidates admitted by the same selection never evict one another; keep Spam, Trash, attachments, and older unpinned bodies on-demand, with Spam and Trash excluded even when their Thread is pinned."
 > **Dev:** "Can the backend participate in push without holding mail provider tokens?"
 > **Domain expert:** "Yes — it may use **Minimal Push Metadata** to wake trusted devices, but devices fetch mail themselves."
 > **Dev:** "Can the app guarantee instant background delivery for every provider?"
@@ -549,6 +664,13 @@ _Avoid_: Password reset, support recovery
 - "unified inboxes" was resolved as **Unified Mailboxes** shown alongside the mailboxes belonging to each **Mailbox Connection**, not provider folders shared between providers.
 - "unified navigation" was resolved as permanent Inbox, Pins, Drafts, Sent, Archive, All Mail, Spam, and Trash; conditional **Outbox**; and connection-scoped provider folders and labels.
 - "unified message list" was resolved as one time-ordered thread list with visible Mailbox Connection identity and stable selection, not account-grouped sections.
+- "bottom tab" was resolved as a mailbox-scoped **Mail View**, not a **Category** or mailbox; Important and All Messages are permanent while the remaining views are user-configurable.
+- "important email" was resolved as membership in the user-configured union of Categories shown by the permanent Important **Mail View**, not a separate classification or **Pin**.
+- "configurable bottom tab" was resolved as a one-Category **Mail View**, not an arbitrary multi-rule query; only Important aggregates Categories.
+- "visible Mail View capacity" was resolved as five on every supported Apple layout: two permanent views and up to three configurable Category views, without a v1 overflow destination.
+- "per-mailbox Mail Views" was resolved as one global synchronized **Mail View** configuration whose contents are scoped by the selected mailbox.
+- "launch Mail View" was resolved as transient local navigation state that resets to Unified Inbox and Important at the start of every application session.
+- "all emails tab" was resolved as the scoped **All Messages Mail View**, labeled “All,” not the **All Mail** mailbox.
 - "selected email" was resolved as a mailbox-scoped **Thread** conversation with the latest message expanded, not a single-message-only reader.
 - "generic provider threading" was resolved as provider conversation identity or RFC reply-header linkage, never subject-only grouping.
 - "default sender" was resolved as a user-selected **Default Sending Connection**, not the most recently used connection; replies and forwards retain their source thread identity.
@@ -556,7 +678,7 @@ _Avoid_: Password reset, support recovery
 - "provider folder mapping" was resolved as explicit **Mailbox Roles** from provider semantics, IMAP special-use markers, or user mapping, never localized folder-name guessing.
 - "outbox" was resolved as the product-owned **Outbox** delivery queue, not the **Sent Mailbox**.
 - "outbox retries" was resolved as automatic bounded retry for transient failures, user action for permanent failures, and immutable **Outgoing Delivery Attempts**.
-- "pins" was resolved as product-owned **Pins** synchronized across trusted devices, not Gmail stars or IMAP flags.
+- "pins" was resolved as product-owned Thread-level **Pins** synchronized across trusted devices, not message Pins, Gmail stars, or IMAP flags.
 - "category" was resolved as **Synced Category**, not a provider folder or label.
 - "category-provider mapping" was resolved as separate in v1, not provider-visible category sync.
 - "synced across devices" was resolved as **Product Sync**, not iCloud sync.
@@ -567,12 +689,15 @@ _Avoid_: Password reset, support recovery
 - "cannot be changed by the system" was resolved as **System Categorization** being immutable unless changed by a **User Override**.
 - "historical categorization" was resolved as **New-Mail-Only Categorization** by default with optional **Historical Categorization Opt-In**.
 - "categorize old emails" was resolved as **Bounded Historical Categorization**, not all-mail backfill.
-- "custom categories" was resolved as coexistence of **System Categories** and **Custom Categories**.
+- "custom categories" was resolved as coexistence of **System Categories** and multiple user-created **Custom Categories**.
+- "invoices" was broadened to the **Orders** System Category, covering the purchase lifecycle rather than invoices alone.
+- "promotions" was broadened to the **Newsletters & Promotions** System Category, covering subscribed newsletters as well as commercial marketing messages.
+- "emails from people" was resolved as the **People** System Category for direct human correspondence, not a sender-name heuristic.
 - "custom category definition" was resolved as a name plus optional **Category Description**.
 - "AI input" was resolved as **Minimized Classification Input**, not full body text by default.
 - "uncategorized" was resolved as **Uncategorized State**, not a category or separate historical-mail state.
 - "learning from overrides" was resolved as **Future Learning Signal**, not retroactive recategorization.
-- "category conflict resolution" was resolved as **Category Conflict Rule**, not last-write-wins.
+- "category conflict resolution" was resolved as per-membership **Category Conflict Rule**: different Category changes merge, user actions beat system actions, and concurrent user removal beats addition.
 - "email storage" was resolved as locally read **Durable Message Metadata** plus a **Bounded Encrypted Body Cache**, not permanent full-body or attachment storage.
 - "initial mailbox sync" was resolved as **Initial Mailbox Availability** after the newest 50 messages, followed by **Historical Metadata Backfill** while body prefetch starts immediately without blocking mailbox use.
 - "historical metadata scope" was resolved as the complete provider-visible mailbox history with resumable backfill, not a full historical body archive.
