@@ -1476,19 +1476,26 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      try authorizationStore.remove(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connection.id
-      )
-      try metadataStore.clear(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
-      )
-      try cache.clearMessageBodies(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
-      )
+      try clearLocalConnectionWithoutLock(connection, session: session)
     }
+  }
+
+  private func clearLocalConnectionWithoutLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try authorizationStore.remove(
+      productAccountId: ProductAccountId(session.productAccountId),
+      connectionId: connection.id
+    )
+    try metadataStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    try cache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
   }
 
   @MainActor
@@ -1638,7 +1645,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       let authorization = try await authorizationForProviderAccess(
         connection: connection,
-        session: session
+        session: session,
+        isWithinSyncGate: true
       )
       return try await metadataService.continueBackfill(
         authorization: authorization,
@@ -1657,7 +1665,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       let authorization = try await authorizationForProviderAccess(
         connection: connection,
-        session: session
+        session: session,
+        isWithinSyncGate: true
       )
       return try await metadataService.sync(
         authorization: authorization,
@@ -1745,7 +1754,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       let authorization = try await authorizationForProviderAccess(
         connection: connection,
-        session: session
+        session: session,
+        isWithinSyncGate: true
       )
       try await bodyReader.prefetchMessageBodies(
         connection: connection,
@@ -1793,12 +1803,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func authorizationForProviderAccess(
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    isWithinSyncGate: Bool = false
   ) async throws -> DeviceLocalGenericMailAuthorization {
     try validate(connection: connection, session: session, requiresAuthorization: true)
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     if snapshot.removedConnectionIds.contains(connection.id) {
-      try await clearLocalConnection(connection, session: session)
+      if isWithinSyncGate {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
