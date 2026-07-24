@@ -1321,7 +1321,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    let result = try await metadataService.syncInbox(
+    _ = try await metadataService.syncInbox(
       connection: gmailConnection,
       session: session
     )
@@ -1335,8 +1335,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: connection,
       session: session
     )
+    let refreshedInbox = try await metadataService.loadMailbox(
+      .role(.inbox),
+      connection: gmailConnection,
+      session: session
+    )
     return try await pendingActionService.project(
-      result.mailboxResult(connectionId: connection.id),
+      refreshedInbox.mailboxResult(connectionId: connection.id),
       collection: .role(.inbox),
       connection: connection,
       session: session
@@ -1356,7 +1361,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    let result = try await metadataService.syncRecentInbox(
+    _ = try await metadataService.syncRecentInbox(
       connection: gmailConnection,
       includingHistoryCandidates: includingHistoryCandidates,
       session: session,
@@ -1374,8 +1379,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: connection,
       session: session
     )
+    let refreshedInbox = try await metadataService.loadMailbox(
+      .role(.inbox),
+      connection: gmailConnection,
+      session: session
+    )
     return try await pendingActionService.project(
-      result.mailboxResult(connectionId: connection.id),
+      refreshedInbox.mailboxResult(connectionId: connection.id),
       collection: .role(.inbox),
       connection: connection,
       session: session

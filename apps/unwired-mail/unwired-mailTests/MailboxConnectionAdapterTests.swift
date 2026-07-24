@@ -715,6 +715,22 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(result.messages, [adapterMessage])
   }
 
+  func testGmailAdapterReloadsInboxAfterResumingPendingActions() async throws {
+    let metadataService = RecordingAdapterMetadataService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore())
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(metadataService.loadedCollections, [.allObserved, .role(.inbox)])
+  }
+
   func testMailShellPreservesSelectedThreadAcrossReordering() {
     let olderThread = mailShellThread(
       providerThreadId: "thread-older",
@@ -1640,6 +1656,7 @@ extension MailboxConnectionSyncSnapshot {
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   var loadedConnection: GmailProviderConnectionStatus?
+  var loadedCollections: [MailboxMessageCollection] = []
   var syncedConnection: GmailProviderConnectionStatus?
 
   func categorizeHistorical(
@@ -1664,6 +1681,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
+    loadedCollections.append(collection)
     return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
   }
 
