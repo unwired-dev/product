@@ -95,13 +95,11 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
     if mailbox.caseInsensitiveCompare("INBOX") == .orderedSame {
       states.insert("INBOX")
     }
-    let mappedRole = roleMappings.first {
-      $0.value.caseInsensitiveCompare(mailbox) == .orderedSame
-    }?.key
+    let mappedRole = roleMappings.first { Self.mailboxNamesEqual($0.value, mailbox) }?.key
     if let mappedRole {
       states.insert(mappedRole.providerStateId)
     } else if mailbox.caseInsensitiveCompare("INBOX") != .orderedSame {
-      states.insert(mailbox)
+      states.insert(Self.customMailboxStateId(mailbox))
     }
     return states.sorted()
   }
@@ -132,6 +130,20 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
       let matchRange = Range(match.range, in: value)
     else { return nil }
     return value[matchRange].lowercased()
+  }
+
+  static func customMailboxStateId(_ mailbox: String) -> String {
+    let encodedMailbox = Data(mailbox.utf8).base64EncodedString()
+      .replacingOccurrences(of: "+", with: "-")
+      .replacingOccurrences(of: "/", with: "_")
+      .replacingOccurrences(of: "=", with: "")
+    return "imap-mailbox:\(encodedMailbox)"
+  }
+
+  static func mailboxNamesEqual(_ lhs: String, _ rhs: String) -> Bool {
+    lhs == rhs
+      || (lhs.caseInsensitiveCompare("INBOX") == .orderedSame
+        && rhs.caseInsensitiveCompare("INBOX") == .orderedSame)
   }
 }
 
@@ -210,13 +222,6 @@ protocol IMAPMessageMetadataPersisting {
   ) throws
 
   func finishScan(
-    state: IMAPMetadataSyncState,
-    productAccountId: String,
-    connectionId: MailboxConnectionId
-  ) throws
-
-  func markMailboxesForRemoval(
-    _ mailboxes: Set<String>,
     state: IMAPMetadataSyncState,
     productAccountId: String,
     connectionId: MailboxConnectionId
@@ -367,24 +372,6 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     try save(
       state: state, productAccountId: productAccountId, connectionId: connectionId, context: context
     )
-    try context.save()
-  }
-
-  func markMailboxesForRemoval(
-    _ mailboxes: Set<String>,
-    state: IMAPMetadataSyncState,
-    productAccountId: String,
-    connectionId: MailboxConnectionId
-  ) throws {
-    guard !mailboxes.isEmpty else { return }
-    let context = try makeContext()
-    for record in try fetchRecords(
-      productAccountId: productAccountId,
-      connectionId: connectionId,
-      context: context
-    ) where mailboxes.contains(record.mailbox) {
-      record.pendingRemovalScanId = state.scanId
-    }
     try context.save()
   }
 
@@ -769,17 +756,17 @@ struct IMAPMessageMetadataService {
     definition: GenericMailConnectionDefinition,
     productAccountId: String
   ) throws -> [ProviderMailbox] {
-    let mappedNames = Set(
-      definition.roleMappings.values.map { $0.lowercased() }
-        + ["inbox"]
-    )
     return try store.loadState(
       productAccountId: productAccountId,
       connectionId: definition.connectionId
     )?.mailboxes.compactMap { mailbox in
-      guard !mappedNames.contains(mailbox.descriptor.name.lowercased()) else { return nil }
+      guard
+        !definition.roleMappings.values.contains(where: {
+          IMAPProviderMessage.mailboxNamesEqual($0, mailbox.descriptor.name)
+        }), !IMAPProviderMessage.mailboxNamesEqual("INBOX", mailbox.descriptor.name)
+      else { return nil }
       return ProviderMailbox(
-        id: mailbox.descriptor.name,
+        id: IMAPProviderMessage.customMailboxStateId(mailbox.descriptor.name),
         title: mailbox.descriptor.displayName
       )
     }.sorted {
@@ -945,11 +932,9 @@ struct IMAPMessageMetadataService {
     let descriptors = try await client.listMailboxes(authorization: authorization)
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     let activeNames = Set(descriptors.map(\.name))
-    let removedNames = Set(existingState.mailboxes.map(\.descriptor.name))
-      .subtracting(activeNames)
     var state = existingState
-    try store.markMailboxesForRemoval(
-      removedNames,
+    try store.beginScan(
+      activeMailboxes: activeNames,
       state: state,
       productAccountId: productAccountId,
       connectionId: definition.connectionId
@@ -965,7 +950,7 @@ struct IMAPMessageMetadataService {
         authorization: authorization
       )
       if let index = state.mailboxes.firstIndex(where: {
-        $0.descriptor.name.caseInsensitiveCompare(descriptor.name) == .orderedSame
+        IMAPProviderMessage.mailboxNamesEqual($0.descriptor.name, descriptor.name)
       }) {
         let priorUIDValidity = state.mailboxes[index].uidValidity
         state.mailboxes[index].descriptor = descriptor

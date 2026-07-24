@@ -258,6 +258,50 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(expunged.messages.isEmpty)
   }
 
+  func testCompletedBackfillRemovesAnExpungedOlderMessageOnRefresh() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = (1...75).map {
+      imapMessage(uid: Int64($0), subject: "Message \($0)")
+    }
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    client.messagesByUsername[definition.username]?.removeAll { $0.uid == 1 }
+
+    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(refreshed.messages.count, 74)
+    XCTAssertFalse(refreshed.messages.contains { $0.subject == "Message 1" })
+  }
+
+  func testCustomMailboxStateIdsAreNamespacedAndCaseSensitive() {
+    let definition = imapDefinition(username: "reader", roleMappings: [.archive: "Projects"])
+    let message = imapMessage(mailbox: "projects", uid: 1)
+
+    let metadata = message.mailboxMetadata(
+      connectionId: definition.connectionId,
+      connectedAt: 0,
+      roleMappings: definition.roleMappings
+    )
+    let customMailboxId = IMAPProviderMessage.customMailboxStateId("projects")
+
+    XCTAssertFalse((metadata.providerStateIds ?? []).contains("ARCHIVE"))
+    XCTAssertTrue((metadata.providerStateIds ?? []).contains(customMailboxId))
+    XCTAssertTrue(
+      MailboxMessageCollection.providerMailbox(customMailboxId)
+        .contains(providerStateIds: metadata.providerStateIds)
+    )
+  }
+
   func testCancelledBackfillPersistsCompletedPagesAndResumesWithoutDuplicates() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
