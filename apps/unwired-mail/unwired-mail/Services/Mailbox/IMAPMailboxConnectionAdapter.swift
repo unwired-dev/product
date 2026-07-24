@@ -493,11 +493,14 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     connectionId: MailboxConnectionId
   ) throws {
     let context = try makeContext()
-    let existingRecords = try fetchRecords(
+    let connectionRecords = try fetchRecords(
       productAccountId: productAccountId,
       connectionId: connectionId,
       context: context
-    ).filter { IMAPProviderMessage.mailboxNamesEqual($0.mailbox, mailbox) }
+    )
+    let existingRecords = connectionRecords.filter {
+      IMAPProviderMessage.mailboxNamesEqual($0.mailbox, mailbox)
+    }
     for record in existingRecords where record.uidValidity != uidValidity {
       context.delete(record)
     }
@@ -507,11 +510,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       uniquingKeysWith: { first, _ in first }
     )
     let priorCategoriesById = Dictionary(
-      try fetchRecords(
-        productAccountId: productAccountId,
-        connectionId: connectionId,
-        context: context
-      ).map { try ($0.stableProviderMessageId, $0.message().categoryId) },
+      try connectionRecords.map { try ($0.stableProviderMessageId, $0.message().categoryId) },
       uniquingKeysWith: { first, _ in first }
     )
     if case .newest(let coversEntireMailbox) = reconciliation {
