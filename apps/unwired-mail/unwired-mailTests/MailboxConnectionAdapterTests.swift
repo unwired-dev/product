@@ -1601,6 +1601,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailActionViewModelIgnoresUnrelatedPendingActionErrorsForSuccessfulBatches() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: UnrelatedPendingActionService(),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertTrue(result?.failures.isEmpty ?? false)
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
   func testMailActionViewModelRetriesBlockedBulkConnection() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -2494,6 +2515,37 @@ private actor RetryableBulkMailActionService: MailboxProviderMailActing {
 
   func retryCount() -> Int {
     retries
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private struct UnrelatedPendingActionService: MailboxProviderMailActing {
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    "An unrelated action failed."
+  }
+
+  func pendingActionFailureDetails(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    []
   }
 
   func send(
