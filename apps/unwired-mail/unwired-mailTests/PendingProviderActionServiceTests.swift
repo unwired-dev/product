@@ -1029,8 +1029,14 @@ final class PendingProviderActionServiceTests: XCTestCase {
     } catch is CancellationError {
     }
 
-    let actionState = try await service.pendingActions(session: session).first?.state
+    var actionState = try await service.pendingActions(session: session).first?.state
     XCTAssertEqual(actionState, .pending)
+    try await service.resume(
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    actionState = try await service.pendingActions(session: session).first?.state
+    XCTAssertEqual(actionState, .providerConfirmed)
   }
 
   // swiftlint:disable:next function_body_length
