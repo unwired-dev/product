@@ -716,7 +716,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testGmailAdapterReloadsInboxAfterResumingPendingActions() async throws {
+    let eventLog = RecordingAdapterEventLog()
+    let metadataService = RecordingAdapterMetadataService(eventLog: eventLog)
+    let mailActionService = RecordingAdapterMailActionService(eventLog: eventLog)
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: mailActionService,
+      metadataService: metadataService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    try await adapter.perform(
+      .archive,
+      messages: [adapterMessage],
+      connection: connection,
+      session: session
+    )
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(metadataService.loadedCollections, [.allObserved, .role(.inbox)])
+    XCTAssertEqual(eventLog.events, ["observed", "resume", "inbox"])
+  }
+
+  func testGmailAdapterPreservesRecentSyncNotificationFlags() async throws {
     let metadataService = RecordingAdapterMetadataService()
+    metadataService.recentSyncResult = GmailMetadataSyncResult(
+      historyIsExpired: true,
+      hasUnlistedNewMessages: true,
+      messages: [adapterGmailMessage],
+      newMessageIds: ["message-001"],
+      threads: GmailInboxThread.group([adapterGmailMessage])
+    )
     let adapter = GmailMailboxConnectionAdapter(
       definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
       metadataService: metadataService,
@@ -726,9 +760,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
 
-    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let result = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: true,
+      session: session,
+      sinceHistoryId: "100",
+      throughHistoryId: "101",
+      shouldPersist: { true }
+    )
 
-    XCTAssertEqual(metadataService.loadedCollections, [.allObserved, .role(.inbox)])
+    XCTAssertTrue(result.hasUnlistedNewMessages)
+    XCTAssertEqual(result.newMessageIds, ["message-001"])
+    XCTAssertTrue(result.providerCursorIsExpired)
   }
 
   func testMailShellPreservesSelectedThreadAcrossReordering() {
@@ -1655,9 +1698,15 @@ extension MailboxConnectionSyncSnapshot {
 }
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
+  private let eventLog: RecordingAdapterEventLog?
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
+  var recentSyncResult = RecordingAdapterMetadataService.result
   var syncedConnection: GmailProviderConnectionStatus?
+
+  init(eventLog: RecordingAdapterEventLog? = nil) {
+    self.eventLog = eventLog
+  }
 
   func categorizeHistorical(
     scope _: GmailHistoricalCategorizationScope,
@@ -1682,6 +1731,11 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
     loadedCollections.append(collection)
+    if collection == .allObserved {
+      eventLog?.events.append("observed")
+    } else if collection == .role(.inbox) {
+      eventLog?.events.append("inbox")
+    }
     return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
   }
 
@@ -1702,7 +1756,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
-    Self.result
+    recentSyncResult
   }
 
   func overrideCategory(
@@ -1761,9 +1815,14 @@ private final class RecordingAdapterPushService: GmailPushWatchRegistering {
 }
 
 private final class RecordingAdapterMailActionService: GmailProviderMailActing {
+  private let eventLog: RecordingAdapterEventLog?
   var action: GmailProviderMailAction?
   var messageIds: [String] = []
   var outgoingMessage: GmailOutgoingMessage?
+
+  init(eventLog: RecordingAdapterEventLog? = nil) {
+    self.eventLog = eventLog
+  }
 
   func perform(
     _ action: GmailProviderMailAction,
@@ -1773,6 +1832,7 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   ) async throws {
     self.action = action
     self.messageIds = messageIds
+    eventLog?.events.append("resume")
   }
 
   func send(
@@ -1782,6 +1842,10 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   ) async throws {
     outgoingMessage = message
   }
+}
+
+private final class RecordingAdapterEventLog {
+  var events: [String] = []
 }
 
 private final class AdapterPendingActionStore: PendingProviderActionPersisting {

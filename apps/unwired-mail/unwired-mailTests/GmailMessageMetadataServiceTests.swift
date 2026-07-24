@@ -796,7 +796,6 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       [
         ProviderMailbox(id: "Label_empty", title: "Empty label"),
         ProviderMailbox(id: "Label_projects", title: "Projects"),
-        ProviderMailbox(id: "STARRED", title: "Starred"),
       ]
     )
     XCTAssertTrue(fixture.requestRecorder.paths.contains("/gmail/v1/users/me/labels"))

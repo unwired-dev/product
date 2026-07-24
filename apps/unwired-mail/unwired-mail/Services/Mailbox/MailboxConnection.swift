@@ -1361,7 +1361,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    _ = try await metadataService.syncRecentInbox(
+    let recentSync = try await metadataService.syncRecentInbox(
       connection: gmailConnection,
       includingHistoryCandidates: includingHistoryCandidates,
       session: session,
@@ -1384,11 +1384,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: gmailConnection,
       session: session
     )
-    return try await pendingActionService.project(
+    let projectedInbox = try await pendingActionService.project(
       refreshedInbox.mailboxResult(connectionId: connection.id),
       collection: .role(.inbox),
       connection: connection,
       session: session
+    )
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
+      messages: projectedInbox.messages,
+      newMessageIds: recentSync.newMessageIds,
+      providerCursorIsExpired: recentSync.historyIsExpired,
+      threads: projectedInbox.threads,
+      hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: projectedInbox.historicalMetadataBackfillIsComplete
     )
   }
 
