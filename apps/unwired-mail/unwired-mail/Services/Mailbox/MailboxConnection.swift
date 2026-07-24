@@ -1397,14 +1397,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
-      let projectedInbox = try await pendingActionService.project(
-        observedMessages.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
+      try await reconcileAndResumePendingActions(
+        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
         connection: connection,
         session: session
       )
-      try await reconcileAndResumePendingActions(
-        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
         connection: connection,
         session: session
       )
@@ -1445,14 +1445,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
-      let projectedInbox = try await pendingActionService.project(
-        observedMessages.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
+      try await reconcileAndResumePendingActions(
+        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
         connection: connection,
         session: session
       )
-      try await reconcileAndResumePendingActions(
-        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
         connection: connection,
         session: session
       )

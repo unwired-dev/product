@@ -685,9 +685,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(error)
   }
 
-  func testTerminalPendingActionDoesNotFailMetadataSync() async throws {
+  func testGmailAdapterReprojectsInboxAfterPendingActionFails() async throws {
     let pendingActionService = PendingProviderActionService(
-      failureDisposition: { _ in .permanent },
+      failureDisposition: {
+        $0 is PendingAdapterActionError ? .permanent : .transient
+      },
       store: AdapterPendingActionStore()
     )
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
@@ -700,12 +702,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       ) { _, _, _ in
-        throw PendingAdapterActionError.rejected
+        throw CancellationError()
       }
     } catch {
     }
     let adapter = GmailMailboxConnectionAdapter(
       definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: FailingAdapterMailActionService(),
       metadataService: RecordingAdapterMetadataService(),
       pendingActionService: pendingActionService
     )
@@ -1842,6 +1845,23 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   ) async throws {
     outgoingMessage = message
   }
+}
+
+private final class FailingAdapterMailActionService: GmailProviderMailActing {
+  func perform(
+    _: GmailProviderMailAction,
+    messageIds _: [String],
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    throw PendingAdapterActionError.rejected
+  }
+
+  func send(
+    _: GmailOutgoingMessage,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
 }
 
 private final class RecordingAdapterEventLog {
