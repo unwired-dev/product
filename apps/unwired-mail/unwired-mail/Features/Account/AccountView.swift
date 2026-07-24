@@ -1000,6 +1000,9 @@ extension AccountView {
     session: ProductAccountSessionSnapshot,
     mailboxConnection: MailboxConnectionAdapter
   ) async throws -> Bool {
+    guard definition.connectionId.providerMailboxIdentity.providerId == .imapSMTP else {
+      return false
+    }
     let connection = MailboxConnection(
       authorizationState: .authorized,
       capabilities: .none,
