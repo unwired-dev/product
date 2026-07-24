@@ -930,6 +930,94 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(viewModel.selectedThreadId)
   }
 
+  func testMailShellBulkSelectionIntersectsCapabilitiesAcrossConnections() {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId,
+      providerActions: [.delete, .markRead]
+    )
+    let firstThread = mailShellThread(
+      connectionId: firstConnection.id,
+      providerMessageId: "message-first",
+      providerThreadId: "thread-first",
+      receivedAt: 200
+    )
+    let secondThread = mailShellThread(
+      connectionId: secondConnection.id,
+      providerMessageId: "message-second",
+      providerThreadId: "thread-second",
+      receivedAt: 100
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedInbox()
+    viewModel.updateThreads([firstThread], for: firstConnection.id)
+    viewModel.updateThreads([secondThread], for: secondConnection.id)
+
+    viewModel.selectThreads([firstThread.id, secondThread.id])
+
+    XCTAssertEqual(
+      viewModel.bulkProviderActions(connections: [firstConnection, secondConnection]),
+      [.delete, .markRead]
+    )
+    let batches = viewModel.bulkActionBatches(
+      connections: [firstConnection, secondConnection],
+      pinnedMessageIds: []
+    )
+    XCTAssertEqual(batches.map(\.connection.id), [firstConnection.id, secondConnection.id])
+    XCTAssertEqual(
+      batches.map { $0.messages.map(\.id) },
+      [[firstThread.latestMessage.id], [secondThread.latestMessage.id]]
+    )
+  }
+
+  func testMailShellBulkSelectionSurvivesRefreshAndDropsOnlyRemovedThreads() {
+    let secondConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let firstThread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "message-first",
+      providerThreadId: "thread-first",
+      receivedAt: 200
+    )
+    let secondThread = mailShellThread(
+      connectionId: secondConnectionId,
+      providerMessageId: "message-second",
+      providerThreadId: "thread-second",
+      receivedAt: 100
+    )
+    let insertedThread = mailShellThread(
+      connectionId: secondConnectionId,
+      providerMessageId: "message-inserted",
+      providerThreadId: "thread-inserted",
+      receivedAt: 300
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedInbox()
+    viewModel.updateThreads([firstThread], for: adapterConnectionId)
+    viewModel.updateThreads([secondThread], for: secondConnectionId)
+    viewModel.selectThreads([firstThread.id, secondThread.id])
+
+    viewModel.updateThreads([insertedThread, secondThread], for: secondConnectionId)
+
+    XCTAssertEqual(viewModel.selectedThreadIds, [firstThread.id, secondThread.id])
+    XCTAssertNil(viewModel.selectedThreadId)
+
+    viewModel.updateThreads([], for: adapterConnectionId)
+
+    XCTAssertEqual(viewModel.selectedThreadIds, [secondThread.id])
+    XCTAssertEqual(viewModel.selectedThreadId, secondThread.id)
+  }
+
   func testCanonicalUnifiedMailboxCountsAggregateObservedDataAcrossConnections() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -1364,6 +1452,103 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.errorMessage, "second@example.com requires attention.")
   }
 
+  func testMailActionViewModelKeepsSuccessfulBulkBatchesWhenAuthorizationIsLost() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let service = RecordingBulkMailActionService(failingConnectionId: secondConnection.id)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [firstConnection.id])
+    XCTAssertEqual(result?.failures.map(\.connectionId), [secondConnection.id])
+    XCTAssertEqual(result?.failures.map(\.messageCount), [1])
+    XCTAssertEqual(
+      result?.failures.first?.messageIds,
+      [
+        StableProviderMessageIdentity(
+          connectionId: secondConnection.id,
+          providerMessageId: "message-second"
+        )
+      ]
+    )
+    let recordedConnectionIds = await service.recordedConnectionIds()
+    XCTAssertEqual(
+      Set(recordedConnectionIds),
+      [firstConnection.id, secondConnection.id]
+    )
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "second@example.com — Subject message-second: "
+        + "Authorize this Mailbox Connection on this device before accessing mail."
+    )
+  }
+
+  func testBulkBatchesStartIndependentlyAcrossConnections() async {
+    let firstStarted = expectation(description: "First connection started")
+    let secondStarted = expectation(description: "Second connection started")
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let service = GatedBulkMailActionService(
+      blockedConnectionId: firstConnection.id,
+      firstStarted: firstStarted,
+      secondStarted: secondStarted
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let task = Task {
+      await viewModel.performBulk(
+        .markRead,
+        batches: [
+          mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+          mailShellBulkActionBatch(
+            connection: secondConnection,
+            suffix: "second",
+            receivedAt: 100
+          ),
+        ]
+      )
+    }
+
+    await fulfillment(of: [firstStarted, secondStarted], timeout: 1)
+    XCTAssertEqual(
+      viewModel.bulkActionProgress,
+      MailboxBulkActionProgress(
+        action: .markRead,
+        completedConnectionCount: 1,
+        totalConnectionCount: 2
+      )
+    )
+    await service.release()
+    let result = await task.value
+
+    XCTAssertEqual(
+      Set(result?.succeededConnectionIds ?? []),
+      [firstConnection.id, secondConnection.id]
+    )
+    XCTAssertNil(viewModel.bulkActionProgress)
+  }
+
   func testMailboxThreadInboxMessagesIncludesLegacyMessagesWithoutProviderState() {
     let inboxMessage = mailShellMessage(
       providerMessageId: "message-inbox",
@@ -1416,9 +1601,10 @@ private func mailShellThread(
 private func mailShellConnection(
   emailAddress: String,
   providerAccountIdentifier: String,
-  productAccountId: String
+  productAccountId: String,
+  providerActions: Set<ProviderMailAction> = Set(ProviderMailAction.allCases)
 ) -> MailboxConnection {
-  GmailProviderConnectionStatus(
+  let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: emailAddress,
     lastVerifiedAt: 1_781_200_000_100,
@@ -1427,6 +1613,45 @@ private func mailShellConnection(
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
   ).mailboxConnection(productAccountId: productAccountId)
+  return MailboxConnection(
+    authorizationState: connection.authorizationState,
+    capabilities: MailboxConnectionCapabilities(
+      canCategorizeHistorical: connection.capabilities.canCategorizeHistorical,
+      canForward: connection.capabilities.canForward,
+      canReadMessages: connection.capabilities.canReadMessages,
+      canRegisterPush: connection.capabilities.canRegisterPush,
+      canReply: connection.capabilities.canReply,
+      canSearchProvider: connection.capabilities.canSearchProvider,
+      canSend: connection.capabilities.canSend,
+      canSynchronizeMetadata: connection.capabilities.canSynchronizeMetadata,
+      providerActions: providerActions
+    ),
+    connectedAt: connection.connectedAt,
+    displayName: connection.displayName,
+    id: connection.id,
+    lastVerifiedAt: connection.lastVerifiedAt,
+    productAccountId: connection.productAccountId,
+    trustedDeviceId: connection.trustedDeviceId,
+    updatedAt: connection.updatedAt
+  )
+}
+
+private func mailShellBulkActionBatch(
+  connection: MailboxConnection,
+  suffix: String,
+  receivedAt: Int64
+) -> MailboxBulkActionBatch {
+  MailboxBulkActionBatch(
+    connection: connection,
+    messages: [
+      mailShellMessage(
+        connectionId: connection.id,
+        providerMessageId: "message-\(suffix)",
+        providerThreadId: "thread-\(suffix)",
+        receivedAt: receivedAt
+      )
+    ]
+  )
 }
 
 private func canonicalMailboxMessages() -> [MailboxMessageMetadata] {
@@ -1995,6 +2220,81 @@ private actor MultiplePendingFailureService: MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async {
     failedConnectionIds.remove(connection.id)
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor RecordingBulkMailActionService: MailboxProviderMailActing {
+  private var connectionIds: [MailboxConnectionId] = []
+  private let failingConnectionId: MailboxConnectionId
+
+  init(failingConnectionId: MailboxConnectionId) {
+    self.failingConnectionId = failingConnectionId
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+    if connection.id == failingConnectionId {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+  }
+
+  func recordedConnectionIds() -> [MailboxConnectionId] {
+    connectionIds
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor GatedBulkMailActionService: MailboxProviderMailActing {
+  private let blockedConnectionId: MailboxConnectionId
+  private let firstStarted: XCTestExpectation
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private let secondStarted: XCTestExpectation
+
+  init(
+    blockedConnectionId: MailboxConnectionId,
+    firstStarted: XCTestExpectation,
+    secondStarted: XCTestExpectation
+  ) {
+    self.blockedConnectionId = blockedConnectionId
+    self.firstStarted = firstStarted
+    self.secondStarted = secondStarted
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    if connection.id == blockedConnectionId {
+      firstStarted.fulfill()
+      await withCheckedContinuation { continuation in
+        releaseContinuation = continuation
+      }
+    } else {
+      secondStarted.fulfill()
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
   }
 
   func send(
