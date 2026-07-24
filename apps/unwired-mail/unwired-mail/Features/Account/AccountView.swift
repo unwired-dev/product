@@ -2584,10 +2584,11 @@ struct MailShellConversationReader: View {
         )
       else { return }
       let attemptedConnections = batches.map(\.connection)
+      let errorMessage = mailActionViewModel.errorMessage
       for connection in attemptedConnections {
         _ = await inboxViewModel.reloadLocal(connection: connection)
       }
-      guard let errorMessage = mailActionViewModel.errorMessage else { return }
+      guard let errorMessage else { return }
       readerErrorConnectionId = result.failures.first?.connectionId
       readerErrorMessage = errorMessage
     }
