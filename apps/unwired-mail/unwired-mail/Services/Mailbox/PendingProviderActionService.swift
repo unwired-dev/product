@@ -378,6 +378,40 @@ actor PendingProviderActionService {
     }.joined(separator: "\n")
   }
 
+  func failureDetails(
+    _ action: ProviderMailAction,
+    messageIds: Set<String>,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> [MailboxProviderActionFailureDetail] {
+    let actions = try store.load(productAccountId: session.productAccountId)
+      .filter {
+        $0.action == action && $0.connectionId == connection.id.rawValue
+          && !Set($0.messageIds).isDisjoint(with: messageIds)
+      }
+      .sorted { $0.sequence < $1.sequence }
+    var latestActionByMessageId: [String: PendingProviderAction] = [:]
+    for pendingAction in actions {
+      for messageId in pendingAction.messageIds where messageIds.contains(messageId) {
+        latestActionByMessageId[messageId] = pendingAction
+      }
+    }
+    return latestActionByMessageId.keys.sorted().compactMap { messageId in
+      guard let pendingAction = latestActionByMessageId[messageId],
+        pendingAction.state != .providerConfirmed
+      else { return nil }
+      return MailboxProviderActionFailureDetail(
+        description: pendingAction.lastErrorDescription ?? "Waiting for an earlier pending action.",
+        messageIds: [
+          StableProviderMessageIdentity(
+            connectionId: connection.id,
+            providerMessageId: messageId
+          )
+        ]
+      )
+    }
+  }
+
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,

@@ -1405,6 +1405,17 @@ struct MailShellThreadListItem: Equatable, Identifiable {
 struct MailboxBulkActionBatch: Equatable, Sendable {
   let connection: MailboxConnection
   let messages: [MailboxMessageMetadata]
+  let targetProviderMailboxId: String?
+
+  init(
+    connection: MailboxConnection,
+    messages: [MailboxMessageMetadata],
+    targetProviderMailboxId: String? = nil
+  ) {
+    self.connection = connection
+    self.messages = messages
+    self.targetProviderMailboxId = targetProviderMailboxId
+  }
 }
 
 struct MailboxBulkActionFailure: Equatable, Sendable {
@@ -1431,6 +1442,7 @@ private struct MailboxBulkActionBatchOutcome: Sendable {
   let batchIndex: Int
   let connection: MailboxConnection
   let errorDescription: String?
+  let failureDetails: [MailboxProviderActionFailureDetail]?
   let messages: [MailboxMessageMetadata]
 }
 
@@ -2332,15 +2344,23 @@ struct MailShellConversationReader: View {
     batches: [MailboxBulkActionBatch]
   ) -> some View {
     let messages = batches.flatMap(\.messages)
+    let moveDestinations = bulkMoveDestinations(batches: batches)
     let actions = contextualProviderActions(
       supported: selection.bulkProviderActions(connections: connections),
       messages: messages,
-      allowsMove: false
+      allowsMove: !moveDestinations.isEmpty
     )
     if !actions.isEmpty {
       Menu {
-        ProviderMailActionButtons(actions: actions, moveDestinations: []) { action, _ in
-          performBulk(action, batches: batches)
+        ProviderMailActionButtons(
+          actions: actions,
+          moveDestinations: moveDestinations
+        ) { action, targetProviderMailboxTitle in
+          let actionBatches =
+            targetProviderMailboxTitle.map {
+              bulkMoveBatches(batches, destinationTitle: $0)
+            } ?? batches
+          performBulk(action, batches: actionBatches)
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -2413,6 +2433,41 @@ struct MailShellConversationReader: View {
       actions.remove(.spam)
     }
     return actions
+  }
+
+  private func bulkMoveDestinations(
+    batches: [MailboxBulkActionBatch]
+  ) -> [ProviderMailbox] {
+    let mailboxesByConnection = batches.map {
+      inboxViewModel.navigationSnapshot.providerMailboxes(for: $0.connection.id)
+        .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+    }
+    guard let firstMailboxes = mailboxesByConnection.first else { return [] }
+    let commonTitles = mailboxesByConnection.dropFirst().reduce(Set(firstMailboxes.map(\.title))) {
+      $0.intersection(Set($1.map(\.title)))
+    }
+    return firstMailboxes.compactMap { mailbox -> ProviderMailbox? in
+      guard commonTitles.contains(mailbox.title) else { return nil }
+      return ProviderMailbox(id: mailbox.title, title: mailbox.title)
+    }
+  }
+
+  private func bulkMoveBatches(
+    _ batches: [MailboxBulkActionBatch],
+    destinationTitle: String
+  ) -> [MailboxBulkActionBatch] {
+    batches.compactMap { batch -> MailboxBulkActionBatch? in
+      guard
+        let mailbox = inboxViewModel.navigationSnapshot.providerMailboxes(
+          for: batch.connection.id
+        ).first(where: { $0.title == destinationTitle })
+      else { return nil }
+      return MailboxBulkActionBatch(
+        connection: batch.connection,
+        messages: batch.messages,
+        targetProviderMailboxId: mailbox.id
+      )
+    }
   }
 
   private func perform(
@@ -3169,6 +3224,7 @@ extension GmailMailActionViewModel {
     guard !batches.isEmpty,
       batches.allSatisfy({
         !$0.messages.isEmpty && $0.connection.capabilities.supports(action)
+          && (action != .move || $0.targetProviderMailboxId != nil)
       }),
       !isPerformingAction
     else { return nil }
@@ -3213,34 +3269,14 @@ extension GmailMailActionViewModel {
     ) { group in
       for (batchIndex, batch) in batches.enumerated() {
         group.addTask {
-          do {
-            try await service.perform(
-              action,
-              messages: batch.messages,
-              connection: batch.connection,
-              session: session
-            )
-            await onEnqueued(batch.connection)
-            let resumeError = await service.resumePendingActions(
-              connection: batch.connection,
-              session: session
-            )
-            let retryError = await service.waitForPendingActionRetries(
-              connection: batch.connection,
-              session: session
-            )
-            return Self.bulkActionOutcome(
-              batch,
-              index: batchIndex,
-              errorDescription: Self.combinedErrorDescription([resumeError, retryError])
-            )
-          } catch {
-            return Self.bulkActionOutcome(
-              batch,
-              index: batchIndex,
-              errorDescription: error.localizedDescription
-            )
-          }
+          await Self.performBulkBatch(
+            action,
+            batch: batch,
+            batchIndex: batchIndex,
+            service: service,
+            session: session,
+            onEnqueued: onEnqueued
+          )
         }
       }
       var completedOutcomes: [MailboxBulkActionBatchOutcome] = []
@@ -3256,6 +3292,54 @@ extension GmailMailActionViewModel {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
+  nonisolated private static func performBulkBatch(
+    _ action: ProviderMailAction,
+    batch: MailboxBulkActionBatch,
+    batchIndex: Int,
+    service: MailboxProviderMailActing,
+    session: ProductAccountSessionSnapshot,
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async -> MailboxBulkActionBatchOutcome {
+    do {
+      try await service.perform(
+        action,
+        targetProviderMailboxId: batch.targetProviderMailboxId,
+        messages: batch.messages,
+        connection: batch.connection,
+        session: session
+      )
+      await onEnqueued(batch.connection)
+      let resumeError = await service.resumePendingActions(
+        connection: batch.connection,
+        session: session
+      )
+      let retryError = await service.waitForPendingActionRetries(
+        connection: batch.connection,
+        session: session
+      )
+      let failureDetails = await service.pendingActionFailureDetails(
+        action,
+        messages: batch.messages,
+        connection: batch.connection,
+        session: session
+      )
+      return bulkActionOutcome(
+        batch,
+        index: batchIndex,
+        errorDescription: combinedErrorDescription([resumeError, retryError]),
+        failureDetails: failureDetails
+      )
+    } catch {
+      return bulkActionOutcome(
+        batch,
+        index: batchIndex,
+        errorDescription: error.localizedDescription,
+        failureDetails: nil
+      )
+    }
+  }
+
   nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
     let descriptions = errors.compactMap { $0 }.reduce(into: [String]()) {
       if !$0.contains($1) {
@@ -3268,12 +3352,14 @@ extension GmailMailActionViewModel {
   nonisolated private static func bulkActionOutcome(
     _ batch: MailboxBulkActionBatch,
     index: Int,
-    errorDescription: String?
+    errorDescription: String?,
+    failureDetails: [MailboxProviderActionFailureDetail]?
   ) -> MailboxBulkActionBatchOutcome {
     MailboxBulkActionBatchOutcome(
       batchIndex: index,
       connection: batch.connection,
       errorDescription: errorDescription,
+      failureDetails: failureDetails,
       messages: batch.messages
     )
   }
@@ -3281,28 +3367,48 @@ extension GmailMailActionViewModel {
   private func bulkActionResult(
     _ outcomes: [MailboxBulkActionBatchOutcome]
   ) -> MailboxBulkActionResult {
-    let failures = outcomes.compactMap { outcome -> MailboxBulkActionFailure? in
-      guard let errorDescription = outcome.errorDescription else { return nil }
-      return MailboxBulkActionFailure(
-        connectionId: outcome.connection.id,
-        connectionDisplayName: outcome.connection.displayName,
-        description: errorDescription,
-        messageIds: outcome.messages.map(\.id),
-        messageCount: outcome.messages.count,
-        messageSubjects: outcome.messages.map(\.subject)
-      )
+    let failures = outcomes.flatMap { outcome -> [MailboxBulkActionFailure] in
+      if let failureDetails = outcome.failureDetails {
+        return failureDetails.map { detail in
+          let failedMessages = outcome.messages.filter { detail.messageIds.contains($0.id) }
+          return MailboxBulkActionFailure(
+            connectionId: outcome.connection.id,
+            connectionDisplayName: outcome.connection.displayName,
+            description: detail.description,
+            messageIds: detail.messageIds,
+            messageCount: detail.messageIds.count,
+            messageSubjects: failedMessages.map(\.subject)
+          )
+        }
+      }
+      guard let errorDescription = outcome.errorDescription else { return [] }
+      return [
+        MailboxBulkActionFailure(
+          connectionId: outcome.connection.id,
+          connectionDisplayName: outcome.connection.displayName,
+          description: errorDescription,
+          messageIds: outcome.messages.map(\.id),
+          messageCount: outcome.messages.count,
+          messageSubjects: outcome.messages.map(\.subject)
+        )
+      ]
     }
     return MailboxBulkActionResult(
       failures: failures,
-      succeededConnectionIds: outcomes.compactMap {
-        $0.errorDescription == nil ? $0.connection.id : nil
+      succeededConnectionIds: outcomes.compactMap { outcome in
+        failures.contains { $0.connectionId == outcome.connection.id } ? nil : outcome.connection.id
       }
     )
   }
 
   private static func failureDescription(_ failure: MailboxBulkActionFailure) -> String {
-    let messageDescription = zip(failure.messageSubjects, failure.messageIds)
-      .map { "\($0.0) [\($0.1.rawValue)]" }
+    let messageDescription = failure.messageIds.enumerated()
+      .map { index, messageId in
+        let subject =
+          failure.messageSubjects.indices.contains(index)
+          ? failure.messageSubjects[index] : "Message"
+        return "\(subject) [\(messageId.rawValue)]"
+      }
       .joined(separator: ", ")
     return "\(failure.connectionDisplayName) — \(messageDescription): \(failure.description)"
   }

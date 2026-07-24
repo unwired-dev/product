@@ -718,6 +718,67 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(result.messages, [adapterMessage])
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGmailAdapterPersistsAuthorizationLossAndRetriesEntireQueuedBatch() async throws {
+    let mailActionService = RecoverableAuthMailActionService()
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: mailActionService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let secondMessage = mailShellMessage(
+      providerMessageId: "message-002",
+      providerThreadId: "thread-002",
+      receivedAt: 200
+    )
+    let messages = [adapterMessage, secondMessage]
+
+    try await adapter.perform(
+      .archive,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    let failure = await adapter.resumePendingActions(connection: connection, session: session)
+    let failureDetails = await adapter.pendingActionFailureDetails(
+      .archive,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    let blockedConnectionIds = await adapter.blockedPendingActionConnectionIds(
+      connections: [connection],
+      session: session
+    )
+
+    XCTAssertNotNil(failure)
+    XCTAssertEqual(
+      Set(failureDetails?.flatMap(\.messageIds) ?? []),
+      Set(messages.map(\.id))
+    )
+    XCTAssertEqual(blockedConnectionIds, [connection.id])
+
+    mailActionService.restoreAuthorization()
+    let retryFailure = await adapter.retryBlockedPendingAction(
+      connection: connection,
+      session: session
+    )
+    let remainingFailureDetails = await adapter.pendingActionFailureDetails(
+      .archive,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(retryFailure)
+    XCTAssertEqual(mailActionService.messageIds, messages.map(\.providerMessageId))
+    XCTAssertEqual(remainingFailureDetails, [])
+  }
+
   func testGmailAdapterReloadsInboxAfterResumingPendingActions() async throws {
     let eventLog = RecordingAdapterEventLog()
     let metadataService = RecordingAdapterMetadataService(eventLog: eventLog)
@@ -2138,6 +2199,33 @@ private final class FailingAdapterMailActionService: GmailProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     throw PendingAdapterActionError.rejected
+  }
+
+  func send(
+    _: GmailOutgoingMessage,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private final class RecoverableAuthMailActionService: GmailProviderMailActing {
+  private var isAuthorized = false
+  var messageIds: [String] = []
+
+  func perform(
+    _: GmailProviderMailAction,
+    messageIds: [String],
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    guard isAuthorized else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    self.messageIds.append(contentsOf: messageIds)
+  }
+
+  func restoreAuthorization() {
+    isAuthorized = true
   }
 
   func send(

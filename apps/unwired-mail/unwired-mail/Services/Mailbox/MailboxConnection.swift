@@ -123,6 +123,11 @@ enum ProviderMailAction: String, CaseIterable, Codable, Hashable, Sendable {
   case unstar
 }
 
+struct MailboxProviderActionFailureDetail: Equatable, Sendable {
+  let description: String
+  let messageIds: [StableProviderMessageIdentity]
+}
+
 struct MailboxConnectionCapabilities: Equatable, Sendable {
   let canCategorizeHistorical: Bool
   let canForward: Bool
@@ -926,6 +931,13 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async -> [MailboxConnectionId]
 
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]?
+
   func waitForPendingActionRetries(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -1007,6 +1019,15 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxConnectionId] {
     []
+  }
+
+  func pendingActionFailureDetails(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    nil
   }
 
   func waitForPendingActionRetries(
@@ -1698,6 +1719,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       failedConnectionIds.append(connection.id)
     }
     return failedConnectionIds
+  }
+
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    try? await pendingActionService.failureDetails(
+      action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
   }
 
   func waitForPendingActionRetries(
