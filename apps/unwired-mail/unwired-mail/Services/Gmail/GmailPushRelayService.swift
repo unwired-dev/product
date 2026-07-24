@@ -1357,6 +1357,10 @@ struct GmailPushWakeupHandler {
       _ = try await scheduleGenericFallback()
       return false
     }
+    if syncResult.providerCursorIsExpired {
+      _ = try await scheduleGenericFallback()
+      return false
+    }
     let successfulSyncAt = Date()
     successStore.save(
       successfulSyncAt,
