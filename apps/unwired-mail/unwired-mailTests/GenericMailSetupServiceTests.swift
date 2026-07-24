@@ -4,6 +4,39 @@ import XCTest
 
 // swiftlint:disable file_length type_body_length
 final class GenericMailSetupServiceTests: XCTestCase {
+  @MainActor
+  func testConnectionReloadKeyChangesWhenSyncedDefinitionContentChanges() {
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true }
+    )
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap, hostname: "imap.example.com", port: 993, security: .implicitTLS),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp, hostname: "smtp.example.com", port: 465, security: .implicitTLS),
+      roleMappings: [.sent: "Sent"],
+      username: "reader@example.com"
+    )
+    viewModel.syncedDefinitions = [definition]
+    let initialKey = viewModel.connectionReloadKey
+    viewModel.syncedDefinitions = [
+      GenericMailConnectionDefinition(
+        authorizationMethod: definition.authorizationMethod,
+        emailAddress: "updated@example.com",
+        incomingEndpoint: definition.incomingEndpoint,
+        outgoingEndpoint: definition.outgoingEndpoint,
+        roleMappings: [.sent: "Updated Sent"],
+        username: definition.username
+      )
+    ]
+
+    XCTAssertEqual(viewModel.syncedDefinitions[0].connectionId, definition.connectionId)
+    XCTAssertNotEqual(viewModel.connectionReloadKey, initialKey)
+  }
+
   func testReviewedCatalogDiscoversIMAPSMTPAndPOP3Locally() {
     let catalog = BundledMailProviderCatalog()
 

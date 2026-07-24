@@ -59,6 +59,32 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(projected.messages.isEmpty)
   }
 
+  func testFailureDetailsExcludePendingActions() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-pending",
+      providerStateIds: ["INBOX"]
+    )
+
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let details = try await service.failureDetails(
+      .archive,
+      messageIds: [message.providerMessageId],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(details, [])
+  }
+
   func testPendingActionsResumeInOrderAfterRestart() async throws {
     let store = InMemoryPendingProviderActionStore()
     let firstService = PendingProviderActionService(
