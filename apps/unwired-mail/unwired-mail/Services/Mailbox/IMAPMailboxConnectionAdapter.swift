@@ -356,7 +356,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
   }
 
   func beginScan(
-    activeMailboxes _: Set<String>,
+    activeMailboxes: Set<String>,
     state: IMAPMetadataSyncState,
     productAccountId: String,
     connectionId: MailboxConnectionId
@@ -367,7 +367,13 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       connectionId: connectionId,
       context: context
     ) {
-      record.pendingRemovalScanId = state.scanId
+      if !activeMailboxes.contains(where: {
+        IMAPProviderMessage.mailboxNamesEqual($0, record.mailbox)
+      }) {
+        context.delete(record)
+      } else if !state.historicalMetadataBackfillIsComplete {
+        record.pendingRemovalScanId = state.scanId
+      }
     }
     try save(
       state: state, productAccountId: productAccountId, connectionId: connectionId, context: context
@@ -940,11 +946,17 @@ struct IMAPMessageMetadataService {
         limit: Self.initialPageSize,
         authorization: authorization
       )
-      if let index = state.mailboxes.firstIndex(where: {
+      let existingIndex = state.mailboxes.firstIndex(where: {
         IMAPProviderMessage.mailboxNamesEqual($0.descriptor.name, descriptor.name)
-      }) {
+      })
+      let hadCompletedBackfill: Bool
+      if let existingIndex {
+        hadCompletedBackfill = state.mailboxes[existingIndex].nextOlderUID == nil
+      } else {
+        hadCompletedBackfill = false
+      }
+      if let index = existingIndex {
         state.mailboxes[index].descriptor = descriptor
-        let hadCompletedBackfill = state.mailboxes[index].nextOlderUID == nil
         let uidValidityChanged = state.mailboxes[index].uidValidity != page.uidValidity
         state.mailboxes[index].uidValidity = page.uidValidity
         if !hadCompletedBackfill || uidValidityChanged {
@@ -962,7 +974,9 @@ struct IMAPMessageMetadataService {
       try store.savePage(
         page.messages,
         mailbox: descriptor.name,
-        reconciliation: .newest(coversEntireMailbox: page.nextOlderUID == nil),
+        reconciliation: .newest(
+          coversEntireMailbox: !hadCompletedBackfill && page.nextOlderUID == nil
+        ),
         state: state,
         uidValidity: page.uidValidity,
         productAccountId: productAccountId,

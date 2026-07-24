@@ -83,6 +83,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(completed.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(completed.messages.count, 76)
+
+    client.messagesByUsername[definition.username]?.append(
+      imapMessage(uid: 77, subject: "Message 77")
+    )
+
+    let refreshed = try await recreatedAdapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertTrue(refreshed.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(refreshed.messages.count, 77)
+    XCTAssertEqual(refreshed.messages.last?.subject, "Message 1")
   }
 
   func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
@@ -119,6 +129,39 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(archive.messages.count, 50)
     XCTAssertEqual(archive.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
     XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+  }
+
+  func testRefreshDropsRecordsFromRemovedMailboxBeforeBackfillCompletes() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": (1...60).map { imapMessage(uid: Int64($0)) },
+      "Archive": (61...120).map {
+        imapMessage(mailbox: "Archive", uid: Int64($0))
+      },
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX")
+    ]
+
+    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertFalse(refreshed.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(refreshed.messages.count, 50)
   }
 
   func testObjectIdDeduplicatesOneMessageAcrossMailboxes() async throws {
