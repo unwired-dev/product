@@ -280,12 +280,21 @@ actor OutboxDeliveryService {
     var attempts = try store.load(productAccountId: session.productAccountId)
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
-    scheduleRetry(
-      attempt,
-      delay: handoffDelayNanoseconds,
-      provider: provider,
-      reconcile: reconcile
-    )
+    if handoffDelayNanoseconds == 0 {
+      try await process(
+        connectionId: connection.id,
+        productAccountId: session.productAccountId,
+        provider: provider,
+        reconcile: reconcile
+      )
+    } else {
+      scheduleRetry(
+        attempt,
+        delay: handoffDelayNanoseconds,
+        provider: provider,
+        reconcile: reconcile
+      )
+    }
     return try requiredAttempt(attempt.id, productAccountId: session.productAccountId)
   }
 
@@ -516,7 +525,9 @@ actor OutboxDeliveryService {
           (attempts.indices
             .filter {
               attempts[$0].connectionId == connectionId
-                && (attempts[$0].state == .pending
+                && ((attempts[$0].state == .pending
+                  && attempts[$0].createdAtMilliseconds
+                    + Int64(handoffDelayNanoseconds / 1_000_000) <= milliseconds(now()))
                   || ((attempts[$0].state == .retrying
                     || attempts[$0].state == .reconciling)
                     && (attempts[$0].nextRetryAtMilliseconds == nil

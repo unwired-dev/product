@@ -799,12 +799,8 @@ struct AccountView: View {
       }
   }
 
-  private var genericMailReloadKey: GenericMailReloadKey {
-    GenericMailReloadKey(
-      authorizedConnectionIds: genericMailSetupViewModel.authorizedSyncedConnectionIds,
-      defaultSendingConnectionId: genericMailSetupViewModel.defaultSendingConnectionId,
-      definitions: genericMailSetupViewModel.syncedDefinitions
-    )
+  private var genericMailReloadKey: [String] {
+    genericMailSetupViewModel.connectionReloadKey
   }
 
   private var presentedMailShell: some View {
@@ -2012,7 +2008,7 @@ struct MailShellCompositionDraft: Identifiable {
       + (message.recipientHeaders ?? []).flatMap(mailboxValues)
     var seenAddresses: Set<String> = []
     let recipients = candidates.filter { address in
-      let normalizedAddress = address.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      let normalizedAddress = normalizedMailboxAddress(address)
       guard !normalizedAddress.isEmpty, normalizedAddress != senderAddress.lowercased() else {
         return false
       }
@@ -2059,6 +2055,20 @@ struct MailShellCompositionDraft: Identifiable {
     }
     mailboxes.append(mailbox)
     return mailboxes
+  }
+
+  private static func normalizedMailboxAddress(_ value: String) -> String {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      let opening = trimmed.lastIndex(of: "<"),
+      let closing = trimmed.lastIndex(of: ">"),
+      opening < closing
+    else {
+      return trimmed.lowercased()
+    }
+    return String(trimmed[trimmed.index(after: opening)..<closing])
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+      .lowercased()
   }
 
   static func replyRecipient(for message: MailboxMessageMetadata) -> String {
