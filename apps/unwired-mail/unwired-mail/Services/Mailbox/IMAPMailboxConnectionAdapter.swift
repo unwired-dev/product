@@ -1589,15 +1589,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let definition = try await localDefinition(connection: connection, session: session)
-    return try metadataService.load(
+    let result = try metadataService.load(
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
     )
     .projected(to: collection)
-    .limitedInitialPage(
-      to: collection == .allObserved ? nil : IMAPMessageMetadataService.initialPageSize
-    )
+    guard collection != .allObserved else { return result }
+    return result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadProviderMailboxes(
