@@ -2145,7 +2145,10 @@ struct MailShellConversationReader: View {
     Binding(
       get: { readerErrorMessage != nil },
       set: { isPresented in
-        if !isPresented { readerErrorMessage = nil }
+        if !isPresented {
+          readerErrorConnectionId = nil
+          readerErrorMessage = nil
+        }
       }
     )
   }
@@ -2213,6 +2216,10 @@ struct MailShellConversationReader: View {
         } else if selection.selectedMailbox?.collection != .role(.trash),
           selection.selectedMailbox?.collection != .role(.spam),
           selection.selectedMailbox?.collection != .role(.sent),
+          !thread.messages.contains(where: {
+            let states = Set($0.providerStateIds ?? [])
+            return states.contains("DRAFT") || states.contains("SENT")
+          }),
           connection.capabilities.supports(.spam)
         {
           Button("Mark as Spam") { perform(.spam, thread: thread, connection: connection) }

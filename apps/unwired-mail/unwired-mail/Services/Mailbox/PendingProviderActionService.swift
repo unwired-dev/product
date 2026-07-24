@@ -403,9 +403,21 @@ actor PendingProviderActionService {
           }
       }.map(\.id)
     )
+    let contradictedActionIds = Set(
+      actions.filter { action in
+        action.connectionId == connection.id.rawValue
+          && action.state == .providerConfirmed
+          && action.messageIds.allSatisfy { messageId in
+            messages.contains { $0.providerMessageId == messageId }
+          }
+          && !action.isConfirmed(in: messages)
+      }.map(\.id)
+    )
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
-        && (confirmedActionIds.contains($0.id) || supersededActionIds.contains($0.id))
+        && (confirmedActionIds.contains($0.id)
+          || supersededActionIds.contains($0.id)
+          || contradictedActionIds.contains($0.id))
     }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -503,6 +515,12 @@ actor PendingProviderActionService {
       let pendingAction = actions[index]
 
       do {
+        try Task.checkCancellation()
+        guard
+          try store.load(productAccountId: productAccountId).contains(where: {
+            $0.id == pendingAction.id && $0.state == .pending
+          })
+        else { continue }
         try await provider(
           pendingAction.action,
           pendingAction.targetProviderMailboxId,
