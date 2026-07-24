@@ -20,6 +20,7 @@ reviews:
 
   path_filters:
     - "!packages/convex/convex/_generated/**"
+    - "packages/convex/convex/_generated/ai/guidelines.md"
 
   path_instructions:
     - path: "apps/unwired-mail/**/*.swift"
@@ -75,7 +76,7 @@ reviews:
     auto_incremental_review: true
     auto_pause_after_reviewed_commits: 5
     ignore_title_keywords:
-      - "WIP"
+      - "[WIP]"
       - "[skip review]"
     labels:
       - "!do-not-review"

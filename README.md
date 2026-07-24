@@ -179,7 +179,7 @@ uses the repository-root [`.coderabbit.yaml`](.coderabbit.yaml) together with
 the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
 requests to the default branch and incrementally reviews new pushes. Pull
 requests from common dependency and automation bots are skipped, as are pull
-requests whose title contains `WIP` or `[skip review]` or that carry the
+requests whose title contains `[WIP]` or `[skip review]` or that carry the
 `do-not-review` label. Generated Convex client files are excluded from review.
 
 ## Release Notes
