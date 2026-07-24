@@ -632,12 +632,6 @@ final class MailboxFreshnessViewModel {
 }
 // swiftlint:enable type_body_length
 
-private struct GenericMailReloadKey: Equatable {
-  let authorizedConnectionIds: Set<MailboxConnectionId>
-  let defaultSendingConnectionId: MailboxConnectionId?
-  let definitions: [GenericMailConnectionDefinition]
-}
-
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -645,6 +639,7 @@ struct AccountView: View {
   private let messageReader: MailboxMessageReading
 
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.editMode) private var editMode
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -686,20 +681,11 @@ struct AccountView: View {
       initialValue: GenericMailSetupViewModel(
         productAccountId: ProductAccountId(snapshot.productAccountId),
         clearLocalData: { definition, session in
-          guard definition.incomingEndpoint.mailProtocol == .imap else { return false }
-          let connection = MailboxConnection(
-            authorizationState: .required,
-            capabilities: .none,
-            connectedAt: 0,
-            displayName: definition.emailAddress,
-            id: definition.connectionId,
-            lastVerifiedAt: 0,
-            productAccountId: ProductAccountId(session.productAccountId),
-            trustedDeviceId: session.trustedDeviceId,
-            updatedAt: 0
+          try await AccountView.clearGenericMailLocalData(
+            definition,
+            session: session,
+            mailboxConnection: mailboxConnection
           )
-          try await mailboxConnection.clearLocalConnection(connection, session: session)
-          return true
         },
         isSessionCurrent: { session.isCurrent(snapshot) },
         syncSession: snapshot
@@ -879,7 +865,7 @@ struct AccountView: View {
         mailActionViewModel: mailActionViewModel,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
-        selectedThreadId: selectedThreadBinding,
+        selectedThreadIds: selectedThreadsBinding,
         viewModel: inboxViewModel
       )
     } detail: {
@@ -892,6 +878,202 @@ struct AccountView: View {
         pinViewModel: pinViewModel,
         selection: mailShellSelection
       )
+    }
+    .navigationSplitViewStyle(.balanced)
+    .sheet(isPresented: $showsAccountSettings) {
+      accountSettings
+    }
+    .alert(
+      "Pending message action requires attention",
+      isPresented: $showsBlockedActionAlert
+    ) {
+      if let connection = pendingActionFailureConnection {
+        if mailActionViewModel.blockedConnectionId == connection.id {
+          Button("Retry") {
+            resolveBlockedAction(connection: connection, discard: false)
+          }
+          Button("Discard", role: .destructive) {
+            resolveBlockedAction(connection: connection, discard: true)
+          }
+        } else {
+          Button("Acknowledge") {
+            acknowledgePendingActionFailure(connection: connection)
+          }
+        }
+      }
+      Button("Later", role: .cancel) {}
+    } message: {
+      Text(mailActionViewModel.errorMessage ?? "Reconnect or discard the pending action.")
+    }
+    .task {
+      #if canImport(UIKit)
+        requestDevicePushRegistration()
+      #endif
+      await categoryViewModel.load()
+      await notificationRuleViewModel.load(
+        categoryIds: categoryViewModel.hasLoadedCategory
+          ? Set(
+            MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
+          )
+          : nil
+      )
+      await reloadSyncedMailState()
+      if mailShellSelection.selectedMailbox == nil {
+        if let connection = gmailViewModel.connection {
+          mailShellSelection.selectMailbox(connectionId: connection.id)
+        }
+        if let connection = gmailViewModel.connection,
+          connection.authorizationState == .authorized
+        {
+          await inboxViewModel.loadAfterConnectionChange(
+            connection: connection,
+            synchronizes: false
+          )
+        }
+      } else if mailShellSelection.selectedMailbox?.isUnified == true {
+        loadUnifiedMailbox(synchronizes: false)
+      }
+      await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+      await reloadObservedMailboxes()
+      inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+    }
+    .task(id: scenePhase) {
+      guard scenePhase == .active else { return }
+      await mailboxFreshnessViewModel.pollWhileActive(
+        connections: { gmailViewModel.connections },
+        didSynchronize: { await reloadObservedMailboxes() }
+      )
+    }
+    .onChange(of: scenePhase) { _, phase in
+      guard phase == .active else { return }
+      Task {
+        await reloadSyncedMailState()
+        await synchronizeMailboxes()
+        inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
+      }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId,
+        let connectionId =
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
+        let phase = notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase
+      else { return }
+      let successfulSyncAt =
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
+      mailboxFreshnessViewModel.recordExternalSync(
+        connectionIdRawValue: connectionId,
+        phase: phase,
+        successfulSyncAt: successfulSyncAt
+      )
+      let reloadObservedMetadata =
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+        as? Bool == true
+      guard successfulSyncAt != nil || reloadObservedMetadata else { return }
+      Task { await reloadObservedMailboxes() }
+    }
+    .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
+      updateProductMailboxState()
+      inboxViewModel.refreshBodyPrefetch(
+        afterChanging: oldValue.symmetricDifference(newValue),
+        connections: gmailViewModel.connections
+      )
+    }
+    .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
+      showsBlockedActionAlert = connectionId != nil
+    }
+    .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
+      let newlyFailedIds = newIds.filter { !oldIds.contains($0) }
+      guard !newlyFailedIds.isEmpty else { return }
+      Task {
+        for connectionId in newlyFailedIds {
+          guard
+            let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+          else { continue }
+          _ = await inboxViewModel.reloadLocal(connection: connection)
+        }
+        await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+        showsBlockedActionAlert = true
+      }
+    }
+    .onChange(of: gmailViewModel.connection?.id) { _, _ in
+      guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
+      guard let connection = gmailViewModel.connection else {
+        mailShellSelection.clearSelection()
+        inboxViewModel.clear()
+        return
+      }
+      let collection: MailboxMessageCollection
+      if case .connection(let selectedConnectionId, let selectedCollection) =
+        mailShellSelection.selectedMailbox,
+        selectedConnectionId == connection.id
+      {
+        collection = selectedCollection
+      } else {
+        collection = .role(.inbox)
+      }
+      selectConnection(connection, collection: collection)
+    }
+    .onChange(of: gmailViewModel.connections) { _, _ in
+      mailboxFreshnessViewModel.updateConnections(
+        gmailViewModel.connections,
+        prunesPersistedState: false
+      )
+      Task {
+        await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
+      }
+      guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
+      loadUnifiedMailbox()
+    }
+    .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
+      guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
+      guard
+        let connection = gmailViewModel.connection,
+        authorizationState == .authorized
+      else {
+        inboxViewModel.clear()
+        return
+      }
+      loadMailbox(for: connection)
+    }
+    .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
+      Task {
+        await genericMailSetupViewModel.loadSyncedDefinitions()
+      }
+    }
+    .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
+      Task {
+        _ = await gmailViewModel.load()
+      }
+    }
+    .onChange(of: inboxViewModel.threads) { _, threads in
+      if mailShellSelection.selectedMailbox?.isUnified == true {
+        if let connectionId = inboxViewModel.currentConnectionId {
+          mailShellSelection.updateThreads(threads, for: connectionId)
+        } else {
+          mailShellSelection.replaceUnifiedThreads(
+            threads,
+            connectionIds: Set(gmailViewModel.connections.map(\.id))
+          )
+        }
+      } else if let connectionId = mailShellSelection.selectedConnectionId {
+        mailShellSelection.updateThreads(threads, for: connectionId)
+      }
+    }
+    .onChange(of: mailShellSelection.navigationLevel) { _, _ in
+      updatePreferredCompactColumn()
+    }
+    .onChange(of: editMode?.wrappedValue) { _, _ in
+      updatePreferredCompactColumn()
+    }
+    .onDisappear {
+      inboxLoadTask?.cancel()
+      mailboxFreshnessViewModel.cancelAll()
     }
   }
 
@@ -919,184 +1101,30 @@ struct AccountView: View {
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await genericMailSetupViewModel.loadSyncedDefinitions()
   }
-
-  private func handleFailedConnectionIdsChange(
-    from oldIds: [MailboxConnectionId],
-    to newIds: [MailboxConnectionId]
-  ) {
-    let newlyFailedIds = newIds.filter { !oldIds.contains($0) }
-    guard !newlyFailedIds.isEmpty else { return }
-    Task {
-      for connectionId in newlyFailedIds {
-        guard
-          let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
-        else { continue }
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-      }
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
-      showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
-    }
-  }
-
-  private func handleAuthorizationStateChange(
-    _ authorizationState: MailboxAuthorizationState?
-  ) {
-    guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
-    guard
-      let connection = gmailViewModel.connection,
-      authorizationState == .authorized
-    else {
-      inboxViewModel.clear()
-      return
-    }
-    loadMailbox(for: connection)
-  }
-
-  private func handleConnectionsChange() {
-    mailboxFreshnessViewModel.updateConnections(
-      gmailViewModel.connections,
-      prunesPersistedState: false
-    )
-    Task {
-      await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
-    }
-    guard mailShellSelection.selectedMailbox?.isUnified == true else { return }
-    loadUnifiedMailbox()
-  }
-
-  private func handleMailboxMetadataDidSynchronize(_ notification: Notification) {
-    guard
-      notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
-        as? String == snapshot.productAccountId,
-      let connectionId =
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId] as? String,
-      let phase = notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
-        as? MailboxSyncPhase
-    else { return }
-    let successfulSyncAt =
-      notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
-    mailboxFreshnessViewModel.recordExternalSync(
-      connectionIdRawValue: connectionId,
-      phase: phase,
-      successfulSyncAt: successfulSyncAt
-    )
-    let reloadObservedMetadata =
-      notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
-      as? Bool == true
-    guard successfulSyncAt != nil || reloadObservedMetadata else { return }
-    Task { await reloadObservedMailboxes() }
-  }
-
-  private func handlePinnedMessageIdsChange(
-    from oldValue: Set<StableProviderMessageIdentity>,
-    to newValue: Set<StableProviderMessageIdentity>
-  ) {
-    updateProductMailboxState()
-    inboxViewModel.refreshBodyPrefetch(
-      afterChanging: oldValue.symmetricDifference(newValue),
-      connections: gmailViewModel.connections
-    )
-  }
-
-  private func handleScenePhaseChange(_ phase: ScenePhase) {
-    guard phase == .active else { return }
-    Task {
-      await reloadSyncedMailState()
-      await synchronizeMailboxes()
-      inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
-    }
-  }
-
-  private func handleSelectedConnectionChange() {
-    guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
-    guard let connection = gmailViewModel.connection else {
-      mailShellSelection.clearSelection()
-      inboxViewModel.clear()
-      return
-    }
-    let collection: MailboxMessageCollection
-    if case .connection(let selectedConnectionId, let selectedCollection) =
-      mailShellSelection.selectedMailbox,
-      selectedConnectionId == connection.id
-    {
-      collection = selectedCollection
-    } else {
-      collection = .role(.inbox)
-    }
-    selectConnection(connection, collection: collection)
-  }
-
-  private func handleThreadsChange(_ threads: [MailboxThread]) {
-    if mailShellSelection.selectedMailbox?.isUnified == true {
-      if let connectionId = inboxViewModel.currentConnectionId {
-        mailShellSelection.updateThreads(threads, for: connectionId)
-      } else {
-        mailShellSelection.replaceUnifiedThreads(
-          threads,
-          connectionIds: Set(gmailViewModel.connections.map(\.id))
-        )
-      }
-    } else if let connectionId = mailShellSelection.selectedConnectionId {
-      mailShellSelection.updateThreads(threads, for: connectionId)
-    }
-  }
-
-  private func loadInitialMailState() async {
-    #if canImport(UIKit)
-      requestDevicePushRegistration()
-    #endif
-    await categoryViewModel.load()
-    await notificationRuleViewModel.load(
-      categoryIds: categoryViewModel.hasLoadedCategory
-        ? Set(
-          MessageCategoryChoice.available(customCategory: categoryViewModel.category).map(\.id)
-        )
-        : nil
-    )
-    await reloadSyncedMailState()
-    if mailShellSelection.selectedMailbox == nil {
-      if let connection = gmailViewModel.connection {
-        mailShellSelection.selectMailbox(connectionId: connection.id)
-      }
-      if let connection = gmailViewModel.connection,
-        connection.authorizationState == .authorized
-      {
-        await inboxViewModel.loadAfterConnectionChange(
-          connection: connection,
-          synchronizes: false
-        )
-      }
-    } else if mailShellSelection.selectedMailbox?.isUnified == true {
-      loadUnifiedMailbox(synchronizes: false)
-    }
-    await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
-    await reloadObservedMailboxes()
-    inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
-  }
 }
 
 extension AccountView {
-  @ViewBuilder
-  private var pendingActionAlertActions: some View {
-    if let connection = pendingActionFailureConnection {
-      if mailActionViewModel.blockedConnectionId == connection.id {
-        Button("Retry") {
-          resolveBlockedAction(connection: connection, discard: false)
-        }
-        Button("Discard", role: .destructive) {
-          resolveBlockedAction(connection: connection, discard: true)
-        }
-      } else {
-        Button("Acknowledge") {
-          acknowledgePendingActionFailure(connection: connection)
-        }
-      }
+  private static func clearGenericMailLocalData(
+    _ definition: GenericMailConnectionDefinition,
+    session: ProductAccountSessionSnapshot,
+    mailboxConnection: MailboxConnectionAdapter
+  ) async throws -> Bool {
+    guard definition.connectionId.providerMailboxIdentity.providerId == .imapSMTP else {
+      return false
     }
-    Button("Later", role: .cancel) {}
-  }
-
-  private var pendingActionAlertMessage: some View {
-    Text(mailActionViewModel.errorMessage ?? "Reconnect or discard the pending action.")
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+    try await mailboxConnection.clearLocalConnection(connection, session: session)
+    return true
   }
 
   private var pendingActionFailureConnection: MailboxConnection? {
@@ -1133,16 +1161,16 @@ extension AccountView {
     return gmailViewModel.connections.first { $0.id == connectionId }
   }
 
-  private var selectedThreadBinding: Binding<MailboxThreadIdentity?> {
+  private func updatePreferredCompactColumn() {
+    preferredCompactColumn = mailShellSelection.compactColumn(
+      isEditing: editMode?.wrappedValue == .active
+    )
+  }
+
+  private var selectedThreadsBinding: Binding<Set<MailboxThreadIdentity>> {
     Binding(
-      get: { mailShellSelection.selectedThreadId },
-      set: { threadId in
-        guard let threadId else {
-          mailShellSelection.clearThreadSelection()
-          return
-        }
-        mailShellSelection.selectThread(threadId)
-      }
+      get: { mailShellSelection.selectedThreadIds },
+      set: { mailShellSelection.selectThreads($0) }
     )
   }
 
@@ -1541,13 +1569,139 @@ struct MailShellThreadListItem: Equatable, Identifiable {
   }
 }
 
+struct MailboxBulkActionBatch: Equatable, Sendable {
+  let connection: MailboxConnection
+  let messages: [MailboxMessageMetadata]
+  let targetProviderMailboxId: String?
+
+  init(
+    connection: MailboxConnection,
+    messages: [MailboxMessageMetadata],
+    targetProviderMailboxId: String? = nil
+  ) {
+    self.connection = connection
+    self.messages = messages
+    self.targetProviderMailboxId = targetProviderMailboxId
+  }
+}
+
+struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
+  struct Identity: Equatable, Hashable, Sendable {
+    let normalizedTitle: String
+  }
+
+  let id: Identity
+  let providerMailboxIdsByConnection: [MailboxConnectionId: String]
+  let title: String
+
+  static func shared(
+    connectionIds: [MailboxConnectionId],
+    providerMailboxesByConnection: [MailboxConnectionId: [ProviderMailbox]]
+  ) -> [MailboxBulkMoveDestination] {
+    let mailboxesByConnection = Dictionary(
+      uniqueKeysWithValues: connectionIds.map { connectionId in
+        (
+          connectionId,
+          uniqueMailboxesByTitle(providerMailboxesByConnection[connectionId] ?? [])
+        )
+      }
+    )
+    guard
+      let firstConnectionId = connectionIds.first,
+      let firstMailboxes = mailboxesByConnection[firstConnectionId]
+    else { return [] }
+    let commonIds = connectionIds.dropFirst().reduce(Set(firstMailboxes.keys)) {
+      $0.intersection(Set(mailboxesByConnection[$1]?.keys.map { $0 } ?? []))
+    }
+    return commonIds.compactMap { id in
+      guard let firstMailbox = firstMailboxes[id] else { return nil }
+      let providerIds = Dictionary(
+        uniqueKeysWithValues: connectionIds.compactMap { connectionId in
+          mailboxesByConnection[connectionId]?[id].map { (connectionId, $0.id) }
+        }
+      )
+      guard providerIds.count == connectionIds.count else { return nil }
+      return MailboxBulkMoveDestination(
+        id: id,
+        providerMailboxIdsByConnection: providerIds,
+        title: firstMailbox.title
+      )
+    }
+    .sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+  }
+
+  func targeting(_ batches: [MailboxBulkActionBatch]) -> [MailboxBulkActionBatch]? {
+    guard Set(batches.map(\.connection.id)) == Set(providerMailboxIdsByConnection.keys) else {
+      return nil
+    }
+    var targetedBatches: [MailboxBulkActionBatch] = []
+    for batch in batches {
+      guard let providerMailboxId = providerMailboxIdsByConnection[batch.connection.id] else {
+        return nil
+      }
+      targetedBatches.append(
+        MailboxBulkActionBatch(
+          connection: batch.connection,
+          messages: batch.messages,
+          targetProviderMailboxId: providerMailboxId
+        )
+      )
+    }
+    return targetedBatches
+  }
+
+  private static func uniqueMailboxesByTitle(
+    _ mailboxes: [ProviderMailbox]
+  ) -> [Identity: ProviderMailbox] {
+    Dictionary(
+      uniqueKeysWithValues: Dictionary(grouping: mailboxes) {
+        Identity(normalizedTitle: $0.title.lowercased())
+      }.compactMap { id, matches in
+        matches.count == 1 ? (id, matches[0]) : nil
+      }
+    )
+  }
+}
+
+struct MailboxBulkActionFailure: Equatable, Sendable {
+  let connectionId: MailboxConnectionId
+  let connectionDisplayName: String
+  let description: String
+  let messageIds: [StableProviderMessageIdentity]
+  let messageCount: Int
+  let messageSubjects: [String]
+}
+
+struct MailboxBulkActionResult: Equatable, Sendable {
+  let failures: [MailboxBulkActionFailure]
+  let succeededConnectionIds: [MailboxConnectionId]
+}
+
+struct MailboxBulkActionProgress: Equatable, Sendable {
+  let action: ProviderMailAction
+  let completedConnectionCount: Int
+  let totalConnectionCount: Int
+}
+
+private struct MailboxBulkActionBatchOutcome: Sendable {
+  let batchIndex: Int
+  let connection: MailboxConnection
+  let errorDescription: String?
+  let failureDetails: [MailboxProviderActionFailureDetail]?
+  let messages: [MailboxMessageMetadata]
+}
+
 @MainActor
 @Observable
 final class MailShellSelectionModel {
   private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
   private(set) var selectedMailbox: MailShellMailboxSelection?
-  private(set) var selectedThreadId: MailboxThreadIdentity?
+  private(set) var selectedThreadIds: Set<MailboxThreadIdentity> = []
   private var threadsByConnection: [MailboxConnectionId: [MailboxThread]] = [:]
+
+  var selectedThreadId: MailboxThreadIdentity? {
+    selectedThreadIds.count == 1 ? selectedThreadIds.first : nil
+  }
 
   var selectedConnectionId: MailboxConnectionId? {
     guard case .connection(let connectionId, _) = selectedMailbox else { return nil }
@@ -1568,7 +1722,7 @@ final class MailShellSelectionModel {
   }
 
   var navigationLevel: MailShellNavigationLevel {
-    if selectedThreadId != nil {
+    if !selectedThreadIds.isEmpty {
       return .conversation
     }
     if selectedMailbox != nil {
@@ -1578,6 +1732,13 @@ final class MailShellSelectionModel {
   }
 
   var preferredCompactColumn: NavigationSplitViewColumn {
+    compactColumn(isEditing: false)
+  }
+
+  func compactColumn(isEditing: Bool) -> NavigationSplitViewColumn {
+    if isEditing, selectedMailbox != nil {
+      return .content
+    }
     switch navigationLevel {
     case .mailboxList:
       return .sidebar
@@ -1589,18 +1750,23 @@ final class MailShellSelectionModel {
   }
 
   var selectedThread: MailboxThread? {
-    threads.first { $0.id == selectedThreadId }
+    guard selectedThreadIds.count == 1 else { return nil }
+    return threads.first { $0.id == selectedThreadId }
+  }
+
+  var selectedThreads: [MailboxThread] {
+    threads.filter { selectedThreadIds.contains($0.id) }
   }
 
   func clearSelection() {
     selectedMailbox = nil
-    selectedThreadId = nil
+    selectedThreadIds = []
     threadsByConnection = [:]
     expandedMessageIds = []
   }
 
   func clearThreadSelection() {
-    selectedThreadId = nil
+    selectedThreadIds = []
     expandedMessageIds = []
   }
 
@@ -1611,7 +1777,7 @@ final class MailShellSelectionModel {
     let mailbox = MailShellMailboxSelection.connection(connectionId, collection)
     guard selectedMailbox != mailbox else { return }
     selectedMailbox = mailbox
-    selectedThreadId = nil
+    selectedThreadIds = []
     expandedMessageIds = []
   }
 
@@ -1623,21 +1789,27 @@ final class MailShellSelectionModel {
     let selection = MailShellMailboxSelection.unified(mailbox)
     guard selectedMailbox != selection else { return }
     selectedMailbox = selection
-    selectedThreadId = nil
+    selectedThreadIds = []
     expandedMessageIds = []
   }
 
   func selectOutbox() {
     guard selectedMailbox != .outbox else { return }
     selectedMailbox = .outbox
-    selectedThreadId = nil
+    selectedThreadIds = []
     expandedMessageIds = []
   }
 
   func selectThread(_ threadId: MailboxThreadIdentity) {
     guard let thread = threads.first(where: { $0.id == threadId }) else { return }
-    selectedThreadId = threadId
+    selectedThreadIds = [threadId]
     expandedMessageIds = [thread.latestMessage.id]
+  }
+
+  func selectThreads(_ threadIds: Set<MailboxThreadIdentity>) {
+    let availableThreadIds = Set(threads.map(\.id))
+    selectedThreadIds = threadIds.intersection(availableThreadIds)
+    reconcileSelectedThreads()
   }
 
   func updateThreads(
@@ -1648,7 +1820,7 @@ final class MailShellSelectionModel {
     guard selectedMailbox?.isUnified == true || selectedConnectionId == connectionId else {
       return
     }
-    reconcileSelectedThread()
+    reconcileSelectedThreads()
   }
 
   func replaceUnifiedThreads(
@@ -1659,13 +1831,15 @@ final class MailShellSelectionModel {
       grouping: threads.filter { connectionIds.contains($0.id.connectionId) },
       by: { $0.id.connectionId }
     )
-    reconcileSelectedThread()
+    reconcileSelectedThreads()
   }
 
-  private func reconcileSelectedThread() {
-    guard let selectedThreadId else { return }
-    guard let selectedThread = self.threads.first(where: { $0.id == selectedThreadId }) else {
-      self.selectedThreadId = nil
+  private func reconcileSelectedThreads() {
+    let availableThreadIds = Set(threads.map(\.id))
+    selectedThreadIds.formIntersection(availableThreadIds)
+    guard selectedThreadIds.count == 1, let selectedThreadId = selectedThreadIds.first,
+      let selectedThread = threads.first(where: { $0.id == selectedThreadId })
+    else {
       expandedMessageIds = []
       return
     }
@@ -1699,6 +1873,43 @@ final class MailShellSelectionModel {
         isPinned: pinnedMessageIds.contains($0.id)
       )
     }
+  }
+
+  func bulkProviderActions(
+    connections: [MailboxConnection]
+  ) -> Set<ProviderMailAction> {
+    let selectedConnectionIds = Set(selectedThreadIds.map(\.connectionId))
+    let selectedConnections = connections.filter { selectedConnectionIds.contains($0.id) }
+    guard !selectedConnections.isEmpty,
+      selectedConnections.count == selectedConnectionIds.count,
+      let firstConnection = selectedConnections.first
+    else { return [] }
+    return selectedConnections.dropFirst().reduce(firstConnection.capabilities.providerActions) {
+      $0.intersection($1.capabilities.providerActions)
+    }
+  }
+
+  func bulkActionBatches(
+    connections: [MailboxConnection],
+    pinnedMessageIds: Set<StableProviderMessageIdentity>
+  ) -> [MailboxBulkActionBatch] {
+    let connectionsById = Dictionary(uniqueKeysWithValues: connections.map { ($0.id, $0) })
+    let selectedThreads = self.selectedThreads
+    return Set(selectedThreads.map(\.id.connectionId))
+      .sorted { $0.rawValue < $1.rawValue }
+      .compactMap { connectionId in
+        guard let connection = connectionsById[connectionId] else { return nil }
+        var seenMessageIds: Set<StableProviderMessageIdentity> = []
+        let messages =
+          selectedThreads
+          .filter { $0.id.connectionId == connectionId }
+          .flatMap {
+            selectedMailboxMessages(in: $0, pinnedMessageIds: pinnedMessageIds)
+          }
+          .filter { seenMessageIds.insert($0.id).inserted }
+        guard !messages.isEmpty else { return nil }
+        return MailboxBulkActionBatch(connection: connection, messages: messages)
+      }
   }
 
   func isMessageExpanded(
@@ -2036,7 +2247,7 @@ private struct MailShellThreadList: View {
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
-  @Binding var selectedThreadId: MailboxThreadIdentity?
+  @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   @Bindable var viewModel: GmailInboxViewModel
   @State private var editingAttempt: OutgoingDeliveryAttempt?
 
@@ -2068,7 +2279,7 @@ private struct MailShellThreadList: View {
             description: Text(emptyInboxDescription)
           )
         } else {
-          List(selection: $selectedThreadId) {
+          List(selection: $selectedThreadIds) {
             if let errorMessage = viewModel.errorMessage {
               Section {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -2097,6 +2308,11 @@ private struct MailShellThreadList: View {
     }
     .navigationTitle(navigationTitle)
     .toolbar {
+      if mailboxSelection?.isUnified == true, !items.isEmpty {
+        ToolbarItem(placement: .secondaryAction) {
+          EditButton()
+        }
+      }
       if let connection, connection.authorizationState == .authorized,
         connection.capabilities.canSynchronizeMetadata
       {
@@ -2328,6 +2544,50 @@ private struct MailShellThreadRow: View {
   }
 }
 
+private struct ProviderMailActionButtons: View {
+  let actions: Set<ProviderMailAction>
+  let moveDestinations: [ProviderMailbox]
+  let perform: (ProviderMailAction, String?) -> Void
+
+  @ViewBuilder
+  var body: some View {
+    if actions.contains(.markRead) {
+      Button("Mark Read") { perform(.markRead, nil) }
+    }
+    if actions.contains(.markUnread) {
+      Button("Mark Unread") { perform(.markUnread, nil) }
+    }
+    if actions.contains(.archive) {
+      Button("Archive") { perform(.archive, nil) }
+    }
+    if actions.contains(.move), !moveDestinations.isEmpty {
+      Menu("Move to") {
+        ForEach(moveDestinations, id: \.id) { mailbox in
+          Button(mailbox.title) { perform(.move, mailbox.id) }
+        }
+      }
+    }
+    if actions.contains(.delete) {
+      Button("Delete", role: .destructive) { perform(.delete, nil) }
+    }
+    if actions.contains(.restore) {
+      Button("Restore") { perform(.restore, nil) }
+    }
+    if actions.contains(.notSpam) {
+      Button("Not Spam") { perform(.notSpam, nil) }
+    }
+    if actions.contains(.spam) {
+      Button("Mark as Spam") { perform(.spam, nil) }
+    }
+    if actions.contains(.star) {
+      Button("Star") { perform(.star, nil) }
+    }
+    if actions.contains(.unstar) {
+      Button("Unstar") { perform(.unstar, nil) }
+    }
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
@@ -2344,7 +2604,27 @@ struct MailShellConversationReader: View {
 
   var body: some View {
     Group {
-      if let thread = selection.selectedThread,
+      if selection.selectedThreadIds.count > 1 {
+        ContentUnavailableView(
+          "\(selection.selectedThreadIds.count) Threads Selected",
+          systemImage: "checklist",
+          description: Text(
+            "Actions apply in separate Mailbox Connection batches. "
+              + "Successful batches remain applied if another connection fails."
+          )
+        )
+        .navigationTitle("Bulk Actions")
+        .toolbar {
+          ToolbarItem(placement: .primaryAction) {
+            bulkProviderActionMenu(
+              batches: selection.bulkActionBatches(
+                connections: connections,
+                pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+              )
+            )
+          }
+        }
+      } else if let thread = selection.selectedThread,
         let connection = connection(for: thread)
       {
         ScrollView {
@@ -2430,6 +2710,23 @@ struct MailShellConversationReader: View {
         )
       }
     }
+    .overlay {
+      if let progress = mailActionViewModel.bulkActionProgress {
+        VStack(spacing: 8) {
+          ProgressView(
+            value: Double(progress.completedConnectionCount),
+            total: Double(progress.totalConnectionCount)
+          )
+          Text(
+            "\(progress.completedConnectionCount) of \(progress.totalConnectionCount) Mailbox Connections"
+          )
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        }
+        .padding()
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 12))
+      }
+    }
     .sheet(item: $compositionDraft) { draft in
       MailShellComposer(
         connections: connections,
@@ -2459,7 +2756,7 @@ struct MailShellConversationReader: View {
     } message: {
       Text(readerErrorMessage ?? "The message action could not be completed.")
     }
-    .onChange(of: selection.selectedThreadId) { _, _ in
+    .onChange(of: selection.selectedThreadIds) { _, _ in
       compositionDraft = nil
       readerErrorConnectionId = nil
       readerErrorMessage = nil
@@ -2489,73 +2786,69 @@ struct MailShellConversationReader: View {
   }
 
   @ViewBuilder
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
-  private func providerActionMenu(
-    thread: MailboxThread,
-    connection: MailboxConnection
+  private func bulkProviderActionMenu(
+    batches: [MailboxBulkActionBatch]
   ) -> some View {
-    if !connection.capabilities.providerActions.isEmpty {
+    let messages = batches.flatMap(\.messages)
+    let moveDestinations = bulkMoveDestinations(batches: batches)
+    let actions = contextualProviderActions(
+      supported: selection.bulkProviderActions(connections: connections),
+      messages: messages,
+      allowsMove: !moveDestinations.isEmpty
+    )
+    if !actions.isEmpty {
       Menu {
-        if connection.capabilities.supports(.markRead) {
-          Button("Mark Read") { perform(.markRead, thread: thread, connection: connection) }
+        ProviderMailActionButtons(
+          actions: actions.subtracting([.move]),
+          moveDestinations: []
+        ) { action, _ in
+          performBulk(action, batches: batches)
         }
-        if connection.capabilities.supports(.markUnread) {
-          Button("Mark Unread") { perform(.markUnread, thread: thread, connection: connection) }
-        }
-        if selection.selectedMailbox?.collection == .role(.inbox),
-          connection.capabilities.supports(.archive)
-        {
-          Button("Archive") { perform(.archive, thread: thread, connection: connection) }
-        }
-        let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
-          for: connection.id
-        ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
-        if selection.selectedMailbox?.collection == .role(.inbox),
-          connection.capabilities.supports(.move), !providerMailboxes.isEmpty
-        {
+        if actions.contains(.move) {
           Menu("Move to") {
-            ForEach(providerMailboxes, id: \.id) { mailbox in
-              Button(mailbox.title) {
-                perform(
-                  .move,
-                  targetProviderMailboxId: mailbox.id,
-                  thread: thread,
-                  connection: connection
-                )
+            ForEach(moveDestinations) { destination in
+              Button(destination.title) {
+                guard let targetedBatches = destination.targeting(batches) else { return }
+                performBulk(.move, batches: targetedBatches)
               }
             }
           }
         }
-        if connection.capabilities.supports(.delete) {
-          Button("Delete", role: .destructive) {
-            perform(.delete, thread: thread, connection: connection)
-          }
-        }
-        if selection.selectedMailbox?.collection == .role(.trash),
-          connection.capabilities.supports(.restore)
-        {
-          Button("Restore") { perform(.restore, thread: thread, connection: connection) }
-        }
-        if selection.selectedMailbox?.collection == .role(.spam),
-          connection.capabilities.supports(.notSpam)
-        {
-          Button("Not Spam") { perform(.notSpam, thread: thread, connection: connection) }
-        } else if selection.selectedMailbox?.collection != .role(.trash),
-          selection.selectedMailbox?.collection != .role(.spam),
-          selection.selectedMailbox?.collection != .role(.sent),
-          !thread.messages.contains(where: {
-            let states = Set($0.providerStateIds ?? [])
-            return states.contains("DRAFT") || states.contains("SENT")
-          }),
-          connection.capabilities.supports(.spam)
-        {
-          Button("Mark as Spam") { perform(.spam, thread: thread, connection: connection) }
-        }
-        if connection.capabilities.supports(.star) {
-          Button("Star") { perform(.star, thread: thread, connection: connection) }
-        }
-        if connection.capabilities.supports(.unstar) {
-          Button("Unstar") { perform(.unstar, thread: thread, connection: connection) }
+      } label: {
+        Label("Actions", systemImage: "ellipsis.circle")
+      }
+      .disabled(
+        batches.isEmpty || inboxViewModel.isRefreshDisabled || isConnectionBusy
+          || mailActionViewModel.isPerformingAction
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func providerActionMenu(
+    thread: MailboxThread,
+    connection: MailboxConnection
+  ) -> some View {
+    let actions = contextualProviderActions(
+      supported: connection.capabilities.providerActions,
+      messages: thread.messages,
+      allowsMove: true
+    )
+    if !actions.isEmpty {
+      Menu {
+        let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
+          for: connection.id
+        ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+        ProviderMailActionButtons(
+          actions: actions,
+          moveDestinations: providerMailboxes
+        ) { action, targetProviderMailboxId in
+          perform(
+            action,
+            targetProviderMailboxId: targetProviderMailboxId,
+            thread: thread,
+            connection: connection
+          )
         }
       } label: {
         Label("Actions", systemImage: "ellipsis.circle")
@@ -2565,6 +2858,52 @@ struct MailShellConversationReader: View {
           || mailActionViewModel.isPerformingAction
       )
     }
+  }
+
+  private func contextualProviderActions(
+    supported: Set<ProviderMailAction>,
+    messages: [MailboxMessageMetadata],
+    allowsMove: Bool
+  ) -> Set<ProviderMailAction> {
+    var actions = supported
+    let collection = selection.selectedMailbox?.collection
+    if collection != .role(.inbox) {
+      actions.subtract([.archive, .move])
+    } else if !allowsMove {
+      actions.remove(.move)
+    }
+    if collection != .role(.trash) {
+      actions.remove(.restore)
+    }
+    if collection != .role(.spam) {
+      actions.remove(.notSpam)
+    }
+    if collection == .role(.trash) || collection == .role(.spam)
+      || collection == .role(.sent)
+      || messages.contains(where: { $0.belongs(to: .drafts) || $0.belongs(to: .sent) })
+    {
+      actions.remove(.spam)
+    }
+    return actions
+  }
+
+  private func bulkMoveDestinations(
+    batches: [MailboxBulkActionBatch]
+  ) -> [MailboxBulkMoveDestination] {
+    let connectionIds = batches.map(\.connection.id)
+    let mailboxesByConnection = Dictionary(
+      uniqueKeysWithValues: connectionIds.map { connectionId in
+        (
+          connectionId,
+          inboxViewModel.navigationSnapshot.providerMailboxes(for: connectionId)
+            .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+        )
+      }
+    )
+    return MailboxBulkMoveDestination.shared(
+      connectionIds: connectionIds,
+      providerMailboxesByConnection: mailboxesByConnection
+    )
   }
 
   private func perform(
@@ -2598,6 +2937,31 @@ struct MailShellConversationReader: View {
     }
   }
 
+  private func performBulk(
+    _ action: ProviderMailAction,
+    batches: [MailboxBulkActionBatch]
+  ) {
+    Task {
+      guard
+        let result = await mailActionViewModel.performBulk(
+          action,
+          batches: batches,
+          onEnqueued: { connection in
+            _ = await inboxViewModel.reloadLocal(connection: connection)
+          }
+        )
+      else { return }
+      let attemptedConnections = batches.map(\.connection)
+      let errorMessage = mailActionViewModel.errorMessage
+      for connection in attemptedConnections {
+        _ = await inboxViewModel.reloadLocal(connection: connection)
+      }
+      guard let errorMessage else { return }
+      readerErrorConnectionId = result.failures.first?.connectionId
+      readerErrorMessage = errorMessage
+    }
+  }
+
   private func resolveBlockedAction(
     connection: MailboxConnection,
     discard: Bool
@@ -2610,9 +2974,7 @@ struct MailShellConversationReader: View {
       }
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorMessage = mailActionViewModel.errorMessage
-      if readerErrorMessage == nil {
-        readerErrorConnectionId = nil
-      }
+      readerErrorConnectionId = mailActionViewModel.pendingFailureConnectionId
     }
   }
 
@@ -3155,6 +3517,7 @@ final class NotificationRuleViewModel {
 // swiftlint:disable:next type_body_length
 final class GmailMailActionViewModel {
   private(set) var blockedConnectionIds: [MailboxConnectionId] = []
+  private(set) var bulkActionProgress: MailboxBulkActionProgress?
   var errorMessage: String?
   private(set) var failedConnectionIds: [MailboxConnectionId] = []
   var isPerformingAction = false
@@ -3525,6 +3888,206 @@ final class GmailMailActionViewModel {
         session: session
       )
     }
+  }
+}
+
+extension GmailMailActionViewModel {
+  func performBulk(
+    _ action: ProviderMailAction,
+    batches: [MailboxBulkActionBatch],
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
+  ) async -> MailboxBulkActionResult? {
+    guard !batches.isEmpty,
+      batches.allSatisfy({
+        !$0.messages.isEmpty && $0.connection.capabilities.supports(action)
+          && (action != .move || $0.targetProviderMailboxId != nil)
+      }),
+      !isPerformingAction
+    else { return nil }
+    isPerformingAction = true
+    bulkActionProgress = MailboxBulkActionProgress(
+      action: action,
+      completedConnectionCount: 0,
+      totalConnectionCount: batches.count
+    )
+    defer {
+      bulkActionProgress = nil
+      isPerformingAction = false
+    }
+
+    for batch in batches {
+      remember(batch.connection)
+    }
+    let outcomes = await performBulkBatches(
+      action,
+      batches: batches,
+      onEnqueued: onEnqueued
+    )
+    await refreshFailureConnections(knownConnections)
+    let result = bulkActionResult(outcomes)
+    errorMessage =
+      result.failures.isEmpty
+      ? nil
+      : result.failures.map(Self.failureDescription).joined(separator: "\n")
+    return result
+  }
+
+  private func performBulkBatches(
+    _ action: ProviderMailAction,
+    batches: [MailboxBulkActionBatch],
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async -> [MailboxBulkActionBatchOutcome] {
+    let service = self.service
+    let session = self.session
+    return await withTaskGroup(
+      of: MailboxBulkActionBatchOutcome.self,
+      returning: [MailboxBulkActionBatchOutcome].self
+    ) { group in
+      for (batchIndex, batch) in batches.enumerated() {
+        group.addTask {
+          await Self.performBulkBatch(
+            action,
+            batch: batch,
+            batchIndex: batchIndex,
+            service: service,
+            session: session,
+            onEnqueued: onEnqueued
+          )
+        }
+      }
+      var completedOutcomes: [MailboxBulkActionBatchOutcome] = []
+      for await outcome in group {
+        completedOutcomes.append(outcome)
+        bulkActionProgress = MailboxBulkActionProgress(
+          action: action,
+          completedConnectionCount: completedOutcomes.count,
+          totalConnectionCount: batches.count
+        )
+      }
+      return completedOutcomes.sorted { $0.batchIndex < $1.batchIndex }
+    }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  nonisolated private static func performBulkBatch(
+    _ action: ProviderMailAction,
+    batch: MailboxBulkActionBatch,
+    batchIndex: Int,
+    service: MailboxProviderMailActing,
+    session: ProductAccountSessionSnapshot,
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async -> MailboxBulkActionBatchOutcome {
+    do {
+      try await service.perform(
+        action,
+        targetProviderMailboxId: batch.targetProviderMailboxId,
+        messages: batch.messages,
+        connection: batch.connection,
+        session: session
+      )
+      await onEnqueued(batch.connection)
+      let resumeError = await service.resumePendingActions(
+        connection: batch.connection,
+        session: session
+      )
+      let retryError = await service.waitForPendingActionRetries(
+        connection: batch.connection,
+        session: session
+      )
+      let failureDetails = await service.pendingActionFailureDetails(
+        action,
+        messages: batch.messages,
+        connection: batch.connection,
+        session: session
+      )
+      return bulkActionOutcome(
+        batch,
+        index: batchIndex,
+        errorDescription: failureDetails?.isEmpty != false
+          ? combinedErrorDescription([resumeError, retryError]) : nil,
+        failureDetails: failureDetails
+      )
+    } catch {
+      return bulkActionOutcome(
+        batch,
+        index: batchIndex,
+        errorDescription: error.localizedDescription,
+        failureDetails: nil
+      )
+    }
+  }
+
+  nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
+    let descriptions = errors.compactMap { $0 }.reduce(into: [String]()) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
+    }
+    return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
+  }
+
+  nonisolated private static func bulkActionOutcome(
+    _ batch: MailboxBulkActionBatch,
+    index: Int,
+    errorDescription: String?,
+    failureDetails: [MailboxProviderActionFailureDetail]?
+  ) -> MailboxBulkActionBatchOutcome {
+    MailboxBulkActionBatchOutcome(
+      batchIndex: index,
+      connection: batch.connection,
+      errorDescription: errorDescription,
+      failureDetails: failureDetails,
+      messages: batch.messages
+    )
+  }
+
+  private func bulkActionResult(
+    _ outcomes: [MailboxBulkActionBatchOutcome]
+  ) -> MailboxBulkActionResult {
+    let failures = outcomes.flatMap { outcome -> [MailboxBulkActionFailure] in
+      if let failureDetails = outcome.failureDetails, !failureDetails.isEmpty {
+        return failureDetails.map { detail in
+          let failedMessages = outcome.messages.filter { detail.messageIds.contains($0.id) }
+          return MailboxBulkActionFailure(
+            connectionId: outcome.connection.id,
+            connectionDisplayName: outcome.connection.displayName,
+            description: detail.description,
+            messageIds: detail.messageIds,
+            messageCount: detail.messageIds.count,
+            messageSubjects: failedMessages.map(\.subject)
+          )
+        }
+      }
+      guard let errorDescription = outcome.errorDescription else { return [] }
+      return [
+        MailboxBulkActionFailure(
+          connectionId: outcome.connection.id,
+          connectionDisplayName: outcome.connection.displayName,
+          description: errorDescription,
+          messageIds: outcome.messages.map(\.id),
+          messageCount: outcome.messages.count,
+          messageSubjects: outcome.messages.map(\.subject)
+        )
+      ]
+    }
+    return MailboxBulkActionResult(
+      failures: failures,
+      succeededConnectionIds: outcomes.compactMap { outcome in
+        failures.contains { $0.connectionId == outcome.connection.id } ? nil : outcome.connection.id
+      }
+    )
+  }
+
+  private static func failureDescription(_ failure: MailboxBulkActionFailure) -> String {
+    let messageDescription = failure.messageIds.enumerated()
+      .map { index, messageId in
+        let subject =
+          failure.messageSubjects.indices.contains(index)
+          ? failure.messageSubjects[index] : "Message"
+        return "\(subject) [\(messageId.rawValue)]"
+      }
+      .joined(separator: ", ")
+    return "\(failure.connectionDisplayName) — \(messageDescription): \(failure.description)"
   }
 }
 
@@ -4943,23 +5506,19 @@ private struct GmailProviderConnectionPanel: View {
   let selectMailbox: (MailboxConnection) -> Void
   @State private var connectTask: Task<Void, Never>?
 
-  private var gmailConnections: [MailboxConnection] {
-    viewModel.connections.filter { $0.providerId == .gmail }
-  }
-
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
         VStack(alignment: .leading, spacing: 4) {
           Text("Gmail")
             .font(.headline)
-          if gmailConnections.isEmpty {
+          if viewModel.connections.isEmpty {
             Text("Not connected")
               .font(.subheadline)
               .foregroundStyle(.secondary)
           } else {
             Text(
-              "\(gmailConnections.count) mailbox connection\(gmailConnections.count == 1 ? "" : "s")"
+              "\(viewModel.connections.count) mailbox connection\(viewModel.connections.count == 1 ? "" : "s")"
             )
             .font(.subheadline)
             .foregroundStyle(.secondary)
@@ -4979,7 +5538,7 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      ForEach(gmailConnections) { connection in
+      ForEach(viewModel.connections.filter { $0.id.providerId == .gmail }) { connection in
         HStack {
           Button {
             selectMailbox(connection)
@@ -5020,7 +5579,7 @@ private struct GmailProviderConnectionPanel: View {
                   await viewModel.connect(expectedConnection: connection)
                 }
               }
-            } else if connection.capabilities.canSend {
+            } else {
               Button("Set as Default Sending Connection") {
                 Task {
                   await viewModel.setDefaultSendingConnection(connection)
@@ -5057,7 +5616,7 @@ private struct GmailProviderConnectionPanel: View {
         }
       } label: {
         Label(
-          gmailConnections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
+          viewModel.connections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
           systemImage: "person.crop.circle.badge.checkmark"
         )
         .frame(minHeight: 32)

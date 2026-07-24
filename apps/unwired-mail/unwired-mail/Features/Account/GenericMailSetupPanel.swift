@@ -38,6 +38,30 @@ final class GenericMailSetupViewModel {
   var syncedDefinitions: [GenericMailConnectionDefinition] = []
   var username = ""
 
+  var connectionReloadKey: [String] {
+    [defaultSendingConnectionId?.rawValue ?? ""]
+      + syncedDefinitions.map { definition in
+        [
+          definition.authorizationMethod.rawValue,
+          definition.emailAddress,
+          definition.incomingEndpoint.mailProtocol.rawValue,
+          definition.incomingEndpoint.hostname,
+          String(definition.incomingEndpoint.port),
+          definition.incomingEndpoint.security.rawValue,
+          definition.outgoingEndpoint.mailProtocol.rawValue,
+          definition.outgoingEndpoint.hostname,
+          String(definition.outgoingEndpoint.port),
+          definition.outgoingEndpoint.security.rawValue,
+          definition.username,
+          definition.roleMappings
+            .sorted { $0.key.rawValue < $1.key.rawValue }
+            .map { "\($0.key.rawValue)=\($0.value)" }
+            .joined(separator: "\0"),
+        ].joined(separator: "\0")
+      }
+      + authorizedSyncedConnectionIds.map(\.rawValue).sorted()
+  }
+
   private let productAccountId: ProductAccountId
   private let clearLocalData: GenericMailLocalDataClearing
   private let isSessionCurrent: () -> Bool
