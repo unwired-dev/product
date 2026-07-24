@@ -1604,23 +1604,21 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async -> String? {
     let authorizedConnections = connections.filter { $0.authorizationState == .authorized }
-    let tasks = authorizedConnections.enumerated().map { index, connection in
-      Task {
-        (
-          index,
-          await resumePendingActions(connection: connection, session: session)
-        )
+    return await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
+      for (index, connection) in authorizedConnections.enumerated() {
+        group.addTask {
+          (index, await resumePendingActions(connection: connection, session: session))
+        }
       }
-    }
-    var indexedErrors: [(Int, String)] = []
-    for task in tasks {
-      let (index, error) = await task.value
-      if let error {
-        indexedErrors.append((index, error))
+      var indexedErrors: [(Int, String)] = []
+      for await (index, error) in group {
+        if let error {
+          indexedErrors.append((index, error))
+        }
       }
+      let errors = indexedErrors.sorted { $0.0 < $1.0 }.map(\.1)
+      return errors.isEmpty ? nil : errors.joined(separator: "\n")
     }
-    let errors = indexedErrors.sorted { $0.0 < $1.0 }.map(\.1)
-    return errors.isEmpty ? nil : errors.joined(separator: "\n")
   }
 
   func retryBlockedPendingAction(
