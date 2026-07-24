@@ -158,10 +158,18 @@ enum MailboxMessageCollection: Hashable, Sendable {
   case providerMailbox(String)
 
   private static let gmailSystemStateIds: Set<String> = [
+    "CATEGORY_FORUMS",
+    "CATEGORY_PERSONAL",
+    "CATEGORY_PROMOTIONS",
+    "CATEGORY_SOCIAL",
+    "CATEGORY_UPDATES",
+    "CHAT",
     "DRAFT",
+    "IMPORTANT",
     "INBOX",
     "SENT",
     "SPAM",
+    "STARRED",
     "TRASH",
     "UNREAD",
   ]
@@ -1490,6 +1498,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    _ = try await gmailConnectionForProviderAccess(connection, session: session)
     try await pendingActionService.enqueue(
       action,
       targetProviderMailboxId: targetProviderMailboxId,

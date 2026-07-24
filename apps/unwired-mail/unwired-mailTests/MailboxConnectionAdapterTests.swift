@@ -493,6 +493,51 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGmailAdapterRejectsPendingActionAfterSynchronizedRemoval() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [adapterConnectionId],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+
+    do {
+      try await adapter.perform(
+        .archive,
+        messages: [
+          mailShellMessage(
+            providerMessageId: "removed-action",
+            providerThreadId: "removed-action-thread",
+            receivedAt: 100
+          )
+        ],
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected synchronized removal to reject the queued action")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+      let pendingActions = try await pendingActionService.pendingActions(session: session)
+      XCTAssertTrue(pendingActions.isEmpty)
+      XCTAssertEqual(
+        connectionService.clearedConnection?.providerAccountIdentifier,
+        "gmail-user-001"
+      )
+    }
+  }
+
   func testGmailAdapterDoesNotClearUnreconciledLocalAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let metadataService = RecordingAdapterMetadataService()
@@ -898,7 +943,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(
       snapshot.providerMailboxIds(for: adapterConnectionId),
-      ["CATEGORY_UPDATES", "Label_empty", "IMPORTANT", "Label_projects", "STARRED"]
+      ["Label_empty", "Label_projects"]
     )
     XCTAssertEqual(
       snapshot.providerMailboxes(for: adapterConnectionId).first {
@@ -906,10 +951,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       }?.title,
       "Projects"
     )
-    XCTAssertEqual(
-      snapshot.count(for: .providerMailbox("STARRED"), in: adapterConnectionId).itemCount,
-      1
-    )
+    XCTAssertFalse(MailboxMessageCollection.isProviderMailboxId("STARRED"))
   }
 
   func testOutboxNavigationIsConditionalOnActionableDeliveryState() {

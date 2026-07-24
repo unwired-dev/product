@@ -728,6 +728,21 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerStateIds: ["Label_projects", "STARRED"]
     )
 
+    let result = MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+    let initiallyProjected = try await service.project(
+      result,
+      collection: .providerMailbox("Label_projects"),
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(initiallyProjected.messages, [message])
+
     try await service.perform(
       .delete,
       messages: [message],
@@ -735,13 +750,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     ) { _, _, _ in }
     let projected = try await service.project(
-      MailboxMetadataSyncResult(
-        hasUnlistedNewMessages: false,
-        messages: [message],
-        newMessageIds: nil,
-        providerCursorIsExpired: false,
-        threads: MailboxThread.group([message])
-      ),
+      result,
       collection: .providerMailbox("Label_projects"),
       connection: connection,
       session: session
@@ -815,7 +824,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     let service = PendingProviderActionService(store: store)
     let message = pendingActionMessage(
       providerMessageId: "message-restored",
-      providerStateIds: ["TRASH"]
+      providerStateIds: ["INBOX"]
     )
 
     try await service.perform(
@@ -830,6 +839,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     ) { _, _, _ in }
+    let pendingActionCount = try await service.pendingActions(session: session).count
+    XCTAssertEqual(pendingActionCount, 2)
     try await service.reconcileProviderSync(
       messages: [
         pendingActionMessage(

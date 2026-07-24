@@ -264,7 +264,7 @@ actor PendingProviderActionService {
         $0.connectionId == connection.id.rawValue && $0.keepsOptimisticProjection
       }
       .sorted { $0.sequence < $1.sequence }
-    guard !pendingActions.isEmpty else { return result }
+    guard !pendingActions.isEmpty else { return result.projected(to: collection) }
 
     let observedMessages = Dictionary(
       (result.threads.flatMap(\.messages) + result.messages).map { ($0.id, $0) },

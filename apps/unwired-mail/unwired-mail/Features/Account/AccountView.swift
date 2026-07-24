@@ -1415,7 +1415,7 @@ struct MailShellConversationReader: View {
         }
         let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
           for: connection.id
-        )
+        ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
         if connection.capabilities.supports(.move), !providerMailboxes.isEmpty {
           Menu("Move to") {
             ForEach(providerMailboxes, id: \.id) { mailbox in
@@ -1444,7 +1444,9 @@ struct MailShellConversationReader: View {
           connection.capabilities.supports(.notSpam)
         {
           Button("Not Spam") { perform(.notSpam, thread: thread, connection: connection) }
-        } else if connection.capabilities.supports(.spam) {
+        } else if selection.selectedMailbox?.collection != .role(.trash),
+          connection.capabilities.supports(.spam)
+        {
           Button("Mark as Spam") { perform(.spam, thread: thread, connection: connection) }
         }
         if connection.capabilities.supports(.star) {
