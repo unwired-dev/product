@@ -486,7 +486,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   func testSystemClientUsesObjectIdForStableIdentityAndThreading() async throws {
     let headers = "Message-ID: <fallback@example.com>\r\nSubject: Object identity\r\n"
     let fetch =
-      "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \"24-Jul-2026 09:00:00 +0000\" "
+      "* 1 FETCH (UID 7 FLAGS (\\Seen) INTERNALDATE \" 7-Jul-2026 09:00:00 +0000\" "
       + "EMAILID (email-7) THREADID (thread-4) "
       + "BODY[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES REPLY-TO SUBJECT TO)] "
       + "{\(headers.utf8.count)}\r\n\(headers))\r\nA5 OK fetched\r\n"

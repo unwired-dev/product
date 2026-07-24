@@ -894,6 +894,11 @@ struct AccountView: View {
         _ = await gmailViewModel.load()
       }
     }
+    .onChange(of: genericMailSetupViewModel.syncedDefinitions) { _, _ in
+      Task {
+        _ = await gmailViewModel.load()
+      }
+    }
     .onChange(of: inboxViewModel.threads) { _, threads in
       if mailShellSelection.selectedMailbox?.isUnified == true {
         if let connectionId = inboxViewModel.currentConnectionId {

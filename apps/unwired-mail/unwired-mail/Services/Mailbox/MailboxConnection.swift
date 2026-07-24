@@ -226,8 +226,10 @@ enum MailboxMessageCollection: Hashable, Sendable {
   case providerMailbox(String)
 
   private static let gmailSystemStateIds: Set<String> = [
+    "ARCHIVE",
     "DRAFT",
     "INBOX",
+    "IMAP_CUSTOM_MAILBOX",
     "SENT",
     "SPAM",
     "TRASH",
