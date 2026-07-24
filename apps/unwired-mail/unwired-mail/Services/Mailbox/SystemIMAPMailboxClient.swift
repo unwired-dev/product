@@ -816,7 +816,7 @@ private struct IMAPBodyStructure {
       guard case .list(let disposition) = value,
         let name = disposition.first?.stringValue?.uppercased()
       else { continue }
-      if name == "ATTACHMENT" { return true }
+      if name == "ATTACHMENT" || parameter(named: "FILENAME", in: value) != nil { return true }
     }
     return false
   }

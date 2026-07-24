@@ -962,11 +962,7 @@ struct IMAPMessageMetadataService {
         let priorUIDValidity = state.mailboxes[index].uidValidity
         state.mailboxes[index].descriptor = descriptor
         state.mailboxes[index].uidValidity = page.uidValidity
-        if priorUIDValidity != page.uidValidity {
-          state.mailboxes[index].nextOlderUID = page.nextOlderUID
-        } else if page.nextOlderUID == nil {
-          state.mailboxes[index].nextOlderUID = nil
-        }
+        state.mailboxes[index].nextOlderUID = page.nextOlderUID
       } else {
         state.mailboxes.append(
           IMAPMailboxBackfillState(
@@ -1600,7 +1596,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       productAccountId: session.productAccountId
     )
     .projected(to: collection)
-    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+    .limitedInitialPage(
+      to: collection == .allObserved ? nil : IMAPMessageMetadataService.initialPageSize
+    )
   }
 
   func loadProviderMailboxes(
