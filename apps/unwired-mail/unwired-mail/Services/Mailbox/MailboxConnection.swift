@@ -552,6 +552,22 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
 }
 
 extension MailboxMetadataSyncResult {
+  func limitedInitialPage(to limit: Int) -> MailboxMetadataSyncResult {
+    guard hasInitialMailboxAvailability, !historicalMetadataBackfillIsComplete else {
+      return self
+    }
+    let messages = Array(messages.prefix(limit))
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: hasUnlistedNewMessages,
+      messages: messages,
+      newMessageIds: newMessageIds,
+      providerCursorIsExpired: providerCursorIsExpired,
+      threads: MailboxThread.group(messages),
+      hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
+    )
+  }
+
   func projected(
     to collection: MailboxMessageCollection,
     pinnedMessageIds: Set<StableProviderMessageIdentity> = []

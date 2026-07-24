@@ -747,20 +747,12 @@ struct IMAPMessageMetadataService {
       connectedAt: connectedAt,
       roleMappings: definition.roleMappings
     )
-    let messages =
-      if state?.hasInitialMailboxAvailability == true
-        && state?.historicalMetadataBackfillIsComplete == false
-      {
-        Array(allMessages.prefix(Self.initialPageSize))
-      } else {
-        allMessages
-      }
     return MailboxMetadataSyncResult(
       hasUnlistedNewMessages: false,
-      messages: messages,
+      messages: allMessages,
       newMessageIds: nil,
       providerCursorIsExpired: false,
-      threads: MailboxThread.group(messages),
+      threads: MailboxThread.group(allMessages),
       hasInitialMailboxAvailability: state?.hasInitialMailboxAvailability ?? false,
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false
@@ -1591,7 +1583,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
-    ).projected(to: .role(.inbox))
+    )
+    .projected(to: .role(.inbox))
+    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadMailbox(
@@ -1604,7 +1598,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
-    ).projected(to: collection)
+    )
+    .projected(to: collection)
+    .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadProviderMailboxes(
@@ -1631,6 +1627,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
+      .projected(to: .role(.inbox))
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
 
@@ -1648,6 +1646,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
+      .projected(to: .role(.inbox))
+      .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
 

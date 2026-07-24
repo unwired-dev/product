@@ -85,7 +85,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(completed.messages.count, 76)
   }
 
-  func testInitialAvailabilityIsBoundedAcrossMultipleMailboxes() async throws {
+  func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
@@ -108,9 +108,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let connection = try XCTUnwrap(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let archive = try await adapter.loadMailbox(
+      .providerMailbox("Archive"),
+      connection: connection,
+      session: session
+    )
 
     XCTAssertEqual(initial.messages.count, 50)
-    XCTAssertEqual(initial.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
+    XCTAssertEqual(initial.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_060)
+    XCTAssertEqual(archive.messages.count, 50)
+    XCTAssertEqual(archive.messages.first?.providerInternalDateMilliseconds, 1_781_200_000_120)
     XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
   }
 

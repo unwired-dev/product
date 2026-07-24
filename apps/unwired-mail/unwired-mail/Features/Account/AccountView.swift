@@ -632,6 +632,12 @@ final class MailboxFreshnessViewModel {
 }
 // swiftlint:enable type_body_length
 
+private struct GenericMailReloadKey: Equatable {
+  let authorizedConnectionIds: Set<MailboxConnectionId>
+  let defaultSendingConnectionId: MailboxConnectionId?
+  let definitions: [GenericMailConnectionDefinition]
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -729,17 +735,7 @@ struct AccountView: View {
           await genericMailSetupViewModel.loadSyncedDefinitions()
         }
       }
-      .onChange(of: genericMailSetupViewModel.defaultSendingConnectionId) { _, _ in
-        Task {
-          _ = await gmailViewModel.load()
-        }
-      }
-      .onChange(of: genericMailSetupViewModel.syncedDefinitions) { _, _ in
-        Task {
-          _ = await gmailViewModel.load()
-        }
-      }
-      .onChange(of: genericMailSetupViewModel.authorizedSyncedConnectionIds) { _, _ in
+      .onChange(of: genericMailReloadKey) { _, _ in
         Task {
           _ = await gmailViewModel.load()
         }
@@ -795,6 +791,14 @@ struct AccountView: View {
       .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
         handleAuthorizationStateChange(authorizationState)
       }
+  }
+
+  private var genericMailReloadKey: GenericMailReloadKey {
+    GenericMailReloadKey(
+      authorizedConnectionIds: genericMailSetupViewModel.authorizedSyncedConnectionIds,
+      defaultSendingConnectionId: genericMailSetupViewModel.defaultSendingConnectionId,
+      definitions: genericMailSetupViewModel.syncedDefinitions
+    )
   }
 
   private var presentedMailShell: some View {
