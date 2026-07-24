@@ -4437,6 +4437,7 @@ private struct GmailInboxThreadRow: View {
       if didPerformAction && !Task.isCancelled {
         await refreshInbox()
         await mailActionViewModel.resume(connections: [connection])
+        await refreshInbox()
       }
     }
   }

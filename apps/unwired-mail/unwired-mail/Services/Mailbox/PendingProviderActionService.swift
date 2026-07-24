@@ -668,8 +668,7 @@ extension MailboxMessageMetadata {
     case .archive:
       states.remove("INBOX")
     case .delete:
-      states.remove("INBOX")
-      states.remove("SPAM")
+      states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
       states.insert("TRASH")
     case .markRead:
       states.remove("UNREAD")

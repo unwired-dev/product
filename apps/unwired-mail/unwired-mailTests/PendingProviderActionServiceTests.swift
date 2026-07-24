@@ -721,6 +721,35 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(projected.messages.isEmpty)
   }
 
+  func testDeleteProjectionRemovesProviderMailboxLabels() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-provider-label-delete",
+      providerStateIds: ["Label_projects", "STARRED"]
+    )
+
+    try await service.perform(
+      .delete,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .providerMailbox("Label_projects"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(projected.messages.isEmpty)
+  }
+
   func testProviderSyncReconcilesMoveToInbox() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
