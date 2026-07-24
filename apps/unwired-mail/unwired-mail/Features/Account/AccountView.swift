@@ -662,7 +662,7 @@ struct AccountView: View {
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
     categorySyncService: CustomCategorySyncing = CustomCategorySyncService(),
-    mailboxConnection: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
+    mailboxConnection: MailboxConnectionAdapter = MailboxConnectionRouter(),
     notificationAuthorization: NotificationAuthorizationRequesting = UserNotificationService(),
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     pinSyncService: PinSyncing = PinSyncService()
@@ -679,6 +679,13 @@ struct AccountView: View {
     _genericMailSetupViewModel = State(
       initialValue: GenericMailSetupViewModel(
         productAccountId: ProductAccountId(snapshot.productAccountId),
+        clearLocalData: { definition, session in
+          try await AccountView.clearGenericMailLocalData(
+            definition,
+            session: session,
+            mailboxConnection: mailboxConnection
+          )
+        },
         isSessionCurrent: { session.isCurrent(snapshot) },
         syncSession: snapshot
       )
@@ -931,7 +938,7 @@ struct AccountView: View {
         await genericMailSetupViewModel.loadSyncedDefinitions()
       }
     }
-    .onChange(of: genericMailSetupViewModel.defaultSendingConnectionId) { _, _ in
+    .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
       Task {
         _ = await gmailViewModel.load()
       }
@@ -988,6 +995,19 @@ struct AccountView: View {
 }
 
 extension AccountView {
+  private static func clearGenericMailLocalData(
+    _ definition: GenericMailConnectionDefinition,
+    session: ProductAccountSessionSnapshot,
+    mailboxConnection: MailboxConnectionAdapter
+  ) async throws -> Bool {
+    let connections = try await mailboxConnection.loadConnections(session: session)
+    guard let connection = connections.first(where: { $0.id == definition.connectionId }) else {
+      return false
+    }
+    try await mailboxConnection.clearLocalConnection(connection, session: session)
+    return true
+  }
+
   private var pendingActionFailureConnection: MailboxConnection? {
     guard let connectionId = mailActionViewModel.pendingFailureConnectionId else { return nil }
     return gmailViewModel.connections.first { $0.id == connectionId }
@@ -4950,7 +4970,7 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      ForEach(viewModel.connections) { connection in
+      ForEach(viewModel.connections.filter { $0.id.providerId == .gmail }) { connection in
         HStack {
           Button {
             selectMailbox(connection)

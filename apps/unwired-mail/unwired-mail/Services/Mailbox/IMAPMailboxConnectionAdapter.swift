@@ -2253,6 +2253,20 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     )
   }
 
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    await (try? adapter(for: connection.id))?.pendingActionFailureDetails(
+      action,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
   func send(
     _ message: OutgoingMessage,
     connection: MailboxConnection,
