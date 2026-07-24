@@ -758,7 +758,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(failure)
     XCTAssertEqual(
       Set(failureDetails?.flatMap(\.messageIds) ?? []),
-      Set(messages.map(\.id))
+      [adapterMessage.id]
     )
     XCTAssertEqual(blockedConnectionIds, [connection.id])
 
@@ -872,6 +872,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.selectedThreadId, olderThread.id)
     XCTAssertEqual(viewModel.navigationLevel, .conversation)
     XCTAssertEqual(viewModel.preferredCompactColumn, .detail)
+    XCTAssertEqual(viewModel.compactColumn(isEditing: true), .content)
 
     viewModel.updateThreads([newerThread], for: adapterConnectionId)
 

@@ -398,7 +398,7 @@ actor PendingProviderActionService {
     }
     return latestActionByMessageId.keys.sorted().compactMap { messageId in
       guard let pendingAction = latestActionByMessageId[messageId],
-        pendingAction.state != .providerConfirmed
+        pendingAction.state == .failed || pendingAction.state == .userActionRequired
       else { return nil }
       return MailboxProviderActionFailureDetail(
         description: pendingAction.lastErrorDescription ?? "Waiting for an earlier pending action.",

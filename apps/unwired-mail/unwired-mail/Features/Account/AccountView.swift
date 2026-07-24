@@ -639,6 +639,7 @@ struct AccountView: View {
   private let messageReader: MailboxMessageReading
 
   @Environment(\.scenePhase) private var scenePhase
+  @Environment(\.editMode) private var editMode
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -950,7 +951,10 @@ struct AccountView: View {
       }
     }
     .onChange(of: mailShellSelection.navigationLevel) { _, _ in
-      preferredCompactColumn = mailShellSelection.preferredCompactColumn
+      updatePreferredCompactColumn()
+    }
+    .onChange(of: editMode?.wrappedValue) { _, _ in
+      updatePreferredCompactColumn()
     }
     .onDisappear {
       inboxLoadTask?.cancel()
@@ -1016,6 +1020,12 @@ extension AccountView {
   private var selectedConnection: MailboxConnection? {
     guard let connectionId = mailShellSelection.selectedConnectionId else { return nil }
     return gmailViewModel.connections.first { $0.id == connectionId }
+  }
+
+  private func updatePreferredCompactColumn() {
+    preferredCompactColumn = mailShellSelection.compactColumn(
+      isEditing: editMode?.wrappedValue == .active
+    )
   }
 
   private var selectedThreadsBinding: Binding<Set<MailboxThreadIdentity>> {
@@ -1565,6 +1575,13 @@ final class MailShellSelectionModel {
   }
 
   var preferredCompactColumn: NavigationSplitViewColumn {
+    compactColumn(isEditing: false)
+  }
+
+  func compactColumn(isEditing: Bool) -> NavigationSplitViewColumn {
+    if isEditing, selectedMailbox != nil {
+      return .content
+    }
     switch navigationLevel {
     case .mailboxList:
       return .sidebar
