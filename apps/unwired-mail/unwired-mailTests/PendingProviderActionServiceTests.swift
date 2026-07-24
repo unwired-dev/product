@@ -259,9 +259,9 @@ final class PendingProviderActionServiceTests: XCTestCase {
         }
       }
       XCTFail("Expected permanent rejection")
-    } catch let error as PendingProviderActionError {
-      guard case .permanentFailure = error else {
-        return XCTFail("Expected permanent failure")
+    } catch let error as PendingProviderActionTestError {
+      guard case .rejected = error else {
+        return XCTFail("Expected provider rejection")
       }
     }
 
@@ -464,8 +464,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
         await recorder.record(action: action, messageIds: messageIds)
         throw URLError(.timedOut)
       }
-    } catch let error as URLError {
-      XCTAssertEqual(error.code, .timedOut)
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
     } catch {
       XCTFail("Expected timeout, got \\(error)")
     }
@@ -647,6 +649,66 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     XCTAssertFalse(hasFailedAction)
+  }
+
+  func testProviderSyncReconcilesMoveToInbox() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-move-inbox",
+      providerStateIds: ["Label_projects"]
+    )
+
+    try await service.perform(
+      .move,
+      targetProviderMailboxId: "INBOX",
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: "message-move-inbox",
+          providerStateIds: ["INBOX"]
+        )
+      ],
+      connection: connection,
+      session: session
+    )
+
+    let pendingActions = try await service.pendingActions(session: session)
+    XCTAssertTrue(pendingActions.isEmpty)
+  }
+
+  func testProviderSyncRemovesSupersededConfirmedAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-superseded",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.perform(
+      .markUnread,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+
+    let pendingActions = try await service.pendingActions(session: session)
+    XCTAssertTrue(pendingActions.isEmpty)
   }
 
   func testEnqueueRejectsMismatchedAccountAndConnection() async throws {

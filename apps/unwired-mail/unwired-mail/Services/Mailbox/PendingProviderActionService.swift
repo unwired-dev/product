@@ -68,14 +68,10 @@ struct FilePendingProviderActionStore: PendingProviderActionPersisting {
   func load(productAccountId: String) throws -> [PendingProviderAction] {
     let fileURL = fileURL(productAccountId: productAccountId)
     guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-    do {
-      return try JSONDecoder().decode(
-        [PendingProviderAction].self,
-        from: Data(contentsOf: fileURL)
-      )
-    } catch {
-      return []
-    }
+    return try JSONDecoder().decode(
+      [PendingProviderAction].self,
+      from: Data(contentsOf: fileURL)
+    )
   }
 
   func save(
@@ -388,10 +384,17 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
+    let confirmedMessageIds = Set(
+      actions.filter {
+        $0.connectionId == connection.id.rawValue
+          && $0.state == .providerConfirmed
+          && $0.isConfirmed(in: messages)
+      }.flatMap(\.messageIds)
+    )
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && $0.state == .providerConfirmed
-        && $0.isConfirmed(in: messages)
+        && !confirmedMessageIds.isDisjoint(with: $0.messageIds)
     }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -464,7 +467,7 @@ actor PendingProviderActionService {
     guard retryTasks[key] == nil else { return }
     guard processingQueueKeys.insert(key).inserted else { return }
     defer { processingQueueKeys.remove(key) }
-    var firstPermanentFailure: PendingProviderActionError?
+    var firstPermanentFailure: Error?
 
     while true {
       var actions = try store.load(productAccountId: productAccountId)
@@ -495,10 +498,6 @@ actor PendingProviderActionService {
           pendingAction.messageIds
         )
       } catch is CancellationError {
-        scheduleRetry(
-          action: pendingAction,
-          provider: provider
-        )
         throw CancellationError()
       } catch {
         actions = try store.load(productAccountId: productAccountId)
@@ -520,7 +519,7 @@ actor PendingProviderActionService {
           actions[updatedIndex].state = .failed
           try store.save(actions, productAccountId: productAccountId)
           if firstPermanentFailure == nil {
-            firstPermanentFailure = .permanentFailure(error.localizedDescription)
+            firstPermanentFailure = error
           }
         case .userActionRequired:
           actions[updatedIndex].state = .userActionRequired
@@ -602,8 +601,9 @@ extension PendingProviderAction {
       case .markUnread:
         return states.contains("UNREAD")
       case .move:
-        return !states.contains("INBOX")
-          && targetProviderMailboxId.map(states.contains) == true
+        guard let targetProviderMailboxId else { return false }
+        return states.contains(targetProviderMailboxId)
+          && (targetProviderMailboxId == "INBOX" || !states.contains("INBOX"))
       case .notSpam:
         return !states.contains("SPAM") && states.contains("INBOX")
       case .restore:

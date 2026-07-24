@@ -1318,7 +1318,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     )
     try await reconcileAndResumePendingActions(
-      messages: result.mailboxResult(connectionId: connection.id).messages,
+      messages: result.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
       connection: connection,
       session: session
     )
@@ -1352,7 +1352,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       shouldPersist: shouldPersist
     )
     try await reconcileAndResumePendingActions(
-      messages: result.mailboxResult(connectionId: connection.id).messages,
+      messages: result.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
       connection: connection,
       session: session
     )
