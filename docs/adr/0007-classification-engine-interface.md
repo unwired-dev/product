@@ -2,6 +2,8 @@
 
 Future Learning Signals are independently keyed and merged for each normalized sender and Category. A new positive or negative signal for Orders therefore cannot replace the current signal for Newsletters & Promotions from the same sender.
 
+When concurrent User Overrides add and remove the same membership, the associated Future Learning Signal follows the same causal remove-wins result; devices resolve the membership and sender-and-Category signal together before publishing either outcome.
+
 The Apple client will place email categorization behind a local Classification Engine interface rather than binding product logic directly to one Apple on-device AI API. Apple on-device AI is the preferred implementation, but the interface allows rule-based, platform-version-specific, or local model fallbacks while preserving the same output contract and keeping category immutability outside the classifier.
 
 The first implementation is a deterministic local rule-based engine. Provider metadata sync sends available subject, snippet, and selected headers as Minimized Classification Input. The engine explicitly requests body text when metadata is insufficient; only then may the categorization service read an existing entry from the **Bounded Encrypted Body Cache**. Categorization never fetches a missing body from any provider, and classification or learning-signal load failures leave the message in Uncategorized State. Historical messages bypass the engine unless the user explicitly selects a bounded date range, using received timestamps for received messages and sent timestamps for sent messages, and already categorized messages always bypass it.

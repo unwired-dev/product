@@ -152,6 +152,8 @@ The account-wide incoming and outgoing defaults and each per-connection override
 - Undo Send: Off, 10, 20, or 30 seconds; default 10 seconds.
 - Default format: rich text with a plain-text alternative.
 - Default reply action: Reply, never Reply All.
+- Choose the synchronized default Composer Presentation Preference: partial-height or full-screen.
+- Choose whether the synchronized Formatting Toolbar Preference shows the formatting toolbar.
 - Include quoted text collapsed beneath the draft.
 - Include original attachments when forwarding.
 - Link to system-owned spelling and automatic-correction settings.
@@ -187,6 +189,7 @@ Default sender selection remains in Email Accounts.
 - Master switch for automatic categorization of new mail.
 - Enable or disable System Categories, including People, Invites, Orders, Newsletters & Promotions, and Flights, without renaming them.
 - Create, edit, and delete multiple Custom Categories with names and descriptions.
+- Choose a curated SF Symbol and accessibility-tested color when creating or editing a Custom Category; the shared reader and Settings flows use the same appearance chooser.
 - Run Bounded Historical Categorization by Mailbox Connection, date range, mailbox, and category target.
 - Show progress and allow cancellation.
 - Reset learned sender signals after confirmation.
