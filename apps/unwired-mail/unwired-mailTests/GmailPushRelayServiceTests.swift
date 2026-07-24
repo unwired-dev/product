@@ -1230,7 +1230,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
           as? String == mailboxConnection.id.rawValue,
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
-          as? MailboxSyncPhase == .idle
+          as? MailboxSyncPhase == .idle,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
       else { return }
       statusPublished.fulfill()
     }
