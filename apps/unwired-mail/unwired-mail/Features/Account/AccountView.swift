@@ -684,6 +684,17 @@ struct AccountView: View {
     _genericMailSetupViewModel = State(
       initialValue: GenericMailSetupViewModel(
         productAccountId: ProductAccountId(snapshot.productAccountId),
+        clearLocalData: { definition, session in
+          guard definition.incomingEndpoint.mailProtocol == .imap else { return false }
+          let connections = try await mailboxConnection.loadConnections(session: session)
+          guard
+            let connection = connections.first(where: {
+              $0.id == definition.connectionId
+            })
+          else { return false }
+          try await mailboxConnection.clearLocalConnection(connection, session: session)
+          return true
+        },
         isSessionCurrent: { session.isCurrent(snapshot) },
         syncSession: snapshot
       )

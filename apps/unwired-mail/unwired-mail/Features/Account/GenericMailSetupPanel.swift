@@ -2,8 +2,14 @@ import SwiftUI
 
 // swiftlint:disable file_length
 
+typealias GenericMailLocalDataClearing = (
+  GenericMailConnectionDefinition,
+  ProductAccountSessionSnapshot
+) async throws -> Bool
+
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class GenericMailSetupViewModel {
   var authorizationMethod = MailAuthorizationMethod.password
   var authorizedSyncedConnectionIds: Set<MailboxConnectionId> = []
@@ -33,6 +39,7 @@ final class GenericMailSetupViewModel {
   var username = ""
 
   private let productAccountId: ProductAccountId
+  private let clearLocalData: GenericMailLocalDataClearing
   private let isSessionCurrent: () -> Bool
   private var isValid = true
   private var roleMappingEmailAddress: String?
@@ -42,11 +49,13 @@ final class GenericMailSetupViewModel {
 
   init(
     productAccountId: ProductAccountId,
+    clearLocalData: @escaping GenericMailLocalDataClearing = { _, _ in false },
     isSessionCurrent: @escaping () -> Bool,
     service: GenericMailSetupService = GenericMailSetupService(),
     syncSession: ProductAccountSessionSnapshot? = nil
   ) {
     self.productAccountId = productAccountId
+    self.clearLocalData = clearLocalData
     self.isSessionCurrent = isSessionCurrent
     self.service = service
     self.syncSession = syncSession
@@ -320,7 +329,12 @@ extension GenericMailSetupViewModel {
   func removeEverywhere(_ definition: GenericMailConnectionDefinition) async {
     guard let syncSession else { return }
     do {
-      try await service.removeEverywhere(definition, session: syncSession)
+      let clearedLocalData = try await clearLocalData(definition, syncSession)
+      try await service.removeEverywhere(
+        definition,
+        session: syncSession,
+        shouldRemoveLocalAuthorization: !clearedLocalData
+      )
       if connectedDefinition?.connectionId == definition.connectionId {
         connectedDefinition = nil
       }
@@ -337,7 +351,15 @@ extension GenericMailSetupViewModel {
 
   func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async {
     do {
-      try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
+      let clearedLocalData =
+        if let syncSession {
+          try await clearLocalData(definition, syncSession)
+        } else {
+          false
+        }
+      if !clearedLocalData {
+        try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
+      }
       if connectedDefinition?.connectionId == definition.connectionId {
         connectedDefinition = nil
       }

@@ -109,7 +109,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
     let archive = try await adapter.loadMailbox(
-      .providerMailbox("Archive"),
+      .role(.archive),
       connection: connection,
       session: session
     )
