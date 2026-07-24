@@ -429,7 +429,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       responses: [
         "* OK ready\r\n",
         "A1 OK authenticated\r\n",
-        "* 1 EXISTS\r\nA2 OK selected\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n",
         "\(bodyStructure)\r\nA3 OK structure\r\n",
         "* 1 FETCH (UID 7 BODY[1] {12}\r\nHello=20IMAP)\r\nA4 OK body\r\n",
       ]
@@ -463,7 +463,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       responsesData: [
         Data("* OK ready\r\n".utf8),
         Data("A1 OK authenticated\r\n".utf8),
-        Data("* 1 EXISTS\r\nA2 OK selected\r\n".utf8),
+        Data("* OK [UIDVALIDITY 1] selected\r\nA2 OK selected\r\n".utf8),
         Data("\(bodyStructure)\r\nA3 OK structure\r\n".utf8),
         bodyResponse,
       ]
