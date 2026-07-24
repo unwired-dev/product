@@ -959,7 +959,6 @@ struct IMAPMessageMetadataService {
       if let index = state.mailboxes.firstIndex(where: {
         $0.descriptor.name.caseInsensitiveCompare(descriptor.name) == .orderedSame
       }) {
-        let priorUIDValidity = state.mailboxes[index].uidValidity
         state.mailboxes[index].descriptor = descriptor
         state.mailboxes[index].uidValidity = page.uidValidity
         state.mailboxes[index].nextOlderUID = page.nextOlderUID
