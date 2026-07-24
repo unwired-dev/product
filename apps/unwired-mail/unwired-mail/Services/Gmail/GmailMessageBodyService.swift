@@ -95,6 +95,11 @@ protocol GmailMessageBodyCaching {
     providerAccountIdentifier: String
   ) throws
 
+  func clearMessageBodies(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
+
   func loadMessageBody(
     productAccountId: String,
     stableProviderMessageId: String
@@ -124,6 +129,13 @@ protocol GmailMessageBodyCaching {
     pinnedMessageIds: Set<String>
   ) throws
 
+  func reconcileSelection(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
+    protectedMessageIds: Set<String>,
+    pinnedMessageIds: Set<String>
+  ) throws
+
   func recordMessageBodyAccess(
     productAccountId: String,
     stableProviderMessageId: String,
@@ -132,6 +144,16 @@ protocol GmailMessageBodyCaching {
 }
 
 extension GmailMessageBodyCaching {
+  func clearMessageBodies(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    try clearMessageBodies(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+    )
+  }
+
   func clearMessageBodies(
     productAccountId: String,
     providerAccountIdentifier _: String
@@ -158,6 +180,20 @@ extension GmailMessageBodyCaching {
     protectedMessageIds _: Set<String>,
     pinnedMessageIds _: Set<String>
   ) throws {}
+
+  func reconcileSelection(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
+    protectedMessageIds: Set<String>,
+    pinnedMessageIds: Set<String>
+  ) throws {
+    try reconcileSelection(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+      protectedMessageIds: protectedMessageIds,
+      pinnedMessageIds: pinnedMessageIds
+    )
+  }
 
   func recordMessageBodyAccess(
     productAccountId _: String,
@@ -272,6 +308,21 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
+    try clearMessageBodies(
+      productAccountId: productAccountId,
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: providerAccountIdentifier
+        )
+      )
+    )
+  }
+
+  func clearMessageBodies(
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
     Self.fileLock.lock()
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else {
@@ -280,7 +331,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     let prefixes = [
       [
         gmailSafeFileComponent(productAccountId),
-        gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+        gmailSafeFileComponent("\(connectionId.rawValue):"),
       ].joined(separator: "-")
     ]
     for fileURL in try fileManager.contentsOfDirectory(
@@ -390,10 +441,29 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     return true
   }
 
-  // swiftlint:disable:next function_body_length
   func reconcileSelection(
     productAccountId: String,
     providerAccountIdentifier: String,
+    protectedMessageIds: Set<String>,
+    pinnedMessageIds: Set<String>
+  ) throws {
+    try reconcileSelection(
+      productAccountId: productAccountId,
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: providerAccountIdentifier
+        )
+      ),
+      protectedMessageIds: protectedMessageIds,
+      pinnedMessageIds: pinnedMessageIds
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func reconcileSelection(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
     protectedMessageIds: Set<String>,
     pinnedMessageIds: Set<String>
   ) throws {
@@ -402,11 +472,11 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
     try clearProtectedSelections(
       productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
+      connectionId: connectionId
     )
     let prefix = [
       gmailSafeFileComponent(productAccountId),
-      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+      gmailSafeFileComponent("\(connectionId.rawValue):"),
     ].joined(separator: "-")
     let protectedFileNames = Set(
       protectedMessageIds.map {
@@ -455,11 +525,11 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
 
   private func clearProtectedSelections(
     productAccountId: String,
-    providerAccountIdentifier: String
+    connectionId: MailboxConnectionId
   ) throws {
     let productPrefix = [
       gmailSafeFileComponent(productAccountId),
-      gmailSafeFileComponent("gmail:\(providerAccountIdentifier):"),
+      gmailSafeFileComponent("\(connectionId.rawValue):"),
     ].joined(separator: "-")
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,

@@ -16,6 +16,7 @@ struct ProductAccountId: Hashable, RawRepresentable, Sendable {
 
 struct MailProviderId: Hashable, RawRepresentable, Sendable {
   static let gmail = MailProviderId(rawValue: "gmail")
+  static let imapSMTP = MailProviderId(rawValue: "imap-smtp")
 
   let rawValue: String
 }
@@ -150,6 +151,18 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     providerActions: Set(ProviderMailAction.allCases)
   )
 
+  static let imapRead = MailboxConnectionCapabilities(
+    canCategorizeHistorical: false,
+    canForward: false,
+    canReadMessages: true,
+    canRegisterPush: false,
+    canReply: false,
+    canSearchProvider: false,
+    canSend: false,
+    canSynchronizeMetadata: true,
+    providerActions: []
+  )
+
   static let none = MailboxConnectionCapabilities(
     canCategorizeHistorical: false,
     canForward: false,
@@ -217,6 +230,7 @@ enum MailboxMessageCollection: Hashable, Sendable {
   case providerMailbox(String)
 
   private static let gmailSystemStateIds: Set<String> = [
+    "ARCHIVE",
     "CATEGORY_FORUMS",
     "CATEGORY_PERSONAL",
     "CATEGORY_PROMOTIONS",
@@ -243,7 +257,8 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.sent):
       return states.contains("SENT")
     case .role(.archive):
-      return states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
+      return !states.contains(where: { $0.hasPrefix("imap-mailbox:") })
+        && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
       return states.contains("SPAM")
     case .role(.trash):
@@ -536,6 +551,22 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
 }
 
 extension MailboxMetadataSyncResult {
+  func limitedInitialPage(to limit: Int) -> MailboxMetadataSyncResult {
+    guard hasInitialMailboxAvailability, !historicalMetadataBackfillIsComplete else {
+      return self
+    }
+    let messages = Array(messages.prefix(limit))
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: hasUnlistedNewMessages,
+      messages: messages,
+      newMessageIds: newMessageIds,
+      providerCursorIsExpired: providerCursorIsExpired,
+      threads: MailboxThread.group(messages),
+      hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
+    )
+  }
+
   func projected(
     to collection: MailboxMessageCollection,
     pinnedMessageIds: Set<StableProviderMessageIdentity> = []
@@ -1010,6 +1041,7 @@ protocol MailboxConnectionAdapter:
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {
   case authorizationRequired
   case connectionRemoved
+  case unsupportedCapability
   case unexpectedAuthorizedAccount
   case productAccountMismatch
   case providerMailboxTargetRequired
@@ -1021,6 +1053,8 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
       return "Authorize this Mailbox Connection on this device before accessing mail."
     case .connectionRemoved:
       return "This Mailbox Connection was removed on another trusted device."
+    case .unsupportedCapability:
+      return "This Mailbox Connection does not support that operation yet."
     case .unexpectedAuthorizedAccount:
       return "Sign in to the Google account for the selected Mailbox Connection."
     case .productAccountMismatch:
