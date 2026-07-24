@@ -510,6 +510,8 @@ actor PendingProviderActionService {
         )
       } catch is CancellationError {
         throw CancellationError()
+      } catch let error as URLError where error.code == .cancelled {
+        throw CancellationError()
       } catch {
         actions = try store.load(productAccountId: productAccountId)
         guard let updatedIndex = actions.firstIndex(where: { $0.id == pendingAction.id }) else {

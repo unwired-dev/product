@@ -2212,6 +2212,7 @@ struct MailShellConversationReader: View {
           Button("Not Spam") { perform(.notSpam, thread: thread, connection: connection) }
         } else if selection.selectedMailbox?.collection != .role(.trash),
           selection.selectedMailbox?.collection != .role(.spam),
+          selection.selectedMailbox?.collection != .role(.sent),
           connection.capabilities.supports(.spam)
         {
           Button("Mark as Spam") { perform(.spam, thread: thread, connection: connection) }

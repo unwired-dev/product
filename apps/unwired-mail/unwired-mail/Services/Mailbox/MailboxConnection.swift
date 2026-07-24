@@ -1397,22 +1397,23 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
       try await reconcileAndResumePendingActions(
         messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
         connection: connection,
         session: session
       )
-      let refreshedInbox = try await metadataService.loadMailbox(
+      _ = try await metadataService.loadMailbox(
         .role(.inbox),
         connection: gmailConnection,
         session: session
       )
-      return try await pendingActionService.project(
-        refreshedInbox.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
-        connection: connection,
-        session: session
-      )
+      return projectedInbox
     }
   }
 
@@ -1444,20 +1445,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
+      let projectedInbox = try await pendingActionService.project(
+        observedMessages.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
       try await reconcileAndResumePendingActions(
         messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
         connection: connection,
         session: session
       )
-      let refreshedInbox = try await metadataService.loadMailbox(
+      _ = try await metadataService.loadMailbox(
         .role(.inbox),
         connection: gmailConnection,
-        session: session
-      )
-      let projectedInbox = try await pendingActionService.project(
-        refreshedInbox.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
-        connection: connection,
         session: session
       )
       return MailboxMetadataSyncResult(
@@ -1818,7 +1819,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
     let gmailConnection = try gmailConnection(connection, session: session)
-    try await ensureConnectionIsActive(connection.id, session: session)
+    do {
+      try await ensureConnectionIsActive(connection.id, session: session)
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try await pendingActionService.clear(connection: connection, session: session)
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
     return gmailConnection
   }
 
