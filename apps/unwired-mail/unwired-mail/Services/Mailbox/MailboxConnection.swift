@@ -1005,19 +1005,43 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    try await connectionService.clearLocalConnection(session: session)
-    try await pendingActionService.clear(session: session)
+    var firstError: Error?
+    do {
+      try await connectionService.clearLocalConnection(session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError {
+      throw firstError
+    }
   }
 
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await connectionService.clearLocalConnection(
-      try gmailConnection(connection, session: session),
-      session: session
-    )
-    try await pendingActionService.clear(connection: connection, session: session)
+    var firstError: Error?
+    do {
+      try await connectionService.clearLocalConnection(
+        try gmailConnection(connection, session: session),
+        session: session
+      )
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError {
+      throw firstError
+    }
   }
 
   @MainActor
@@ -1293,7 +1317,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: gmailConnection,
       session: session
     )
-    try await reconcileAndResumePendingActions(connection: connection, session: session)
+    try await reconcileAndResumePendingActions(
+      messages: result.mailboxResult(connectionId: connection.id).messages,
+      connection: connection,
+      session: session
+    )
     return try await pendingActionService.project(
       result.mailboxResult(connectionId: connection.id),
       collection: .role(.inbox),
@@ -1323,7 +1351,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       throughHistoryId: throughHistoryId,
       shouldPersist: shouldPersist
     )
-    try await reconcileAndResumePendingActions(connection: connection, session: session)
+    try await reconcileAndResumePendingActions(
+      messages: result.mailboxResult(connectionId: connection.id).messages,
+      connection: connection,
+      session: session
+    )
     return try await pendingActionService.project(
       result.mailboxResult(connectionId: connection.id),
       collection: .role(.inbox),
@@ -1728,10 +1760,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   private func reconcileAndResumePendingActions(
+    messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await pendingActionService.reconcileProviderSync(
+      messages: messages,
       connection: connection,
       session: session
     )

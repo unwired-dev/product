@@ -68,10 +68,14 @@ struct FilePendingProviderActionStore: PendingProviderActionPersisting {
   func load(productAccountId: String) throws -> [PendingProviderAction] {
     let fileURL = fileURL(productAccountId: productAccountId)
     guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-    return try JSONDecoder().decode(
-      [PendingProviderAction].self,
-      from: Data(contentsOf: fileURL)
-    )
+    do {
+      return try JSONDecoder().decode(
+        [PendingProviderAction].self,
+        from: Data(contentsOf: fileURL)
+      )
+    } catch {
+      return []
+    }
   }
 
   func save(
@@ -379,12 +383,15 @@ actor PendingProviderActionService {
   }
 
   func reconcileProviderSync(
+    messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
     actions.removeAll {
-      $0.connectionId == connection.id.rawValue && $0.state == .providerConfirmed
+      $0.connectionId == connection.id.rawValue
+        && $0.state == .providerConfirmed
+        && $0.isConfirmed(in: messages)
     }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -487,13 +494,6 @@ actor PendingProviderActionService {
           pendingAction.targetProviderMailboxId,
           pendingAction.messageIds
         )
-        actions = try store.load(productAccountId: productAccountId)
-        guard let updatedIndex = actions.firstIndex(where: { $0.id == pendingAction.id }) else {
-          continue
-        }
-        actions[updatedIndex].state = .providerConfirmed
-        actions[updatedIndex].lastErrorDescription = nil
-        try store.save(actions, productAccountId: productAccountId)
       } catch is CancellationError {
         scheduleRetry(
           action: pendingAction,
@@ -527,7 +527,16 @@ actor PendingProviderActionService {
           try store.save(actions, productAccountId: productAccountId)
           throw PendingProviderActionError.retryLimitReached(error.localizedDescription)
         }
+        continue
       }
+
+      actions = try store.load(productAccountId: productAccountId)
+      guard let updatedIndex = actions.firstIndex(where: { $0.id == pendingAction.id }) else {
+        continue
+      }
+      actions[updatedIndex].state = .providerConfirmed
+      actions[updatedIndex].lastErrorDescription = nil
+      try store.save(actions, productAccountId: productAccountId)
     }
     if let firstPermanentFailure {
       throw firstPermanentFailure
@@ -572,6 +581,41 @@ actor PendingProviderActionService {
       connectionId: connection.id.rawValue,
       productAccountId: session.productAccountId
     )
+  }
+}
+
+extension PendingProviderAction {
+  // swiftlint:disable:next cyclomatic_complexity
+  fileprivate func isConfirmed(in messages: [MailboxMessageMetadata]) -> Bool {
+    messageIds.allSatisfy { messageId in
+      guard let message = messages.first(where: { $0.providerMessageId == messageId }) else {
+        return false
+      }
+      let states = Set(message.providerStateIds ?? [])
+      switch action {
+      case .archive:
+        return !states.contains("INBOX")
+      case .delete:
+        return states.contains("TRASH")
+      case .markRead:
+        return !states.contains("UNREAD")
+      case .markUnread:
+        return states.contains("UNREAD")
+      case .move:
+        return !states.contains("INBOX")
+          && targetProviderMailboxId.map(states.contains) == true
+      case .notSpam:
+        return !states.contains("SPAM") && states.contains("INBOX")
+      case .restore:
+        return !states.contains("TRASH") && states.contains("INBOX")
+      case .spam:
+        return !states.contains("INBOX") && states.contains("SPAM")
+      case .star:
+        return states.contains("STARRED")
+      case .unstar:
+        return !states.contains("STARRED")
+      }
+    }
   }
 }
 

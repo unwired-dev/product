@@ -2124,12 +2124,10 @@ final class GmailMailActionViewModel {
   }
 
   private func refreshAfterResolution(_ resolutionError: String?) async {
-    let remainingError = await service.resumePendingActions(
-      connections: knownConnections,
-      session: session
-    )
-    errorMessage = resolutionError ?? remainingError
-    await refreshFailureConnections(knownConnections)
+    await resume(connections: knownConnections)
+    if let resolutionError {
+      errorMessage = resolutionError
+    }
   }
 
   private func refreshFailureConnections(_ connections: [MailboxConnection]) async {
@@ -2144,7 +2142,9 @@ final class GmailMailActionViewModel {
   }
 
   private func remember(_ connection: MailboxConnection) {
-    if !knownConnections.contains(where: { $0.id == connection.id }) {
+    if let index = knownConnections.firstIndex(where: { $0.id == connection.id }) {
+      knownConnections[index] = connection
+    } else {
       knownConnections.append(connection)
     }
   }
@@ -4437,7 +4437,6 @@ private struct GmailInboxThreadRow: View {
       if didPerformAction && !Task.isCancelled {
         await refreshInbox()
         await mailActionViewModel.resume(connections: [connection])
-        await refreshInbox()
       }
     }
   }

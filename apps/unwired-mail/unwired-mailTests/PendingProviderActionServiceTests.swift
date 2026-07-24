@@ -128,6 +128,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       await recorder.record(action: action, messageIds: messageIds)
     }
     try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: "message-001",
+          providerStateIds: []
+        )
+      ],
       connection: connection,
       session: session
     )
@@ -458,7 +464,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
         await recorder.record(action: action, messageIds: messageIds)
         throw URLError(.timedOut)
       }
+    } catch let error as URLError {
+      XCTAssertEqual(error.code, .timedOut)
     } catch {
+      XCTFail("Expected timeout, got \\(error)")
     }
     try await service.enqueue(
       .markRead,
@@ -513,7 +522,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
+    } catch let error as GmailMessageMetadataSyncError {
+      XCTAssertEqual(error, .missingLocalGmailTokens)
     } catch {
+      XCTFail("Expected missing-local-token failure, got \\(error)")
     }
 
     try await service.retryBlockedAction(
@@ -606,7 +618,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _ in
         throw PendingProviderActionTestError.rejected
       }
+    } catch let error as PendingProviderActionTestError {
+      guard case .rejected = error else {
+        return XCTFail("Expected provider rejection")
+      }
     } catch {
+      XCTFail("Expected provider rejection, got \\(error)")
     }
 
     let backgroundRead = try await service.failureDescription(
