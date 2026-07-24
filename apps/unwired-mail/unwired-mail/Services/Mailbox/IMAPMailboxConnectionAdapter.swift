@@ -506,6 +506,14 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       matchingRecords.map { ($0.stableProviderMessageId, $0) },
       uniquingKeysWith: { first, _ in first }
     )
+    let priorCategoriesById = Dictionary(
+      try fetchRecords(
+        productAccountId: productAccountId,
+        connectionId: connectionId,
+        context: context
+      ).map { try ($0.stableProviderMessageId, $0.message().categoryId) },
+      uniquingKeysWith: { first, _ in first }
+    )
     if case .newest(let coversEntireMailbox) = reconciliation {
       let incomingIds = Set(messages.map(\.providerMessageId))
       let oldestFetchedUID = messages.map(\.uid).min()
@@ -528,11 +536,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         existing.encodedMessage = try JSONEncoder().encode(message)
         existing.pendingRemovalScanId = nil
       } else {
-        message.categoryId = try loadProviderMessage(
-          stableProviderMessageId: stableId,
-          productAccountId: productAccountId,
-          connectionId: connectionId
-        )?.categoryId
+        message.categoryId = priorCategoriesById[stableId] ?? nil
         context.insert(
           DurableIMAPMessageMetadataRecord(
             connectionIdRawValue: connectionId.rawValue,
