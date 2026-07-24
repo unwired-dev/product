@@ -314,7 +314,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(expunged.messages.isEmpty)
   }
 
-  func testCompletedBackfillRemovesAnExpungedOlderMessageOnRefresh() async throws {
+  func testCompletedBackfillRemovesAnExpungedMessageInRefreshedPage() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
@@ -331,12 +331,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
     _ = try await adapter.continueHistoricalBackfill(connection: connection, session: session)
-    client.messagesByUsername[definition.username]?.removeAll { $0.uid == 1 }
+    client.messagesByUsername[definition.username]?.removeAll { $0.uid == 26 }
 
     let refreshed = try await adapter.syncInbox(connection: connection, session: session)
 
     XCTAssertEqual(refreshed.messages.count, 74)
-    XCTAssertFalse(refreshed.messages.contains { $0.subject == "Message 1" })
+    XCTAssertFalse(refreshed.messages.contains { $0.subject == "Message 26" })
   }
 
   func testCustomMailboxStateIdsAreNamespacedAndCaseSensitive() {
