@@ -172,6 +172,16 @@ zsh scripts/check-apple-lint.zsh
 xcodebuild test -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=iOS Simulator,name=iPhone 17'
 ```
 
+## Automated code review
+
+[CodeRabbit](https://docs.coderabbit.ai/getting-started/yaml-configuration)
+uses the repository-root [`.coderabbit.yaml`](.coderabbit.yaml) together with
+the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
+requests to the default branch and incrementally reviews new pushes. Pull
+requests from common dependency and automation bots are skipped, as are pull
+requests whose title contains `WIP` or `[skip review]` or that carry the
+`do-not-review` label. Generated Convex client files are excluded from review.
+
 ## Release Notes
 
 Use Changesets to record release-intent notes for package changes:
