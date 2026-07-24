@@ -711,11 +711,45 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func testGmailWakeupFetchesMailboxChangesThroughDeviceSyncService() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
     let connectionStore = RecordingGmailPushConnectionStore(connection: connection)
     let syncService = RecordingPushGmailMetadataSyncService()
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let suiteName = "MailboxSyncSuccessStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let successStore = UserDefaultsMailboxSyncSuccessStore(defaults: defaults)
+    successStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: mailboxConnection.id
+    )
+    defer {
+      successStore.clear(
+        productAccountId: session.productAccountId,
+        connectionId: mailboxConnection.id
+      )
+    }
+    let statusPublished = expectation(description: "push sync status published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == mailboxConnection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase == .idle,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
+      else { return }
+      statusPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
     let watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
@@ -727,6 +761,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       connectionStore: connectionStore,
       notificationRuleSync: StubNotificationRuleSync(rules: NotificationRules(categoryIds: [])),
       sessionStore: sessionStore,
+      successStore: successStore,
       syncService: syncService,
       watchStore: watchStore
     )
@@ -736,15 +771,22 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "provider": "gmail",
       "routeId": "route-001",
     ])
+    await fulfillment(of: [statusPublished], timeout: 1)
 
     XCTAssertTrue(handled)
     XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)
     XCTAssertEqual(
       syncService.syncedConnection,
-      connection.mailboxConnection(productAccountId: session.productAccountId)
+      mailboxConnection
     )
     XCTAssertEqual(syncService.syncedSession, session)
     XCTAssertEqual(syncService.sinceHistoryId, "123")
+    XCTAssertNotNil(
+      successStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: mailboxConnection.id
+      )
+    )
     XCTAssertEqual(
       watchStore.savedStatus,
       GmailPushWatchStatus(
@@ -1177,6 +1219,23 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.historyIsExpired = true
     let notificationDelivery = RecordingNotificationDelivery()
+    let mailboxConnection = connection.mailboxConnection(productAccountId: session.productAccountId)
+    let statusPublished = expectation(description: "expired history status published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == mailboxConnection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+          as? MailboxSyncPhase == .idle,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
+      else { return }
+      statusPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
     let watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
@@ -1202,7 +1261,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    await fulfillment(of: [statusPublished], timeout: 1)
+    XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
     XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
   }
@@ -1367,6 +1427,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
   func testGmailWakeupDoesNotAdvanceWatermarkWhenNotificationRulesCannotLoad() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
     let watchStore = RecordingGmailPushWatchStore(
       status: GmailPushWatchStatus(
         expirationMilliseconds: 1_781_400_000_000,
@@ -1378,7 +1439,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       connectionStore: RecordingGmailPushConnectionStore(connection: connection),
       notificationRuleSync: FailingNotificationRuleSync(),
       sessionStore: sessionStore,
-      syncService: RecordingPushGmailMetadataSyncService(),
+      syncService: syncService,
       watchStore: watchStore
     )
 
@@ -1390,6 +1451,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertFalse(handled)
     XCTAssertNil(watchStore.savedStatus)
+    XCTAssertEqual(
+      syncService.syncedConnection,
+      connection.mailboxConnection(productAccountId: session.productAccountId)
+    )
   }
 
   func testGmailWakeupDoesNotFallbackWhenNotificationRulesCannotLoad()
@@ -1455,9 +1520,9 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "routeId": "route-001",
     ])
 
-    XCTAssertTrue(handled)
+    XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
-    XCTAssertEqual(watchStore.savedStatus?.latestSyncedHistoryId, "124")
+    XCTAssertNil(watchStore.savedStatus)
   }
 
   func testGmailWakeupDoesNotFallbackWhenRulesAreDisabledDuringFailedMetadataSync()

@@ -51,6 +51,65 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
   }
 }
 
+actor MailboxConnectionSyncGate {
+  static let shared = MailboxConnectionSyncGate()
+
+  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Bool, Never>)
+
+  private var lockedConnectionIds: Set<MailboxConnectionId> = []
+  private var waiters: [MailboxConnectionId: [Waiter]] = [:]
+
+  func acquire(_ connectionId: MailboxConnectionId) async -> Bool {
+    guard lockedConnectionIds.contains(connectionId) else {
+      lockedConnectionIds.insert(connectionId)
+      return true
+    }
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
+        waiters[connectionId, default: []].append((waiterId, continuation))
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId, for: connectionId) }
+    }
+  }
+
+  private func cancelWaiter(_ waiterId: UUID, for connectionId: MailboxConnectionId) {
+    guard var connectionWaiters = waiters[connectionId],
+      let index = connectionWaiters.firstIndex(where: { $0.id == waiterId })
+    else { return }
+    let waiter = connectionWaiters.remove(at: index)
+    waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
+    waiter.continuation.resume(returning: false)
+  }
+
+  func release(_ connectionId: MailboxConnectionId) {
+    guard var connectionWaiters = waiters[connectionId], !connectionWaiters.isEmpty else {
+      lockedConnectionIds.remove(connectionId)
+      waiters[connectionId] = nil
+      return
+    }
+    let next = connectionWaiters.removeFirst().continuation
+    waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
+    next.resume(returning: true)
+  }
+
+  func withLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: () async throws -> T
+  ) async throws -> T {
+    guard await acquire(connectionId) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId) }
+    return try await operation()
+  }
+}
+
 enum ProviderMailAction: CaseIterable, Hashable, Sendable {
   case archive
   case delete
@@ -860,6 +919,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let searchService: GmailMessageSearching
+  private let syncGate: MailboxConnectionSyncGate
 
   init(
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
@@ -871,7 +931,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataService: GmailMessageMetadataSyncing = GmailMessageMetadataService(),
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
-    searchService: GmailMessageSearching = GmailMessageMetadataService()
+    searchService: GmailMessageSearching = GmailMessageMetadataService(),
+    syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.bodyReader = bodyReader
     self.connectionService = connectionService
@@ -882,6 +943,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.searchService = searchService
+    self.syncGate = syncGate
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
@@ -1131,26 +1193,32 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let result = try await metadataService.continueHistoricalBackfill(
-      connection: try await gmailConnectionForProviderAccess(connection, session: session),
-      session: session
-    )
-    return result.mailboxResult(connectionId: connection.id)
+    try await syncGate.withLock(connection.id) {
+      try Task.checkCancellation()
+      let result = try await metadataService.continueHistoricalBackfill(
+        connection: try await gmailConnectionForProviderAccess(connection, session: session),
+        session: session
+      )
+      return result.mailboxResult(connectionId: connection.id)
+    }
   }
 
   func syncInbox(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let result = try await metadataService.syncInbox(
-      connection: gmailConnection,
-      session: session
-    )
-    return result.mailboxResult(connectionId: connection.id)
+    try await syncGate.withLock(connection.id) {
+      try Task.checkCancellation()
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session
+      )
+      let result = try await metadataService.syncInbox(
+        connection: gmailConnection,
+        session: session
+      )
+      return result.mailboxResult(connectionId: connection.id)
+    }
   }
 
   // swiftlint:disable:next function_parameter_count
@@ -1162,19 +1230,22 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let result = try await metadataService.syncRecentInbox(
-      connection: gmailConnection,
-      includingHistoryCandidates: includingHistoryCandidates,
-      session: session,
-      sinceHistoryId: sinceHistoryId,
-      throughHistoryId: throughHistoryId,
-      shouldPersist: shouldPersist
-    )
-    return result.mailboxResult(connectionId: connection.id)
+    try await syncGate.withLock(connection.id) {
+      try Task.checkCancellation()
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session
+      )
+      let result = try await metadataService.syncRecentInbox(
+        connection: gmailConnection,
+        includingHistoryCandidates: includingHistoryCandidates,
+        session: session,
+        sinceHistoryId: sinceHistoryId,
+        throughHistoryId: throughHistoryId,
+        shouldPersist: shouldPersist
+      )
+      return result.mailboxResult(connectionId: connection.id)
+    }
   }
 
   func overrideCategory(
