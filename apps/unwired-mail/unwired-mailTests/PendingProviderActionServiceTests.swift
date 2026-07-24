@@ -390,9 +390,9 @@ final class PendingProviderActionServiceTests: XCTestCase {
         }
       }
       XCTFail("Expected the second provider action to fail")
-    } catch let error as PendingProviderActionError {
-      guard case .permanentFailure = error else {
-        return XCTFail("Expected permanent failure")
+    } catch let error as PendingProviderActionTestError {
+      guard case .rejected = error else {
+        return XCTFail("Expected provider rejection")
       }
     }
 
@@ -524,8 +524,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ) { _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
-    } catch let error as GmailMessageMetadataSyncError {
-      XCTAssertEqual(error, .missingLocalGmailTokens)
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
     } catch {
       XCTFail("Expected missing-local-token failure, got \\(error)")
     }
@@ -649,6 +651,74 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     XCTAssertFalse(hasFailedAction)
+  }
+
+  func testProviderSyncClearsBlockedActionWhenProviderStateMatches() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-blocked-archive",
+      providerStateIds: ["INBOX"]
+    )
+
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: connection,
+        session: session
+      ) { _, _, _ in
+        throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+      }
+      XCTFail("Expected retry-limit failure")
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
+
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: "message-blocked-archive",
+          providerStateIds: []
+        )
+      ],
+      connection: connection,
+      session: session
+    )
+
+    let actions = try await service.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
+  func testDeleteProjectionRemovesSpam() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-spam-delete",
+      providerStateIds: ["SPAM"]
+    )
+
+    try await service.perform(
+      .delete,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .role(.spam),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(projected.messages.isEmpty)
   }
 
   func testProviderSyncReconcilesMoveToInbox() async throws {

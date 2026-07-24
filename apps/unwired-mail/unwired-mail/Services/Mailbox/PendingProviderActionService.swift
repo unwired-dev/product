@@ -384,17 +384,28 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
-    let confirmedMessageIds = Set(
+    let confirmedActionIds = Set(
       actions.filter {
         $0.connectionId == connection.id.rawValue
-          && $0.state == .providerConfirmed
+          && ($0.state == .providerConfirmed || $0.state == .userActionRequired)
           && $0.isConfirmed(in: messages)
-      }.flatMap(\.messageIds)
+      }.map(\.id)
+    )
+    let supersededActionIds = Set(
+      actions.filter { action in
+        action.connectionId == connection.id.rawValue
+          && action.state == .providerConfirmed
+          && actions.contains { confirmedAction in
+            confirmedActionIds.contains(confirmedAction.id)
+              && confirmedAction.sequence > action.sequence
+              && !Set(action.messageIds).isDisjoint(with: confirmedAction.messageIds)
+              && action.action.isSuperseded(by: confirmedAction.action)
+          }
+      }.map(\.id)
     )
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
-        && $0.state == .providerConfirmed
-        && !confirmedMessageIds.isDisjoint(with: $0.messageIds)
+        && (confirmedActionIds.contains($0.id) || supersededActionIds.contains($0.id))
     }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -619,6 +630,20 @@ extension PendingProviderAction {
   }
 }
 
+extension ProviderMailAction {
+  fileprivate func isSuperseded(by action: ProviderMailAction) -> Bool {
+    switch (self, action) {
+    case (.markRead, .markRead), (.markRead, .markUnread),
+      (.markUnread, .markRead), (.markUnread, .markUnread),
+      (.star, .star), (.star, .unstar),
+      (.unstar, .star), (.unstar, .unstar):
+      true
+    default:
+      false
+    }
+  }
+}
+
 extension MailboxMessageMetadata {
   // swiftlint:disable:next cyclomatic_complexity
   fileprivate func applying(
@@ -631,6 +656,7 @@ extension MailboxMessageMetadata {
       states.remove("INBOX")
     case .delete:
       states.remove("INBOX")
+      states.remove("SPAM")
       states.insert("TRASH")
     case .markRead:
       states.remove("UNREAD")
