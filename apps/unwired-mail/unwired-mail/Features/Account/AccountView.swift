@@ -894,7 +894,7 @@ struct AccountView: View {
         _ = await inboxViewModel.reloadLocal(connection: connection)
       }
       await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
-      showsBlockedActionAlert = true
+      showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
     }
   }
 
