@@ -244,7 +244,8 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.sent):
       return states.contains("SENT")
     case .role(.archive):
-      return states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
+      return !states.contains("IMAP_CUSTOM_MAILBOX")
+        && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
       return states.contains("SPAM")
     case .role(.trash):

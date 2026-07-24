@@ -101,6 +101,7 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
     if let mappedRole {
       states.insert(mappedRole.providerStateId)
     } else if mailbox.caseInsensitiveCompare("INBOX") != .orderedSame {
+      states.insert("IMAP_CUSTOM_MAILBOX")
       states.insert(mailbox)
     }
     return states.sorted()
@@ -1232,7 +1233,7 @@ struct IMAPMessageBodyService {
       connectionId: connection.id
     )
     let messagesById = Dictionary(
-      uniqueKeysWithValues: providerMessages.map {
+      providerMessages.map {
         (
           StableProviderMessageIdentity(
             connectionId: connection.id,
@@ -1240,7 +1241,8 @@ struct IMAPMessageBodyService {
           ),
           $0
         )
-      }
+      },
+      uniquingKeysWith: { first, _ in first }
     )
     let plan = IMAPBodyPrefetchPlan(
       messages: providerMessages.map {
@@ -1451,6 +1453,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
     try metadataStore.clear(productAccountId: session.productAccountId)
+    try cache.clearMessageBodies(productAccountId: session.productAccountId)
   }
 
   func clearLocalConnection(
@@ -1515,7 +1518,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: definition.id
       )
-      let isAuthorized = authorization?.definition == genericDefinition
+      let isAuthorized =
+        authorization.map {
+          hasMatchingCredentials($0.definition, genericDefinition)
+        } ?? false
       return MailboxConnection(
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities: isAuthorized ? .imapRead : .none,
@@ -1692,6 +1698,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
+    _ = try await authorizationForProviderAccess(
+      connection: connection(id: message.connectionId, session: session),
+      session: session
+    )
     return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
@@ -1786,6 +1796,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
     return authorization.definition
+  }
+
+  private func hasMatchingCredentials(
+    _ authorizationDefinition: GenericMailConnectionDefinition,
+    _ syncedDefinition: GenericMailConnectionDefinition
+  ) -> Bool {
+    authorizationDefinition.authorizationMethod == syncedDefinition.authorizationMethod
+      && authorizationDefinition.connectionId == syncedDefinition.connectionId
+      && authorizationDefinition.incomingEndpoint == syncedDefinition.incomingEndpoint
+      && authorizationDefinition.outgoingEndpoint == syncedDefinition.outgoingEndpoint
+      && authorizationDefinition.username == syncedDefinition.username
   }
 
   private func validate(
