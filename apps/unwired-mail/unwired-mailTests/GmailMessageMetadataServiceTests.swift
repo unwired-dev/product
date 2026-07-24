@@ -1943,7 +1943,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
         "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
-        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/untrash",
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001/modify",
       ])
     XCTAssertEqual(fixture.recorder.requests[2].method, "POST")
     XCTAssertEqual(fixture.recorder.requests[2].jsonBody["addLabelIds"] as? [String], ["UNREAD"])
@@ -1959,6 +1959,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(fixture.recorder.requests[14].jsonBody["addLabelIds"] as? [String], ["INBOX"])
     XCTAssertEqual(fixture.recorder.requests[14].jsonBody["removeLabelIds"] as? [String], ["SPAM"])
     XCTAssertEqual(fixture.recorder.requests[17].method, "POST")
+    XCTAssertEqual(fixture.recorder.requests[17].jsonBody["addLabelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(fixture.recorder.requests[17].jsonBody["removeLabelIds"] as? [String], ["TRASH"])
   }
 
   func testProviderThreadActionsAuthorizeOnce() async throws {

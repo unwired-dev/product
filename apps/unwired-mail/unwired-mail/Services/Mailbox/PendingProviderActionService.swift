@@ -454,6 +454,7 @@ actor PendingProviderActionService {
       connectionId: connectionId.rawValue,
       productAccountId: productAccountId
     )
+    guard retryTasks[key] == nil else { return }
     guard processingQueueKeys.insert(key).inserted else { return }
     defer { processingQueueKeys.remove(key) }
     var firstPermanentFailure: PendingProviderActionError?

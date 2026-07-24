@@ -1612,14 +1612,7 @@ struct GmailMessageMetadataService:
           method: "POST",
           providerActionRequest: true
         )
-      case .restore:
-        try await sendAuthorizedRequest(
-          url: url.appendingPathComponent("untrash"),
-          accessToken: accessToken,
-          method: "POST",
-          providerActionRequest: true
-        )
-      case .archive, .markRead, .markUnread, .move, .notSpam, .spam, .star, .unstar:
+      case .archive, .markRead, .markUnread, .move, .notSpam, .restore, .spam, .star, .unstar:
         let labels: (add: [String], remove: [String])
         switch action {
         case .archive:
@@ -1632,13 +1625,15 @@ struct GmailMessageMetadataService:
           labels = ([targetProviderMailboxId], ["INBOX"])
         case .notSpam:
           labels = (["INBOX"], ["SPAM"])
+        case .restore:
+          labels = (["INBOX"], ["TRASH"])
         case .spam:
           labels = (["SPAM"], ["INBOX"])
         case .star:
           labels = (["STARRED"], [])
         case .unstar:
           labels = ([], ["STARRED"])
-        case .delete, .restore:
+        case .delete:
           fatalError("Handled above")
         }
         let body = try JSONEncoder().encode([

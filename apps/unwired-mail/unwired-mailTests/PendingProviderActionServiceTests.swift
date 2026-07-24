@@ -323,6 +323,38 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(actionState, .providerConfirmed)
   }
 
+  func testResumeWaitsForScheduledRetry() async throws {
+    let recorder = PendingProviderActionRecorder()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryPendingProviderActionStore()
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-backoff",
+      providerStateIds: ["INBOX"]
+    )
+
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { action, _, messageIds in
+      await recorder.record(action: action, messageIds: messageIds)
+      throw URLError(.timedOut)
+    }
+    try await service.resume(
+      connection: connection,
+      session: session
+    ) { action, _, messageIds in
+      await recorder.record(action: action, messageIds: messageIds)
+    }
+
+    let calls = await recorder.calls
+    XCTAssertEqual(calls.count, 1)
+    try await service.clear(session: session)
+  }
+
   func testBulkActionPersistsPerMessageAndKeepsPartialProviderSuccess() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(

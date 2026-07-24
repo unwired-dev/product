@@ -2082,9 +2082,10 @@ final class GmailMailActionViewModel {
     await refreshFailureConnections(knownConnections)
     let service = self.service
     let session = self.session
+    let observedConnections = knownConnections
     retryObservationTask = Task { [weak self] in
       let retryError = await service.waitForPendingActionRetries(
-        connections: connections,
+        connections: observedConnections,
         session: session
       )
       guard !Task.isCancelled, let self else { return }
