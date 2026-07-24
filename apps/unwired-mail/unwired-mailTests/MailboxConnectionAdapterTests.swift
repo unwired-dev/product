@@ -1601,14 +1601,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testMailActionViewModelIgnoresUnrelatedPendingActionErrorsForSuccessfulBatches() async {
+  func testMailActionViewModelPreservesConnectionLevelBulkErrorsWithoutDetails() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
       providerAccountIdentifier: "gmail-user-001",
       productAccountId: session.productAccountId
     )
     let viewModel = GmailMailActionViewModel(
-      service: UnrelatedPendingActionService(),
+      service: ConnectionPendingActionFailureService(),
       session: session
     )
 
@@ -1617,9 +1617,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
     )
 
-    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
-    XCTAssertTrue(result?.failures.isEmpty ?? false)
-    XCTAssertNil(viewModel.errorMessage)
+    XCTAssertTrue(result?.succeededConnectionIds.isEmpty ?? false)
+    XCTAssertEqual(result?.failures.map(\.connectionId), [connection.id])
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
+    )
   }
 
   func testMailActionViewModelRetriesBlockedBulkConnection() async {
@@ -2524,7 +2528,7 @@ private actor RetryableBulkMailActionService: MailboxProviderMailActing {
   ) async throws {}
 }
 
-private struct UnrelatedPendingActionService: MailboxProviderMailActing {
+private struct ConnectionPendingActionFailureService: MailboxProviderMailActing {
   func perform(
     _: ProviderMailAction,
     messages _: [MailboxMessageMetadata],
@@ -2536,7 +2540,7 @@ private struct UnrelatedPendingActionService: MailboxProviderMailActing {
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async -> String? {
-    "An unrelated action failed."
+    "The provider connection failed."
   }
 
   func pendingActionFailureDetails(

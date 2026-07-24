@@ -3396,7 +3396,7 @@ extension GmailMailActionViewModel {
       return bulkActionOutcome(
         batch,
         index: batchIndex,
-        errorDescription: failureDetails == nil
+        errorDescription: failureDetails?.isEmpty != false
           ? combinedErrorDescription([resumeError, retryError]) : nil,
         failureDetails: failureDetails
       )
