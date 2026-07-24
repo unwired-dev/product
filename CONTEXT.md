@@ -431,7 +431,7 @@ _Avoid_: Password reset, support recovery
 - Pointer right-click, touch long-press, and keyboard context-menu access expose the same current-block choices: paragraph, headings one through three, bulleted list, numbered list, blockquote, and code block; inline styles remain selection-based
 - Pasting or dropping image data into the message body creates an **Inline Image**, while choosing an image through the attachment picker creates an **Attachment**; an explicit context action converts either representation to the other
 - Before **Outbox** admission, the client computes final transfer-encoded MIME size and enforces a known limit from the selected sending **Mailbox Connection**; an unknown provider limit permits attempted delivery with a visible estimate, while excess size requires removal or local image compression
-- Outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** and never through the product backend
+- During provider delivery, outgoing **Attachments** and **Inline Images** travel from the trusted device to the **Mail Provider** without passing through the product backend; their encrypted Draft Assets synchronize through **Product Sync** before handoff
 - The **Undo Send Window** defaults to 10 seconds and may be disabled or set to 20 or 30 seconds
 - Cancelling during the **Undo Send Window** prevents provider handoff; the product never describes this as recalling a message already accepted by a provider
 - Transiently failed **Outgoing Delivery Attempts** retry automatically with bounded exponential backoff
@@ -493,7 +493,7 @@ _Avoid_: Password reset, support recovery
 - **People** follows **New-Mail-Only Categorization** on rollout; historical mail receives it only through explicit **Bounded Historical Categorization**
 - System Categorization independently assigns every confidently matching purpose-specific **System Category**; **People** is assigned only as the fallback when no purpose-specific Category matches direct correspondence
 - A **Product Account** may have multiple **Custom Categories**
-- The legacy single Custom Category migrates idempotently into the multi-category collection without changing its identity, name, description, assignments, notification rules, or learning signals and without automatically adding a **Mail View**
+- The legacy single Custom Category migrates idempotently into the multi-category collection without changing its identity, description, assignments, notification rules, or learning signals and without automatically adding a **Mail View**; if its name collides case-insensitively with a System Category, migration renames the Custom Category by appending ` (Custom)` and, if needed, a numeric suffix, truncating the legacy name as needed to preserve the 40-character limit
 - A **Custom Category** may have a **Category Description**
 - Custom Category names are trimmed, contain 1–40 characters, and are case-insensitively unique across System and Custom Categories; descriptions contain at most 500 characters
 - System Categories have fixed product-defined **Category Appearance**; Custom Categories choose from curated SF Symbols and an accessibility-tested color palette, and their appearance synchronizes through **End-to-End Encrypted Product Sync**
