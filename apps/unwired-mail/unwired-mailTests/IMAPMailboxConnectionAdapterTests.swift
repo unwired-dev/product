@@ -487,6 +487,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       keyStore: keyStore,
       store: store
     )
+    try authorizationStore.remove(
+      productAccountId: ProductAccountId(session.productAccountId),
+      connectionId: connection.id
+    )
     let second = try await recreated.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(first.text, "Private body")

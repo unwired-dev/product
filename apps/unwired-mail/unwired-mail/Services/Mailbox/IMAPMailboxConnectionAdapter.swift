@@ -1318,7 +1318,7 @@ struct IMAPMessageBodyService {
     )
   }
 
-  private func loadCachedMessageBody(
+  func loadCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxMessageBody? {
@@ -1475,18 +1475,20 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
-    try authorizationStore.remove(
-      productAccountId: ProductAccountId(session.productAccountId),
-      connectionId: connection.id
-    )
-    try metadataStore.clear(
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )
-    try cache.clearMessageBodies(
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )
+    try await syncGate.withLock(connection.id) {
+      try authorizationStore.remove(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connection.id
+      )
+      try metadataStore.clear(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+      try cache.clearMessageBodies(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    }
   }
 
   @MainActor
@@ -1724,6 +1726,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
+    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+      return cached
+    }
     _ = try await authorizationForProviderAccess(
       connection: connection(id: message.connectionId, session: session),
       session: session
@@ -1737,17 +1742,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let authorization = try await authorizationForProviderAccess(
-      connection: connection,
-      session: session
-    )
-    try await bodyReader.prefetchMessageBodies(
-      connection: connection,
-      pinnedMessageIds: pinnedMessageIds,
-      referenceDate: referenceDate,
-      session: session,
-      authorization: authorization
-    )
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session
+      )
+      try await bodyReader.prefetchMessageBodies(
+        connection: connection,
+        pinnedMessageIds: pinnedMessageIds,
+        referenceDate: referenceDate,
+        session: session,
+        authorization: authorization
+      )
+    }
   }
 
   func removeCachedMessageBody(
