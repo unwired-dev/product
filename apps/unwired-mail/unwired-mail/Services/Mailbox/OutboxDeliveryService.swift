@@ -227,6 +227,8 @@ private let defaultOutboxRetryDelay: @Sendable (Int) -> UInt64 = { attempt in
   return UInt64(seconds) * 1_000_000_000
 }
 
+private let defaultOutboxHandoffDelay: UInt64 = 10_000_000_000
+
 // swiftlint:disable:next type_body_length
 actor OutboxDeliveryService {
   static let shared = OutboxDeliveryService()
@@ -275,9 +277,9 @@ actor OutboxDeliveryService {
     var attempts = try store.load(productAccountId: session.productAccountId)
     attempts.append(attempt)
     try store.save(attempts, productAccountId: session.productAccountId)
-    try await process(
-      connectionId: connection.id,
-      productAccountId: session.productAccountId,
+    scheduleRetry(
+      attempt,
+      delay: defaultOutboxHandoffDelay,
       provider: provider,
       reconcile: reconcile
     )
@@ -330,13 +332,18 @@ actor OutboxDeliveryService {
       }
     }
 
-    for connection in connections where connection.authorizationState == .authorized {
-      try await process(
-        connectionId: connection.id,
-        productAccountId: session.productAccountId,
-        provider: provider,
-        reconcile: reconcile
-      )
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      for connection in connections where connection.authorizationState == .authorized {
+        group.addTask {
+          try await self.process(
+            connectionId: connection.id,
+            productAccountId: session.productAccountId,
+            provider: provider,
+            reconcile: reconcile
+          )
+        }
+      }
+      try await group.waitForAll()
     }
   }
 
@@ -623,7 +630,7 @@ actor OutboxDeliveryService {
               errorDescription: nil
             )
           case .notSent:
-            try handleTransientFailure(
+            try handleReconciliationFailure(
               attemptId,
               error: error,
               productAccountId: productAccountId,

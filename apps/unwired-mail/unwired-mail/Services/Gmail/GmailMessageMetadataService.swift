@@ -924,7 +924,7 @@ struct GmailMessageMetadataService:
   GmailMessageMetadataSyncing, GmailMessageSearching, GmailProviderMailActing,
   GmailProviderTokenRefreshing
 {
-  private static let recipientHeaderNames = ["Bcc", "Cc", "To"]
+  private static let recipientHeaderNames = ["Cc", "To"]
 
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL

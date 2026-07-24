@@ -3711,7 +3711,8 @@ final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
-          providerThreadId: replyTo?.rfcMessageId == nil ? nil : replyTo?.providerThreadId
+          providerThreadId: replyTo?.connectionId == connection.id && replyTo?.rfcMessageId != nil
+            ? replyTo?.providerThreadId : nil
         ),
         connection: connection,
         session: session,
@@ -3759,7 +3760,8 @@ final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: attempt.message.inReplyTo,
-          providerThreadId: attempt.message.providerThreadId
+          providerThreadId: attempt.mailboxConnectionId == connection.id
+            ? attempt.message.providerThreadId : nil
         ),
         connection: connection,
         session: session,
