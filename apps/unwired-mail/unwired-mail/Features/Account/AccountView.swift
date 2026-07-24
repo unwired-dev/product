@@ -1000,10 +1000,17 @@ extension AccountView {
     session: ProductAccountSessionSnapshot,
     mailboxConnection: MailboxConnectionAdapter
   ) async throws -> Bool {
-    let connections = try await mailboxConnection.loadConnections(session: session)
-    guard let connection = connections.first(where: { $0.id == definition.connectionId }) else {
-      return false
-    }
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
     try await mailboxConnection.clearLocalConnection(connection, session: session)
     return true
   }
@@ -4503,11 +4510,9 @@ final class GmailProviderConnectionViewModel {
 
   private func completeLoadingConnections() async {
     if !connections.contains(where: { $0.id == selectedConnectionId }) {
-      if defaultSendingConnectionId?.providerId == .gmail {
-        selectedConnectionId = connections.first { $0.id == defaultSendingConnectionId }?.id
-      } else {
-        selectedConnectionId = connections.first?.id
-      }
+      selectedConnectionId =
+        connections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? connections.first?.id
     }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
