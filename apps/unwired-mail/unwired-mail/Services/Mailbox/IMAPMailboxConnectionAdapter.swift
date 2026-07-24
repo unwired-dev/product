@@ -943,14 +943,9 @@ struct IMAPMessageMetadataService {
       if let index = state.mailboxes.firstIndex(where: {
         IMAPProviderMessage.mailboxNamesEqual($0.descriptor.name, descriptor.name)
       }) {
-        let priorUIDValidity = state.mailboxes[index].uidValidity
         state.mailboxes[index].descriptor = descriptor
         state.mailboxes[index].uidValidity = page.uidValidity
-        if priorUIDValidity != page.uidValidity {
-          state.mailboxes[index].nextOlderUID = page.nextOlderUID
-        } else if page.nextOlderUID == nil {
-          state.mailboxes[index].nextOlderUID = nil
-        }
+        state.mailboxes[index].nextOlderUID = page.nextOlderUID
       } else {
         state.mailboxes.append(
           IMAPMailboxBackfillState(

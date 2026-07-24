@@ -307,6 +307,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       MailboxMessageCollection.providerMailbox(customMailboxId)
         .contains(providerStateIds: metadata.providerStateIds)
     )
+    XCTAssertFalse(
+      MailboxMessageCollection.role(.archive)
+        .contains(providerStateIds: metadata.providerStateIds)
+    )
   }
 
   func testCancelledBackfillPersistsCompletedPagesAndResumesWithoutDuplicates() async throws {

@@ -240,7 +240,6 @@ enum MailboxMessageCollection: Hashable, Sendable {
     "DRAFT",
     "IMPORTANT",
     "INBOX",
-    "IMAP_CUSTOM_MAILBOX",
     "SENT",
     "SPAM",
     "STARRED",
@@ -258,7 +257,7 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.sent):
       return states.contains("SENT")
     case .role(.archive):
-      return !states.contains("IMAP_CUSTOM_MAILBOX")
+      return !states.contains(where: { $0.hasPrefix("imap-mailbox:") })
         && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
       return states.contains("SPAM")
