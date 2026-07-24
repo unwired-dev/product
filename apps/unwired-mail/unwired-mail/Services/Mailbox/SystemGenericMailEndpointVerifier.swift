@@ -1,11 +1,20 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 protocol GenericMailStreamTasking: AnyObject {
   func close()
   func read() async throws -> String
+  func readData() async throws -> Data
   func resume()
   func startSecureConnection()
   func write(_ value: String) async throws
+}
+
+extension GenericMailStreamTasking {
+  func readData() async throws -> Data {
+    Data(try await read().utf8)
+  }
 }
 
 protocol GenericMailStreamTaskCreating {
@@ -317,7 +326,7 @@ private final class MailEndpointConversation {
   }
 }
 
-private struct URLSessionGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {
+struct URLSessionGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {
   func makeStreamTask(
     hostname: String,
     port: Int,
@@ -351,17 +360,25 @@ private final class URLSessionGenericMailStreamTask: GenericMailStreamTasking {
   }
 
   func read() async throws -> String {
+    let data = try await readData()
+    guard let response = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
+    return response
+  }
+
+  func readData() async throws -> Data {
     try await withCheckedThrowingContinuation { continuation in
       task.readData(ofMinLength: 1, maxLength: 65_536, timeout: 15) { data, _, error in
         if let error {
           continuation.resume(throwing: error)
           return
         }
-        guard let data, let response = String(data: data, encoding: .utf8) else {
+        guard let data else {
           continuation.resume(throwing: KeychainStoreError.unexpectedData)
           return
         }
-        continuation.resume(returning: response)
+        continuation.resume(returning: data)
       }
     }
   }

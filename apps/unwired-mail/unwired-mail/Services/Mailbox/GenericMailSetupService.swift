@@ -304,12 +304,15 @@ struct GenericMailSetupService {
 
   func removeEverywhere(
     _ definition: GenericMailConnectionDefinition,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldRemoveLocalAuthorization: Bool = true
   ) async throws {
-    try removeLocalAuthorization(
-      definition,
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
+    if shouldRemoveLocalAuthorization {
+      try removeLocalAuthorization(
+        definition,
+        productAccountId: ProductAccountId(session.productAccountId)
+      )
+    }
     _ = try await definitionSyncService.removeConnection(
       definition.connectionId,
       session: session
@@ -522,7 +525,7 @@ struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
     backgroundContextCacheStore: BackgroundContextCachePersisting =
       KeychainBackgroundContextCacheStore(),
     genericMailSetupService: GenericMailSetupService = GenericMailSetupService(),
-    gmailConnection: MailboxConnectionClearing = GmailMailboxConnectionAdapter()
+    gmailConnection: MailboxConnectionClearing = MailboxConnectionRouter()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
     self.genericMailSetupService = genericMailSetupService
