@@ -255,6 +255,7 @@ actor OutboxDeliveryService {
   private let maximumAge: TimeInterval
   private let maximumAttempts: Int
   private let now: @Sendable () -> Date
+  private var handoffClaimFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var inFlightRetryTaskTokens: [UUID: UUID] = [:]
@@ -396,7 +397,6 @@ actor OutboxDeliveryService {
         )
       }
     }
-    while await waitForScheduledRetries() {}
   }
 
   @discardableResult
@@ -477,12 +477,8 @@ actor OutboxDeliveryService {
       attempts[index].nextRetryAtMilliseconds = nil
       attempts[index].reconciliationPausedForAuthorization = nil
       try store.save(attempts, productAccountId: session.productAccountId)
-      try await process(
-        connectionId: connection.id,
-        productAccountId: session.productAccountId,
-        provider: provider,
-        reconcile: reconcile
-      )
+      scheduleRetry(attempts[index], delay: 0, provider: provider, reconcile: reconcile)
+      while await waitForScheduledRetries() {}
       return try requiredAttempt(attemptId, productAccountId: session.productAccountId)
     }
     return try await edit(
@@ -742,10 +738,14 @@ actor OutboxDeliveryService {
       attempts[index].reconciliationPausedForAuthorization = nil
       do {
         try store.save(attempts, productAccountId: productAccountId)
+        handoffClaimFailureCounts[attemptId] = nil
       } catch {
+        let claimFailureCount = (handoffClaimFailureCounts[attemptId] ?? 0) + 1
+        handoffClaimFailureCounts[attemptId] = claimFailureCount
+        guard claimFailureCount < maximumAttempts else { return }
         scheduleRetry(
           retryAttempt,
-          delay: retryDelayNanoseconds(retryAttempt.attemptCount),
+          delay: retryDelayNanoseconds(claimFailureCount),
           provider: provider,
           reconcile: reconcile
         )

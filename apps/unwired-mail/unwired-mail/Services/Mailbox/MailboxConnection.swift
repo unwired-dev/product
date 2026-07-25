@@ -1333,12 +1333,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     else { return localConnections }
     for removedConnectionId in snapshot.removedConnectionIds {
-      guard let localStatus = localStatusesById[removedConnectionId] else { continue }
-      let removedConnection = localStatus.mailboxConnection(
-        productAccountId: session.productAccountId
+      let localStatus = localStatusesById[removedConnectionId]
+      let removedConnection = removedMailboxConnection(
+        id: removedConnectionId,
+        localStatus: localStatus,
+        session: session
       )
-      try await connectionService.clearLocalConnection(localStatus, session: session)
       try await clearRemovedConnection(removedConnection, session: session)
+      if let localStatus {
+        try await connectionService.clearLocalConnection(localStatus, session: session)
+      }
     }
     var definitions = snapshot.connections
     if usedCachedSnapshot {
@@ -1359,6 +1363,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func removedMailboxConnection(
+    id: MailboxConnectionId,
+    localStatus: GmailProviderConnectionStatus?,
+    session: ProductAccountSessionSnapshot
+  ) -> MailboxConnection {
+    if let localStatus {
+      return localStatus.mailboxConnection(productAccountId: session.productAccountId)
+    }
+    return MailboxConnection(
+      authorizationState: .required,
+      capabilities: .gmail,
+      connectedAt: 0,
+      displayName: "",
+      id: id,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: "",
+      updatedAt: 0
+    )
   }
 
   private func reconciledSnapshot(

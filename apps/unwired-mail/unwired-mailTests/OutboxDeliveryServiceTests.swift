@@ -232,6 +232,40 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testResumeReturnsAfterSchedulingFutureRetry() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    _ = try await seedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    var attempts = try store.load(productAccountId: session.productAccountId)
+    attempts[0].state = .retrying
+    attempts[0].nextRetryAtMilliseconds = Int64(Date().timeIntervalSince1970 * 1_000) + 60_000
+    try store.save(attempts, productAccountId: session.productAccountId)
+
+    let service = OutboxDeliveryService(store: store)
+    let completed = expectation(description: "resume returns after scheduling")
+    Task {
+      try? await service.resume(
+        connections: [connection],
+        session: session,
+        provider: { _, _, _ in },
+        reconcile: { _, _ in .notSent }
+      )
+      completed.fulfill()
+    }
+
+    await fulfillment(of: [completed], timeout: 1)
+    try await service.clear(session: session)
+  }
+
   func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
