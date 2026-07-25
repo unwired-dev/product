@@ -1327,6 +1327,7 @@ struct MicrosoftGraphMetadataService {
       }
       return try load(connection: connection, productAccountId: productAccountId)
     } catch MicrosoftGraphClientError.deltaTokenExpired {
+      try Task.checkCancellation()
       try store.clear(productAccountId: productAccountId, connectionId: connection.id)
       return try await start(
         folders: folders,
@@ -1381,6 +1382,7 @@ struct MicrosoftGraphMetadataService {
         } while continuation != nil
       }
     } catch MicrosoftGraphClientError.deltaTokenExpired {
+      try Task.checkCancellation()
       try store.clear(productAccountId: productAccountId, connectionId: connection.id)
       return try await sync(
         connection: connection,
@@ -1729,23 +1731,46 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    var firstError: Error?
-    do {
-      try tokenStore.clearAll(productAccountId: session.productAccountId)
-    } catch {
-      firstError = error
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    let connectionIds = snapshot.connections.compactMap { definition in
+      definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
     }
-    do {
-      try metadataStore.clear(productAccountId: session.productAccountId)
-    } catch {
-      firstError = firstError ?? error
+    try await withLocks(connectionIds) {
+      var firstError: Error?
+      do {
+        try tokenStore.clearAll(productAccountId: session.productAccountId)
+      } catch {
+        firstError = error
+      }
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try bodyService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
     }
-    do {
-      try bodyService.clear(session: session)
-    } catch {
-      firstError = firstError ?? error
+  }
+
+  private func withLocks<T>(
+    _ connectionIds: ArraySlice<MailboxConnectionId>,
+    operation: @escaping () async throws -> T
+  ) async throws -> T {
+    guard let connectionId = connectionIds.first else { return try await operation() }
+    return try await syncGate.withLock(connectionId) {
+      try await withLocks(connectionIds.dropFirst(), operation: operation)
     }
-    if let firstError { throw firstError }
+  }
+
+  private func withLocks<T>(
+    _ connectionIds: [MailboxConnectionId],
+    operation: @escaping () async throws -> T
+  ) async throws -> T {
+    try await withLocks(connectionIds[...], operation: operation)
   }
 
   func clearLocalConnection(
@@ -2125,12 +2150,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       let recentCutoff = referenceDate.addingTimeInterval(-30 * 24 * 60 * 60)
       let allowed = observed.messages.filter { message in
         let states = Set(message.providerStateIds ?? [])
-        return states.isDisjoint(with: ["SPAM", "TRASH"])
+        return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"])
       }
       let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
       let recent = allowed.filter { message in
         message.providerInternalDateMilliseconds
           >= Int64(recentCutoff.timeIntervalSince1970 * 1_000)
+          && message.providerInternalDateMilliseconds
+            <= Int64(referenceDate.timeIntervalSince1970 * 1_000)
           && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
       }
       var selectedById: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
