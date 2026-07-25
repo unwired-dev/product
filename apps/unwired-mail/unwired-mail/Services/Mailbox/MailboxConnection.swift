@@ -744,12 +744,23 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
 protocol MailboxConnectionClearing {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws
   func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool
+  ) async throws
+  func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws
 }
 
 extension MailboxConnectionClearing {
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent _: @escaping @MainActor () -> Bool
+  ) async throws {
+    try await clearLocalConnection(session: session)
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -1201,11 +1212,24 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    try await clearLocalConnection(session: session, isStillCurrent: { true })
+  }
+
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool
+  ) async throws {
     var firstError: Error?
     do {
       try await connectionService.clearLocalConnection(session: session)
     } catch {
       firstError = error
+    }
+    guard await isStillCurrent() else {
+      if let firstError {
+        throw firstError
+      }
+      return
     }
     do {
       try await pendingActionService.clear(session: session)

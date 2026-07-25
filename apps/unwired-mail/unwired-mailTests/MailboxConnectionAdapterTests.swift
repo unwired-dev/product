@@ -1514,7 +1514,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       senderAddress: "sender@example.com"
     )
 
-    XCTAssertEqual(draft.recipient, "sender@example.com")
+    XCTAssertEqual(draft.recipient, "")
   }
 
   func testNewMessageKeepsUnavailableDefaultSendingConnectionWithoutSubstitution() {

@@ -1956,11 +1956,15 @@ struct MailShellCompositionDraft: Identifiable {
           ? mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
           : [])
     )
+    let isLegacyGmailSent =
+      message.connectionId.providerId == .gmail
+      && message.providerStateIds?.contains("SENT") == true
+      && message.bccRecipients == nil
     let candidates =
-      [message.replyTo ?? message.from].compactMap(\.self)
-      + (message.connectionId.providerId == .gmail && message.bccRecipients == nil
-        ? []
-        : (message.recipientHeaders ?? []).flatMap(mailboxValues))
+      isLegacyGmailSent
+      ? []
+      : [message.replyTo ?? message.from].compactMap(\.self)
+        + (message.recipientHeaders ?? []).flatMap(mailboxValues)
     var seenAddresses: Set<String> = []
     let recipients = candidates.filter { address in
       let normalizedAddress = normalizedMailboxAddress(address)
@@ -1971,7 +1975,7 @@ struct MailShellCompositionDraft: Identifiable {
     }
     var draft = reply(to: message)
     draft.recipient =
-      recipients.isEmpty
+      recipients.isEmpty && !isLegacyGmailSent
       ? message.replyTo ?? message.from ?? ""
       : recipients.joined(separator: ", ")
     return draft

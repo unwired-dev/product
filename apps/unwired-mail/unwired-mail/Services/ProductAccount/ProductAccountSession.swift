@@ -149,7 +149,13 @@ final class ProductAccountSession {
       var mailboxCleanupError: Error?
       if let snapshot {
         do {
-          try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+          try await mailboxConnectionService.clearLocalConnection(
+            session: snapshot,
+            isStillCurrent: {
+              self.currentSignedInSnapshot() == snapshot
+                || (try? self.sessionStore.load()) == snapshot
+            }
+          )
         } catch {
           mailboxCleanupError = error
         }
