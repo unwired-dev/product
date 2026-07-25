@@ -732,7 +732,7 @@ struct AccountView: View {
   }
 
   var body: some View {
-    observedMailShell
+    mailShell
       .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
         Task {
           await genericMailSetupViewModel.loadSyncedDefinitions()
@@ -755,76 +755,8 @@ struct AccountView: View {
       }
   }
 
-  private var observedMailShell: some View {
-    presentedMailShell
-      .task {
-        await loadInitialMailState()
-      }
-      .task(id: scenePhase) {
-        guard scenePhase == .active else { return }
-        await mailboxFreshnessViewModel.pollWhileActive(
-          connections: { gmailViewModel.connections },
-          didSynchronize: { await reloadObservedMailboxes() }
-        )
-      }
-      .onChange(of: scenePhase) { _, phase in
-        handleScenePhaseChange(phase)
-      }
-      .onReceive(
-        NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
-          .receive(on: RunLoop.main)
-      ) { notification in
-        handleMailboxMetadataDidSynchronize(notification)
-      }
-      .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
-        handlePinnedMessageIdsChange(from: oldValue, to: newValue)
-      }
-      .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
-        showsBlockedActionAlert = connectionId != nil
-      }
-      .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
-        handleFailedConnectionIdsChange(from: oldIds, to: newIds)
-      }
-      .onChange(of: mailActionViewModel.outboxItems) { _, _ in
-        updateProductMailboxState()
-      }
-      .onChange(of: gmailViewModel.connection?.id) { _, _ in
-        handleSelectedConnectionChange()
-      }
-      .onChange(of: gmailViewModel.connections) { _, _ in
-        handleConnectionsChange()
-      }
-      .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
-        handleAuthorizationStateChange(authorizationState)
-      }
-  }
-
   private var genericMailReloadKey: [String] {
     genericMailSetupViewModel.connectionReloadKey
-  }
-
-  private var presentedMailShell: some View {
-    mailShell
-      .navigationSplitViewStyle(.balanced)
-      .sheet(isPresented: $showsAccountSettings) {
-        accountSettings
-      }
-      .sheet(item: $compositionDraft) { draft in
-        MailShellComposer(
-          connections: gmailViewModel.connections,
-          draft: draft,
-          isSending: mailActionViewModel.isPerformingAction,
-          send: sendNewMessage
-        )
-      }
-      .alert(
-        "Pending message action requires attention",
-        isPresented: $showsBlockedActionAlert
-      ) {
-        pendingActionAlertActions
-      } message: {
-        pendingActionAlertMessage
-      }
   }
 
   private var mailShell: some View {
