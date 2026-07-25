@@ -45,6 +45,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "Finance <finance@example.com>",
         "Auditor <auditor@example.com>",
       ],
+      bccRecipients: ["Hidden <hidden@example.com>"],
       rfcMessageId: nil
     )
     var otherMessage = metadata(
@@ -61,6 +62,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "user@example.com",
       "finance@example.com",
       "auditor@example.com",
+      "hidden@example.com",
       "quarterly invoice",
       "2026-07-15",
       "unread",
@@ -572,7 +574,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       [
         "User <user@example.com>",
         "Finance <finance@example.com>",
-        "Auditor <auditor@example.com>",
+      ]
+    )
+    XCTAssertEqual(
+      result.messages.first?.bccRecipients,
+      [
+        "Auditor <auditor@example.com>"
       ]
     )
     XCTAssertEqual(result.messages.first?.providerLabelIds, ["INBOX", "UNREAD"])
@@ -2947,6 +2954,104 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "Café",
     ].joined(separator: "\r\n")
     XCTAssertEqual(String(bytes: mime, encoding: .utf8), expectedMIME)
+  }
+
+  func testSendPreservesProviderStatusForOutboxRetryClassification() async throws {
+    let tokenStore = RecordingGmailProviderTokenStore()
+    let tokenInfo = """
+      {"sub":"gmail-user-001","email":"user@example.com",
+      "scope":"https://www.googleapis.com/auth/gmail.send"}
+      """
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let urlSession = ConvexClientTesting.makeSession { request in
+      switch request.url?.path {
+      case "/tokeninfo":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(tokenInfo.utf8)
+        )
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data("{\"access_token\":\"access-token\"}".utf8)
+        )
+      case "/gmail/v1/users/me/messages/send":
+        return (Self.httpResponse(for: request, statusCode: 429), Data())
+      default:
+        return (Self.httpResponse(for: request, statusCode: 200), Data())
+      }
+    }
+    let service = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+      oauthClientId: "gmail-client-id",
+      session: urlSession,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+    )
+
+    do {
+      try await service.send(
+        GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected send failure")
+    } catch {
+      XCTAssertEqual(error as? GmailProviderMailActionError, .responseStatus(429))
+    }
+  }
+
+  func testSendPreservesRateLimitReasonForOutboxRetryClassification() async throws {
+    let tokenStore = RecordingGmailProviderTokenStore()
+    let tokenInfo = """
+      {"sub":"gmail-user-001","email":"user@example.com",
+      "scope":"https://www.googleapis.com/auth/gmail.send"}
+      """
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId
+    )
+    let urlSession = ConvexClientTesting.makeSession { request in
+      switch request.url?.path {
+      case "/tokeninfo":
+        return (Self.httpResponse(for: request, statusCode: 200), Data(tokenInfo.utf8))
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data("{\"access_token\":\"access-token\"}".utf8)
+        )
+      case "/gmail/v1/users/me/messages/send":
+        return (
+          Self.httpResponse(for: request, statusCode: 403),
+          Data("{\"error\":{\"errors\":[{\"reason\":\"userRateLimitExceeded\"}]}}".utf8)
+        )
+      default:
+        return (Self.httpResponse(for: request, statusCode: 200), Data())
+      }
+    }
+    let service = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
+      oauthClientId: "gmail-client-id",
+      session: urlSession,
+      tokenStore: tokenStore,
+      tokenInfoURL: URL(string: "https://oauth.example.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.example.test/token")!
+    )
+
+    do {
+      try await service.send(
+        GmailOutgoingMessage(body: "Hello", recipient: "recipient@example.com", subject: "Subject"),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected send failure")
+    } catch {
+      XCTAssertEqual(error as? GmailProviderMailActionError, .rateLimitedResponseStatus(403))
+    }
   }
 
   func testSendEncodesRecipientDisplayName() async throws {

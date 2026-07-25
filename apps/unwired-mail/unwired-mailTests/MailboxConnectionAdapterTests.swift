@@ -318,7 +318,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     connectionService.statuses = [RecordingAdapterConnectionService.status, second]
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
 
     let connections = try await adapter.loadConnections(session: session)
@@ -380,7 +381,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -407,7 +409,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -451,7 +454,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
 
     let connections = try await adapter.loadConnections(session: session)
@@ -474,7 +478,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       definitionSyncService: definitionSyncService,
-      metadataService: metadataService
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId
@@ -507,7 +512,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       definitionSyncService: definitionSyncService,
-      pendingActionService: pendingActionService
+      pendingActionService: pendingActionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId
@@ -616,6 +622,42 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.action, .archive)
     XCTAssertEqual(mailActionService.messageIds, ["message-001"])
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
+  }
+
+  func testGmailAdapterUsesStableOutboxIdentityAndReconcilesSentDelivery() async throws {
+    let mailActionService = RecordingAdapterMailActionService()
+    let searchService = RecordingAdapterSearchService()
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      mailActionService: mailActionService,
+      searchService: searchService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let message = OutgoingMessage(
+      body: "Hello",
+      recipient: "reader@example.com",
+      subject: "Subject",
+      idempotencyKey: "unwired-attempt-001"
+    )
+
+    try await adapter.send(message, connection: connection, session: session)
+    let status = try await adapter.deliveryStatus(
+      idempotencyKey: "unwired-attempt-001",
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      mailActionService.outgoingMessage?.rfcMessageId,
+      "<unwired-attempt-001@outbox.unwired.mail>"
+    )
+    XCTAssertEqual(
+      searchService.query,
+      "in:sent rfc822msgid:<unwired-attempt-001@outbox.unwired.mail>"
+    )
+    XCTAssertEqual(status, .sent)
   }
 
   // swiftlint:disable:next function_body_length
@@ -1394,6 +1436,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     let reply = MailShellCompositionDraft.reply(to: message)
+    let replyAll = MailShellCompositionDraft.replyAll(
+      to: message,
+      senderAddress: "reader@example.com"
+    )
     let forward = MailShellCompositionDraft.forward(message, body: "Decrypted body")
 
     XCTAssertEqual(reply.connectionId, message.connectionId)
@@ -1402,6 +1448,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(reply.replyToMessage, message)
     XCTAssertEqual(reply.recipient, "sender@example.com")
     XCTAssertEqual(reply.subject, "Re: Subject message-001")
+    XCTAssertEqual(replyAll.connectionId, message.connectionId)
+    XCTAssertEqual(replyAll.recipient, "sender@example.com")
     XCTAssertEqual(forward.connectionId, message.connectionId)
     XCTAssertEqual(forward.sourceThreadId, message.threadIdentity)
     XCTAssertEqual(forward.sourceMailboxIdentity, message.connectionId.providerMailboxIdentity)
@@ -1410,6 +1458,78 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(forward.forwardSourceMessage, message)
     XCTAssertEqual(forward.subject, "Fwd: Subject message-001")
     XCTAssertTrue(forward.body.contains("Decrypted body"))
+  }
+
+  func testMailShellReplyAllSplitsRecipientHeaderMailboxes() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "Sender <sender@example.com>",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX"],
+      providerThreadId: "thread-001",
+      recipientHeaders: [
+        "reader@example.com, teammate@example.com",
+        "\"Doe, Jane\" <jane@example.com>",
+      ],
+      replyTo: "sender@example.com",
+      rfcMessageId: "<message-001@example.com>",
+      snippet: "Message message-001",
+      subject: "Subject message-001",
+      bccRecipients: ["hidden@example.com"]
+    )
+
+    let draft = MailShellCompositionDraft.replyAll(
+      to: message,
+      senderAddress: "reader@example.com"
+    )
+
+    XCTAssertEqual(
+      draft.recipient,
+      "sender@example.com, teammate@example.com, \"Doe, Jane\" <jane@example.com>"
+    )
+  }
+
+  func testMailShellReplyAllDoesNotExposeLegacyBccOrSenderAliases() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "Sender Alias <sender+alias@example.com>",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-legacy",
+      providerStateIds: ["SENT"],
+      providerThreadId: "thread-legacy",
+      recipientHeaders: ["sender+alias@example.com, hidden@example.com, teammate@example.com"],
+      replyTo: "sender@example.com",
+      rfcMessageId: "<message-legacy@example.com>",
+      snippet: "Legacy message",
+      subject: "Legacy subject"
+    )
+
+    let draft = MailShellCompositionDraft.replyAll(
+      to: message,
+      senderAddress: "sender@example.com"
+    )
+
+    XCTAssertEqual(draft.recipient, "")
+  }
+
+  func testNewMessageKeepsUnavailableDefaultSendingConnectionWithoutSubstitution() {
+    let unavailableDefault = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .imapSMTP,
+        value: "unavailable@example.com"
+      )
+    )
+
+    let draft = MailShellCompositionDraft.new(
+      defaultSendingConnectionId: unavailableDefault
+    )
+
+    XCTAssertEqual(draft.connectionId, unavailableDefault)
   }
 
   func testMailShellReplyUsesRecipientHeaderForSentMessages() {
@@ -1482,7 +1602,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
       mailActionService: service
     )
-    let viewModel = GmailMailActionViewModel(service: adapter, session: session)
+    let viewModel = GmailMailActionViewModel(
+      service: adapter,
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
     let replyTo = MailboxMessageMetadata(
       categoryId: nil,
       connectionId: adapterConnectionId,
@@ -1521,7 +1645,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let viewModel = GmailMailActionViewModel(
       service: RestoredBlockedActionService(),
-      session: session
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
 
     await viewModel.resume(connections: [connection])
@@ -1546,7 +1671,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let service = MultiplePendingFailureService(
       failedConnectionIds: [firstConnection.id, secondConnection.id]
     )
-    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
     await viewModel.resume(connections: [firstConnection, secondConnection])
 
     await viewModel.acknowledgeFailures(connection: firstConnection)
@@ -2320,6 +2449,21 @@ private final class AdapterPendingActionStore: PendingProviderActionPersisting {
   ) throws {
     self.actions.removeAll { $0.productAccountId == productAccountId }
     self.actions += actions
+  }
+}
+
+private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
+  private var attempts: [OutgoingDeliveryAttempt] = []
+
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts.filter { $0.productAccountId.rawValue == productAccountId }
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    self.attempts = attempts
   }
 }
 

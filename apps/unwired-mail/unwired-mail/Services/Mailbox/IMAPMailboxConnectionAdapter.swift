@@ -2289,6 +2289,18 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     try await adapter(for: connection.id).send(message, connection: connection, session: session)
   }
 
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    try await adapter(for: connection.id).deliveryStatus(
+      idempotencyKey: idempotencyKey,
+      connection: connection,
+      session: session
+    )
+  }
+
   private func adapter(
     for connectionId: MailboxConnectionId
   ) throws -> MailboxConnectionAdapter {

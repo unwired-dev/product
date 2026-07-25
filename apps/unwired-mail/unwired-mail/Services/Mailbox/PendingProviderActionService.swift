@@ -138,12 +138,20 @@ private let defaultFailureDisposition:
       case .insufficientGmailScope, .missingLocalGmailTokens,
         .refreshedTokenAccountMismatch, .refreshTokenRejected:
         return .userActionRequired
+      case .oauthResponseStatus(let status):
+        if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+          return .transient
+        }
+        return .userActionRequired
       default:
         break
       }
     }
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
+    }
+    if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
+      return .transient
     }
     if case .responseStatus(let status) = error as? GmailProviderMailActionError {
       if status == 401 || status == 403 {
@@ -760,7 +768,8 @@ extension MailboxMessageMetadata {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      bccRecipients: bccRecipients
     )
   }
 }

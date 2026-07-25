@@ -2,7 +2,7 @@ import Foundation
 
 // swiftlint:disable file_length
 
-struct ProductAccountId: Hashable, RawRepresentable, Sendable {
+struct ProductAccountId: Codable, Hashable, RawRepresentable, Sendable {
   let rawValue: String
 
   init(_ rawValue: String) {
@@ -14,19 +14,19 @@ struct ProductAccountId: Hashable, RawRepresentable, Sendable {
   }
 }
 
-struct MailProviderId: Hashable, RawRepresentable, Sendable {
+struct MailProviderId: Codable, Hashable, RawRepresentable, Sendable {
   static let gmail = MailProviderId(rawValue: "gmail")
   static let imapSMTP = MailProviderId(rawValue: "imap-smtp")
 
   let rawValue: String
 }
 
-struct StableProviderMailboxIdentity: Hashable, Sendable {
+struct StableProviderMailboxIdentity: Codable, Hashable, Sendable {
   let providerId: MailProviderId
   let value: String
 }
 
-struct MailboxConnectionId: Hashable, Sendable {
+struct MailboxConnectionId: Codable, Hashable, Sendable {
   let providerMailboxIdentity: StableProviderMailboxIdentity
 
   var providerId: MailProviderId {
@@ -407,6 +407,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let rfcMessageId: String?
   let snippet: String
   let subject: String
+  var bccRecipients: [String]? = .none
 
   var id: StableProviderMessageIdentity {
     StableProviderMessageIdentity(
@@ -445,6 +446,7 @@ struct MailboxLocalMetadataSearch {
         [
           message.from,
           message.recipientHeaders?.joined(separator: " "),
+          message.bccRecipients?.joined(separator: " "),
           message.subject,
           dateText(for: message.providerInternalDateMilliseconds),
           message.categoryId,
@@ -642,7 +644,8 @@ extension GmailMessageMetadata {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      bccRecipients: bccRecipients
     )
   }
 }
@@ -663,6 +666,7 @@ extension MailboxMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }
@@ -695,8 +699,9 @@ extension HistoricalCategorizationScope {
   }
 }
 
-struct OutgoingMessage: Equatable, Sendable {
+struct OutgoingMessage: Codable, Equatable, Sendable {
   let body: String
+  let idempotencyKey: String?
   let recipient: String
   let subject: String
   let inReplyTo: String?
@@ -707,18 +712,43 @@ struct OutgoingMessage: Equatable, Sendable {
     recipient: String,
     subject: String,
     inReplyTo: String? = nil,
-    providerThreadId: String? = nil
+    providerThreadId: String? = nil,
+    idempotencyKey: String? = nil
   ) {
     self.body = body
+    self.idempotencyKey = idempotencyKey
     self.recipient = recipient
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.providerThreadId = providerThreadId
   }
+
+  var rfcMessageId: String? {
+    idempotencyKey.map(Self.rfcMessageId)
+  }
+
+  static func rfcMessageId(for idempotencyKey: String) -> String {
+    "<\(idempotencyKey)@outbox.unwired.mail>"
+  }
+
+  func withIdempotencyKey(_ idempotencyKey: String) -> OutgoingMessage {
+    OutgoingMessage(
+      body: body,
+      recipient: recipient,
+      subject: subject,
+      inReplyTo: inReplyTo,
+      providerThreadId: providerThreadId,
+      idempotencyKey: idempotencyKey
+    )
+  }
 }
 
 protocol MailboxConnectionClearing {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool
+  ) async throws
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -726,6 +756,13 @@ protocol MailboxConnectionClearing {
 }
 
 extension MailboxConnectionClearing {
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent _: @escaping @MainActor () -> Bool
+  ) async throws {
+    try await clearLocalConnection(session: session)
+  }
+
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -919,6 +956,12 @@ protocol MailboxPushRegistering {
 }
 
 protocol MailboxProviderMailActing {
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus
+
   func perform(
     _ action: ProviderMailAction,
     messages: [MailboxMessageMetadata],
@@ -994,6 +1037,14 @@ protocol MailboxProviderMailActing {
 }
 
 extension MailboxProviderMailActing {
+  func deliveryStatus(
+    idempotencyKey _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    .unknown
+  }
+
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
@@ -1129,6 +1180,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let pendingActionService: PendingProviderActionService
+  private let outboxService: OutboxDeliveryService
   private let searchService: GmailMessageSearching
   private let syncGate: MailboxConnectionSyncGate
 
@@ -1143,6 +1195,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
+    outboxService: OutboxDeliveryService = .shared,
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
@@ -1155,19 +1208,38 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.pendingActionService = pendingActionService
+    self.outboxService = outboxService
     self.searchService = searchService
     self.syncGate = syncGate
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    try await clearLocalConnection(session: session, isStillCurrent: { true })
+  }
+
+  func clearLocalConnection(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool
+  ) async throws {
     var firstError: Error?
     do {
       try await connectionService.clearLocalConnection(session: session)
     } catch {
       firstError = error
     }
+    guard await isStillCurrent() else {
+      if let firstError {
+        throw firstError
+      }
+      return
+    }
     do {
       try await pendingActionService.clear(session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(session: session)
     } catch {
       firstError = firstError ?? error
     }
@@ -1191,6 +1263,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
     } catch {
       firstError = firstError ?? error
     }
@@ -1282,12 +1359,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     else { return localConnections }
     for removedConnectionId in snapshot.removedConnectionIds {
-      guard let localStatus = localStatusesById[removedConnectionId] else { continue }
-      let removedConnection = localStatus.mailboxConnection(
-        productAccountId: session.productAccountId
+      let localStatus = localStatusesById[removedConnectionId]
+      let removedConnection = removedMailboxConnection(
+        id: removedConnectionId,
+        localStatus: localStatus,
+        session: session
       )
-      try await connectionService.clearLocalConnection(localStatus, session: session)
-      try await pendingActionService.clear(connection: removedConnection, session: session)
+      try await clearRemovedConnection(removedConnection, session: session)
+      if let localStatus {
+        try await connectionService.clearLocalConnection(localStatus, session: session)
+      }
     }
     var definitions = snapshot.connections
     if usedCachedSnapshot {
@@ -1308,6 +1389,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func removedMailboxConnection(
+    id: MailboxConnectionId,
+    localStatus: GmailProviderConnectionStatus?,
+    session: ProductAccountSessionSnapshot
+  ) -> MailboxConnection {
+    if let localStatus {
+      return localStatus.mailboxConnection(productAccountId: session.productAccountId)
+    }
+    return MailboxConnection(
+      authorizationState: .required,
+      capabilities: .gmail,
+      connectedAt: 0,
+      displayName: "",
+      id: id,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: "",
+      updatedAt: 0
+    )
   }
 
   private func reconciledSnapshot(
@@ -1349,7 +1451,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection, session: session, requiresAuthorization: false)
     try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
-    try await pendingActionService.clear(connection: connection, session: session)
+    try await clearRemovedConnection(connection, session: session)
+  }
+
+  private func clearRemovedConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var cleanupError: Error?
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   func setDefaultSendingConnection(
@@ -1920,11 +2042,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         recipient: message.recipient,
         subject: message.subject,
         inReplyTo: message.inReplyTo,
-        threadId: message.providerThreadId
+        threadId: message.providerThreadId,
+        rfcMessageId: message.rfcMessageId
       ),
       connection: gmailConnection,
       session: session
     )
+  }
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    let gmailConnection = try await gmailConnectionForProviderAccess(
+      connection,
+      session: session
+    )
+    let rfcMessageId = OutgoingMessage.rfcMessageId(for: idempotencyKey)
+    let messages = try await searchService.searchProvider(
+      query: "in:sent rfc822msgid:\(rfcMessageId)",
+      connection: gmailConnection,
+      session: session
+    )
+    return messages.isEmpty ? .unknown : .sent
   }
 
   private func gmailConnectionForProviderAccess(
@@ -1940,7 +2081,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     do {
       try await ensureConnectionIsActive(connection.id, session: session)
     } catch MailboxConnectionAdapterError.connectionRemoved {
-      try await pendingActionService.clear(connection: connection, session: session)
+      try await clearRemovedConnection(connection, session: session)
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     return gmailConnection
