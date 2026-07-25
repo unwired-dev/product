@@ -332,6 +332,7 @@ actor OutboxDeliveryService {
     try items(session: session).filter(\.state.isActionable)
   }
 
+  // swiftlint:disable:next function_body_length
   func resume(
     connections _: [MailboxConnection],
     session: ProductAccountSessionSnapshot,
@@ -367,6 +368,7 @@ actor OutboxDeliveryService {
       }
     }
 
+    var immediatelyProcessedConnectionIds = Set<String>()
     for attempt in attempts
     where
       attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
@@ -381,12 +383,23 @@ actor OutboxDeliveryService {
         0,
         scheduledAtMilliseconds - milliseconds(now())
       )
-      scheduleRetry(
-        attempt,
-        delay: UInt64(remainingMilliseconds) * 1_000_000,
-        provider: provider,
-        reconcile: reconcile
-      )
+      if remainingMilliseconds == 0,
+        immediatelyProcessedConnectionIds.insert(attempt.connectionId.rawValue).inserted
+      {
+        try await process(
+          connectionId: attempt.connectionId,
+          productAccountId: session.productAccountId,
+          provider: provider,
+          reconcile: reconcile
+        )
+      } else {
+        scheduleRetry(
+          attempt,
+          delay: UInt64(remainingMilliseconds) * 1_000_000,
+          provider: provider,
+          reconcile: reconcile
+        )
+      }
     }
   }
 
@@ -442,7 +455,7 @@ actor OutboxDeliveryService {
     } else {
       scheduleRetry(replacement, delay: delay, provider: provider, reconcile: reconcile)
     }
-    return try requiredAttempt(replacement.id, productAccountId: session.productAccountId)
+    return replacement
   }
 
   @discardableResult

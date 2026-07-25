@@ -158,6 +158,8 @@ final class ProductAccountSession {
         state = .failed(mailboxCleanupError.localizedDescription)
         return
       }
+      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+      guard refreshedSnapshot == snapshot else { return }
       try sessionStore.clear()
       guard
         currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
