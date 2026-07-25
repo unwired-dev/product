@@ -251,6 +251,8 @@ actor OutboxDeliveryService {
   private let now: @Sendable () -> Date
   private var processingConnectionIds: Set<String> = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
+  private var inFlightRetryTaskTokens: [UUID: UUID] = [:]
+  private var inFlightRetryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
@@ -479,6 +481,11 @@ actor OutboxDeliveryService {
     for task in retryTasks.values {
       task.cancel()
     }
+    for task in inFlightRetryTasks.values {
+      task.cancel()
+    }
+    inFlightRetryTasks.removeAll()
+    inFlightRetryTaskTokens.removeAll()
     retryTasks.removeAll()
     retryTaskTokens.removeAll()
     try store.clear(productAccountId: session.productAccountId)
@@ -589,7 +596,6 @@ actor OutboxDeliveryService {
       else { return }
 
       let attemptId = attempts[index].id
-      retryTasks.removeValue(forKey: attemptId)
       if attempts[index].state == .reconciling {
         let reconcilingAttempt = attempts[index]
         do {
@@ -659,13 +665,24 @@ actor OutboxDeliveryService {
         try store.save(attempts, productAccountId: productAccountId)
         continue
       }
+      let retryAttempt = attempts[index]
       attempts[index].state = .handingOff
       attempts[index].attemptCount += 1
       attempts[index].firstAttemptAtMilliseconds =
         attempts[index].firstAttemptAtMilliseconds ?? milliseconds(now())
       attempts[index].nextRetryAtMilliseconds = nil
       attempts[index].reconciliationAttemptCount = 0
-      try store.save(attempts, productAccountId: productAccountId)
+      do {
+        try store.save(attempts, productAccountId: productAccountId)
+      } catch {
+        scheduleRetry(
+          retryAttempt,
+          delay: retryDelayNanoseconds(retryAttempt.attemptCount),
+          provider: provider,
+          reconcile: reconcile
+        )
+        return
+      }
       let claimedAttempt = attempts[index]
 
       do {
@@ -846,6 +863,7 @@ actor OutboxDeliveryService {
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
+        guard await self.beginRetry(attempt.id, token: token) else { return }
         try await self.process(
           connectionId: attempt.mailboxConnectionId,
           productAccountId: attempt.productAccountId.rawValue,
@@ -860,10 +878,23 @@ actor OutboxDeliveryService {
   }
 
   private func finishRetry(_ attemptId: UUID, token: UUID) {
+    if inFlightRetryTaskTokens[attemptId] == token {
+      inFlightRetryTasks[attemptId] = nil
+      inFlightRetryTaskTokens[attemptId] = nil
+    }
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
     notifyRetryWaiters()
+  }
+
+  private func beginRetry(_ attemptId: UUID, token: UUID) -> Bool {
+    guard retryTaskTokens[attemptId] == token,
+      let task = retryTasks.removeValue(forKey: attemptId)
+    else { return false }
+    inFlightRetryTasks[attemptId] = task
+    inFlightRetryTaskTokens[attemptId] = token
+    return true
   }
 
   private func notifyRetryWaiters() {

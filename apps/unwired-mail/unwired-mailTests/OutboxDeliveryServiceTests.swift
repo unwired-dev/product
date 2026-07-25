@@ -70,6 +70,62 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(deliveredAttempts.first?.state, .sent)
   }
 
+  func testClearCancelsAnInFlightScheduledHandoff() async throws {
+    let delivery = SuspendingDelivery()
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      store: store
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        await delivery.started()
+        do {
+          try await Task.sleep(nanoseconds: 60_000_000_000)
+        } catch is CancellationError {
+          await delivery.cancelled()
+          throw CancellationError()
+        }
+      },
+      reconcile: { _, _ in .notSent }
+    )
+    await delivery.waitUntilStarted()
+
+    try await service.clear(session: session)
+    await delivery.waitUntilCancelled()
+
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    let waitedForRetry = await service.waitForScheduledRetries()
+    let deliveryCount = await deliveries.currentValue()
+    let attempts = try await service.items(session: session)
+
+    XCTAssertTrue(waitedForRetry)
+    XCTAssertEqual(deliveryCount, 1)
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
   func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -637,6 +693,39 @@ private actor DeliveryCancellationRecorder {
 
   func wasCancelled() -> Bool {
     cancelled
+  }
+}
+
+private actor SuspendingDelivery {
+  private var cancellationWaiters: [CheckedContinuation<Void, Never>] = []
+  private var wasCancelled = false
+  private var wasStarted = false
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func started() {
+    wasStarted = true
+    for waiter in startWaiters {
+      waiter.resume()
+    }
+    startWaiters.removeAll()
+  }
+
+  func cancelled() {
+    wasCancelled = true
+    for waiter in cancellationWaiters {
+      waiter.resume()
+    }
+    cancellationWaiters.removeAll()
+  }
+
+  func waitUntilCancelled() async {
+    guard !wasCancelled else { return }
+    await withCheckedContinuation { cancellationWaiters.append($0) }
+  }
+
+  func waitUntilStarted() async {
+    guard !wasStarted else { return }
+    await withCheckedContinuation { startWaiters.append($0) }
   }
 }
 
