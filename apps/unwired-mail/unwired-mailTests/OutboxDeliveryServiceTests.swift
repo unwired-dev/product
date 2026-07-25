@@ -670,7 +670,11 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     XCTAssertEqual(retried.id, seeded.id)
     XCTAssertEqual(retried.idempotencyKey, seeded.idempotencyKey)
-    XCTAssertEqual(retried.state, .sent)
+    XCTAssertEqual(retried.state, .reconciling)
+
+    _ = await service.waitForScheduledRetries()
+    let completed = try await service.items(session: session)
+    XCTAssertEqual(completed.first?.state, .sent)
   }
 
   func testEditRejectsPausedReconciliation() async throws {
