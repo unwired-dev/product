@@ -44,6 +44,32 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertFalse(waitedForRetry)
   }
 
+  func testScheduledHandoffDoesNotCancelItsDeliveryTask() async throws {
+    let cancellationRecorder = DeliveryCancellationRecorder()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        await cancellationRecorder.record(Task.isCancelled)
+      },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let waitedForRetry = await service.waitForScheduledRetries()
+    let deliveryWasCancelled = await cancellationRecorder.wasCancelled()
+    let deliveredAttempts = try await service.items(session: session)
+
+    XCTAssertTrue(waitedForRetry)
+    XCTAssertFalse(deliveryWasCancelled)
+    XCTAssertEqual(deliveredAttempts.first?.state, .sent)
+  }
+
   func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -565,6 +591,18 @@ private actor DeliveryCounter {
 
   func currentValue() -> Int {
     value
+  }
+}
+
+private actor DeliveryCancellationRecorder {
+  private var cancelled = false
+
+  func record(_ value: Bool) {
+    cancelled = value
+  }
+
+  func wasCancelled() -> Bool {
+    cancelled
   }
 }
 

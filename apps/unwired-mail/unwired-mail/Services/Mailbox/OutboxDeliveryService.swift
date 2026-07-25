@@ -589,7 +589,7 @@ actor OutboxDeliveryService {
       else { return }
 
       let attemptId = attempts[index].id
-      retryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTasks.removeValue(forKey: attemptId)
       if attempts[index].state == .reconciling {
         let reconcilingAttempt = attempts[index]
         do {
