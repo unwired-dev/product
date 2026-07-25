@@ -2220,10 +2220,11 @@ struct GmailMessageMetadataService:
     ])
 
     let (data, response) = try await session.data(for: request)
-    guard let httpResponse = response as? HTTPURLResponse,
-      (200..<300).contains(httpResponse.statusCode)
-    else {
+    guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.refreshTokenRejected
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      throw GmailMessageMetadataSyncError.oauthResponseStatus(httpResponse.statusCode)
     }
 
     let tokenResponse = try JSONDecoder().decode(GmailRefreshTokenResponse.self, from: data)
@@ -2260,10 +2261,11 @@ struct GmailMessageMetadataService:
     }
 
     let (data, response) = try await session.data(from: url)
-    guard let httpResponse = response as? HTTPURLResponse,
-      (200..<300).contains(httpResponse.statusCode)
-    else {
+    guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      throw GmailMessageMetadataSyncError.oauthResponseStatus(httpResponse.statusCode)
     }
 
     let tokenInfo = try JSONDecoder().decode(GmailTokenInfoResponse.self, from: data)
@@ -2307,6 +2309,7 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case insufficientGmailScope
   case missingLocalGmailTokens
   case missingOAuthClientId
+  case oauthResponseStatus(Int)
   case refreshedTokenAccountMismatch
   case refreshTokenRejected
   case staleLocalConnection
@@ -2329,6 +2332,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
     case .missingOAuthClientId:
       return "Gmail OAuth client id is not configured."
+    case .oauthResponseStatus(let status):
+      return "Gmail OAuth request failed with HTTP status \(status)."
     case .refreshedTokenAccountMismatch:
       return "Local Gmail tokens belong to a different Google account."
     case .refreshTokenRejected:

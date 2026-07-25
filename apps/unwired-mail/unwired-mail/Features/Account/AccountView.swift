@@ -733,29 +733,6 @@ struct AccountView: View {
 
   var body: some View {
     mailShell
-      .onChange(of: gmailViewModel.defaultSendingConnectionId) { _, _ in
-        Task {
-          await genericMailSetupViewModel.loadSyncedDefinitions()
-        }
-      }
-      .onChange(of: genericMailReloadKey) { _, _ in
-        Task {
-          _ = await gmailViewModel.load()
-        }
-      }
-      .onChange(of: inboxViewModel.threads) { _, threads in
-        handleThreadsChange(threads)
-      }
-      .onChange(of: mailActionViewModel.outboxItems) { _, _ in
-        updateProductMailboxState()
-      }
-      .onChange(of: mailShellSelection.navigationLevel) { _, _ in
-        preferredCompactColumn = mailShellSelection.preferredCompactColumn
-      }
-      .onDisappear {
-        inboxLoadTask?.cancel()
-        mailboxFreshnessViewModel.cancelAll()
-      }
   }
 
   private var genericMailReloadKey: [String] {
@@ -922,6 +899,9 @@ struct AccountView: View {
         afterChanging: oldValue.symmetricDifference(newValue),
         connections: gmailViewModel.connections
       )
+    }
+    .onChange(of: mailActionViewModel.outboxItems) { _, _ in
+      updateProductMailboxState()
     }
     .onChange(of: mailActionViewModel.pendingFailureConnectionId) { _, connectionId in
       showsBlockedActionAlert = connectionId != nil
@@ -3850,9 +3830,11 @@ final class GmailMailActionViewModel {
     outboxRetryObservationTask?.cancel()
     let outboxService = self.outboxService
     outboxRetryObservationTask = Task { [weak self] in
-      await outboxService.waitForScheduledRetries()
-      guard !Task.isCancelled, let self else { return }
-      await refreshOutbox()
+      while !Task.isCancelled {
+        await outboxService.waitForScheduledRetries()
+        guard !Task.isCancelled, let self else { return }
+        await refreshOutbox()
+      }
     }
   }
 

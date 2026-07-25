@@ -207,6 +207,11 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
       case .insufficientGmailScope, .missingLocalGmailTokens,
         .refreshedTokenAccountMismatch, .refreshTokenRejected:
         return .userActionRequired
+      case .oauthResponseStatus(let status):
+        if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+          return .transient
+        }
+        return .userActionRequired
       default:
         break
       }
@@ -474,7 +479,7 @@ actor OutboxDeliveryService {
   }
 
   func waitForScheduledRetries() async {
-    while !Task.isCancelled, let task = retryTasks.values.first {
+    if !Task.isCancelled, let task = retryTasks.values.first {
       await task.value
     }
   }
@@ -531,7 +536,23 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
-    guard processingConnectionIds.insert(connectionId.rawValue).inserted else { return }
+    guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
+      let currentMilliseconds = milliseconds(now())
+      let dueAttempts = try store.load(productAccountId: productAccountId).filter {
+        guard $0.connectionId == connectionId else { return false }
+        if $0.state == .pending {
+          return $0.createdAtMilliseconds
+            + Int64(handoffDelayNanoseconds / 1_000_000) <= currentMilliseconds
+        }
+        return ($0.state == .retrying || $0.state == .reconciling)
+          && ($0.nextRetryAtMilliseconds == nil
+            || $0.nextRetryAtMilliseconds! <= currentMilliseconds)
+      }
+      for attempt in dueAttempts {
+        scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
+      }
+      return
+    }
     defer { processingConnectionIds.remove(connectionId.rawValue) }
 
     while true {
@@ -571,13 +592,23 @@ actor OutboxDeliveryService {
               errorDescription: nil
             )
           case .notSent:
-            try handleReconciliationFailure(
-              attemptId,
-              error: OutboxDeliveryError.deliveryNotConfirmed,
-              productAccountId: productAccountId,
-              provider: provider,
-              reconcile: reconcile
-            )
+            if reconcilingAttempt.reconciliationAttemptCount > 0 {
+              try handleTransientFailure(
+                attemptId,
+                error: OutboxDeliveryError.deliveryNotConfirmed,
+                productAccountId: productAccountId,
+                provider: provider,
+                reconcile: reconcile
+              )
+            } else {
+              try handleReconciliationFailure(
+                attemptId,
+                error: OutboxDeliveryError.deliveryNotConfirmed,
+                productAccountId: productAccountId,
+                provider: provider,
+                reconcile: reconcile
+              )
+            }
             return
           case .unknown:
             try update(
@@ -782,7 +813,7 @@ actor OutboxDeliveryService {
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
   ) {
-    guard retryTasks[attempt.id] == nil else { return }
+    retryTasks.removeValue(forKey: attempt.id)?.cancel()
     retryTasks[attempt.id] = Task { [weak self] in
       do {
         try await Task.sleep(nanoseconds: delay)
