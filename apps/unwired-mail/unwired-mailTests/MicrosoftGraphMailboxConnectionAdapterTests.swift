@@ -182,7 +182,15 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     let initial = try await adapter.syncInbox(connection: connection, session: session)
 
     XCTAssertEqual(initial.messages.map(\.subject), ["Message 100", "Message 1"])
-    XCTAssertEqual(client.requestedContinuations, [nil, nil])
+    XCTAssertEqual(
+      client.requestedContinuations,
+      [
+        nil,
+        "https://graph.microsoft.test/inbox/page-2",
+        nil,
+        "https://graph.microsoft.test/sent/page-2",
+      ]
+    )
   }
 
   func testExpiredDeltaCursorRestartsWithoutRetainingDuplicateOrStaleMessages() async throws {

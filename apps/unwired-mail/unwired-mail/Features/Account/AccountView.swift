@@ -1274,13 +1274,11 @@ extension AccountView {
           MicrosoftGraphConnectionPanel(
             cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             connectionsDidChange: {
-              if let connection = microsoftGraphViewModel.connection {
-                selectConnection(connection)
-              }
               Task {
                 _ = await gmailViewModel.load()
               }
             },
+            connectionDidConnect: { selectConnection($0) },
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
             selectMailbox: { selectConnection($0) },
             viewModel: microsoftGraphViewModel
@@ -5124,8 +5122,8 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  func connect(expectedConnection: MailboxConnection? = nil) async {
-    guard canConnect else { return }
+  func connect(expectedConnection: MailboxConnection? = nil) async -> MailboxConnection? {
+    guard canConnect else { return nil }
 
     isConnecting = true
     defer {
@@ -5143,11 +5141,13 @@ final class MailboxProviderConnectionViewModel {
         try await refreshConnections()
         selectedConnectionId = connected.id
         await refreshPushWatch(connection: connected)
+        return connected
       }
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
+    return nil
   }
 
   func renewPushWatch() async {
@@ -5557,6 +5557,7 @@ private struct GmailProviderConnectionPanel: View {
 private struct MicrosoftGraphConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
+  let connectionDidConnect: (MailboxConnection) -> Void
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
@@ -5566,6 +5567,7 @@ private struct MicrosoftGraphConnectionPanel: View {
       cancelBodyPrefetch: cancelBodyPrefetch,
       configuration: .microsoftGraph,
       connectionsDidChange: connectionsDidChange,
+      connectionDidConnect: connectionDidConnect,
       isMailboxBusy: isMailboxBusy,
       selectMailbox: selectMailbox,
       viewModel: viewModel
@@ -5619,6 +5621,7 @@ private struct MailboxProviderConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   let configuration: Configuration
   var connectionsDidChange: () -> Void = {}
+  var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
@@ -5696,7 +5699,9 @@ private struct MailboxProviderConnectionPanel: View {
                 viewModel.selectedConnectionId = connection.id
                 connectTask?.cancel()
                 connectTask = Task {
-                  await viewModel.connect(expectedConnection: connection)
+                  if let connected = await viewModel.connect(expectedConnection: connection) {
+                    connectionDidConnect(connected)
+                  }
                 }
               }
             } else {
@@ -5733,7 +5738,9 @@ private struct MailboxProviderConnectionPanel: View {
       Button {
         connectTask?.cancel()
         connectTask = Task {
-          await viewModel.connect()
+          if let connected = await viewModel.connect() {
+            connectionDidConnect(connected)
+          }
         }
       } label: {
         Label(

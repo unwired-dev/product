@@ -516,7 +516,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       if let continuationURL {
         try safeContinuationURL(continuationURL)
       } else {
-        try metadataURL(folderId: folder.id, pageSize: pageSize)
+        try metadataURL(folder: folder, pageSize: pageSize)
       }
     let response: GraphMessagePageResponse = try await get(
       url,
@@ -597,10 +597,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     }
   }
 
-  private func metadataURL(folderId: String, pageSize: Int) throws -> URL {
+  private func metadataURL(folder: MicrosoftGraphFolder, pageSize: Int) throws -> URL {
     var components = URLComponents(
       url: try graphURL(
-        pathComponents: ["me", "mailFolders", folderId, "messages", "delta"]
+        pathComponents: ["me", "mailFolders", folder.id, "messages", "delta"]
       ),
       resolvingAgainstBaseURL: false
     )!
@@ -612,7 +612,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
-      URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
+      URLQueryItem(
+        name: "$orderby",
+        value: folder.wellKnownName == "sentitems" ? "sentDateTime desc" : "receivedDateTime desc"
+      ),
     ]
     return try requiredURL(components)
   }
@@ -831,6 +834,10 @@ struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
 
   var historicalMetadataBackfillIsComplete: Bool {
     hasInitialMailboxAvailability && folders.allSatisfy { $0.deltaLink != nil }
+  }
+
+  var hasCompletedInitialCheckpoint: Bool {
+    !hasInitialMailboxAvailability && folders.allSatisfy { $0.deltaLink != nil }
   }
 }
 
@@ -1243,7 +1250,7 @@ struct MicrosoftGraphMetadataService {
     )
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next function_body_length cyclomatic_complexity
   func sync(
     connection: MailboxConnection,
     productAccountId: String,
@@ -1280,6 +1287,16 @@ struct MicrosoftGraphMetadataService {
         accessToken: accessToken,
         cursorExpired: false,
         shouldPersist: shouldPersist
+      )
+    }
+    if state.hasCompletedInitialCheckpoint {
+      state.hasInitialMailboxAvailability = true
+      try store.savePage(
+        [],
+        folderId: state.folders[0].folder.id,
+        state: state,
+        productAccountId: productAccountId,
+        connectionId: connection.id
       )
     }
     guard state.historicalMetadataBackfillIsComplete else {
@@ -1859,12 +1876,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       updatedAt: timestamp
     )
     let previousTokens = try savedTokens(for: account, session: session)
+    guard isSessionCurrent(session) else { return nil }
     try tokenStore.save(
       tokens,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: account.id
     )
     do {
+      guard isSessionCurrent(session) else {
+        restore(previousTokens, for: account, session: session)
+        return nil
+      }
       _ = try await definitionSyncService.saveConnection(connection, session: session)
       return connection
     } catch {
