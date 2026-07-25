@@ -1122,6 +1122,7 @@ extension AccountView {
     collection: MailboxMessageCollection = .role(.inbox)
   ) {
     gmailViewModel.selectedConnectionId = connection.id
+    microsoftGraphViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }

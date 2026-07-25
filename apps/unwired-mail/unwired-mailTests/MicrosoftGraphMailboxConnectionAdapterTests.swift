@@ -280,6 +280,36 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(bodyCache.savedMessageIds, [message.stableProviderMessageId])
   }
 
+  func testSentMessagesUseTheirSentTimestampForMetadata() {
+    let sentDate = "2026-06-01T12:00:00Z"
+    let message = MicrosoftGraphProviderMessage(
+      ccRecipients: [],
+      conversationId: "conversation-1",
+      from: "sender@example.com",
+      id: "message-1",
+      internetMessageId: nil,
+      isRead: true,
+      parentFolderId: "sent-id",
+      receivedDateTime: nil,
+      sentDateTime: sentDate,
+      replyTo: [],
+      subject: "Sent message",
+      bodyPreview: "Preview",
+      toRecipients: ["recipient@example.com"]
+    )
+
+    let metadata = message.mailboxMetadata(
+      connectionId: graphConnectionId,
+      connectedAt: 0,
+      foldersById: ["sent-id": graphFolder(id: "sent-id", wellKnownName: "sentitems")]
+    )
+
+    XCTAssertEqual(
+      metadata?.providerInternalDateMilliseconds,
+      Int64(ISO8601DateFormatter().date(from: sentDate)!.timeIntervalSince1970 * 1_000)
+    )
+  }
+
   func testMetadataAndCheckpointReopenFromThePersistentLocalStore() async throws {
     let firstStore = SwiftDataMicrosoftGraphMetadataStore()
     try firstStore.clear(productAccountId: session.productAccountId)

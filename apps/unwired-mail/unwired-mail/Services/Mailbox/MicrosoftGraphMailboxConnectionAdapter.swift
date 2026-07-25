@@ -277,6 +277,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
   let isRead: Bool
   let parentFolderId: String?
   let receivedDateTime: String?
+  let sentDateTime: String?
   let removed: Bool
   let replyTo: [String]
   let subject: String
@@ -293,6 +294,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     isRead: Bool,
     parentFolderId: String?,
     receivedDateTime: String?,
+    sentDateTime: String? = nil,
     removed: Bool = false,
     replyTo: [String],
     subject: String,
@@ -308,6 +310,7 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     self.isRead = isRead
     self.parentFolderId = parentFolderId
     self.receivedDateTime = receivedDateTime
+    self.sentDateTime = sentDateTime
     self.removed = removed
     self.replyTo = replyTo
     self.subject = subject
@@ -329,7 +332,9 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     } else if let parentFolderId {
       providerStateIds.append(Self.customFolderStateId(parentFolderId))
     }
-    let dateMilliseconds = Self.dateMilliseconds(receivedDateTime)
+    let dateMilliseconds = Self.dateMilliseconds(
+      folder?.role == .sent ? sentDateTime ?? receivedDateTime : receivedDateTime
+    )
     return MailboxMessageMetadata(
       categoryId: categoryId,
       connectionId: connectionId,
@@ -598,7 +603,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       URLQueryItem(
         name: "$select",
         value:
-          "id,conversationId,parentFolderId,receivedDateTime,subject,bodyPreview,"
+          "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
           + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
@@ -757,6 +762,7 @@ private struct GraphMessageResponse: Decodable {
   let isRead: Bool?
   let parentFolderId: String?
   let receivedDateTime: String?
+  let sentDateTime: String?
   let removed: GraphRemovedResponse?
   let replyTo: [GraphRecipientResponse]?
   let subject: String?
@@ -772,6 +778,7 @@ private struct GraphMessageResponse: Decodable {
     case isRead
     case parentFolderId
     case receivedDateTime
+    case sentDateTime
     case removed = "@removed"
     case replyTo
     case subject
@@ -788,6 +795,7 @@ private struct GraphMessageResponse: Decodable {
       isRead: isRead ?? true,
       parentFolderId: parentFolderId,
       receivedDateTime: receivedDateTime,
+      sentDateTime: sentDateTime,
       removed: removed != nil,
       replyTo: replyTo?.map(\.emailAddress.displayValue) ?? [],
       subject: subject ?? "",
@@ -2065,11 +2073,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       return cached
     }
     let connection = try await connection(id: message.connectionId, session: session)
-    return try await bodyService.load(
-      message: message,
-      accessToken: accessToken(connection: connection, session: session),
-      session: session
-    )
+    return try await syncGate.withLock(connection.id) {
+      try await bodyService.load(
+        message: message,
+        accessToken: try await accessToken(
+          connection: connection,
+          session: session,
+          isWithinSyncGate: true
+        ),
+        session: session
+      )
+    }
   }
 
   func prefetchMessageBodies(
