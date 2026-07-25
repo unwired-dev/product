@@ -253,6 +253,7 @@ actor OutboxDeliveryService {
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
+  private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -365,7 +366,7 @@ actor OutboxDeliveryService {
     }
 
     try await withThrowingTaskGroup(of: Void.self) { group in
-      for connection in connections where connection.authorizationState == .authorized {
+      for connection in connections {
         group.addTask {
           try await self.process(
             connectionId: connection.id,
@@ -485,14 +486,15 @@ actor OutboxDeliveryService {
 
   func waitForScheduledRetries() async -> Bool {
     guard !Task.isCancelled, !retryTasks.isEmpty else { return false }
-    await withTaskGroup(of: Void.self) { group in
-      for task in retryTasks.values {
-        group.addTask { await task.value }
+    let waiterId = UUID()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        retryWaiters[waiterId] = continuation
       }
-      await group.next()
-      group.cancelAll()
+    } onCancel: {
+      Task { await self.cancelRetryWaiter(waiterId) }
     }
-    return true
+    return !Task.isCancelled
   }
 
   private func newAttempt(
@@ -849,6 +851,15 @@ actor OutboxDeliveryService {
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
+    let waiters = retryWaiters.values
+    retryWaiters.removeAll()
+    for waiter in waiters {
+      waiter.resume()
+    }
+  }
+
+  private func cancelRetryWaiter(_ waiterId: UUID) {
+    retryWaiters.removeValue(forKey: waiterId)?.resume()
   }
 
   private func requiredAttempt(

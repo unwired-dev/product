@@ -1471,7 +1471,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       replyTo: "sender@example.com",
       rfcMessageId: "<message-001@example.com>",
       snippet: "Message message-001",
-      subject: "Subject message-001"
+      subject: "Subject message-001",
+      bccRecipients: ["hidden@example.com"]
     )
 
     let draft = MailShellCompositionDraft.replyAll(

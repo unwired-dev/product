@@ -138,6 +138,11 @@ private let defaultFailureDisposition:
       case .insufficientGmailScope, .missingLocalGmailTokens,
         .refreshedTokenAccountMismatch, .refreshTokenRejected:
         return .userActionRequired
+      case .oauthResponseStatus(let status):
+        if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+          return .transient
+        }
+        return .userActionRequired
       default:
         break
       }

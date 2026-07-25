@@ -21,6 +21,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let stableProviderMessageId: String
   let subject: String
   var recipientHeaders: [String]? = .none
+  var bccRecipients: [String]? = .none
   let rfcMessageId: String?
 }
 
@@ -925,6 +926,8 @@ struct GmailMessageMetadataService:
   GmailProviderTokenRefreshing
 {
   private static let recipientHeaderNames = ["Cc", "To"]
+  private static let bccHeaderName = "Bcc"
+  private static let metadataHeaderNames = recipientHeaderNames + [bccHeaderName]
 
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
@@ -1920,6 +1923,7 @@ struct GmailMessageMetadataService:
     return messages
   }
 
+  // swiftlint:disable:next function_body_length
   private func fetchMessageMetadata(
     accessToken: String,
     categorizationBoundary: Date,
@@ -1938,7 +1942,7 @@ struct GmailMessageMetadataService:
         URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
         URLQueryItem(name: "metadataHeaders", value: "Subject"),
       ]
-      + Self.recipientHeaderNames.map {
+      + Self.metadataHeaderNames.map {
         URLQueryItem(name: "metadataHeaders", value: $0)
       }
     guard let url = components?.url else {
@@ -1974,6 +1978,7 @@ struct GmailMessageMetadataService:
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
       recipientHeaders: recipientHeaders(in: response),
+      bccRecipients: bccRecipients(in: response),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value
@@ -1985,6 +1990,12 @@ struct GmailMessageMetadataService:
       Self.recipientHeaderNames.contains {
         header.name.caseInsensitiveCompare($0) == .orderedSame
       }
+    }.map(\.value)
+  }
+
+  private func bccRecipients(in response: GmailMessageMetadataResponse) -> [String]? {
+    response.payload?.headers.filter {
+      $0.name.caseInsensitiveCompare(Self.bccHeaderName) == .orderedSame
     }.map(\.value)
   }
 
@@ -2428,6 +2439,7 @@ extension GmailMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }
@@ -2449,6 +2461,7 @@ extension GmailMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }

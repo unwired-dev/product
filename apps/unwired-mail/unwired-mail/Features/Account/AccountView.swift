@@ -3601,10 +3601,10 @@ final class GmailMailActionViewModel {
     )
     do {
       try await outboxService.resume(
-        connections: connections,
+        connections: knownConnections,
         session: session,
-        provider: outboxProvider(connections: connections),
-        reconcile: outboxReconciler(connections: connections)
+        provider: outboxProvider(connections: knownConnections),
+        reconcile: outboxReconciler(connections: knownConnections)
       )
       await refreshOutbox()
       observeOutboxRetries()

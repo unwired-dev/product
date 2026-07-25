@@ -405,6 +405,7 @@ struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
   let rfcMessageId: String?
   let snippet: String
   let subject: String
+  var bccRecipients: [String]? = .none
 
   var id: StableProviderMessageIdentity {
     StableProviderMessageIdentity(
@@ -640,7 +641,8 @@ extension GmailMessageMetadata {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      bccRecipients: bccRecipients
     )
   }
 }
@@ -661,6 +663,7 @@ extension MailboxMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }

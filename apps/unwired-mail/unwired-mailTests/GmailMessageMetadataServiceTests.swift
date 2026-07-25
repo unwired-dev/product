@@ -572,7 +572,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       [
         "User <user@example.com>",
         "Finance <finance@example.com>",
-        "Auditor <auditor@example.com>",
+      ]
+    )
+    XCTAssertEqual(
+      result.messages.first?.bccRecipients,
+      [
+        "Auditor <auditor@example.com>"
       ]
     )
     XCTAssertEqual(result.messages.first?.providerLabelIds, ["INBOX", "UNREAD"])
