@@ -426,6 +426,11 @@ enum MicrosoftGraphClientError: LocalizedError, Equatable {
 protocol MicrosoftGraphClient {
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount
   func loadFolders(accessToken: String) async throws -> [MicrosoftGraphFolder]
+  func loadRecentMetadataPage(
+    folder: MicrosoftGraphFolder,
+    pageSize: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage
   func loadMetadataPage(
     folder: MicrosoftGraphFolder,
     continuationURL: URL?,
@@ -533,6 +538,23 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     )
   }
 
+  func loadRecentMetadataPage(
+    folder: MicrosoftGraphFolder,
+    pageSize: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage {
+    let response: GraphMessagePageResponse = try await get(
+      try recentMetadataURL(folder: folder, pageSize: pageSize),
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#]
+    )
+    return MicrosoftGraphMetadataPage(
+      messages: response.value.map(\.providerMessage),
+      nextLink: nil,
+      deltaLink: nil
+    )
+  }
+
   func loadTextBody(messageId: String, accessToken: String) async throws -> String {
     var components = URLComponents(
       url: try graphURL(pathComponents: ["me", "messages", messageId]),
@@ -612,10 +634,30 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
           + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
       ),
       URLQueryItem(name: "$top", value: String(pageSize)),
-      URLQueryItem(
-        name: "$orderby",
-        value: folder.wellKnownName == "sentitems" ? "sentDateTime desc" : "receivedDateTime desc"
+      URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
+    ]
+    return try requiredURL(components)
+  }
+
+  private func recentMetadataURL(
+    folder: MicrosoftGraphFolder,
+    pageSize: Int
+  ) throws -> URL {
+    var components = URLComponents(
+      url: try graphURL(
+        pathComponents: ["me", "mailFolders", folder.id, "messages"]
       ),
+      resolvingAgainstBaseURL: false
+    )!
+    components.queryItems = [
+      URLQueryItem(
+        name: "$select",
+        value:
+          "id,conversationId,parentFolderId,receivedDateTime,sentDateTime,subject,bodyPreview,"
+          + "internetMessageId,isRead,from,replyTo,toRecipients,ccRecipients"
+      ),
+      URLQueryItem(name: "$top", value: String(pageSize)),
+      URLQueryItem(name: "$orderby", value: "sentDateTime desc"),
     ]
     return try requiredURL(components)
   }
@@ -1438,6 +1480,7 @@ struct MicrosoftGraphMetadataService {
     return metadata
   }
 
+  // swiftlint:disable:next function_body_length
   private func start(
     folders: [MicrosoftGraphFolder],
     connection: MailboxConnection,
@@ -1455,6 +1498,14 @@ struct MicrosoftGraphMetadataService {
     for index in state.folders.indices {
       var continuation: URL?
       var messages: [MicrosoftGraphProviderMessage] = []
+      if state.folders[index].folder.role == .sent {
+        let recentPage = try await client.loadRecentMetadataPage(
+          folder: state.folders[index].folder,
+          pageSize: Self.initialPageSize,
+          accessToken: accessToken
+        )
+        messages = recentPage.messages
+      }
       repeat {
         let page = try await client.loadMetadataPage(
           folder: state.folders[index].folder,
@@ -1757,29 +1808,45 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    let connectionIds = snapshot.connections.compactMap { definition in
-      definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
+    try await syncGate.withLock(accountCleanupLockId(session: session)) {
+      let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      let connectionIds = Set(
+        snapshot.connections.compactMap { definition in
+          definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
+        }
+          + snapshot.removedConnectionIds.filter { $0.providerId == .microsoftGraph }
+      ).sorted { $0.rawValue < $1.rawValue }
+      try await withLocks(connectionIds) {
+        var firstError: Error?
+        do {
+          try tokenStore.clearAll(productAccountId: session.productAccountId)
+        } catch {
+          firstError = error
+        }
+        do {
+          try metadataStore.clear(productAccountId: session.productAccountId)
+        } catch {
+          firstError = firstError ?? error
+        }
+        do {
+          try bodyService.clear(session: session)
+        } catch {
+          firstError = firstError ?? error
+        }
+        if let firstError { throw firstError }
+      }
     }
-    try await withLocks(connectionIds) {
-      var firstError: Error?
-      do {
-        try tokenStore.clearAll(productAccountId: session.productAccountId)
-      } catch {
-        firstError = error
-      }
-      do {
-        try metadataStore.clear(productAccountId: session.productAccountId)
-      } catch {
-        firstError = firstError ?? error
-      }
-      do {
-        try bodyService.clear(session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      if let firstError { throw firstError }
-    }
+  }
+
+  private func accountCleanupLockId(
+    session: ProductAccountSessionSnapshot
+  ) -> MailboxConnectionId {
+    MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .microsoftGraph,
+        value: "account-cleanup:\(session.productAccountId)"
+      )
+    )
   }
 
   private func withLocks<T>(
@@ -1839,6 +1906,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   @MainActor
+  // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
@@ -1858,40 +1926,42 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let expectedConnectionId, expectedConnectionId != connectionId {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
-    let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    let previousDefinition = snapshot.connections.first { definition in
-      definition.provider == MailProviderId.microsoftGraph.rawValue
-        && definition.providerAccountIdentifier == account.id
-    }
-    let connection = MailboxConnection(
-      authorizationState: .authorized,
-      capabilities: .microsoftGraphRead,
-      connectedAt: previousDefinition?.connectedAt ?? timestamp,
-      displayName: account.emailAddress,
-      id: connectionId,
-      lastVerifiedAt: timestamp,
-      productAccountId: ProductAccountId(session.productAccountId),
-      trustedDeviceId: session.trustedDeviceId,
-      updatedAt: timestamp
-    )
-    let previousTokens = try savedTokens(for: account, session: session)
-    guard isSessionCurrent(session) else { return nil }
-    try tokenStore.save(
-      tokens,
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: account.id
-    )
-    do {
-      guard isSessionCurrent(session) else {
-        restore(previousTokens, for: account, session: session)
-        return nil
+    return try await syncGate.withLock(accountCleanupLockId(session: session)) {
+      let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+      let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      let previousDefinition = snapshot.connections.first { definition in
+        definition.provider == MailProviderId.microsoftGraph.rawValue
+          && definition.providerAccountIdentifier == account.id
       }
-      _ = try await definitionSyncService.saveConnection(connection, session: session)
-      return connection
-    } catch {
-      restore(previousTokens, for: account, session: session)
-      throw error
+      let connection = MailboxConnection(
+        authorizationState: .authorized,
+        capabilities: .microsoftGraphRead,
+        connectedAt: previousDefinition?.connectedAt ?? timestamp,
+        displayName: account.emailAddress,
+        id: connectionId,
+        lastVerifiedAt: timestamp,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: timestamp
+      )
+      let previousTokens = try savedTokens(for: account, session: session)
+      guard isSessionCurrent(session) else { return nil }
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: account.id
+      )
+      do {
+        guard isSessionCurrent(session) else {
+          restore(previousTokens, for: account, session: session)
+          return nil
+        }
+        _ = try await definitionSyncService.saveConnection(connection, session: session)
+        return connection
+      } catch {
+        restore(previousTokens, for: account, session: session)
+        throw error
+      }
     }
   }
 
@@ -2050,16 +2120,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(
+      try await withAccessTokenRetry(
         connection: connection,
         session: session,
         isWithinSyncGate: true
-      )
-      return try await metadataService.continueBackfill(
-        connection: connection,
-        productAccountId: session.productAccountId,
-        accessToken: token
-      )
+      ) { token in
+        try await metadataService.continueBackfill(
+          connection: connection,
+          productAccountId: session.productAccountId,
+          accessToken: token
+        )
+      }
     }
   }
 
@@ -2068,18 +2139,19 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(
+      try await withAccessTokenRetry(
         connection: connection,
         session: session,
         isWithinSyncGate: true
-      )
-      return try await metadataService.sync(
-        connection: connection,
-        productAccountId: session.productAccountId,
-        accessToken: token
-      )
-      .projected(to: .role(.inbox))
-      .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
+      ) { token in
+        try await metadataService.sync(
+          connection: connection,
+          productAccountId: session.productAccountId,
+          accessToken: token
+        )
+        .projected(to: .role(.inbox))
+        .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
+      }
     }
   }
 
@@ -2093,19 +2165,20 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMetadataSyncResult {
     guard shouldPersist() else { throw CancellationError() }
     return try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(
+      try await withAccessTokenRetry(
         connection: connection,
         session: session,
         isWithinSyncGate: true
-      )
-      return try await metadataService.sync(
-        connection: connection,
-        productAccountId: session.productAccountId,
-        accessToken: token,
-        shouldPersist: shouldPersist
-      )
-      .projected(to: .role(.inbox))
-      .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
+      ) { token in
+        try await metadataService.sync(
+          connection: connection,
+          productAccountId: session.productAccountId,
+          accessToken: token,
+          shouldPersist: shouldPersist
+        )
+        .projected(to: .role(.inbox))
+        .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
+      }
     }
   }
 
@@ -2158,15 +2231,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     let connection = try await connection(id: message.connectionId, session: session)
     return try await syncGate.withLock(connection.id) {
-      try await bodyService.load(
-        message: message,
-        accessToken: try await accessToken(
-          connection: connection,
-          session: session,
-          isWithinSyncGate: true
-        ),
-        session: session
-      )
+      try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await bodyService.load(
+          message: message,
+          accessToken: token,
+          session: session
+        )
+      }
     }
   }
 
@@ -2191,21 +2266,22 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
             <= Int64(referenceDate.timeIntervalSince1970 * 1_000)
           && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
       }
-      var selectedById: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
-      for message in pinned + Array(recent.prefix(500)) {
-        selectedById[message.id] = message
+      let recentMessages = Array(recent.prefix(500))
+      let recentIds = Set(recentMessages.map(\.id))
+      let selected = pinned.filter { !recentIds.contains($0.id) } + recentMessages
+      try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await bodyService.prefetch(
+          messages: selected,
+          connectionId: connection.id,
+          pinnedMessageIds: pinnedMessageIds,
+          accessToken: token,
+          session: session
+        )
       }
-      try await bodyService.prefetch(
-        messages: Array(selectedById.values),
-        connectionId: connection.id,
-        pinnedMessageIds: pinnedMessageIds,
-        accessToken: try await accessToken(
-          connection: connection,
-          session: session,
-          isWithinSyncGate: true
-        ),
-        session: session
-      )
     }
   }
 
@@ -2282,6 +2358,54 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     }
     return tokens.accessToken
+  }
+
+  private func withAccessTokenRetry<T>(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    isWithinSyncGate: Bool,
+    operation: (String) async throws -> T
+  ) async throws -> T {
+    let token = try await accessToken(
+      connection: connection,
+      session: session,
+      isWithinSyncGate: isWithinSyncGate
+    )
+    do {
+      return try await operation(token)
+    } catch MicrosoftGraphClientError.requestFailed(401) {
+      return try await operation(
+        try await refreshAccessToken(connection: connection, session: session)
+      )
+    }
+  }
+
+  private func refreshAccessToken(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    guard
+      let tokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    else { throw MailboxConnectionAdapterError.authorizationRequired }
+    let refreshed: MicrosoftGraphTokens
+    do {
+      refreshed = try await authorizer.refresh(tokens)
+    } catch MicrosoftGraphOAuthError.authorizationRejected {
+      try tokenStore.clear(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    try tokenStore.save(
+      refreshed,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerMailboxIdentity.value
+    )
+    return refreshed.accessToken
   }
 
   private func connection(

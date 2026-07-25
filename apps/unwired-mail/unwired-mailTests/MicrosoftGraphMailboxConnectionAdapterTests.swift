@@ -175,11 +175,21 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       nextLink: URL(string: "https://graph.microsoft.test/sent/page-2"),
       deltaLink: nil
     )
+    client.pages["sent-id|recent"] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(100, folderId: "sent-id")],
+      nextLink: nil,
+      deltaLink: nil
+    )
     let adapter = try authorizedAdapter(client: client)
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
 
-    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let initial = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
 
     XCTAssertEqual(initial.messages.map(\.subject), ["Message 100", "Message 1"])
     XCTAssertEqual(
@@ -191,6 +201,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         "https://graph.microsoft.test/sent/page-2",
       ]
     )
+    XCTAssertEqual(client.requestedRecentFolderIds, ["sent-id"])
   }
 
   func testExpiredDeltaCursorRestartsWithoutRetainingDuplicateOrStaleMessages() async throws {
@@ -410,6 +421,121 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(authorizer.refreshedTokens, 1)
     XCTAssertEqual(client.accessTokens.last, authorizer.refreshResult.accessToken)
+  }
+
+  func testRejectedUnexpiredAccessTokenRefreshesAndRetriesProviderAccess() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let client = RecordingMicrosoftGraphClient()
+    client.rejectedAccessTokens = ["access-token"]
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: client,
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(authorizer.refreshedTokens, 1)
+    XCTAssertEqual(client.accessTokens.last, authorizer.refreshResult.accessToken)
+  }
+
+  func testRejectedRefreshRequiresReauthorization() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    authorizer.refreshError = MicrosoftGraphOAuthError.authorizationRejected
+    let client = RecordingMicrosoftGraphClient()
+    client.rejectedAccessTokens = ["access-token"]
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: client,
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      _ = try await adapter.syncInbox(connection: connection, session: session)
+      XCTFail("Expected authorization to be required")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
+  }
+
+  func testPrefetchPreservesNewestFirstOrder() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1), graphMessage(3), graphMessage(2)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies = [
+      "immutable-message-1": "Body 1",
+      "immutable-message-2": "Body 2",
+      "immutable-message-3": "Body 3",
+    ]
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let adapter = try authorizedAdapter(
+      bodyCache: bodyCache,
+      client: client,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+
+    try await adapter.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [],
+      referenceDate: Date(timeIntervalSince1970: 1_781_200_100),
+      session: session
+    )
+
+    XCTAssertEqual(
+      bodyCache.savedMessageIds,
+      inbox.messages.map(\.stableProviderMessageId)
+    )
   }
 
   func testMultipleMicrosoftConnectionsRemainMailboxScopedAndProviderDistinct() async throws {
@@ -678,6 +804,7 @@ private final class RecordingMicrosoftGraphAuthorizer: MicrosoftGraphAuthorizing
     expiresAtMilliseconds: 4_100_000_000_000,
     refreshToken: "refreshed-refresh-token"
   )
+  var refreshError: Error?
   var refreshedTokens = 0
 
   func authorize() async throws -> MicrosoftGraphTokens {
@@ -686,6 +813,7 @@ private final class RecordingMicrosoftGraphAuthorizer: MicrosoftGraphAuthorizing
 
   func refresh(_ tokens: MicrosoftGraphTokens) async throws -> MicrosoftGraphTokens {
     refreshedTokens += 1
+    if let refreshError { throw refreshError }
     return refreshResult
   }
 }
@@ -700,17 +828,33 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var folders: [MicrosoftGraphFolder] = []
   var metadataPageDidLoad: (() -> Void)?
   var pages: [String: MicrosoftGraphMetadataPage] = [:]
+  var rejectedAccessTokens: Set<String> = []
   var requestedContinuations: [String?] = []
+  var requestedRecentFolderIds: [String] = []
 
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount {
     accessTokens.append(accessToken)
+    try validate(accessToken)
     return account
   }
 
   func loadFolders(accessToken: String) async throws -> [MicrosoftGraphFolder] {
     accessTokens.append(accessToken)
+    try validate(accessToken)
     if let error { throw error }
     return folders
+  }
+
+  func loadRecentMetadataPage(
+    folder: MicrosoftGraphFolder,
+    pageSize _: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage {
+    accessTokens.append(accessToken)
+    try validate(accessToken)
+    requestedRecentFolderIds.append(folder.id)
+    return pages["\(folder.id)|recent"]
+      ?? MicrosoftGraphMetadataPage(messages: [], nextLink: nil, deltaLink: nil)
   }
 
   func loadMetadataPage(
@@ -720,6 +864,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     accessToken: String
   ) async throws -> MicrosoftGraphMetadataPage {
     accessTokens.append(accessToken)
+    try validate(accessToken)
     requestedContinuations.append(continuationURL?.absoluteString)
     if let error { throw error }
     if let continuation = continuationURL?.absoluteString,
@@ -741,8 +886,15 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
 
   func loadTextBody(messageId: String, accessToken: String) async throws -> String {
     accessTokens.append(accessToken)
+    try validate(accessToken)
     bodyRequestCount += 1
     return bodies[messageId] ?? ""
+  }
+
+  private func validate(_ accessToken: String) throws {
+    if rejectedAccessTokens.contains(accessToken) {
+      throw MicrosoftGraphClientError.requestFailed(401)
+    }
   }
 }
 
