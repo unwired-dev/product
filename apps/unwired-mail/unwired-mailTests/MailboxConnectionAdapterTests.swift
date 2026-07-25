@@ -318,7 +318,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     connectionService.statuses = [RecordingAdapterConnectionService.status, second]
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
 
     let connections = try await adapter.loadConnections(session: session)
@@ -380,7 +381,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -407,7 +409,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -451,7 +454,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
-      definitionSyncService: definitionSyncService
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
 
     let connections = try await adapter.loadConnections(session: session)
@@ -474,7 +478,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       definitionSyncService: definitionSyncService,
-      metadataService: metadataService
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId
@@ -507,7 +512,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       definitionSyncService: definitionSyncService,
-      pendingActionService: pendingActionService
+      pendingActionService: pendingActionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId

@@ -232,7 +232,10 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
       if status == 401 || status == 403 {
         return .userActionRequired
       }
-      if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+      if status == 429 {
+        return .transient
+      }
+      if status == 408 || status == 409 || status == 425 || status >= 500 {
         return .ambiguous
       }
     }
@@ -375,6 +378,7 @@ actor OutboxDeliveryService {
     }
 
     var immediatelyProcessedConnectionIds = Set<String>()
+    var immediateTasks: [Task<Void, Never>] = []
     for attempt in attempts
     where
       attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
@@ -392,15 +396,17 @@ actor OutboxDeliveryService {
         0,
         scheduledAtMilliseconds - milliseconds(now())
       )
-      if remainingMilliseconds == 0,
-        immediatelyProcessedConnectionIds.insert(attempt.connectionId.rawValue).inserted
-      {
-        try await process(
-          connectionId: attempt.connectionId,
-          productAccountId: session.productAccountId,
-          provider: provider,
-          reconcile: reconcile
-        )
+      if remainingMilliseconds == 0 {
+        if immediatelyProcessedConnectionIds.insert(attempt.connectionId.rawValue).inserted {
+          immediateTasks.append(
+            scheduleRetry(
+              attempt,
+              delay: 0,
+              provider: provider,
+              reconcile: reconcile
+            )
+          )
+        }
       } else {
         scheduleRetry(
           attempt,
@@ -409,6 +415,9 @@ actor OutboxDeliveryService {
           reconcile: reconcile
         )
       }
+    }
+    for task in immediateTasks {
+      await task.value
     }
   }
 
@@ -558,7 +567,9 @@ actor OutboxDeliveryService {
       productAccountId: session.productAccountId
     )
     for attemptId in retryTasks.keys.filter({
-      attemptIds.contains($0) || retryTaskConnectionIds[$0] == connection.id
+      attemptIds.contains($0)
+        || (retryTaskConnectionIds[$0] == connection.id
+          && retryTaskProductAccountIds[$0] == session.productAccountId)
     }) {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       retryTaskTokens.removeValue(forKey: attemptId)
@@ -566,7 +577,9 @@ actor OutboxDeliveryService {
       retryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
     for attemptId in inFlightRetryTasks.keys.filter({
-      attemptIds.contains($0) || inFlightRetryTaskConnectionIds[$0] == connection.id
+      attemptIds.contains($0)
+        || (inFlightRetryTaskConnectionIds[$0] == connection.id
+          && inFlightRetryTaskProductAccountIds[$0] == session.productAccountId)
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
@@ -948,18 +961,19 @@ actor OutboxDeliveryService {
     return now().timeIntervalSince(firstAttemptDate) >= maximumAge
   }
 
+  @discardableResult
   private func scheduleRetry(
     _ attempt: OutgoingDeliveryAttempt,
     delay: UInt64,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
-  ) {
+  ) -> Task<Void, Never> {
     retryTasks.removeValue(forKey: attempt.id)?.cancel()
     let token = UUID()
     retryTaskTokens[attempt.id] = token
     retryTaskConnectionIds[attempt.id] = attempt.mailboxConnectionId
     retryTaskProductAccountIds[attempt.id] = attempt.productAccountId.rawValue
-    retryTasks[attempt.id] = Task { [weak self] in
+    let task = Task { [weak self] in
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
@@ -975,6 +989,8 @@ actor OutboxDeliveryService {
         await self?.finishRetry(attempt, token: token, provider: provider, reconcile: reconcile)
       }
     }
+    retryTasks[attempt.id] = task
+    return task
   }
 
   private func finishRetry(

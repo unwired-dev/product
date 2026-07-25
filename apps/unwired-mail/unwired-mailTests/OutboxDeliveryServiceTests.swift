@@ -152,6 +152,52 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(deliveryCount, 1)
   }
 
+  func testClearConnectionOnlyCancelsRetriesForItsProductAccount() async throws {
+    let otherSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-002",
+      identityToken: "product-token-002",
+      productAccountId: "product-account-002",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let otherConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .gmail,
+      connectedAt: 1_781_200_000_000,
+      displayName: "sender@example.com",
+      id: connection.id,
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(otherSession.productAccountId),
+      trustedDeviceId: "trusted-device-002",
+      updatedAt: 1_781_200_000_200
+    )
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 50_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: otherConnection,
+      session: otherSession,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    try await service.clear(connection: connection, session: session)
+    _ = await service.waitForScheduledRetries()
+
+    let deliveryCount = await deliveries.currentValue()
+    XCTAssertEqual(deliveryCount, 1)
+  }
+
   func testClearCancelsAnImmediatelyResumedHandoff() async throws {
     let delivery = SuspendingDelivery()
     let store = InMemoryOutboxDeliveryStore()
@@ -339,6 +385,45 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(refreshedDeliveryCount, 1)
   }
 
+  func testResumePreservesRetryScheduledWhileProcessingConnection() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    _ = try await seedService.enqueue(
+      OutgoingMessage(body: "First", recipient: message.recipient, subject: "First"),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await seedService.enqueue(
+      OutgoingMessage(body: "Second", recipient: message.recipient, subject: "Second"),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    let delivery = TransientSecondMessageDelivery()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 100_000_000 },
+      store: store
+    )
+
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { message, _, _ in try await delivery.deliver(message) },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await service.waitForScheduledRetries()
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.map(\.state), [.sent, .sent])
+  }
+
   func testResumeReturnsAfterSchedulingFutureRetry() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(
@@ -428,6 +513,25 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       connection: connection,
       session: session,
       provider: { _, _, _ in throw GmailProviderMailActionError.rateLimitedResponseStatus(403) },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .retrying)
+  }
+
+  func testGmailHTTP429FailureRetriesWithoutReconciliation() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw GmailProviderMailActionError.responseStatus(429) },
       reconcile: { _, _ in .unknown }
     )
 
@@ -858,6 +962,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       failureDisposition: { _ in .ambiguous },
       handoffDelayNanoseconds: 1_000_000,
       maximumAttempts: 1,
+      retryDelayNanoseconds: { _ in 1_000_000 },
       store: InMemoryOutboxDeliveryStore()
     )
     _ = try await service.enqueue(
@@ -1182,6 +1287,18 @@ private actor DeliveryIdRecorder {
 
   func append(_ value: String) {
     values.append(value)
+  }
+}
+
+private actor TransientSecondMessageDelivery {
+  private var secondMessageAttemptCount = 0
+
+  func deliver(_ message: OutgoingMessage) throws {
+    guard message.subject == "Second" else { return }
+    secondMessageAttemptCount += 1
+    if secondMessageAttemptCount == 1 {
+      throw URLError(.notConnectedToInternet)
+    }
   }
 }
 

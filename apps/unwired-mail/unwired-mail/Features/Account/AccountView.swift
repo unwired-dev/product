@@ -1970,7 +1970,10 @@ struct MailShellCompositionDraft: Identifiable {
       return seenAddresses.insert(normalizedAddress).inserted
     }
     var draft = reply(to: message)
-    draft.recipient = recipients.joined(separator: ", ")
+    draft.recipient =
+      recipients.isEmpty
+      ? message.replyTo ?? message.from ?? ""
+      : recipients.joined(separator: ", ")
     return draft
   }
 
