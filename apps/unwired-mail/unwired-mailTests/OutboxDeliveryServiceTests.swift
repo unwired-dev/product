@@ -37,6 +37,13 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  func testWaitForScheduledRetriesReturnsFalseWhenIdle() async {
+    let service = OutboxDeliveryService(store: InMemoryOutboxDeliveryStore())
+
+    let waitedForRetry = await service.waitForScheduledRetries()
+    XCTAssertFalse(waitedForRetry)
+  }
+
   func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))

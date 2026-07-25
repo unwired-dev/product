@@ -219,6 +219,9 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
+    if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
+      return .ambiguous
+    }
     if case .responseStatus(let status) = error as? GmailProviderMailActionError {
       if status == 401 || status == 403 {
         return .userActionRequired
@@ -478,10 +481,10 @@ actor OutboxDeliveryService {
     try store.clear(productAccountId: session.productAccountId)
   }
 
-  func waitForScheduledRetries() async {
-    if !Task.isCancelled, let task = retryTasks.values.first {
-      await task.value
-    }
+  func waitForScheduledRetries() async -> Bool {
+    guard !Task.isCancelled, let task = retryTasks.values.first else { return false }
+    await task.value
+    return true
   }
 
   private func newAttempt(

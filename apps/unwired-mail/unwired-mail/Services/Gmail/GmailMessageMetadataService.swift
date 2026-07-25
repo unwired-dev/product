@@ -2109,15 +2109,33 @@ struct GmailMessageMetadataService:
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
 
-    let (_, response) = try await session.data(for: request)
+    let (data, response) = try await session.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.gmailRequestFailed
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
       if providerActionRequest {
+        if httpResponse.statusCode == 403, hasRateLimitReason(in: data) {
+          throw GmailProviderMailActionError.rateLimitedResponseStatus(httpResponse.statusCode)
+        }
         throw GmailProviderMailActionError.responseStatus(httpResponse.statusCode)
       }
       throw GmailMessageMetadataSyncError.gmailRequestFailed
+    }
+  }
+
+  private func hasRateLimitReason(in data: Data) -> Bool {
+    guard
+      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let error = payload["error"] as? [String: Any],
+      let errors = error["errors"] as? [[String: Any]]
+    else {
+      return false
+    }
+
+    return errors.contains {
+      guard let reason = $0["reason"] as? String else { return false }
+      return reason == "rateLimitExceeded" || reason == "userRateLimitExceeded"
     }
   }
 
@@ -2346,10 +2364,11 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
 
 enum GmailProviderMailActionError: LocalizedError, Equatable {
   case responseStatus(Int)
+  case rateLimitedResponseStatus(Int)
 
   var errorDescription: String? {
     switch self {
-    case .responseStatus(let status):
+    case .responseStatus(let status), .rateLimitedResponseStatus(let status):
       return "Gmail rejected the message action (HTTP \(status))."
     }
   }
