@@ -3619,11 +3619,11 @@ final class GmailMailActionViewModel {
         provider: outboxProvider(connections: knownConnections),
         reconcile: outboxReconciler(connections: knownConnections)
       )
-      await refreshOutbox()
-      observeOutboxRetries()
     } catch {
       errorMessage = error.localizedDescription
     }
+    await refreshOutbox()
+    observeOutboxRetries()
     await refreshFailureConnections(knownConnections)
     let service = self.service
     let session = self.session
@@ -3887,7 +3887,7 @@ final class GmailMailActionViewModel {
     )
     return { idempotencyKey, connectionId in
       guard let connection = connectionsById[connectionId] else {
-        return .unknown
+        throw MailboxConnectionAdapterError.authorizationRequired
       }
       return try await service.deliveryStatus(
         idempotencyKey: idempotencyKey,

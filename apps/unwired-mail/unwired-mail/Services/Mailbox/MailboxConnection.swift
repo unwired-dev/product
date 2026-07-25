@@ -2014,7 +2014,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: gmailConnection,
       session: session
     )
-    return messages.isEmpty ? .notSent : .sent
+    return messages.isEmpty ? .unknown : .sent
   }
 
   private func gmailConnectionForProviderAccess(
@@ -2030,7 +2030,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     do {
       try await ensureConnectionIsActive(connection.id, session: session)
     } catch MailboxConnectionAdapterError.connectionRemoved {
-      try await pendingActionService.clear(connection: connection, session: session)
+      try await clearRemovedConnection(connection, session: session)
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     return gmailConnection

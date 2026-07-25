@@ -101,6 +101,49 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testClearCancelsAnImmediatelyResumedHandoff() async throws {
+    let delivery = SuspendingDelivery()
+    let store = InMemoryOutboxDeliveryStore()
+    let queuedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    _ = try await queuedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .unknown }
+    )
+    let resumedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    let resumeTask = Task {
+      try await resumedService.resume(
+        connections: [connection],
+        session: session,
+        provider: { _, _, _ in
+          await delivery.started()
+          do {
+            try await Task.sleep(nanoseconds: 60_000_000_000)
+          } catch is CancellationError {
+            await delivery.cancelled()
+            throw CancellationError()
+          }
+        },
+        reconcile: { _, _ in .unknown }
+      )
+    }
+    await delivery.waitUntilStarted()
+
+    try await resumedService.clear(session: session)
+    await delivery.waitUntilCancelled()
+    _ = try? await resumeTask.value
+
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
   func testClearConnectionRemovesOnlyThatConnectionsQueuedAttempts() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let service = OutboxDeliveryService(

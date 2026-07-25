@@ -386,12 +386,7 @@ actor OutboxDeliveryService {
       if remainingMilliseconds == 0,
         immediatelyProcessedConnectionIds.insert(attempt.connectionId.rawValue).inserted
       {
-        try await process(
-          connectionId: attempt.connectionId,
-          productAccountId: session.productAccountId,
-          provider: provider,
-          reconcile: reconcile
-        )
+        scheduleRetry(attempt, delay: 0, provider: provider, reconcile: reconcile)
       } else {
         scheduleRetry(
           attempt,
@@ -401,6 +396,7 @@ actor OutboxDeliveryService {
         )
       }
     }
+    while await waitForScheduledRetries() {}
   }
 
   @discardableResult
@@ -967,7 +963,7 @@ actor OutboxDeliveryService {
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
-    guard recoverInterruptedHandoff(attemptId, productAccountId: attempt.productAccountId.rawValue)
+    guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue)
     else {
       scheduleRetry(
         attempt,
@@ -986,21 +982,21 @@ actor OutboxDeliveryService {
     )
   }
 
-  private func recoverInterruptedHandoff(_ attemptId: UUID, productAccountId: String) -> Bool {
+  private func recoverInterruptedHandoffs(productAccountId: String) -> Bool {
     let attempts: [OutgoingDeliveryAttempt]
     do {
       attempts = try store.load(productAccountId: productAccountId)
     } catch {
       return false
     }
-    guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
-      attempts[index].state == .handingOff
-    else { return true }
+    guard attempts.contains(where: { $0.state == .handingOff }) else { return true }
     var recoveredAttempts = attempts
-    recoveredAttempts[index].state = .reconciling
-    recoveredAttempts[index].lastErrorDescription =
-      "Confirming delivery after provider handoff persistence failed."
-    recoveredAttempts[index].nextRetryAtMilliseconds = nil
+    for index in recoveredAttempts.indices where recoveredAttempts[index].state == .handingOff {
+      recoveredAttempts[index].state = .reconciling
+      recoveredAttempts[index].lastErrorDescription =
+        "Confirming delivery after provider handoff persistence failed."
+      recoveredAttempts[index].nextRetryAtMilliseconds = nil
+    }
     do {
       try store.save(recoveredAttempts, productAccountId: productAccountId)
       return true
