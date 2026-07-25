@@ -444,6 +444,7 @@ struct MailboxLocalMetadataSearch {
         [
           message.from,
           message.recipientHeaders?.joined(separator: " "),
+          message.bccRecipients?.joined(separator: " "),
           message.subject,
           dateText(for: message.providerInternalDateMilliseconds),
           message.categoryId,

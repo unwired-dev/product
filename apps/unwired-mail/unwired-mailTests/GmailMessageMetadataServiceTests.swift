@@ -45,6 +45,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         "Finance <finance@example.com>",
         "Auditor <auditor@example.com>",
       ],
+      bccRecipients: ["Hidden <hidden@example.com>"],
       rfcMessageId: nil
     )
     var otherMessage = metadata(
@@ -61,6 +62,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       "user@example.com",
       "finance@example.com",
       "auditor@example.com",
+      "hidden@example.com",
       "quarterly invoice",
       "2026-07-15",
       "unread",

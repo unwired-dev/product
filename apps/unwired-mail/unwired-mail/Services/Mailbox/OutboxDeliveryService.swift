@@ -632,13 +632,22 @@ actor OutboxDeliveryService {
             )
           }
         } catch {
-          try handleReconciliationFailure(
-            attemptId,
-            error: error,
-            productAccountId: productAccountId,
-            provider: provider,
-            reconcile: reconcile
-          )
+          if case .userActionRequired = failureDisposition(error) {
+            try update(
+              attemptId,
+              productAccountId: productAccountId,
+              state: .userActionRequired,
+              errorDescription: error.localizedDescription
+            )
+          } else {
+            try handleReconciliationFailure(
+              attemptId,
+              error: error,
+              productAccountId: productAccountId,
+              provider: provider,
+              reconcile: reconcile
+            )
+          }
           return
         }
         continue
@@ -774,6 +783,7 @@ actor OutboxDeliveryService {
     attempts[index].nextRetryAtMilliseconds =
       milliseconds(now()) + Int64(delay / 1_000_000)
     try store.save(attempts, productAccountId: productAccountId)
+    notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
   }
 
@@ -805,6 +815,7 @@ actor OutboxDeliveryService {
     attempts[index].nextRetryAtMilliseconds =
       milliseconds(now()) + Int64(delay / 1_000_000)
     try store.save(attempts, productAccountId: productAccountId)
+    notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
   }
 
@@ -852,6 +863,10 @@ actor OutboxDeliveryService {
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
+    notifyRetryWaiters()
+  }
+
+  private func notifyRetryWaiters() {
     let waiters = retryWaiters.values
     retryWaiters.removeAll()
     for waiter in waiters {

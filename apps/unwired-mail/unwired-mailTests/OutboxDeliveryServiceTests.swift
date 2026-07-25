@@ -356,6 +356,40 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(sentAttempts.first?.state, .sent)
   }
 
+  func testReconciliationAuthorizationFailureRequiresUserAction() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    _ = try await seedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    var persisted = try store.load(productAccountId: session.productAccountId)
+    persisted[0].state = .handingOff
+    try store.save(persisted, productAccountId: session.productAccountId)
+
+    let service = OutboxDeliveryService(
+      failureDisposition: { _ in .userActionRequired },
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in throw TestOutboxError.deliveryRejected }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .userActionRequired)
+    XCTAssertNil(attempts.first?.nextRetryAtMilliseconds)
+  }
+
   func testRestartDoesNotSendRetryAfterMaximumAge() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
