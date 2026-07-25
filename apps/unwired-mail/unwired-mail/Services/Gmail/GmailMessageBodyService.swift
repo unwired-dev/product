@@ -154,13 +154,6 @@ extension GmailMessageBodyCaching {
     )
   }
 
-  func clearMessageBodies(
-    productAccountId: String,
-    providerAccountIdentifier _: String
-  ) throws {
-    try clearMessageBodies(productAccountId: productAccountId)
-  }
-
   func saveMessageBody(
     _ write: GmailMessageBodyCacheWrite,
     productAccountId: String,
@@ -229,13 +222,6 @@ protocol GmailMessageReading {
 }
 
 extension GmailMessageReading {
-  func clearCachedMessageBodies(
-    connection _: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
-  ) throws {
-    try clearCachedMessageBodies(session: session)
-  }
-
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
     pinnedMessageIds _: Set<String>,

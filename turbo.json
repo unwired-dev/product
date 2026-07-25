@@ -7,7 +7,8 @@
     "APNS_TEAM_ID",
     "APNS_TOPIC",
     "GMAIL_OAUTH_CLIENT_ID",
-    "GMAIL_PUSH_VERIFICATION_TOKEN"
+    "GMAIL_PUSH_VERIFICATION_TOKEN",
+    "GMAIL_ROUTING_KEY"
   ],
   "tasks": {
     "lint": {

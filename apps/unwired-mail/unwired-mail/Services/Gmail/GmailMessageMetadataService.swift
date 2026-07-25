@@ -167,13 +167,6 @@ protocol GmailMessageMetadataPersisting {
 }
 
 extension GmailMessageMetadataPersisting {
-  func clearMessages(
-    productAccountId: String,
-    providerAccountIdentifier _: String
-  ) throws {
-    try clearMessages(productAccountId: productAccountId)
-  }
-
   func loadSyncState(
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -1317,7 +1310,7 @@ struct GmailMessageMetadataService:
         shouldPersist: shouldPersist
       )
     } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
-      let result = try await syncInbox(
+      _ = try await syncInbox(
         connection: connection,
         includingHistoryCandidates: false,
         listingAllMessages: true,
@@ -1491,34 +1484,21 @@ struct GmailMessageMetadataService:
     deferPersistence: Bool,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    let scopedTokens = try tokenStore.load(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-
-    var storedTokens = scopedTokens
-    if storedTokens == nil {
-      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    }
-
-    guard let storedTokens else {
+    guard
+      let storedTokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: scopedTokens != nil && !deferPersistence,
+      persist: !deferPersistence,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
-    if scopedTokens == nil {
-      try tokenStore.save(
-        tokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-    }
     return tokens
   }
 
@@ -1526,33 +1506,22 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    let scopedTokens = try tokenStore.load(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-    var storedTokens = scopedTokens
-    if storedTokens == nil {
-      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    }
-    guard let storedTokens else {
+    guard
+      let storedTokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
 
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: scopedTokens != nil,
+      persist: true,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
-    if scopedTokens == nil {
-      try tokenStore.save(
-        tokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-    }
     return tokens
   }
 

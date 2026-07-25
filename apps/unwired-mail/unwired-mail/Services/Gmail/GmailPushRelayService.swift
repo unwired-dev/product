@@ -77,13 +77,11 @@ extension GmailPushWatchPersisting {
 }
 
 protocol GmailPushConnectionPersisting {
-  func clear(productAccountId: String) throws
   func clear(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
-  func load(productAccountId: String) throws -> GmailProviderConnectionStatus?
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -93,33 +91,6 @@ protocol GmailPushConnectionPersisting {
     _ connection: GmailProviderConnectionStatus,
     productAccountId: String
   ) throws
-}
-
-extension GmailPushConnectionPersisting {
-  func clear(
-    productAccountId: String,
-    providerAccountIdentifier _: String
-  ) throws {
-    try clear(productAccountId: productAccountId)
-  }
-
-  func clearAll(productAccountId: String) throws {
-    try clear(productAccountId: productAccountId)
-  }
-
-  func load(
-    productAccountId: String,
-    providerAccountIdentifier _: String
-  ) throws -> GmailProviderConnectionStatus? {
-    try load(productAccountId: productAccountId)
-  }
-
-  func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
-    if let connection = try load(productAccountId: productAccountId) {
-      return [connection]
-    }
-    return []
-  }
 }
 
 @MainActor
@@ -210,6 +181,7 @@ protocol GmailPushVerificationTransport {
     gmailIdentityToken: String,
     historyId: String,
     identityToken: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> GmailPushVerificationResponse
 }
@@ -592,10 +564,6 @@ private struct NoopGmailPushEligibilityStore: GmailPushEligibilityPersisting {
 struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   private let service = "private-email.gmail-push-connection"
 
-  func clear(productAccountId: String) throws {
-    try clearAll(productAccountId: productAccountId)
-  }
-
   func clear(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -604,13 +572,6 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       service: service,
       account: key(productAccountId, providerAccountIdentifier)
     )
-    if let legacyConnection = try legacyConnection(productAccountId: productAccountId),
-      legacyConnection.providerAccountIdentifier == providerAccountIdentifier
-    {
-      for account in legacyKeys(productAccountId) {
-        try KeychainStore.delete(service: service, account: account)
-      }
-    }
     var identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
     identifiers.remove(providerAccountIdentifier)
     try saveProviderAccountIdentifiers(identifiers, productAccountId: productAccountId)
@@ -626,57 +587,20 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
     }
   }
 
-  func load(productAccountId: String) throws -> GmailProviderConnectionStatus? {
-    try loadAll(productAccountId: productAccountId).first
-  }
-
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderConnectionStatus? {
-    if let connection = try connection(
+    try connection(
       account: key(productAccountId, providerAccountIdentifier)
-    ) {
-      return connection
-    }
-    guard
-      let legacyConnection = try legacyConnection(productAccountId: productAccountId),
-      legacyConnection.providerAccountIdentifier == providerAccountIdentifier
-    else {
-      return nil
-    }
-    try save(legacyConnection, productAccountId: productAccountId)
-    for account in legacyKeys(productAccountId) {
-      try? KeychainStore.delete(service: service, account: account)
-    }
-    return legacyConnection
+    )
   }
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     let identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
-    if !identifiers.isEmpty {
-      var connections = identifiers.compactMap {
-        try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
-      }
-      if let legacyConnection = try legacyConnection(productAccountId: productAccountId),
-        !identifiers.contains(legacyConnection.providerAccountIdentifier)
-      {
-        try save(legacyConnection, productAccountId: productAccountId)
-        for account in legacyKeys(productAccountId) {
-          try? KeychainStore.delete(service: service, account: account)
-        }
-        connections.append(legacyConnection)
-      }
-      return connections
+    return identifiers.compactMap {
+      try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
     }
-    guard let legacyConnection = try legacyConnection(productAccountId: productAccountId) else {
-      return []
-    }
-    try save(legacyConnection, productAccountId: productAccountId)
-    for account in legacyKeys(productAccountId) {
-      try? KeychainStore.delete(service: service, account: account)
-    }
-    return [legacyConnection]
   }
 
   func save(
@@ -722,17 +646,6 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       legacyKey(productAccountId),
       "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))",
     ]
-  }
-
-  private func legacyConnection(
-    productAccountId: String
-  ) throws -> GmailProviderConnectionStatus? {
-    for account in legacyKeys(productAccountId) {
-      if let connection = try connection(account: account) {
-        return connection
-      }
-    }
-    return nil
   }
 
   private func manifestKey(_ productAccountId: String) -> String {
@@ -836,6 +749,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
     if let existing {
       let verification = try await verifyWatch(
         existing,
+        connection: connection,
         gmailIdentityToken: try requiredIdentityToken(tokens),
         productSession: productSession
       )
@@ -859,6 +773,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
     try saveWatch(status, connection: connection, session: productSession)
     let verification = try await verifyWatch(
       status,
+      connection: connection,
       gmailIdentityToken: try requiredIdentityToken(tokens),
       productSession: productSession
     )
@@ -900,6 +815,7 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
 
   private func verifyWatch(
     _ status: GmailPushWatchStatus,
+    connection: GmailProviderConnectionStatus,
     gmailIdentityToken: String,
     productSession: ProductAccountSessionSnapshot
   ) async throws -> GmailPushVerificationResponse {
@@ -907,6 +823,10 @@ struct GmailPushWatchService: GmailPushWatchRegistering, GmailPushWatchStopping 
       gmailIdentityToken: gmailIdentityToken,
       historyId: status.historyId,
       identityToken: productSession.identityToken,
+      opaqueConnectionId: opaqueGmailConnectionId(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
       trustedDeviceId: productSession.trustedDeviceId
     )
   }

@@ -4211,6 +4211,15 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     savedMessages = []
   }
 
+  func clearMessages(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    didClear = true
+    messages = []
+    savedMessages = []
+  }
+
   func loadMessages(
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -4353,6 +4362,11 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
   private let loadGate = OverrideGate()
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
 
   func loadMessageBody(
     message _: MailboxMessageMetadata,

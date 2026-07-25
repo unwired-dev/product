@@ -76,13 +76,9 @@ final class ProductAccountSession {
       case .notAuthorized:
         try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
-          do {
-            try await mailboxConnectionService.clearLocalConnection(session: snapshot)
-            try sessionStore.clear()
-            state = .signedOut
-          } catch {
-            state = .failed(error.localizedDescription)
-          }
+          try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+          try sessionStore.clear()
+          state = .signedOut
         } catch {
           state = .failed(error.localizedDescription)
         }

@@ -43,7 +43,10 @@ http.route({
       return new Response('Invalid Gmail push', { status: 400 });
     }
 
-    await ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, metadata);
+    await ctx.runAction(
+      internal.pushRelay.enqueueGmailWakeupsFromMetadata,
+      metadata,
+    );
     return new Response(null, { status: 204 });
   }),
 });

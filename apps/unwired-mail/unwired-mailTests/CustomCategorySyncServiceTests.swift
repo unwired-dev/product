@@ -195,13 +195,19 @@ private final class RecordingBackgroundContextCacheStore: BackgroundContextCache
     clearedProductAccountIds.append(productAccountId)
   }
 
-  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {}
+
+  func load(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> BackgroundCategorizationContextCache? {
     nil
   }
 
   func save(
     _ cache: BackgroundCategorizationContextCache,
-    productAccountId _: String
+    productAccountId _: String,
+    providerAccountIdentifier _: String
   ) throws {}
 }
 

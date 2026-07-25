@@ -63,11 +63,14 @@ export default defineSchema({
 
   mailProviderConnections: defineTable({
     connectedAt: v.number(),
-    emailAddress: v.string(),
+    emailAddress: v.optional(v.string()),
+    gmailRoutingDigest: v.optional(v.string()),
+    gmailRoutingKeyVersion: v.optional(v.number()),
     lastVerifiedAt: v.number(),
+    opaqueConnectionId: v.optional(v.string()),
     productAccountId: v.id('productAccounts'),
     provider: v.literal('gmail'),
-    providerAccountIdentifier: v.string(),
+    providerAccountIdentifier: v.optional(v.string()),
     pushVerificationHistoryId: v.optional(v.string()),
     pushVerificationOwnershipVerifiedAt: v.optional(v.number()),
     pushVerificationRequestedAt: v.optional(v.number()),
@@ -108,13 +111,30 @@ export default defineSchema({
     .index('by_productAccountId_and_providerAccountIdentifier', [
       'productAccountId',
       'providerAccountIdentifier',
+    ])
+    .index('by_product_provider_device_opaqueConnectionId', [
+      'productAccountId',
+      'provider',
+      'trustedDeviceId',
+      'opaqueConnectionId',
+    ])
+    .index('by_gmailRoutingDigest_and_pushVerifiedAt', [
+      'gmailRoutingDigest',
+      'pushVerifiedAt',
+    ])
+    .index('by_gmailRoutingDigest_and_pushVerificationRequestedAt', [
+      'gmailRoutingDigest',
+      'pushVerificationRequestedAt',
     ]),
 
   gmailPushVerificationSignals: defineTable({
-    emailAddress: v.string(),
+    emailAddress: v.optional(v.string()),
     historyId: v.string(),
     receivedAt: v.number(),
+    routingDigest: v.optional(v.string()),
   })
     .index('by_emailAddress', ['emailAddress'])
-    .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId']),
+    .index('by_emailAddress_and_historyId', ['emailAddress', 'historyId'])
+    .index('by_routingDigest', ['routingDigest'])
+    .index('by_routingDigest_and_historyId', ['routingDigest', 'historyId']),
 });

@@ -1334,17 +1334,33 @@ private final class RecordingBackgroundContextCacheStore:
     clearedProductAccountId = productAccountId
   }
 
-  func load(productAccountId _: String) throws -> BackgroundCategorizationContextCache? {
+  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {}
+
+  func load(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> BackgroundCategorizationContextCache? {
     nil
   }
 
-  func save(_ cache: BackgroundCategorizationContextCache, productAccountId _: String) throws {}
+  func save(
+    _ cache: BackgroundCategorizationContextCache,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
 }
 
 private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing {
   var clearedSession: ProductAccountSessionSnapshot?
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    clearedSession = session
+  }
+
+  func clearLocalConnection(
+    _: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     clearedSession = session
   }
 }

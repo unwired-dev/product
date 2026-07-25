@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // swiftlint:disable file_length
@@ -38,6 +39,14 @@ struct GmailProviderConnectionStatus: Codable, Equatable {
   let lastVerifiedAt: Int64
   let provider: String
   let providerAccountIdentifier: String
+  let trustedDeviceId: String
+  let updatedAt: Int64
+}
+
+struct GmailOperationalConnectionStatus: Codable, Equatable {
+  let connectedAt: Int64
+  let lastVerifiedAt: Int64
+  let opaqueConnectionId: String
   let trustedDeviceId: String
   let updatedAt: Int64
 }
@@ -83,12 +92,10 @@ protocol GmailProviderTokenPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
-  func clearLegacy(productAccountId: String) throws
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens?
-  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens?
   func save(
     _ tokens: GmailProviderTokens,
     productAccountId: String,
@@ -96,61 +103,48 @@ protocol GmailProviderTokenPersisting {
   ) throws
 }
 
-extension GmailProviderTokenPersisting {
-  func clearLegacy(productAccountId _: String) throws {}
-  func loadLegacy(productAccountId _: String) throws -> GmailProviderTokens? { nil }
-}
-
 protocol GmailProviderConnectionTransport {
-  func connectGmailProvider(
+  func registerGmailConnection(
+    gmailIdentityToken: String,
     identityToken: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String,
-    emailAddress: String,
-    providerAccountIdentifier: String
-  ) async throws -> GmailProviderConnectionStatus
+  ) async throws -> GmailOperationalConnectionStatus
 
-  func getGmailProviderConnection(
+  func removeGmailConnection(
     identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> GmailProviderConnectionStatus?
-
-  func listGmailProviderConnections(
-    identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> [GmailProviderConnectionStatus]
-
-  func removeGmailProviderConnection(
-    identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool
 
   func shouldStopGmailPushWatch(
     identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool
 }
 
 extension GmailProviderConnectionTransport {
-  func listGmailProviderConnections(
-    identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> [GmailProviderConnectionStatus] {
-    if let connection = try await getGmailProviderConnection(
-      identityToken: identityToken,
-      trustedDeviceId: trustedDeviceId
-    ) {
-      return [connection]
-    }
-    return []
-  }
-
-  func removeGmailProviderConnection(
+  func removeGmailConnection(
     identityToken _: String,
-    providerAccountIdentifier _: String,
+    opaqueConnectionId _: String,
     trustedDeviceId _: String
   ) async throws -> Bool { false }
+}
+
+func opaqueGmailConnectionId(
+  productAccountId: String,
+  providerAccountIdentifier: String
+) -> String {
+  let input = Data(
+    "dev.unwired.mail.gmail-operational-connection.v1"
+      .appending("\0\(productAccountId)\0\(providerAccountIdentifier)")
+      .utf8
+  )
+  return Data(SHA256.hash(data: input)).base64EncodedString()
+    .replacingOccurrences(of: "+", with: "-")
+    .replacingOccurrences(of: "/", with: "_")
+    .replacingOccurrences(of: "=", with: "")
 }
 
 protocol GmailProviderConnecting {
@@ -168,31 +162,9 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus
 
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus?
-
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
-}
-
-extension GmailProviderConnecting {
-  func clearLocalConnection(
-    _ connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    try await clearLocalConnection(session: session)
-  }
-
-  func loadConnections(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> [GmailProviderConnectionStatus] {
-    if let connection = try await loadConnection(session: session) {
-      return [connection]
-    }
-    return []
-  }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -214,10 +186,6 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
       ))
-  }
-
-  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
-    try tokens(account: legacyAccountName(productAccountId))
   }
 
   func save(
@@ -282,10 +250,6 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
       )
     }
     try KeychainStore.delete(service: service, account: manifestName(productAccountId))
-    try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
-  }
-
-  func clearLegacy(productAccountId: String) throws {
     try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
   }
 
@@ -390,7 +354,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       providerAccountIdentifier: providerAccountIdentifier
     )
     try tokenStore.save(
-      verifiedAccount.tokens,
+      GmailProviderTokens(
+        accessToken: verifiedAccount.tokens.accessToken,
+        refreshToken: verifiedAccount.tokens.refreshToken
+      ),
       productAccountId: session.productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
@@ -449,16 +416,22 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  // swiftlint:disable:next function_body_length
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
-    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    let hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
+    try backgroundContextCacheStore.clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let hasRemainingGmailConnections = try await transport.removeGmailConnection(
       identityToken: session.identityToken,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
+      opaqueConnectionId: opaqueGmailConnectionId(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
       trustedDeviceId: session.trustedDeviceId
     )
     if shouldStopWatch {
@@ -489,13 +462,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       )
     } catch {
       cleanupError = cleanupError ?? error
-    }
-    if !hasRemainingGmailConnections {
-      do {
-        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
     }
     do {
       try metadataStore.clearMessages(
@@ -547,12 +513,29 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     previousTokens: GmailProviderTokens?
   ) async throws -> GmailProviderConnectionStatus {
     do {
-      return try await transport.connectGmailProvider(
+      guard let gmailIdentityToken = verifiedAccount.tokens.idToken else {
+        throw GmailProviderCredentialVerificationError.missingVerificationResponse
+      }
+      let operationalStatus = try await transport.registerGmailConnection(
+        gmailIdentityToken: gmailIdentityToken,
         identityToken: session.identityToken,
-        trustedDeviceId: session.trustedDeviceId,
-        emailAddress: verifiedAccount.emailAddress,
-        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+        opaqueConnectionId: opaqueGmailConnectionId(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+        ),
+        trustedDeviceId: session.trustedDeviceId
       )
+      let status = GmailProviderConnectionStatus(
+        connectedAt: operationalStatus.connectedAt,
+        emailAddress: verifiedAccount.emailAddress,
+        lastVerifiedAt: operationalStatus.lastVerifiedAt,
+        provider: "gmail",
+        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+        trustedDeviceId: operationalStatus.trustedDeviceId,
+        updatedAt: operationalStatus.updatedAt
+      )
+      try pushConnectionStore.save(status, productAccountId: session.productAccountId)
+      return status
     } catch {
       if let previousTokens {
         try tokenStore.save(
@@ -573,10 +556,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
-    let statuses = try await transport.listGmailProviderConnections(
-      identityToken: session.identityToken,
-      trustedDeviceId: session.trustedDeviceId
-    )
+    let statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
     var tokensByIdentifier: [String: GmailProviderTokens] = [:]
     for status in statuses {
       if let tokensForStatus = try tokenStore.load(
@@ -586,19 +566,6 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         tokensByIdentifier[status.providerAccountIdentifier] = tokensForStatus
       }
     }
-    if statuses.count == 1,
-      let status = statuses.first,
-      tokensByIdentifier[status.providerAccountIdentifier] == nil,
-      let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    {
-      try tokenStore.save(
-        legacyTokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: status.providerAccountIdentifier
-      )
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-      return [status]
-    }
     return statuses.filter { status in
       guard status.trustedDeviceId == session.trustedDeviceId else { return false }
       return tokensByIdentifier[status.providerAccountIdentifier] != nil
@@ -606,19 +573,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   }
 }
 extension GmailProviderConnectionService {
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus? {
-    try await loadConnections(session: session).first
-  }
-
   fileprivate func shouldStopPushWatch(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async -> Bool {
     (try? await transport.shouldStopGmailPushWatch(
       identityToken: session.identityToken,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
+      opaqueConnectionId: opaqueGmailConnectionId(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
       trustedDeviceId: session.trustedDeviceId
     )) == true
   }
@@ -866,10 +830,9 @@ private struct GoogleRefreshTokenResponse: Decodable {
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
     private var tokensByConnectionKey: [String: GmailProviderTokens] = [:]
-    private var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
 
     func load(
       productAccountId: String,
@@ -896,41 +859,6 @@ private struct GoogleRefreshTokenResponse: Decodable {
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId):"
       tokensByConnectionKey = tokensByConnectionKey.filter { !$0.key.hasPrefix(prefix) }
-      legacyTokensByProductAccountId[productAccountId] = nil
-    }
-
-    func clearLegacy(productAccountId: String) throws {
-      legacyTokensByProductAccountId[productAccountId] = nil
-    }
-
-    func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
-      legacyTokensByProductAccountId[productAccountId]
-    }
-
-    func saveLegacy(_ tokens: GmailProviderTokens, productAccountId: String) {
-      legacyTokensByProductAccountId[productAccountId] = tokens
-    }
-
-    func load(productAccountId: String) throws -> GmailProviderTokens? {
-      try load(
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
-    }
-
-    func save(_ tokens: GmailProviderTokens, productAccountId: String) throws {
-      try save(
-        tokens,
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
-    }
-
-    func clear(productAccountId: String) throws {
-      try clear(
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
     }
 
     private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {

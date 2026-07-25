@@ -609,6 +609,11 @@ private final class EmptyMailboxService:
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
 
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
   func loadMessageBody(
     message _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
