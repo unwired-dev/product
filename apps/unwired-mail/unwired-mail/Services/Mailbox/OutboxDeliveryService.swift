@@ -252,6 +252,7 @@ actor OutboxDeliveryService {
   private var processingConnectionIds: Set<String> = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
+  private var retryTaskTokens: [UUID: UUID] = [:]
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -478,12 +479,19 @@ actor OutboxDeliveryService {
       task.cancel()
     }
     retryTasks.removeAll()
+    retryTaskTokens.removeAll()
     try store.clear(productAccountId: session.productAccountId)
   }
 
   func waitForScheduledRetries() async -> Bool {
-    guard !Task.isCancelled, let task = retryTasks.values.first else { return false }
-    await task.value
+    guard !Task.isCancelled, !retryTasks.isEmpty else { return false }
+    await withTaskGroup(of: Void.self) { group in
+      for task in retryTasks.values {
+        group.addTask { await task.value }
+      }
+      await group.next()
+      group.cancelAll()
+    }
     return true
   }
 
@@ -645,6 +653,7 @@ actor OutboxDeliveryService {
       attempts[index].firstAttemptAtMilliseconds =
         attempts[index].firstAttemptAtMilliseconds ?? milliseconds(now())
       attempts[index].nextRetryAtMilliseconds = nil
+      attempts[index].reconciliationAttemptCount = 0
       try store.save(attempts, productAccountId: productAccountId)
       let claimedAttempt = attempts[index]
 
@@ -817,11 +826,13 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) {
     retryTasks.removeValue(forKey: attempt.id)?.cancel()
+    let token = UUID()
+    retryTaskTokens[attempt.id] = token
     retryTasks[attempt.id] = Task { [weak self] in
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
-        await self.finishRetry(attempt.id)
+        await self.finishRetry(attempt.id, token: token)
         try await self.process(
           connectionId: attempt.mailboxConnectionId,
           productAccountId: attempt.productAccountId.rawValue,
@@ -829,13 +840,15 @@ actor OutboxDeliveryService {
           reconcile: reconcile
         )
       } catch {
-        await self?.finishRetry(attempt.id)
+        await self?.finishRetry(attempt.id, token: token)
       }
     }
   }
 
-  private func finishRetry(_ attemptId: UUID) {
+  private func finishRetry(_ attemptId: UUID, token: UUID) {
+    guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
+    retryTaskTokens[attemptId] = nil
   }
 
   private func requiredAttempt(
