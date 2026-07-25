@@ -232,6 +232,62 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testExhaustedHandoffClaimFailuresStopRetrying() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      maximumAttempts: 1,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in XCTFail("The failed claim must not deliver.") },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let completed = expectation(description: "retry queue drains")
+    Task {
+      if await service.waitForScheduledRetries() {
+        completed.fulfill()
+      }
+    }
+    await fulfillment(of: [completed], timeout: 1)
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .pending)
+  }
+
+  func testResumeReplacesSleepingRetryWithCurrentCallbacks() async throws {
+    let originalDeliveries = DeliveryCounter()
+    let refreshedDeliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 50_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in await originalDeliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await refreshedDeliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = await service.waitForScheduledRetries()
+
+    let originalDeliveryCount = await originalDeliveries.currentValue()
+    let refreshedDeliveryCount = await refreshedDeliveries.currentValue()
+    XCTAssertEqual(originalDeliveryCount, 0)
+    XCTAssertEqual(refreshedDeliveryCount, 1)
+  }
+
   func testResumeReturnsAfterSchedulingFutureRetry() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let seedService = OutboxDeliveryService(

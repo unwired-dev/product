@@ -376,7 +376,7 @@ actor OutboxDeliveryService {
     where
       attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
     {
-      guard retryTasks[attempt.id] == nil, inFlightRetryTasks[attempt.id] == nil else {
+      guard inFlightRetryTasks[attempt.id] == nil else {
         continue
       }
       let fallbackScheduledAtMilliseconds =
@@ -1036,7 +1036,12 @@ actor OutboxDeliveryService {
         || ((attempt.state == .retrying || attempt.state == .reconciling)
           && (attempt.nextRetryAtMilliseconds == nil
             || attempt.nextRetryAtMilliseconds! <= currentMilliseconds))
-      guard isDue, inFlightRetryTasks[attempt.id] == nil, retryTasks[attempt.id] == nil else {
+      guard
+        isDue,
+        handoffClaimFailureCounts[attempt.id, default: 0] < maximumAttempts,
+        inFlightRetryTasks[attempt.id] == nil,
+        retryTasks[attempt.id] == nil
+      else {
         continue
       }
       scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
