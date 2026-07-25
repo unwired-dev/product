@@ -746,6 +746,9 @@ struct AccountView: View {
       .onChange(of: inboxViewModel.threads) { _, threads in
         handleThreadsChange(threads)
       }
+      .onChange(of: mailActionViewModel.outboxItems) { _, _ in
+        updateProductMailboxState()
+      }
       .onChange(of: mailShellSelection.navigationLevel) { _, _ in
         preferredCompactColumn = mailShellSelection.preferredCompactColumn
       }
@@ -810,6 +813,14 @@ struct AccountView: View {
     .navigationSplitViewStyle(.balanced)
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
+    }
+    .sheet(item: $compositionDraft) { draft in
+      MailShellComposer(
+        connections: gmailViewModel.connections,
+        draft: draft,
+        isSending: mailActionViewModel.isPerformingAction,
+        send: sendNewMessage
+      )
     }
     .alert(
       "Pending message action requires attention",
@@ -1160,6 +1171,21 @@ extension AccountView {
       replyTo: nil,
       connection: connection
     )
+  }
+
+  private func handleThreadsChange(_ threads: [MailboxThread]) {
+    if mailShellSelection.selectedMailbox?.isUnified == true {
+      if let connectionId = inboxViewModel.currentConnectionId {
+        mailShellSelection.updateThreads(threads, for: connectionId)
+      } else {
+        mailShellSelection.replaceUnifiedThreads(
+          threads,
+          connectionIds: Set(gmailViewModel.connections.map(\.id))
+        )
+      }
+    } else if let connectionId = mailShellSelection.selectedConnectionId {
+      mailShellSelection.updateThreads(threads, for: connectionId)
+    }
   }
 
   private func selectConnection(
