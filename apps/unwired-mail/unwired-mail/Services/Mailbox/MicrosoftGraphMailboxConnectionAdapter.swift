@@ -472,7 +472,11 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     while !pendingURLs.isEmpty {
       try Task.checkCancellation()
       let url = pendingURLs.removeFirst()
-      let response: GraphFolderPageResponse = try await get(url, accessToken: accessToken)
+      let response: GraphFolderPageResponse = try await get(
+        url,
+        accessToken: accessToken,
+        preferences: [#"IdType="ImmutableId""#]
+      )
       for graphFolder in response.value {
         let folder = graphFolder.folder
         foldersById[folder.id] = folder
@@ -584,7 +588,8 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     do {
       let response: GraphFolderIdentifierResponse = try await get(
         try requiredURL(components),
-        accessToken: accessToken
+        accessToken: accessToken,
+        preferences: [#"IdType="ImmutableId""#]
       )
       return response.id
     } catch MicrosoftGraphClientError.requestFailed(404) {
@@ -1006,8 +1011,10 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     connectionId: MailboxConnectionId
   ) throws {
     let context = try makeContext()
+    let messageIds = Set(messages.map(\.id))
     let existing = Dictionary(
       uniqueKeysWithValues: try records(
+        matching: messageIds,
         productAccountId: productAccountId,
         connectionId: connectionId,
         context: context
@@ -1094,6 +1101,7 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
   }
 
   private func records(
+    matching messageIds: Set<String>,
     productAccountId: String,
     connectionId: MailboxConnectionId,
     context: ModelContext
@@ -1104,6 +1112,7 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
         predicate: #Predicate {
           $0.productAccountId == productAccountId
             && $0.connectionIdRawValue == connectionIdRawValue
+            && messageIds.contains($0.stableProviderMessageId)
         }
       )
     )
