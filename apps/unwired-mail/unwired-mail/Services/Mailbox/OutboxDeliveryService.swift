@@ -412,7 +412,6 @@ actor OutboxDeliveryService {
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
-    retryTasks.removeValue(forKey: attemptId)?.cancel()
     let replacement = newAttempt(
       message: message,
       connection: connection,
@@ -422,6 +421,7 @@ actor OutboxDeliveryService {
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
     try store.save(attempts, productAccountId: session.productAccountId)
+    retryTasks.removeValue(forKey: attemptId)?.cancel()
     let delay = handoffDelayNanoseconds
     if delay == 0 {
       try await process(

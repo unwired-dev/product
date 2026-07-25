@@ -238,6 +238,51 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(replacement.message.body, "Corrected body")
   }
 
+  func testEditKeepsOriginalScheduledHandoffWhenReplacementCannotBePersisted() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      store: store
+    )
+
+    let queued = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    do {
+      _ = try await service.edit(
+        queued.id,
+        message: OutgoingMessage(
+          body: "Corrected body",
+          recipient: self.message.recipient,
+          subject: self.message.subject
+        ),
+        connection: self.connection,
+        session: self.session,
+        provider: { _, _, _ in await deliveries.increment() },
+        reconcile: { _, _ in .notSent }
+      )
+      XCTFail("Expected replacement persistence to fail")
+    } catch TestOutboxError.persistenceFailed {
+      // The original scheduled handoff must remain active after this failure.
+    } catch {
+      XCTFail("Expected persistence failure, got \(error)")
+    }
+
+    let waitedForRetry = await service.waitForScheduledRetries()
+    let deliveryCount = await deliveries.currentValue()
+    let attempts = try await service.items(session: session)
+
+    XCTAssertTrue(waitedForRetry)
+    XCTAssertEqual(deliveryCount, 1)
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
   func testRetryLimitStopsTransientDelivery() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
