@@ -768,7 +768,8 @@ extension MailboxMessageMetadata {
       replyTo: replyTo,
       rfcMessageId: rfcMessageId,
       snippet: snippet,
-      subject: subject
+      subject: subject,
+      bccRecipients: bccRecipients
     )
   }
 }
