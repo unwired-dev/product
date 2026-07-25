@@ -75,9 +75,9 @@ final class ProductAccountSession {
       case .notAuthorized:
         try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
-          try sessionStore.clear()
           do {
             try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+            try sessionStore.clear()
             state = .signedOut
           } catch {
             state = .failed(error.localizedDescription)
@@ -146,7 +146,6 @@ final class ProductAccountSession {
       guard refreshedSnapshot == snapshot else { return }
     }
     do {
-      try sessionStore.clear()
       var mailboxCleanupError: Error?
       if let snapshot {
         do {
@@ -155,11 +154,16 @@ final class ProductAccountSession {
           mailboxCleanupError = error
         }
       }
+      if let mailboxCleanupError {
+        state = .failed(mailboxCleanupError.localizedDescription)
+        return
+      }
+      try sessionStore.clear()
       guard
         currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
         (try? sessionStore.load()) == nil
       else { return }
-      state = mailboxCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
+      state = .signedOut
     } catch {
       state = .failed(error.localizedDescription)
     }

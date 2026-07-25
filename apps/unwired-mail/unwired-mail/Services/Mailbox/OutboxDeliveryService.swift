@@ -42,7 +42,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
   let idempotencyKey: String
   var lastErrorDescription: String?
-  let message: OutgoingMessage
+  var message: OutgoingMessage
   var nextRetryAtMilliseconds: Int64?
   var notSentConfirmationCount: Int? = .none
   let productAccountId: ProductAccountId
@@ -262,6 +262,7 @@ actor OutboxDeliveryService {
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
+  private let terminalAttemptRetentionLimit = 100
   private let store: OutboxDeliveryPersisting
 
   init(
@@ -412,7 +413,7 @@ actor OutboxDeliveryService {
     attempts[index].state = .superseded
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
-    try store.save(attempts, productAccountId: session.productAccountId)
+    try store.save(redactingTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
     let delay = handoffDelayNanoseconds
     if delay == 0 {
@@ -500,6 +501,38 @@ actor OutboxDeliveryService {
     retryTasks.removeAll()
     retryTaskTokens.removeAll()
     try store.clear(productAccountId: session.productAccountId)
+  }
+
+  func clear(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    guard connection.productAccountId.rawValue == session.productAccountId else {
+      throw OutboxDeliveryError.productAccountMismatch
+    }
+    for attemptId in retryTasks.compactMap({ attemptId, _ in
+      let attempt = try? requiredAttempt(
+        attemptId,
+        productAccountId: session.productAccountId
+      )
+      return attempt?.connectionId == connection.id ? attemptId : nil
+    }) {
+      retryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTaskTokens.removeValue(forKey: attemptId)
+    }
+    for attemptId in inFlightRetryTasks.compactMap({ attemptId, _ in
+      let attempt = try? requiredAttempt(
+        attemptId,
+        productAccountId: session.productAccountId
+      )
+      return attempt?.connectionId == connection.id ? attemptId : nil
+    }) {
+      inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
+      inFlightRetryTaskTokens.removeValue(forKey: attemptId)
+    }
+    let attempts = try store.load(productAccountId: session.productAccountId)
+      .filter { $0.connectionId != connection.id }
+    try store.save(redactingTerminalAttempts(attempts), productAccountId: session.productAccountId)
   }
 
   func waitForScheduledRetries() async -> Bool {
@@ -988,7 +1021,26 @@ actor OutboxDeliveryService {
     attempts[index].state = state
     attempts[index].lastErrorDescription = errorDescription
     attempts[index].nextRetryAtMilliseconds = nil
-    try store.save(attempts, productAccountId: productAccountId)
+    try store.save(redactingTerminalAttempts(attempts), productAccountId: productAccountId)
+  }
+
+  private func redactingTerminalAttempts(
+    _ attempts: [OutgoingDeliveryAttempt]
+  ) -> [OutgoingDeliveryAttempt] {
+    let retainedTerminalAttemptIds = Set(
+      attempts
+        .filter { !$0.state.isActionable }
+        .sorted { $0.createdAtMilliseconds < $1.createdAtMilliseconds }
+        .suffix(terminalAttemptRetentionLimit)
+        .map(\.id)
+    )
+    return attempts.compactMap { attempt in
+      guard !attempt.state.isActionable else { return attempt }
+      guard retainedTerminalAttemptIds.contains(attempt.id) else { return nil }
+      var redactedAttempt = attempt
+      redactedAttempt.message = OutgoingMessage(body: "", recipient: "", subject: "")
+      return redactedAttempt
+    }
   }
 
   private func validate(

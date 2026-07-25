@@ -1167,6 +1167,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let pendingActionService: PendingProviderActionService
+  private let outboxService: OutboxDeliveryService
   private let searchService: GmailMessageSearching
   private let syncGate: MailboxConnectionSyncGate
 
@@ -1181,6 +1182,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
+    outboxService: OutboxDeliveryService = .shared,
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
@@ -1193,6 +1195,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.pendingActionService = pendingActionService
+    self.outboxService = outboxService
     self.searchService = searchService
     self.syncGate = syncGate
   }
@@ -1206,6 +1209,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await pendingActionService.clear(session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(session: session)
     } catch {
       firstError = firstError ?? error
     }
@@ -1229,6 +1237,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     do {
       try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
     } catch {
       firstError = firstError ?? error
     }
@@ -1326,6 +1339,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       try await connectionService.clearLocalConnection(localStatus, session: session)
       try await pendingActionService.clear(connection: removedConnection, session: session)
+      try await outboxService.clear(connection: removedConnection, session: session)
     }
     var definitions = snapshot.connections
     if usedCachedSnapshot {
@@ -1388,6 +1402,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
     try await pendingActionService.clear(connection: connection, session: session)
+    try await outboxService.clear(connection: connection, session: session)
   }
 
   func setDefaultSendingConnection(

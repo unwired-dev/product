@@ -6040,6 +6040,7 @@ private struct GmailInboxPanel: View {
       syncTask?.cancel()
       mailActionViewModel.clearError()
       replyToMessage = nil
+      isReplyOrForward = false
       recipient = ""
       subject = ""
       composeBody = ""

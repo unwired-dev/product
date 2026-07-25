@@ -101,6 +101,47 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testClearConnectionRemovesOnlyThatConnectionsQueuedAttempts() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    try await service.clear(connection: connection, session: session)
+
+    XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testTerminalAttemptsRedactMessageContent() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+
+    let attempt = try await service.items(session: session).first
+    XCTAssertEqual(attempt?.state, .sent)
+    XCTAssertEqual(attempt?.message.body, "")
+    XCTAssertEqual(attempt?.message.recipient, "")
+    XCTAssertEqual(attempt?.message.subject, "")
+  }
+
   func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
     let deliveries = DeliveryCounter()
