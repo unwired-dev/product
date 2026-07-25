@@ -1079,10 +1079,11 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     let context = try makeContext()
     guard
       let record = try records(
+        matching: [messageId],
         productAccountId: productAccountId,
         connectionId: connectionId,
         context: context
-      ).first(where: { $0.stableProviderMessageId == messageId })
+      ).first
     else { throw MicrosoftGraphClientError.invalidProviderResponse }
     var message = try record.message()
     message.categoryId = categoryId
@@ -1098,6 +1099,22 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
 
   private func makeContext() throws -> ModelContext {
     try ModelContext(containerResult.get())
+  }
+
+  private func records(
+    productAccountId: String,
+    connectionId: MailboxConnectionId,
+    context: ModelContext
+  ) throws -> [DurableMicrosoftGraphMessageRecord] {
+    let connectionIdRawValue = connectionId.rawValue
+    return try context.fetch(
+      FetchDescriptor<DurableMicrosoftGraphMessageRecord>(
+        predicate: #Predicate {
+          $0.productAccountId == productAccountId
+            && $0.connectionIdRawValue == connectionIdRawValue
+        }
+      )
+    )
   }
 
   private func records(
@@ -2042,12 +2059,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
     let connection = try await connection(id: message.connectionId, session: session)
-    return try metadataService.overrideCategory(
-      categoryId,
-      message: message,
-      connection: connection,
-      productAccountId: session.productAccountId
-    )
+    return try await syncGate.withLock(connection.id) {
+      try metadataService.overrideCategory(
+        categoryId,
+        message: message,
+        connection: connection,
+        productAccountId: session.productAccountId
+      )
+    }
   }
 
   func searchProvider(
