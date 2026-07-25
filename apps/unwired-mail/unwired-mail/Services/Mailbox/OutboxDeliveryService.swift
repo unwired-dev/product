@@ -44,8 +44,10 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var lastErrorDescription: String?
   let message: OutgoingMessage
   var nextRetryAtMilliseconds: Int64?
+  var notSentConfirmationCount: Int? = .none
   let productAccountId: ProductAccountId
   var reconciliationAttemptCount: Int
+  var reconciliationPausedForAuthorization: Bool? = .none
   var state: OutgoingDeliveryState
 
   var mailboxConnectionId: MailboxConnectionId {
@@ -448,6 +450,25 @@ actor OutboxDeliveryService {
     guard prior.state == .failed || prior.state == .userActionRequired else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
+    if prior.state == .userActionRequired, prior.reconciliationPausedForAuthorization == true {
+      try validate(connection: connection, session: session)
+      var attempts = try store.load(productAccountId: session.productAccountId)
+      guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else {
+        throw OutboxDeliveryError.attemptCannotBeChanged
+      }
+      attempts[index].state = .reconciling
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
+      attempts[index].reconciliationPausedForAuthorization = nil
+      try store.save(attempts, productAccountId: session.productAccountId)
+      try await process(
+        connectionId: connection.id,
+        productAccountId: session.productAccountId,
+        provider: provider,
+        reconcile: reconcile
+      )
+      return try requiredAttempt(attemptId, productAccountId: session.productAccountId)
+    }
     return try await edit(
       attemptId,
       message: prior.message,
@@ -542,10 +563,10 @@ actor OutboxDeliveryService {
     if let connection {
       try validate(connection: connection, session: session)
     }
-    retryTasks.removeValue(forKey: attemptId)?.cancel()
     attempts[index].state = replacementState
     attempts[index].nextRetryAtMilliseconds = nil
     try store.save(attempts, productAccountId: session.productAccountId)
+    retryTasks.removeValue(forKey: attemptId)?.cancel()
     return attempts[index]
   }
 
@@ -569,6 +590,7 @@ actor OutboxDeliveryService {
             || $0.nextRetryAtMilliseconds! <= currentMilliseconds)
       }
       for attempt in dueAttempts {
+        guard inFlightRetryTasks[attempt.id] == nil else { continue }
         scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
       }
       return
@@ -611,7 +633,7 @@ actor OutboxDeliveryService {
               errorDescription: nil
             )
           case .notSent:
-            if reconcilingAttempt.reconciliationAttemptCount > 0 {
+            if (reconcilingAttempt.notSentConfirmationCount ?? 0) > 0 {
               try handleTransientFailure(
                 attemptId,
                 error: OutboxDeliveryError.deliveryNotConfirmed,
@@ -639,6 +661,12 @@ actor OutboxDeliveryService {
           }
         } catch {
           if case .userActionRequired = failureDisposition(error) {
+            attempts = try store.load(productAccountId: productAccountId)
+            guard let refreshedIndex = attempts.firstIndex(where: { $0.id == attemptId }) else {
+              return
+            }
+            attempts[refreshedIndex].reconciliationPausedForAuthorization = true
+            try store.save(attempts, productAccountId: productAccountId)
             try update(
               attemptId,
               productAccountId: productAccountId,
@@ -672,6 +700,8 @@ actor OutboxDeliveryService {
         attempts[index].firstAttemptAtMilliseconds ?? milliseconds(now())
       attempts[index].nextRetryAtMilliseconds = nil
       attempts[index].reconciliationAttemptCount = 0
+      attempts[index].notSentConfirmationCount = nil
+      attempts[index].reconciliationPausedForAuthorization = nil
       do {
         try store.save(attempts, productAccountId: productAccountId)
       } catch {
@@ -814,6 +844,10 @@ actor OutboxDeliveryService {
     var attempts = try store.load(productAccountId: productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
     attempts[index].reconciliationAttemptCount += 1
+    if error as? OutboxDeliveryError == .deliveryNotConfirmed {
+      attempts[index].notSentConfirmationCount =
+        (attempts[index].notSentConfirmationCount ?? 0) + 1
+    }
     guard
       attempts[index].reconciliationAttemptCount < maximumAttempts,
       !retryAgeLimitReached(attempts[index])

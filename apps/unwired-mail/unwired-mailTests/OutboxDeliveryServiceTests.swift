@@ -491,6 +491,48 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertNil(attempts.first?.nextRetryAtMilliseconds)
   }
 
+  func testRetryResumesPausedReconciliationWithOriginalIdempotencyKey() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    let seeded = try await seedService.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      reconcile: { _, _ in .notSent }
+    )
+    var persisted = try store.load(productAccountId: session.productAccountId)
+    persisted[0].state = .handingOff
+    try store.save(persisted, productAccountId: session.productAccountId)
+
+    let service = OutboxDeliveryService(
+      failureDisposition: { _ in .userActionRequired },
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    try await service.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in throw TestOutboxError.deliveryRejected }
+    )
+
+    let retried = try await service.retry(
+      seeded.id,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in XCTFail("Retry must reconcile before sending.") },
+      reconcile: { _, _ in .sent }
+    )
+
+    XCTAssertEqual(retried.id, seeded.id)
+    XCTAssertEqual(retried.idempotencyKey, seeded.idempotencyKey)
+    XCTAssertEqual(retried.state, .sent)
+  }
+
   func testRestartDoesNotSendRetryAfterMaximumAge() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))

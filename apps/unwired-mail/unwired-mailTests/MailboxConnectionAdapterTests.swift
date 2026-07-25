@@ -1486,6 +1486,31 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailShellReplyAllDoesNotExposeLegacyBccOrSenderAliases() {
+    let message = MailboxMessageMetadata(
+      categoryId: nil,
+      connectionId: adapterConnectionId,
+      from: "Sender Alias <sender+alias@example.com>",
+      isHistorical: false,
+      providerInternalDateMilliseconds: 100,
+      providerMessageId: "message-legacy",
+      providerStateIds: ["SENT"],
+      providerThreadId: "thread-legacy",
+      recipientHeaders: ["sender+alias@example.com, hidden@example.com, teammate@example.com"],
+      replyTo: "sender@example.com",
+      rfcMessageId: "<message-legacy@example.com>",
+      snippet: "Legacy message",
+      subject: "Legacy subject"
+    )
+
+    let draft = MailShellCompositionDraft.replyAll(
+      to: message,
+      senderAddress: "sender@example.com"
+    )
+
+    XCTAssertEqual(draft.recipient, "sender@example.com")
+  }
+
   func testNewMessageKeepsUnavailableDefaultSendingConnectionWithoutSubstitution() {
     let unavailableDefault = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(

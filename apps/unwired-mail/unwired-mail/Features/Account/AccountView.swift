@@ -1945,13 +1945,19 @@ struct MailShellCompositionDraft: Identifiable {
     to message: MailboxMessageMetadata,
     senderAddress: String
   ) -> MailShellCompositionDraft {
+    let senderAliases = Set(
+      mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
+        + [senderAddress.lowercased()]
+    )
     let candidates =
       [message.replyTo ?? message.from].compactMap(\.self)
-      + (message.recipientHeaders ?? []).flatMap(mailboxValues)
+      + (message.bccRecipients == nil
+        ? []
+        : (message.recipientHeaders ?? []).flatMap(mailboxValues))
     var seenAddresses: Set<String> = []
     let recipients = candidates.filter { address in
       let normalizedAddress = normalizedMailboxAddress(address)
-      guard !normalizedAddress.isEmpty, normalizedAddress != senderAddress.lowercased() else {
+      guard !normalizedAddress.isEmpty, !senderAliases.contains(normalizedAddress) else {
         return false
       }
       return seenAddresses.insert(normalizedAddress).inserted
