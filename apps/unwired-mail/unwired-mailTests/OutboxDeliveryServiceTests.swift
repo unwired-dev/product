@@ -225,6 +225,62 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testRestartReconcilesProviderSuccessWhenPersistingSentStateFails() async throws {
+    let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+
+    do {
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in },
+        reconcile: { _, _ in .notSent }
+      )
+      XCTFail("Persisting successful delivery should fail.")
+    } catch TestOutboxError.persistenceFailed {}
+
+    let deliveries = DeliveryCounter()
+    let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .sent }
+    )
+
+    let deliveryCount = await deliveries.currentValue()
+    let attempts = try await restartedService.items(session: session)
+    XCTAssertEqual(deliveryCount, 0)
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
+  func testWaitingForScheduledRetryCompletesAfterDeliveryStateIsStored() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    let waited = await service.waitForScheduledRetries()
+
+    let attempts = try await service.items(session: session)
+    XCTAssertTrue(waited)
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
   func testTemporaryReconciliationFailureRetriesConfirmationWithoutResending() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
@@ -474,6 +530,30 @@ private final class InMemoryOutboxDeliveryStore:
 
 private enum TestOutboxError: Error {
   case deliveryRejected
+  case persistenceFailed
+}
+
+private final class FailingOutboxDeliveryStore: OutboxDeliveryPersisting, @unchecked Sendable {
+  private let backingStore = InMemoryOutboxDeliveryStore()
+  private let failingSaveNumber: Int
+  private var saveCount = 0
+
+  init(failingSaveNumber: Int) {
+    self.failingSaveNumber = failingSaveNumber
+  }
+
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    try backingStore.load(productAccountId: productAccountId)
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId: String
+  ) throws {
+    saveCount += 1
+    guard saveCount != failingSaveNumber else { throw TestOutboxError.persistenceFailed }
+    try backingStore.save(attempts, productAccountId: productAccountId)
+  }
 }
 
 private actor DeliveryCounter {

@@ -665,12 +665,6 @@ actor OutboxDeliveryService {
           claimedAttempt.idempotencyKey,
           claimedAttempt.mailboxConnectionId
         )
-        try update(
-          attemptId,
-          productAccountId: productAccountId,
-          state: .sent,
-          errorDescription: nil
-        )
       } catch is CancellationError {
         try update(
           attemptId,
@@ -747,7 +741,14 @@ actor OutboxDeliveryService {
             errorDescription: error.localizedDescription
           )
         }
+        continue
       }
+      try update(
+        attemptId,
+        productAccountId: productAccountId,
+        state: .sent,
+        errorDescription: nil
+      )
     }
   }
 
@@ -834,13 +835,13 @@ actor OutboxDeliveryService {
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
-        await self.finishRetry(attempt.id, token: token)
         try await self.process(
           connectionId: attempt.mailboxConnectionId,
           productAccountId: attempt.productAccountId.rawValue,
           provider: provider,
           reconcile: reconcile
         )
+        await self.finishRetry(attempt.id, token: token)
       } catch {
         await self?.finishRetry(attempt.id, token: token)
       }
