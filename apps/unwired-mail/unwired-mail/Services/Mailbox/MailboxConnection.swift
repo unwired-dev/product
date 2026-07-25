@@ -262,7 +262,9 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.sent):
       return states.contains("SENT")
     case .role(.archive):
-      return !states.contains(where: { $0.hasPrefix("imap-mailbox:") })
+      return !states.contains(where: {
+        $0.hasPrefix("imap-mailbox:") || $0.hasPrefix("graph-folder:")
+      })
         && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
       return states.contains("SPAM")
@@ -1156,7 +1158,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
     case .unsupportedCapability:
       return "This Mailbox Connection does not support that operation yet."
     case .unexpectedAuthorizedAccount:
-      return "Sign in to the Google account for the selected Mailbox Connection."
+      return "Sign in to the account for the selected Mailbox Connection."
     case .productAccountMismatch:
       return "The mailbox connection does not belong to the current Product Account."
     case .providerMailboxTargetRequired:

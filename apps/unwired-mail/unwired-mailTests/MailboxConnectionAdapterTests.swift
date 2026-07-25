@@ -226,13 +226,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connectionService: connectionService,
       definitionSyncService: definitionSyncService
     )
-    let viewModel = GmailProviderConnectionViewModel(
+    let viewModel = MailboxProviderConnectionViewModel(
       service: adapter,
       isSessionCurrent: { $0 == self.session },
       session: session
     )
 
-    await viewModel.load()
+    _ = await viewModel.load()
 
     XCTAssertEqual(viewModel.selectedConnectionId, adapterConnectionId)
     XCTAssertEqual(viewModel.connection?.authorizationState, .required)
@@ -274,13 +274,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connectionService: connectionService,
       definitionSyncService: definitionSyncService
     )
-    let viewModel = GmailProviderConnectionViewModel(
+    let viewModel = MailboxProviderConnectionViewModel(
       service: adapter,
       isSessionCurrent: { $0 == self.session },
       session: session
     )
 
-    await viewModel.load()
+    _ = await viewModel.load()
 
     XCTAssertEqual(
       viewModel.selectedConnectionId,
@@ -292,13 +292,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     definitionSyncService.loadError = AdapterTestError.unavailable
     let adapter = GmailMailboxConnectionAdapter(definitionSyncService: definitionSyncService)
-    let viewModel = GmailProviderConnectionViewModel(
+    let viewModel = MailboxProviderConnectionViewModel(
       service: adapter,
       isSessionCurrent: { $0 == self.session },
       session: session
     )
 
-    await viewModel.load()
+    _ = await viewModel.load()
 
     XCTAssertTrue(viewModel.connections.isEmpty)
     XCTAssertNotNil(viewModel.errorMessage)

@@ -13,6 +13,7 @@ enum ProductAccountSessionState: Equatable {
 final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
+  private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
   private let productAccountService: ProductAccountConnecting
@@ -139,6 +140,8 @@ final class ProductAccountSession {
   }
 
   func signOut() async {
+    isSigningOut = true
+    defer { isSigningOut = false }
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
@@ -178,7 +181,7 @@ final class ProductAccountSession {
   }
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
-    currentSignedInSnapshot() == snapshot
+    !isSigningOut && currentSignedInSnapshot() == snapshot
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(

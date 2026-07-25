@@ -645,7 +645,8 @@ struct AccountView: View {
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
-  @State private var gmailViewModel: GmailProviderConnectionViewModel
+  @State private var gmailViewModel: MailboxProviderConnectionViewModel
+  @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadTask: Task<Void, Never>?
@@ -692,8 +693,15 @@ struct AccountView: View {
       )
     )
     _gmailViewModel = State(
-      initialValue: GmailProviderConnectionViewModel(
+      initialValue: MailboxProviderConnectionViewModel(
         service: mailboxConnection,
+        isSessionCurrent: { session.isCurrent($0) },
+        session: snapshot
+      )
+    )
+    _microsoftGraphViewModel = State(
+      initialValue: MailboxProviderConnectionViewModel(
+        service: MicrosoftGraphMailboxConnectionAdapter(),
         isSessionCurrent: { session.isCurrent($0) },
         session: snapshot
       )
@@ -1182,6 +1190,7 @@ extension AccountView {
     collection: MailboxMessageCollection = .role(.inbox)
   ) {
     gmailViewModel.selectedConnectionId = connection.id
+    microsoftGraphViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
@@ -1260,6 +1269,19 @@ extension AccountView {
             viewModel: gmailViewModel,
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
             selectMailbox: { selectConnection($0) }
+          )
+
+          MicrosoftGraphConnectionPanel(
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+            connectionsDidChange: {
+              Task {
+                _ = await gmailViewModel.load()
+              }
+            },
+            connectionDidConnect: { selectConnection($0) },
+            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
+            selectMailbox: { selectConnection($0) },
+            viewModel: microsoftGraphViewModel
           )
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
@@ -5021,7 +5043,7 @@ final class GmailInboxViewModel {
 
 @MainActor
 @Observable
-final class GmailProviderConnectionViewModel {
+final class MailboxProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
   var defaultSendingConnectionId: MailboxConnectionId?
   var errorMessage: String?
@@ -5100,8 +5122,8 @@ final class GmailProviderConnectionViewModel {
     }
   }
 
-  func connect(expectedConnection: MailboxConnection? = nil) async {
-    guard canConnect else { return }
+  func connect(expectedConnection: MailboxConnection? = nil) async -> MailboxConnection? {
+    guard canConnect else { return nil }
 
     isConnecting = true
     defer {
@@ -5119,11 +5141,13 @@ final class GmailProviderConnectionViewModel {
         try await refreshConnections()
         selectedConnectionId = connected.id
         await refreshPushWatch(connection: connected)
+        return connected
       }
     } catch is CancellationError {
     } catch {
       errorMessage = error.localizedDescription
     }
+    return nil
   }
 
   func renewPushWatch() async {
@@ -5515,36 +5539,117 @@ private struct NotificationRulePanel: View {
 
 private struct GmailProviderConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
-  @Bindable var viewModel: GmailProviderConnectionViewModel
+  @Bindable var viewModel: MailboxProviderConnectionViewModel
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
+
+  var body: some View {
+    MailboxProviderConnectionPanel(
+      cancelBodyPrefetch: cancelBodyPrefetch,
+      configuration: .gmail,
+      isMailboxBusy: isMailboxBusy,
+      selectMailbox: selectMailbox,
+      viewModel: viewModel
+    )
+  }
+}
+
+private struct MicrosoftGraphConnectionPanel: View {
+  let cancelBodyPrefetch: () async -> Void
+  let connectionsDidChange: () -> Void
+  let connectionDidConnect: (MailboxConnection) -> Void
+  let isMailboxBusy: Bool
+  let selectMailbox: (MailboxConnection) -> Void
+  @Bindable var viewModel: MailboxProviderConnectionViewModel
+
+  var body: some View {
+    MailboxProviderConnectionPanel(
+      cancelBodyPrefetch: cancelBodyPrefetch,
+      configuration: .microsoftGraph,
+      connectionsDidChange: connectionsDidChange,
+      connectionDidConnect: connectionDidConnect,
+      isMailboxBusy: isMailboxBusy,
+      selectMailbox: selectMailbox,
+      viewModel: viewModel
+    )
+  }
+}
+
+private struct MailboxProviderConnectionPanel: View {
+  struct Configuration {
+    let allowsDefaultSender: Bool
+    let connectingTitle: String
+    let emptyConnectTitle: String
+    let loadingTitle: String
+    let loadsOnAppear: Bool
+    let otherConnectTitle: String
+    let providerId: MailProviderId
+    let removingTitle: String
+    let showsProviderIdentity: Bool
+    let showsPushStatus: Bool
+    let title: String
+
+    static let gmail = Configuration(
+      allowsDefaultSender: true,
+      connectingTitle: "Connecting Gmail...",
+      emptyConnectTitle: "Sign in with Google",
+      loadingTitle: "Loading Gmail...",
+      loadsOnAppear: false,
+      otherConnectTitle: "Connect another Gmail",
+      providerId: .gmail,
+      removingTitle: "Removing Gmail...",
+      showsProviderIdentity: true,
+      showsPushStatus: true,
+      title: "Gmail"
+    )
+
+    static let microsoftGraph = Configuration(
+      allowsDefaultSender: false,
+      connectingTitle: "Connecting Microsoft mailbox...",
+      emptyConnectTitle: "Sign in with Microsoft",
+      loadingTitle: "Loading Microsoft mailboxes...",
+      loadsOnAppear: true,
+      otherConnectTitle: "Connect another Microsoft mailbox",
+      providerId: .microsoftGraph,
+      removingTitle: "Removing Microsoft mailbox...",
+      showsProviderIdentity: false,
+      showsPushStatus: false,
+      title: "Microsoft 365"
+    )
+  }
+
+  let cancelBodyPrefetch: () async -> Void
+  let configuration: Configuration
+  var connectionsDidChange: () -> Void = {}
+  var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
+  let isMailboxBusy: Bool
+  let selectMailbox: (MailboxConnection) -> Void
+  @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
+
+  private var connections: [MailboxConnection] {
+    viewModel.connections.filter { $0.id.providerId == configuration.providerId }
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
       HStack {
         VStack(alignment: .leading, spacing: 4) {
-          Text("Gmail")
+          Text(configuration.title)
             .font(.headline)
-          if viewModel.connections.isEmpty {
-            Text("Not connected")
-              .font(.subheadline)
-              .foregroundStyle(.secondary)
-          } else {
-            Text(
-              "\(viewModel.connections.count) mailbox connection\(viewModel.connections.count == 1 ? "" : "s")"
-            )
-            .font(.subheadline)
-            .foregroundStyle(.secondary)
-          }
+          Text(
+            connections.isEmpty
+              ? "Not connected"
+              : "\(connections.count) mailbox connection\(connections.count == 1 ? "" : "s")"
+          )
+          .font(.subheadline)
+          .foregroundStyle(.secondary)
         }
 
         Spacer()
 
         Button {
-          Task {
-            await viewModel.load()
-          }
+          Task { _ = await viewModel.load() }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
@@ -5552,7 +5657,7 @@ private struct GmailProviderConnectionPanel: View {
         .disabled(viewModel.isEditingDisabled)
       }
 
-      ForEach(viewModel.connections.filter { $0.id.providerId == .gmail }) { connection in
+      ForEach(connections) { connection in
         HStack {
           Button {
             selectMailbox(connection)
@@ -5563,9 +5668,11 @@ private struct GmailProviderConnectionPanel: View {
                 systemImage: viewModel.connection?.id == connection.id
                   ? "checkmark.circle.fill" : "circle"
               )
-              Text(connection.providerMailboxIdentity.value)
-                .font(.caption)
-                .foregroundStyle(.secondary)
+              if configuration.showsProviderIdentity {
+                Text(connection.providerMailboxIdentity.value)
+                  .font(.caption)
+                  .foregroundStyle(.secondary)
+              }
               Text(
                 connection.authorizationState == .authorized
                   ? "Authorized on this device" : "Authorization required on this device"
@@ -5574,7 +5681,9 @@ private struct GmailProviderConnectionPanel: View {
               .foregroundStyle(
                 connection.authorizationState == .authorized ? Color.secondary : Color.orange
               )
-              if viewModel.defaultSendingConnectionId == connection.id {
+              if configuration.allowsDefaultSender,
+                viewModel.defaultSendingConnectionId == connection.id
+              {
                 Label("Default sender", systemImage: "paperplane.fill")
                   .font(.caption)
                   .foregroundStyle(.secondary)
@@ -5590,17 +5699,20 @@ private struct GmailProviderConnectionPanel: View {
                 viewModel.selectedConnectionId = connection.id
                 connectTask?.cancel()
                 connectTask = Task {
-                  await viewModel.connect(expectedConnection: connection)
+                  if let connected = await viewModel.connect(expectedConnection: connection) {
+                    connectionDidConnect(connected)
+                  }
                 }
               }
             } else {
-              Button("Set as Default Sending Connection") {
-                Task {
-                  await viewModel.setDefaultSendingConnection(connection)
+              if configuration.allowsDefaultSender {
+                Button("Set as Default Sending Connection") {
+                  Task {
+                    await viewModel.setDefaultSendingConnection(connection)
+                  }
                 }
+                .disabled(viewModel.defaultSendingConnectionId == connection.id)
               }
-              .disabled(viewModel.defaultSendingConnectionId == connection.id)
-
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
                   await cancelBodyPrefetch()
@@ -5626,11 +5738,14 @@ private struct GmailProviderConnectionPanel: View {
       Button {
         connectTask?.cancel()
         connectTask = Task {
-          await viewModel.connect()
+          if let connected = await viewModel.connect() {
+            connectionDidConnect(connected)
+          }
         }
       } label: {
         Label(
-          viewModel.connections.isEmpty ? "Sign in with Google" : "Connect another Gmail",
+          connections.isEmpty
+            ? configuration.emptyConnectTitle : configuration.otherConnectTitle,
           systemImage: "person.crop.circle.badge.checkmark"
         )
         .frame(minHeight: 32)
@@ -5643,10 +5758,11 @@ private struct GmailProviderConnectionPanel: View {
       {
         ProgressView(
           viewModel.isConnecting
-            ? "Connecting Gmail..."
+            ? configuration.connectingTitle
             : (viewModel.isRemoving
-              ? "Removing Gmail..."
-              : (viewModel.isRenewingPushWatch ? "Renewing Gmail push..." : "Loading Gmail..."))
+              ? configuration.removingTitle
+              : (viewModel.isRenewingPushWatch
+                ? "Renewing Gmail push..." : configuration.loadingTitle))
         )
       }
 
@@ -5656,11 +5772,18 @@ private struct GmailProviderConnectionPanel: View {
           .font(.footnote)
       }
 
-      if let pushStatusMessage = viewModel.pushStatusMessage {
+      if configuration.showsPushStatus, let pushStatusMessage = viewModel.pushStatusMessage {
         Text(pushStatusMessage)
           .foregroundStyle(.orange)
           .font(.footnote)
       }
+    }
+    .task {
+      guard configuration.loadsOnAppear else { return }
+      _ = await viewModel.load()
+    }
+    .onChange(of: viewModel.connections) { _, _ in
+      connectionsDidChange()
     }
     .onDisappear {
       connectTask?.cancel()

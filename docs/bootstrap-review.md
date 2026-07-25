@@ -132,9 +132,11 @@ Apple development:
 
 - `CONVEX_URL`: Convex site or client URL used by debug builds to call backend functions.
 - `GMAIL_OAUTH_CLIENT_ID`: Google iOS OAuth client ID used by the Apple app's PKCE sign-in flow and to validate Gmail refresh tokens before storing device-held provider credentials.
+- `MICROSOFT_GRAPH_CLIENT_ID`: Microsoft public-client application ID used by the Apple app's PKCE sign-in flow.
 
 The Apple app should read `CONVEX_URL` from an untracked local Xcode configuration file or scheme environment during development. Do not commit developer-specific deployment URLs or secrets.
 The Apple app may read `GMAIL_OAUTH_CLIENT_ID` from the same untracked local configuration during development. Release-style builds should set the app target's `GMAIL_OAUTH_CLIENT_ID` build setting so the non-secret client ID is bundled in Info.plist. The client ID must use Google's iOS application type and match the app bundle identifier. Never ship or commit Gmail OAuth client secrets.
+The Apple app may read `MICROSOFT_GRAPH_CLIENT_ID` from the same untracked local configuration during development. Release-style builds should set it and `MICROSOFT_GRAPH_CALLBACK_SCHEME` in the app target so the non-secret client ID and registered callback scheme are bundled in Info.plist. Never ship or commit Microsoft OAuth client secrets.
 
 Not required for the smoke path:
 
