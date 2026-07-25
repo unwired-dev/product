@@ -59,6 +59,7 @@ final class DotEnvFileTests: XCTestCase {
       CONVEX_URL=https://example.convex.cloud
       GMAIL_OAUTH_CLIENT_ID=client-id.apps.googleusercontent.com
       GMAIL_PUBSUB_TOPIC=projects/example/topics/gmail-push
+      MICROSOFT_GRAPH_CLIENT_ID=microsoft-client-id
       APNS_PRIVATE_KEY=backend-secret
       GMAIL_PUSH_VERIFICATION_TOKEN=backend-secret
       """
@@ -70,6 +71,7 @@ final class DotEnvFileTests: XCTestCase {
         "CONVEX_URL": "https://example.convex.cloud",
         "GMAIL_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
         "GMAIL_PUBSUB_TOPIC": "projects/example/topics/gmail-push",
+        "MICROSOFT_GRAPH_CLIENT_ID": "microsoft-client-id",
       ]
     )
   }

@@ -12,9 +12,19 @@
 				<string>$(GMAIL_OAUTH_CALLBACK_SCHEME)</string>
 			</array>
 		</dict>
+		<dict>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
+			</array>
+		</dict>
 	</array>
 	<key>GmailPubSubTopic</key>
 	<string>$(GMAIL_PUBSUB_TOPIC)</string>
+	<key>MicrosoftGraphCallbackScheme</key>
+	<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
+	<key>MicrosoftGraphClientId</key>
+	<string>$(MICROSOFT_GRAPH_CLIENT_ID)</string>
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>

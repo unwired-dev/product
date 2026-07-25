@@ -25,6 +25,7 @@ enum DotEnvFile {
       "CONVEX_URL",
       "GMAIL_OAUTH_CLIENT_ID",
       "GMAIL_PUBSUB_TOPIC",
+      "MICROSOFT_GRAPH_CLIENT_ID",
     ]
 
     static func loadDefaultsIfPresent() {
