@@ -21,6 +21,7 @@ struct GmailMessageMetadata: Codable, Equatable, Identifiable {
   let stableProviderMessageId: String
   let subject: String
   var recipientHeaders: [String]? = .none
+  var bccRecipients: [String]? = .none
   let rfcMessageId: String?
 }
 
@@ -343,6 +344,7 @@ enum GmailProviderMailAction: Equatable {
 struct GmailOutgoingMessage: Equatable {
   let body: String
   let recipient: String
+  let rfcMessageId: String?
   let subject: String
   let inReplyTo: String?
   let threadId: String?
@@ -352,10 +354,12 @@ struct GmailOutgoingMessage: Equatable {
     recipient: String,
     subject: String,
     inReplyTo: String? = nil,
-    threadId: String? = nil
+    threadId: String? = nil,
+    rfcMessageId: String? = nil
   ) {
     self.body = body
     self.recipient = recipient
+    self.rfcMessageId = rfcMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.threadId = threadId
@@ -921,7 +925,9 @@ struct GmailMessageMetadataService:
   GmailMessageMetadataSyncing, GmailMessageSearching, GmailProviderMailActing,
   GmailProviderTokenRefreshing
 {
-  private static let recipientHeaderNames = ["Bcc", "Cc", "To"]
+  private static let recipientHeaderNames = ["Cc", "To"]
+  private static let bccHeaderName = "Bcc"
+  private static let metadataHeaderNames = recipientHeaderNames + [bccHeaderName]
 
   private let categorizer: GmailMessageCategorizing
   private let gmailBaseURL: URL
@@ -1682,6 +1688,9 @@ struct GmailMessageMetadataService:
       headers.append("In-Reply-To: \(replyHeader)")
       headers.append("References: \(replyHeader)")
     }
+    if let rfcMessageId = message.rfcMessageId {
+      headers.append("Message-ID: \(try headerValue(rfcMessageId))")
+    }
     let mimeMessage = (headers + ["", message.body]).joined(separator: "\r\n")
     let raw = Data(mimeMessage.utf8)
       .base64EncodedString()
@@ -1697,7 +1706,8 @@ struct GmailMessageMetadataService:
       url: gmailBaseURL.appendingPathComponent("users/me/messages/send"),
       accessToken: accessToken,
       method: "POST",
-      body: body
+      body: body,
+      providerActionRequest: true
     )
   }
 
@@ -1913,6 +1923,7 @@ struct GmailMessageMetadataService:
     return messages
   }
 
+  // swiftlint:disable:next function_body_length
   private func fetchMessageMetadata(
     accessToken: String,
     categorizationBoundary: Date,
@@ -1931,7 +1942,7 @@ struct GmailMessageMetadataService:
         URLQueryItem(name: "metadataHeaders", value: "Reply-To"),
         URLQueryItem(name: "metadataHeaders", value: "Subject"),
       ]
-      + Self.recipientHeaderNames.map {
+      + Self.metadataHeaderNames.map {
         URLQueryItem(name: "metadataHeaders", value: $0)
       }
     guard let url = components?.url else {
@@ -1967,6 +1978,7 @@ struct GmailMessageMetadataService:
       stableProviderMessageId: "gmail:\(connection.providerAccountIdentifier):\(response.id)",
       subject: subject?.isEmpty == false ? subject! : "(No subject)",
       recipientHeaders: recipientHeaders(in: response),
+      bccRecipients: bccRecipients(in: response),
       rfcMessageId: response.payload?.headers.first {
         $0.name.caseInsensitiveCompare("Message-ID") == .orderedSame
       }?.value
@@ -1978,6 +1990,12 @@ struct GmailMessageMetadataService:
       Self.recipientHeaderNames.contains {
         header.name.caseInsensitiveCompare($0) == .orderedSame
       }
+    }.map(\.value)
+  }
+
+  private func bccRecipients(in response: GmailMessageMetadataResponse) -> [String]? {
+    response.payload?.headers.filter {
+      $0.name.caseInsensitiveCompare(Self.bccHeaderName) == .orderedSame
     }.map(\.value)
   }
 
@@ -2102,15 +2120,33 @@ struct GmailMessageMetadataService:
       request.setValue("application/json", forHTTPHeaderField: "Content-Type")
     }
 
-    let (_, response) = try await session.data(for: request)
+    let (data, response) = try await session.data(for: request)
     guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.gmailRequestFailed
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
       if providerActionRequest {
+        if httpResponse.statusCode == 403, hasRateLimitReason(in: data) {
+          throw GmailProviderMailActionError.rateLimitedResponseStatus(httpResponse.statusCode)
+        }
         throw GmailProviderMailActionError.responseStatus(httpResponse.statusCode)
       }
       throw GmailMessageMetadataSyncError.gmailRequestFailed
+    }
+  }
+
+  private func hasRateLimitReason(in data: Data) -> Bool {
+    guard
+      let payload = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+      let error = payload["error"] as? [String: Any],
+      let errors = error["errors"] as? [[String: Any]]
+    else {
+      return false
+    }
+
+    return errors.contains {
+      guard let reason = $0["reason"] as? String else { return false }
+      return reason == "rateLimitExceeded" || reason == "userRateLimitExceeded"
     }
   }
 
@@ -2213,10 +2249,11 @@ struct GmailMessageMetadataService:
     ])
 
     let (data, response) = try await session.data(for: request)
-    guard let httpResponse = response as? HTTPURLResponse,
-      (200..<300).contains(httpResponse.statusCode)
-    else {
+    guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.refreshTokenRejected
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      throw GmailMessageMetadataSyncError.oauthResponseStatus(httpResponse.statusCode)
     }
 
     let tokenResponse = try JSONDecoder().decode(GmailRefreshTokenResponse.self, from: data)
@@ -2253,10 +2290,11 @@ struct GmailMessageMetadataService:
     }
 
     let (data, response) = try await session.data(from: url)
-    guard let httpResponse = response as? HTTPURLResponse,
-      (200..<300).contains(httpResponse.statusCode)
-    else {
+    guard let httpResponse = response as? HTTPURLResponse else {
       throw GmailMessageMetadataSyncError.refreshedTokenAccountMismatch
+    }
+    guard (200..<300).contains(httpResponse.statusCode) else {
+      throw GmailMessageMetadataSyncError.oauthResponseStatus(httpResponse.statusCode)
     }
 
     let tokenInfo = try JSONDecoder().decode(GmailTokenInfoResponse.self, from: data)
@@ -2300,6 +2338,7 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
   case insufficientGmailScope
   case missingLocalGmailTokens
   case missingOAuthClientId
+  case oauthResponseStatus(Int)
   case refreshedTokenAccountMismatch
   case refreshTokenRejected
   case staleLocalConnection
@@ -2322,6 +2361,8 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
       return "Gmail is connected on the backend, but this device has no local Gmail tokens."
     case .missingOAuthClientId:
       return "Gmail OAuth client id is not configured."
+    case .oauthResponseStatus(let status):
+      return "Gmail OAuth request failed with HTTP status \(status)."
     case .refreshedTokenAccountMismatch:
       return "Local Gmail tokens belong to a different Google account."
     case .refreshTokenRejected:
@@ -2334,10 +2375,11 @@ enum GmailMessageMetadataSyncError: LocalizedError, Equatable {
 
 enum GmailProviderMailActionError: LocalizedError, Equatable {
   case responseStatus(Int)
+  case rateLimitedResponseStatus(Int)
 
   var errorDescription: String? {
     switch self {
-    case .responseStatus(let status):
+    case .responseStatus(let status), .rateLimitedResponseStatus(let status):
       return "Gmail rejected the message action (HTTP \(status))."
     }
   }
@@ -2397,6 +2439,7 @@ extension GmailMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }
@@ -2418,6 +2461,7 @@ extension GmailMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }

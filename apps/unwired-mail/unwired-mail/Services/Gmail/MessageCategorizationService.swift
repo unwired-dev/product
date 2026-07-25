@@ -1512,6 +1512,7 @@ extension GmailMessageMetadata {
       stableProviderMessageId: stableProviderMessageId,
       subject: subject,
       recipientHeaders: recipientHeaders,
+      bccRecipients: bccRecipients,
       rfcMessageId: rfcMessageId
     )
   }

@@ -158,7 +158,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), newSnapshot)
   }
 
-  func testSignOutClearsStoredSessionWhenGmailCleanupFails() async throws {
+  func testSignOutPreservesStoredSessionWhenGmailCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -187,11 +187,11 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(
       session.state, .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
     )
-    XCTAssertNil(try store.load())
+    XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
   }
 
-  func testSignOutClearsStoredSessionWhenBodyCacheCleanupFails() async throws {
+  func testSignOutPreservesStoredSessionWhenBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -223,7 +223,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(
       session.state, .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
     )
-    XCTAssertNil(try store.load())
+    XCTAssertEqual(try store.load(), snapshot)
   }
 
   func testSignOutClearsStoredSessionWhenSessionReloadFails() async {
@@ -463,7 +463,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }
 
-  func testBootstrapClearsStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
+  func testBootstrapPreservesStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -486,7 +486,7 @@ final class ProductAccountSessionTests: XCTestCase {
     guard case .failed = session.state else {
       return XCTFail("Expected failed state")
     }
-    XCTAssertNil(try store.load())
+    XCTAssertEqual(try store.load(), snapshot)
   }
 
   func testBootstrapClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
