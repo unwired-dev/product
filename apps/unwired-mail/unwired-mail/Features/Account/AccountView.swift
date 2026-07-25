@@ -798,6 +798,11 @@ struct AccountView: View {
         loadUnifiedMailbox()
       }
       .onChange(of: gmailViewModel.connection?.authorizationState) { _, authorizationState in
+        if authorizationState == .authorized {
+          Task {
+            await mailActionViewModel.resume(connections: gmailViewModel.connections)
+          }
+        }
         guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
         guard
           let connection = gmailViewModel.connection,
@@ -1943,15 +1948,16 @@ struct MailShellCompositionDraft: Identifiable {
 
   static func replyAll(
     to message: MailboxMessageMetadata,
-    senderAddress: String
+    senderAddress _: String
   ) -> MailShellCompositionDraft {
     let senderAliases = Set(
-      mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
-        + [senderAddress.lowercased()]
+      message.providerStateIds?.contains("SENT") == true
+        ? mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
+        : []
     )
     let candidates =
       [message.replyTo ?? message.from].compactMap(\.self)
-      + (message.bccRecipients == nil
+      + (message.connectionId.providerId == .gmail && message.bccRecipients == nil
         ? []
         : (message.recipientHeaders ?? []).flatMap(mailboxValues))
     var seenAddresses: Set<String> = []

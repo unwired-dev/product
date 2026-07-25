@@ -327,7 +327,7 @@ actor OutboxDeliveryService {
   }
 
   func resume(
-    connections: [MailboxConnection],
+    connections _: [MailboxConnection],
     session: ProductAccountSessionSnapshot,
     provider: @escaping OutboxDeliveryPerformer,
     reconcile: @escaping OutboxDeliveryReconciler
@@ -359,28 +359,12 @@ actor OutboxDeliveryService {
         0,
         scheduledAtMilliseconds - milliseconds(now())
       )
-      if remainingMilliseconds > 0 {
-        scheduleRetry(
-          attempt,
-          delay: UInt64(remainingMilliseconds) * 1_000_000,
-          provider: provider,
-          reconcile: reconcile
-        )
-      }
-    }
-
-    try await withThrowingTaskGroup(of: Void.self) { group in
-      for connection in connections {
-        group.addTask {
-          try await self.process(
-            connectionId: connection.id,
-            productAccountId: session.productAccountId,
-            provider: provider,
-            reconcile: reconcile
-          )
-        }
-      }
-      try await group.waitForAll()
+      scheduleRetry(
+        attempt,
+        delay: UInt64(remainingMilliseconds) * 1_000_000,
+        provider: provider,
+        reconcile: reconcile
+      )
     }
   }
 
@@ -513,7 +497,9 @@ actor OutboxDeliveryService {
   }
 
   func waitForScheduledRetries() async -> Bool {
-    guard !Task.isCancelled, !retryTasks.isEmpty else { return false }
+    guard !Task.isCancelled,
+      !retryTasks.isEmpty || !inFlightRetryTasks.isEmpty
+    else { return false }
     let waiterId = UUID()
     await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
@@ -558,6 +544,9 @@ actor OutboxDeliveryService {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
     guard attempts[index].state.canEditOrCancel else {
+      throw OutboxDeliveryError.attemptCannotBeChanged
+    }
+    guard attempts[index].reconciliationPausedForAuthorization != true else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }
     if let connection {
