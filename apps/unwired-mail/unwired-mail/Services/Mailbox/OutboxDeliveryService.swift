@@ -309,6 +309,7 @@ actor OutboxDeliveryService {
         provider: provider,
         reconcile: reconcile
       )
+      return try requiredAttempt(attempt.id, productAccountId: session.productAccountId)
     } else {
       scheduleRetry(
         attempt,
@@ -316,8 +317,8 @@ actor OutboxDeliveryService {
         provider: provider,
         reconcile: reconcile
       )
+      return attempt
     }
-    return try requiredAttempt(attempt.id, productAccountId: session.productAccountId)
   }
 
   func items(session: ProductAccountSessionSnapshot) throws -> [OutgoingDeliveryAttempt] {
@@ -587,7 +588,7 @@ actor OutboxDeliveryService {
     }
     attempts[index].state = replacementState
     attempts[index].nextRetryAtMilliseconds = nil
-    try store.save(attempts, productAccountId: session.productAccountId)
+    try store.save(redactingTerminalAttempts(attempts), productAccountId: session.productAccountId)
     retryTasks.removeValue(forKey: attemptId)?.cancel()
     return attempts[index]
   }
@@ -938,7 +939,16 @@ actor OutboxDeliveryService {
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
-    recoverInterruptedHandoff(attemptId, productAccountId: attempt.productAccountId.rawValue)
+    guard recoverInterruptedHandoff(attemptId, productAccountId: attempt.productAccountId.rawValue)
+    else {
+      scheduleRetry(
+        attempt,
+        delay: retryDelayNanoseconds(attempt.attemptCount),
+        provider: provider,
+        reconcile: reconcile
+      )
+      return
+    }
     notifyRetryWaiters()
     scheduleDueAttempts(
       connectionId: attempt.mailboxConnectionId,
@@ -948,16 +958,27 @@ actor OutboxDeliveryService {
     )
   }
 
-  private func recoverInterruptedHandoff(_ attemptId: UUID, productAccountId: String) {
-    guard var attempts = try? store.load(productAccountId: productAccountId),
-      let index = attempts.firstIndex(where: { $0.id == attemptId }),
+  private func recoverInterruptedHandoff(_ attemptId: UUID, productAccountId: String) -> Bool {
+    let attempts: [OutgoingDeliveryAttempt]
+    do {
+      attempts = try store.load(productAccountId: productAccountId)
+    } catch {
+      return false
+    }
+    guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
       attempts[index].state == .handingOff
-    else { return }
-    attempts[index].state = .reconciling
-    attempts[index].lastErrorDescription =
+    else { return true }
+    var recoveredAttempts = attempts
+    recoveredAttempts[index].state = .reconciling
+    recoveredAttempts[index].lastErrorDescription =
       "Confirming delivery after provider handoff persistence failed."
-    attempts[index].nextRetryAtMilliseconds = nil
-    try? store.save(attempts, productAccountId: productAccountId)
+    recoveredAttempts[index].nextRetryAtMilliseconds = nil
+    do {
+      try store.save(recoveredAttempts, productAccountId: productAccountId)
+      return true
+    } catch {
+      return false
+    }
   }
 
   private func scheduleDueAttempts(

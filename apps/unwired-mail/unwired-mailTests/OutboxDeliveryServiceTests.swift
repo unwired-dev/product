@@ -142,6 +142,28 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempt?.message.subject, "")
   }
 
+  func testCancellingAttemptRedactsMessageContent() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    let queued = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await service.cancel(queued.id, session: session)
+
+    let attempt = try await service.items(session: session).first
+    XCTAssertEqual(attempt?.state, .cancelled)
+    XCTAssertEqual(attempt?.message.body, "")
+    XCTAssertEqual(attempt?.message.recipient, "")
+    XCTAssertEqual(attempt?.message.subject, "")
+  }
+
   func testScheduledHandoffRetriesWhenPersistingItsClaimFails() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 2)
     let deliveries = DeliveryCounter()
