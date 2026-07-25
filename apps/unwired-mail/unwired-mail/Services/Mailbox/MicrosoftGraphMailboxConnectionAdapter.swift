@@ -526,10 +526,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
 
   func loadTextBody(messageId: String, accessToken: String) async throws -> String {
     var components = URLComponents(
-      url: Self.baseURL
-        .appendingPathComponent("me")
-        .appendingPathComponent("messages")
-        .appendingPathComponent(messageId),
+      url: try graphURL(pathComponents: ["me", "messages", messageId]),
       resolvingAgainstBaseURL: false
     )!
     components.queryItems = [URLQueryItem(name: "$select", value: "body")]
@@ -548,13 +545,16 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
   }
 
   private func folderListURL(parentFolderId: String?) throws -> URL {
-    var url = Self.baseURL.appendingPathComponent("me").appendingPathComponent("mailFolders")
+    var pathComponents = ["me", "mailFolders"]
     if let parentFolderId {
-      url = url.appendingPathComponent(parentFolderId).appendingPathComponent("childFolders")
+      pathComponents.append(parentFolderId)
+      pathComponents.append("childFolders")
     }
-    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)!
+    var components = URLComponents(
+      url: try graphURL(pathComponents: pathComponents),
+      resolvingAgainstBaseURL: false
+    )!
     components.queryItems = [
-      URLQueryItem(name: "includeHiddenFolders", value: "true"),
       URLQueryItem(
         name: "$select",
         value: "id,displayName,parentFolderId,childFolderCount"
@@ -589,12 +589,9 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
 
   private func metadataURL(folderId: String, pageSize: Int) throws -> URL {
     var components = URLComponents(
-      url: Self.baseURL
-        .appendingPathComponent("me")
-        .appendingPathComponent("mailFolders")
-        .appendingPathComponent(folderId)
-        .appendingPathComponent("messages")
-        .appendingPathComponent("delta"),
+      url: try graphURL(
+        pathComponents: ["me", "mailFolders", folderId, "messages", "delta"]
+      ),
       resolvingAgainstBaseURL: false
     )!
     components.queryItems = [
@@ -650,6 +647,19 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
     return url
+  }
+
+  private func graphURL(pathComponents: [String]) throws -> URL {
+    var components = URLComponents(url: Self.baseURL, resolvingAgainstBaseURL: false)!
+    var allowedCharacters = CharacterSet.urlPathAllowed
+    allowedCharacters.remove(charactersIn: "/")
+    let encodedPathComponents = try pathComponents.map { component in
+      guard let encoded = component.addingPercentEncoding(withAllowedCharacters: allowedCharacters)
+      else { throw MicrosoftGraphClientError.invalidProviderResponse }
+      return encoded
+    }
+    components.percentEncodedPath += "/" + encodedPathComponents.joined(separator: "/")
+    return try requiredURL(components)
   }
 
   private static func foldersAreOrdered(
@@ -1950,7 +1960,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(connection: connection, session: session)
+      let token = try await accessToken(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
       return try await metadataService.continueBackfill(
         connection: connection,
         productAccountId: session.productAccountId,
@@ -1964,7 +1978,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(connection: connection, session: session)
+      let token = try await accessToken(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
       return try await metadataService.sync(
         connection: connection,
         productAccountId: session.productAccountId,
@@ -1985,7 +2003,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMetadataSyncResult {
     guard shouldPersist() else { throw CancellationError() }
     return try await syncGate.withLock(connection.id) {
-      let token = try await accessToken(connection: connection, session: session)
+      let token = try await accessToken(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
       return try await metadataService.sync(
         connection: connection,
         productAccountId: session.productAccountId,
@@ -2056,28 +2078,35 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let observed = try await loadMailbox(.allObserved, connection: connection, session: session)
-    let recentCutoff = referenceDate.addingTimeInterval(-30 * 24 * 60 * 60)
-    let allowed = observed.messages.filter { message in
-      let states = Set(message.providerStateIds ?? [])
-      return states.isDisjoint(with: ["SPAM", "TRASH"])
+    try await syncGate.withLock(connection.id) {
+      let observed = try await loadMailbox(.allObserved, connection: connection, session: session)
+      let recentCutoff = referenceDate.addingTimeInterval(-30 * 24 * 60 * 60)
+      let allowed = observed.messages.filter { message in
+        let states = Set(message.providerStateIds ?? [])
+        return states.isDisjoint(with: ["SPAM", "TRASH"])
+      }
+      let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
+      let recent = allowed.filter { message in
+        message.providerInternalDateMilliseconds
+          >= Int64(recentCutoff.timeIntervalSince1970 * 1_000)
+          && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
+      }
+      var selectedById: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
+      for message in pinned + Array(recent.prefix(500)) {
+        selectedById[message.id] = message
+      }
+      try await bodyService.prefetch(
+        messages: Array(selectedById.values),
+        connectionId: connection.id,
+        pinnedMessageIds: pinnedMessageIds,
+        accessToken: try await accessToken(
+          connection: connection,
+          session: session,
+          isWithinSyncGate: true
+        ),
+        session: session
+      )
     }
-    let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
-    let recent = allowed.filter { message in
-      message.providerInternalDateMilliseconds >= Int64(recentCutoff.timeIntervalSince1970 * 1_000)
-        && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
-    }
-    var selectedById: [StableProviderMessageIdentity: MailboxMessageMetadata] = [:]
-    for message in pinned + Array(recent.prefix(500)) {
-      selectedById[message.id] = message
-    }
-    try await bodyService.prefetch(
-      messages: Array(selectedById.values),
-      connectionId: connection.id,
-      pinnedMessageIds: pinnedMessageIds,
-      accessToken: try await accessToken(connection: connection, session: session),
-      session: session
-    )
   }
 
   func removeCachedMessageBody(
@@ -2116,12 +2145,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func accessToken(
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    isWithinSyncGate: Bool = false
   ) async throws -> String {
     try validate(connection: connection, session: session, requiresAuthorization: true)
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     guard !snapshot.removedConnectionIds.contains(connection.id) else {
-      try await clearLocalConnection(connection, session: session)
+      if isWithinSyncGate {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
