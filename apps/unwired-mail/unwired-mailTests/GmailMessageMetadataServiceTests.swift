@@ -2973,6 +2973,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           Self.httpResponse(for: request, statusCode: 200),
           Data(tokenInfo.utf8)
         )
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data("{\"access_token\":\"access-token\"}".utf8)
+        )
       case "/gmail/v1/users/me/messages/send":
         return (Self.httpResponse(for: request, statusCode: 429), Data())
       default:
@@ -3014,6 +3019,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       switch request.url?.path {
       case "/tokeninfo":
         return (Self.httpResponse(for: request, statusCode: 200), Data(tokenInfo.utf8))
+      case "/token":
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data("{\"access_token\":\"access-token\"}".utf8)
+        )
       case "/gmail/v1/users/me/messages/send":
         return (
           Self.httpResponse(for: request, statusCode: 403),

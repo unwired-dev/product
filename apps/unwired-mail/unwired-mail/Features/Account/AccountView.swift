@@ -1987,7 +1987,7 @@ struct MailShellCompositionDraft: Identifiable {
       case ">":
         angleBracketDepth = max(0, angleBracketDepth - 1)
       case "," where !isQuoted && angleBracketDepth == 0:
-        mailboxes.append(mailbox)
+        mailboxes.append(mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
         mailbox = ""
         continue
       default:
@@ -1995,7 +1995,7 @@ struct MailShellCompositionDraft: Identifiable {
       }
       mailbox.append(character)
     }
-    mailboxes.append(mailbox)
+    mailboxes.append(mailbox.trimmingCharacters(in: .whitespacesAndNewlines))
     return mailboxes
   }
 
