@@ -403,6 +403,7 @@ _Avoid_: Password reset, support recovery
 - Each configurable **Mail View** matches exactly one **System Category** or **Custom Category**
 - Every supported Apple layout exposes at most five **Mail Views**: Important, the **All Messages Mail View**, and up to three configurable Category views; additional Categories do not enter an overflow view
 - Important and the **All Messages Mail View** remain in the first and second **Mail View** positions; users may reorder only the three configurable Category views
+- Settings exposes Mail View configuration: users choose the Categories included by Important, assign one eligible Category to each empty configurable slot, replace an assigned Category, and reorder configurable slots
 - New users start with Orders, Newsletters & Promotions, and Flights in the three configurable **Mail View** positions
 - Configurable **Mail Views** cannot duplicate a Category; deleting a Custom Category or disabling any Category removes it from Important and its configurable slot without substitution, allowing fewer than five visible views until the user fills the empty slot
 - If the selected configurable **Mail View** disappears, selection falls back to the **All Messages Mail View** while preserving the selected mailbox and Thread when possible
@@ -418,9 +419,10 @@ _Avoid_: Password reset, support recovery
 - The unified **Sent Mailbox** is always available
 - After SMTP accepts a message for a **Standards-Based Mailbox Connection**, the client appends a verified copy to its mapped Sent role; if that append cannot be confirmed, it retries or reconciles only the sent-copy operation, visibly marks the copy as pending, and never resends the delivered message
 - The **Outbox** appears only while it contains a pending, retrying, or failed outgoing message
-- Composer edits continuously autosave to an encrypted **Draft**; closing a composer preserves the Draft, while explicit discard requires confirmation when it contains user state
-- Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**
+- Composer edits continuously autosave to an encrypted **Draft**; if the draft store cannot admit the latest edit, the composer visibly retains unsaved state and blocks closing, sending, and discard until the edit is saved or explicitly abandoned
+- Sending removes a **Draft** only after the outgoing message is durably admitted to the **Outbox**, which atomically retains the complete rendered MIME payload and referenced Draft Assets until the attempt becomes terminal or is cancelled
 - **Draft Assets** synchronize through **End-to-End Encrypted Product Sync** as independently encrypted, verified chunks; Send remains unavailable until every required asset is complete and valid on the sending device
+- Product-authored Drafts are distinct from provider-hosted Draft mailboxes: provider Draft messages remain read-only provider mail in v1 and are not imported, mirrored, or retired by Product Sync Draft operations
 - Discarding a **Draft** or durably admitting it to the **Outbox** writes a synchronized tombstone. If an offline edit conflicts with that tombstone, the tombstone preserves the sent or discarded Draft while the edit is materialized as a user-visible conflicted Draft copy; referenced Draft Assets remain retained until the conflict copy is resolved or discarded, then become eligible for cleanup
 - Markdown syntax acts as an input shortcut over the **Semantic Message Document** rather than becoming the stored or sent message format
 - Formatting controls and context actions edit the same **Semantic Message Document**
