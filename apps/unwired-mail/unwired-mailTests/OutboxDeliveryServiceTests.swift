@@ -562,6 +562,10 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       reconcile: { _, _ in throw TestOutboxError.deliveryRejected }
     )
 
+    let pausedAttempts = try await service.items(session: session)
+    let pausedAttempt = try XCTUnwrap(pausedAttempts.first)
+    XCTAssertFalse(pausedAttempt.canEditOrCancel)
+
     do {
       _ = try await service.edit(
         seeded.id,
@@ -575,6 +579,49 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     } catch {
       XCTAssertEqual(error as? OutboxDeliveryError, .attemptCannotBeChanged)
     }
+  }
+
+  func testCollidedPendingAttemptReschedulesAfterReconciliationStops() async throws {
+    let reconciliation = ReconciliationGate()
+    let deliveredIds = DeliveryIdRecorder()
+    let service = OutboxDeliveryService(
+      failureDisposition: { _ in .ambiguous },
+      handoffDelayNanoseconds: 1_000_000,
+      maximumAttempts: 1,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw URLError(.timedOut) },
+      reconcile: { _, _ in
+        await reconciliation.waitForRelease()
+        throw TestOutboxError.deliveryRejected
+      }
+    )
+    await reconciliation.waitUntilStarted()
+
+    let second = try await service.enqueue(
+      OutgoingMessage(
+        body: "Second message",
+        recipient: message.recipient,
+        subject: message.subject
+      ),
+      connection: connection,
+      session: session,
+      provider: { _, idempotencyKey, _ in await deliveredIds.append(idempotencyKey) },
+      reconcile: { _, _ in .notSent }
+    )
+    try await Task.sleep(nanoseconds: 20_000_000)
+    await reconciliation.release()
+    try await Task.sleep(nanoseconds: 250_000_000)
+
+    let attempts = try await service.items(session: session)
+    let secondAttempt = try XCTUnwrap(attempts.first(where: { $0.id == second.id }))
+    let delivered = await deliveredIds.values
+    XCTAssertEqual(secondAttempt.state, .sent)
+    XCTAssertEqual(delivered, [second.idempotencyKey])
   }
 
   func testRestartDoesNotSendRetryAfterMaximumAge() async throws {
@@ -869,6 +916,35 @@ private actor DeliveryIdRecorder {
 }
 
 private actor DeliveryHandoffGate {
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var started = false
+  private var startWaiters: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    started = true
+    for waiter in startWaiters {
+      waiter.resume()
+    }
+    startWaiters.removeAll()
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !started else { return }
+    await withCheckedContinuation { continuation in
+      startWaiters.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+}
+
+private actor ReconciliationGate {
   private var releaseContinuation: CheckedContinuation<Void, Never>?
   private var started = false
   private var startWaiters: [CheckedContinuation<Void, Never>] = []

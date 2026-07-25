@@ -2393,7 +2393,7 @@ private struct MailShellThreadList: View {
                 .foregroundStyle(.orange)
             }
             HStack {
-              if attempt.state.canEditOrCancel {
+              if attempt.canEditOrCancel {
                 Button("Edit") { editingAttempt = attempt }
                 Button("Cancel", role: .destructive) {
                   Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }

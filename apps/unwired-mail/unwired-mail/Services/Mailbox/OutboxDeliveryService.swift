@@ -53,6 +53,10 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
   var mailboxConnectionId: MailboxConnectionId {
     connectionId
   }
+
+  var canEditOrCancel: Bool {
+    state.canEditOrCancel && reconciliationPausedForAuthorization != true
+  }
 }
 
 protocol OutboxDeliveryPersisting {
@@ -569,21 +573,12 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
     guard processingConnectionIds.insert(connectionId.rawValue).inserted else {
-      let currentMilliseconds = milliseconds(now())
-      let dueAttempts = try store.load(productAccountId: productAccountId).filter {
-        guard $0.connectionId == connectionId else { return false }
-        if $0.state == .pending {
-          return $0.createdAtMilliseconds
-            + Int64(handoffDelayNanoseconds / 1_000_000) <= currentMilliseconds
-        }
-        return ($0.state == .retrying || $0.state == .reconciling)
-          && ($0.nextRetryAtMilliseconds == nil
-            || $0.nextRetryAtMilliseconds! <= currentMilliseconds)
-      }
-      for attempt in dueAttempts {
-        guard inFlightRetryTasks[attempt.id] == nil else { continue }
-        scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
-      }
+      scheduleDueAttempts(
+        connectionId: connectionId,
+        productAccountId: productAccountId,
+        provider: provider,
+        reconcile: reconcile
+      )
       return
     }
     defer { processingConnectionIds.remove(connectionId.rawValue) }
@@ -895,14 +890,20 @@ actor OutboxDeliveryService {
           provider: provider,
           reconcile: reconcile
         )
-        await self.finishRetry(attempt.id, token: token)
+        await self.finishRetry(attempt, token: token, provider: provider, reconcile: reconcile)
       } catch {
-        await self?.finishRetry(attempt.id, token: token)
+        await self?.finishRetry(attempt, token: token, provider: provider, reconcile: reconcile)
       }
     }
   }
 
-  private func finishRetry(_ attemptId: UUID, token: UUID) {
+  private func finishRetry(
+    _ attempt: OutgoingDeliveryAttempt,
+    token: UUID,
+    provider: @escaping OutboxDeliveryPerformer,
+    reconcile: @escaping OutboxDeliveryReconciler
+  ) {
+    let attemptId = attempt.id
     if inFlightRetryTaskTokens[attemptId] == token {
       inFlightRetryTasks[attemptId] = nil
       inFlightRetryTaskTokens[attemptId] = nil
@@ -911,6 +912,35 @@ actor OutboxDeliveryService {
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
     notifyRetryWaiters()
+    scheduleDueAttempts(
+      connectionId: attempt.mailboxConnectionId,
+      productAccountId: attempt.productAccountId.rawValue,
+      provider: provider,
+      reconcile: reconcile
+    )
+  }
+
+  private func scheduleDueAttempts(
+    connectionId: MailboxConnectionId,
+    productAccountId: String,
+    provider: @escaping OutboxDeliveryPerformer,
+    reconcile: @escaping OutboxDeliveryReconciler
+  ) {
+    guard let attempts = try? store.load(productAccountId: productAccountId) else { return }
+    let currentMilliseconds = milliseconds(now())
+    for attempt in attempts where attempt.connectionId == connectionId {
+      let isDue =
+        (attempt.state == .pending
+          && attempt.createdAtMilliseconds
+            + Int64(handoffDelayNanoseconds / 1_000_000) <= currentMilliseconds)
+        || ((attempt.state == .retrying || attempt.state == .reconciling)
+          && (attempt.nextRetryAtMilliseconds == nil
+            || attempt.nextRetryAtMilliseconds! <= currentMilliseconds))
+      guard isDue, inFlightRetryTasks[attempt.id] == nil, retryTasks[attempt.id] == nil else {
+        continue
+      }
+      scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
+    }
   }
 
   private func beginRetry(_ attemptId: UUID, token: UUID) -> Bool {
