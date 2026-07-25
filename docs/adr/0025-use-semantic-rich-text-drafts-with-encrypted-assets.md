@@ -1,0 +1,3 @@
+# Use semantic rich-text Drafts with encrypted assets
+
+Draft bodies use a Semantic Message Document shared by Markdown shortcuts, formatting controls, context actions, and standards-compatible HTML plus plain-text delivery instead of storing Markdown or raw HTML. Attachments and inline images synchronize as independently encrypted Draft Assets, trading Product Sync storage and chunk-management complexity for complete cross-device Draft editing without exposing authored content to the backend; documents and assets share the existing non-evicting 100 MB device-wide Draft-store limit, and Send remains unavailable until every required asset is locally complete and verified.
