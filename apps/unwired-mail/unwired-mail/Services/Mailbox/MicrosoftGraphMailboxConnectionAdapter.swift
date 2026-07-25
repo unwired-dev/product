@@ -62,6 +62,7 @@ protocol MicrosoftGraphAuthorizationPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
+  func providerAccountIdentifiers(productAccountId: String) throws -> Set<String>
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -103,6 +104,10 @@ struct KeychainMicrosoftGraphAuthorizationStore: MicrosoftGraphAuthorizationPers
       )
     }
     try KeychainStore.delete(service: service, account: manifestAccount(productAccountId))
+  }
+
+  func providerAccountIdentifiers(productAccountId: String) throws -> Set<String> {
+    try providerIdentifiers(productAccountId: productAccountId)
   }
 
   func load(
@@ -210,6 +215,15 @@ struct KeychainMicrosoftGraphAuthorizationStore: MicrosoftGraphAuthorizationPers
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId)\0"
       tokensByAccount = tokensByAccount.filter { !$0.key.hasPrefix(prefix) }
+    }
+
+    func providerAccountIdentifiers(productAccountId: String) throws -> Set<String> {
+      let prefix = "\(productAccountId)\0"
+      return Set(
+        tokensByAccount.keys.compactMap { key in
+          key.hasPrefix(prefix) ? String(key.dropFirst(prefix.count)) : nil
+        }
+      )
     }
 
     func load(
@@ -1825,14 +1839,30 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await syncGate.withLock(accountCleanupLockId(session: session)) {
-      let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-      let connectionIds = Set(
-        snapshot.connections.compactMap { definition in
-          definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
-        }
-          + snapshot.removedConnectionIds.filter { $0.providerId == .microsoftGraph }
-      ).sorted { $0.rawValue < $1.rawValue }
-      try await withLocks(connectionIds) {
+      var connectionIds = Set(
+        try tokenStore.providerAccountIdentifiers(productAccountId: session.productAccountId)
+          .map { providerAccountIdentifier in
+            MailboxConnectionId(
+              providerMailboxIdentity: StableProviderMailboxIdentity(
+                providerId: .microsoftGraph,
+                value: providerAccountIdentifier
+              )
+            )
+          }
+      )
+      if let snapshot = try? await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      ) {
+        connectionIds.formUnion(
+          snapshot.connections.compactMap { definition in
+            definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
+          }
+        )
+        connectionIds.formUnion(
+          snapshot.removedConnectionIds.filter { $0.providerId == .microsoftGraph }
+        )
+      }
+      try await withLocks(connectionIds.sorted { $0.rawValue < $1.rawValue }) {
         var firstError: Error?
         do {
           try tokenStore.clearAll(productAccountId: session.productAccountId)
