@@ -256,13 +256,16 @@ actor OutboxDeliveryService {
   private let maximumAttempts: Int
   private let now: @Sendable () -> Date
   private var handoffClaimFailureCounts: [UUID: Int] = [:]
+  private var reconciliationStateWriteFailureCounts: [UUID: Int] = [:]
   private var processingConnectionIds: Set<String> = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var inFlightRetryTaskTokens: [UUID: UUID] = [:]
   private var inFlightRetryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
+  private var inFlightRetryTaskProductAccountIds: [UUID: String] = [:]
   private var inFlightRetryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTasks: [UUID: Task<Void, Never>] = [:]
   private var retryTaskConnectionIds: [UUID: MailboxConnectionId] = [:]
+  private var retryTaskProductAccountIds: [UUID: String] = [:]
   private var retryTaskTokens: [UUID: UUID] = [:]
   private var retryWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
   private let terminalAttemptRetentionLimit = 100
@@ -392,7 +395,12 @@ actor OutboxDeliveryService {
       if remainingMilliseconds == 0,
         immediatelyProcessedConnectionIds.insert(attempt.connectionId.rawValue).inserted
       {
-        scheduleRetry(attempt, delay: 0, provider: provider, reconcile: reconcile)
+        try await process(
+          connectionId: attempt.connectionId,
+          productAccountId: session.productAccountId,
+          provider: provider,
+          reconcile: reconcile
+        )
       } else {
         scheduleRetry(
           attempt,
@@ -516,18 +524,22 @@ actor OutboxDeliveryService {
 
   func clear(session: ProductAccountSessionSnapshot) throws {
     try store.clear(productAccountId: session.productAccountId)
-    for task in retryTasks.values {
-      task.cancel()
+    for attemptId in retryTasks.keys.filter({
+      retryTaskProductAccountIds[$0] == session.productAccountId
+    }) {
+      retryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTaskTokens.removeValue(forKey: attemptId)
+      retryTaskConnectionIds.removeValue(forKey: attemptId)
+      retryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
-    for task in inFlightRetryTasks.values {
-      task.cancel()
+    for attemptId in inFlightRetryTasks.keys.filter({
+      inFlightRetryTaskProductAccountIds[$0] == session.productAccountId
+    }) {
+      inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
+      inFlightRetryTaskTokens.removeValue(forKey: attemptId)
+      inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
+      inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
-    inFlightRetryTasks.removeAll()
-    inFlightRetryTaskTokens.removeAll()
-    inFlightRetryTaskConnectionIds.removeAll()
-    retryTasks.removeAll()
-    retryTaskTokens.removeAll()
-    retryTaskConnectionIds.removeAll()
   }
 
   func clear(
@@ -551,6 +563,7 @@ actor OutboxDeliveryService {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       retryTaskTokens.removeValue(forKey: attemptId)
       retryTaskConnectionIds.removeValue(forKey: attemptId)
+      retryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
     for attemptId in inFlightRetryTasks.keys.filter({
       attemptIds.contains($0) || inFlightRetryTaskConnectionIds[$0] == connection.id
@@ -558,6 +571,7 @@ actor OutboxDeliveryService {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
+      inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
     notifyRetryWaiters()
   }
@@ -944,6 +958,7 @@ actor OutboxDeliveryService {
     let token = UUID()
     retryTaskTokens[attempt.id] = token
     retryTaskConnectionIds[attempt.id] = attempt.mailboxConnectionId
+    retryTaskProductAccountIds[attempt.id] = attempt.productAccountId.rawValue
     retryTasks[attempt.id] = Task { [weak self] in
       do {
         try await Task.sleep(nanoseconds: delay)
@@ -973,21 +988,30 @@ actor OutboxDeliveryService {
       inFlightRetryTasks[attemptId] = nil
       inFlightRetryTaskTokens[attemptId] = nil
       inFlightRetryTaskConnectionIds[attemptId] = nil
+      inFlightRetryTaskProductAccountIds[attemptId] = nil
     }
     guard retryTaskTokens[attemptId] == token else { return }
     retryTasks[attemptId] = nil
     retryTaskTokens[attemptId] = nil
     retryTaskConnectionIds[attemptId] = nil
+    retryTaskProductAccountIds[attemptId] = nil
     guard recoverInterruptedHandoffs(productAccountId: attempt.productAccountId.rawValue)
     else {
+      let failureCount = reconciliationStateWriteFailureCounts[attemptId, default: 0] + 1
+      reconciliationStateWriteFailureCounts[attemptId] = failureCount
+      guard failureCount < maximumAttempts, !retryAgeLimitReached(attempt) else {
+        notifyRetryWaiters()
+        return
+      }
       scheduleRetry(
         attempt,
-        delay: retryDelayNanoseconds(attempt.attemptCount),
+        delay: retryDelayNanoseconds(failureCount),
         provider: provider,
         reconcile: reconcile
       )
       return
     }
+    reconciliationStateWriteFailureCounts[attemptId] = nil
     notifyRetryWaiters()
     scheduleDueAttempts(
       connectionId: attempt.mailboxConnectionId,
@@ -1044,7 +1068,17 @@ actor OutboxDeliveryService {
       else {
         continue
       }
-      scheduleRetry(attempt, delay: 100_000_000, provider: provider, reconcile: reconcile)
+      scheduleRetry(
+        attempt,
+        delay: retryDelayNanoseconds(
+          max(
+            attempt.reconciliationAttemptCount,
+            reconciliationStateWriteFailureCounts[attempt.id, default: 0]
+          )
+        ),
+        provider: provider,
+        reconcile: reconcile
+      )
     }
   }
 
@@ -1055,7 +1089,9 @@ actor OutboxDeliveryService {
     inFlightRetryTasks[attemptId] = task
     inFlightRetryTaskTokens[attemptId] = token
     inFlightRetryTaskConnectionIds[attemptId] = retryTaskConnectionIds[attemptId]
+    inFlightRetryTaskProductAccountIds[attemptId] = retryTaskProductAccountIds[attemptId]
     retryTaskConnectionIds[attemptId] = nil
+    retryTaskProductAccountIds[attemptId] = nil
     return true
   }
 

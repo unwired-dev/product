@@ -101,6 +101,57 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testClearOnlyCancelsRetriesForItsProductAccount() async throws {
+    let otherSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-002",
+      identityToken: "product-token-002",
+      productAccountId: "product-account-002",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let otherConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .gmail,
+      connectedAt: 1_781_200_000_000,
+      displayName: "other-sender@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "gmail-user-002"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(otherSession.productAccountId),
+      trustedDeviceId: "trusted-device-002",
+      updatedAt: 1_781_200_000_200
+    )
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await service.enqueue(
+      message,
+      connection: otherConnection,
+      session: otherSession,
+      provider: { _, _, _ in await deliveries.increment() },
+      reconcile: { _, _ in .notSent }
+    )
+
+    try await service.clear(session: session)
+    _ = await service.waitForScheduledRetries()
+
+    let deliveryCount = await deliveries.currentValue()
+    XCTAssertEqual(deliveryCount, 1)
+  }
+
   func testClearCancelsAnImmediatelyResumedHandoff() async throws {
     let delivery = SuspendingDelivery()
     let store = InMemoryOutboxDeliveryStore()
