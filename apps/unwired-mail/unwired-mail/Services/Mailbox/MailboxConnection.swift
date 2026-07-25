@@ -1338,8 +1338,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         productAccountId: session.productAccountId
       )
       try await connectionService.clearLocalConnection(localStatus, session: session)
-      try await pendingActionService.clear(connection: removedConnection, session: session)
-      try await outboxService.clear(connection: removedConnection, session: session)
+      try await clearRemovedConnection(removedConnection, session: session)
     }
     var definitions = snapshot.connections
     if usedCachedSnapshot {
@@ -1401,8 +1400,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection, session: session, requiresAuthorization: false)
     try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
-    try await pendingActionService.clear(connection: connection, session: session)
-    try await outboxService.clear(connection: connection, session: session)
+    try await clearRemovedConnection(connection, session: session)
+  }
+
+  private func clearRemovedConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var cleanupError: Error?
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   func setDefaultSendingConnection(

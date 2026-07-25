@@ -339,6 +339,9 @@ actor OutboxDeliveryService {
     reconcile: @escaping OutboxDeliveryReconciler
   ) async throws {
     var attempts = try store.load(productAccountId: session.productAccountId)
+    let interruptedHandoffs = attempts.filter {
+      $0.state == .handingOff && inFlightRetryTasks[$0.id] == nil
+    }
     var recoveredInterruptedHandoff = false
     for index in attempts.indices
     where attempts[index].state == .handingOff && inFlightRetryTasks[attempts[index].id] == nil {
@@ -349,7 +352,19 @@ actor OutboxDeliveryService {
       recoveredInterruptedHandoff = true
     }
     if recoveredInterruptedHandoff {
-      try store.save(attempts, productAccountId: session.productAccountId)
+      do {
+        try store.save(attempts, productAccountId: session.productAccountId)
+      } catch {
+        for attempt in interruptedHandoffs {
+          scheduleRetry(
+            attempt,
+            delay: retryDelayNanoseconds(attempt.attemptCount),
+            provider: provider,
+            reconcile: reconcile
+          )
+        }
+        throw error
+      }
     }
 
     for attempt in attempts
@@ -491,6 +506,7 @@ actor OutboxDeliveryService {
   }
 
   func clear(session: ProductAccountSessionSnapshot) throws {
+    try store.clear(productAccountId: session.productAccountId)
     for task in retryTasks.values {
       task.cancel()
     }
@@ -501,7 +517,6 @@ actor OutboxDeliveryService {
     inFlightRetryTaskTokens.removeAll()
     retryTasks.removeAll()
     retryTaskTokens.removeAll()
-    try store.clear(productAccountId: session.productAccountId)
   }
 
   func clear(
