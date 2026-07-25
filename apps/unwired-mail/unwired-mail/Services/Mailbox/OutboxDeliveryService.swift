@@ -162,6 +162,7 @@ enum OutboxDeliveryFailureDisposition: Sendable {
 
 enum OutboxDeliveryError: LocalizedError, Equatable {
   case connectionMismatch
+  case deliveryNotConfirmed
   case productAccountMismatch
   case attemptCannotBeChanged
 
@@ -169,6 +170,8 @@ enum OutboxDeliveryError: LocalizedError, Equatable {
     switch self {
     case .connectionMismatch:
       "The Outbox message does not belong to this Mailbox Connection."
+    case .deliveryNotConfirmed:
+      "The provider has not yet confirmed whether this message was delivered."
     case .productAccountMismatch:
       "The Mailbox Connection does not belong to the current Product Account."
     case .attemptCannotBeChanged:
@@ -329,10 +332,18 @@ actor OutboxDeliveryService {
     }
 
     for attempt in attempts
-    where attempt.state == .retrying || attempt.state == .reconciling {
+    where
+      attempt.state == .pending || attempt.state == .retrying || attempt.state == .reconciling
+    {
+      let fallbackScheduledAtMilliseconds =
+        attempt.state == .pending
+        ? attempt.createdAtMilliseconds + Int64(handoffDelayNanoseconds / 1_000_000)
+        : milliseconds(now())
+      let scheduledAtMilliseconds =
+        attempt.nextRetryAtMilliseconds ?? fallbackScheduledAtMilliseconds
       let remainingMilliseconds = max(
         0,
-        (attempt.nextRetryAtMilliseconds ?? milliseconds(now())) - milliseconds(now())
+        scheduledAtMilliseconds - milliseconds(now())
       )
       if remainingMilliseconds > 0 {
         scheduleRetry(
@@ -399,12 +410,17 @@ actor OutboxDeliveryService {
     attempts[index].nextRetryAtMilliseconds = nil
     attempts.append(replacement)
     try store.save(attempts, productAccountId: session.productAccountId)
-    try await process(
-      connectionId: connection.id,
-      productAccountId: session.productAccountId,
-      provider: provider,
-      reconcile: reconcile
-    )
+    let delay = handoffDelayNanoseconds
+    if delay == 0 {
+      try await process(
+        connectionId: connection.id,
+        productAccountId: session.productAccountId,
+        provider: provider,
+        reconcile: reconcile
+      )
+    } else {
+      scheduleRetry(replacement, delay: delay, provider: provider, reconcile: reconcile)
+    }
     return try requiredAttempt(replacement.id, productAccountId: session.productAccountId)
   }
 
@@ -555,12 +571,14 @@ actor OutboxDeliveryService {
               errorDescription: nil
             )
           case .notSent:
-            try update(
+            try handleReconciliationFailure(
               attemptId,
+              error: OutboxDeliveryError.deliveryNotConfirmed,
               productAccountId: productAccountId,
-              state: .pending,
-              errorDescription: nil
+              provider: provider,
+              reconcile: reconcile
             )
+            return
           case .unknown:
             try update(
               attemptId,
