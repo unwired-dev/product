@@ -365,6 +365,25 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(resumed.first?.state, .sent)
   }
 
+  func testGmailRateLimitFailureRetriesWithoutReconciliation() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw GmailProviderMailActionError.rateLimitedResponseStatus(403) },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .retrying)
+  }
+
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let deliveries = DeliveryCounter()

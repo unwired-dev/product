@@ -226,7 +226,7 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
       return .userActionRequired
     }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
-      return .ambiguous
+      return .transient
     }
     if case .responseStatus(let status) = error as? GmailProviderMailActionError {
       if status == 401 || status == 403 {
