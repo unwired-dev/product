@@ -261,7 +261,9 @@ struct MicrosoftGraphFolder: Codable, Equatable, Hashable, Sendable {
   static func areOrdered(_ lhs: MicrosoftGraphFolder, _ rhs: MicrosoftGraphFolder) -> Bool {
     if lhs.role == .inbox, rhs.role != .inbox { return true }
     if rhs.role == .inbox, lhs.role != .inbox { return false }
-    return lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName) == .orderedAscending
+    let displayNameOrder = lhs.displayName.localizedCaseInsensitiveCompare(rhs.displayName)
+    if displayNameOrder != .orderedSame { return displayNameOrder == .orderedAscending }
+    return lhs.id < rhs.id
   }
 }
 
@@ -1237,6 +1239,20 @@ struct MicrosoftGraphMetadataService {
       )
     }
     guard state.historicalMetadataBackfillIsComplete else {
+      let recentInboxPage = try await client.loadMetadataPage(
+        folder: state.folders[0].folder,
+        continuationURL: nil,
+        pageSize: Self.initialPageSize,
+        accessToken: accessToken
+      )
+      guard shouldPersist() else { throw CancellationError() }
+      try store.savePage(
+        recentInboxPage.messages,
+        folderId: state.folders[0].folder.id,
+        state: state,
+        productAccountId: productAccountId,
+        connectionId: connection.id
+      )
       return try load(connection: connection, productAccountId: productAccountId)
         .limitedInitialPage(to: Self.initialPageSize)
     }
@@ -1296,28 +1312,37 @@ struct MicrosoftGraphMetadataService {
         accessToken: accessToken
       )
     }
-    while let index = state.folders.firstIndex(where: { $0.deltaLink == nil }) {
-      var continuation = state.folders[index].nextLink
-      repeat {
-        try Task.checkCancellation()
-        let page = try await client.loadMetadataPage(
-          folder: state.folders[index].folder,
-          continuationURL: continuation,
-          pageSize: Self.initialPageSize,
-          accessToken: accessToken
-        )
-        try Task.checkCancellation()
-        state.folders[index].nextLink = page.nextLink
-        state.folders[index].deltaLink = page.deltaLink
-        try store.savePage(
-          page.messages,
-          folderId: state.folders[index].folder.id,
-          state: state,
-          productAccountId: productAccountId,
-          connectionId: connection.id
-        )
-        continuation = page.nextLink
-      } while continuation != nil
+    do {
+      while let index = state.folders.firstIndex(where: { $0.deltaLink == nil }) {
+        var continuation = state.folders[index].nextLink
+        repeat {
+          try Task.checkCancellation()
+          let page = try await client.loadMetadataPage(
+            folder: state.folders[index].folder,
+            continuationURL: continuation,
+            pageSize: Self.initialPageSize,
+            accessToken: accessToken
+          )
+          try Task.checkCancellation()
+          state.folders[index].nextLink = page.nextLink
+          state.folders[index].deltaLink = page.deltaLink
+          try store.savePage(
+            page.messages,
+            folderId: state.folders[index].folder.id,
+            state: state,
+            productAccountId: productAccountId,
+            connectionId: connection.id
+          )
+          continuation = page.nextLink
+        } while continuation != nil
+      }
+    } catch MicrosoftGraphClientError.deltaTokenExpired {
+      try store.clear(productAccountId: productAccountId, connectionId: connection.id)
+      return try await sync(
+        connection: connection,
+        productAccountId: productAccountId,
+        accessToken: accessToken
+      )
     }
     return try load(connection: connection, productAccountId: productAccountId)
   }
@@ -1535,7 +1560,7 @@ struct MicrosoftGraphMessageBodyService {
       accessToken: accessToken
     )
     let material = try requiredMaterial(productAccountId: session.productAccountId)
-    try cache.saveMessageBody(
+    try? cache.saveMessageBody(
       material.encryptPayload(
         Data(text.utf8),
         associatedData: associatedData(message.stableProviderMessageId)
@@ -1571,10 +1596,15 @@ struct MicrosoftGraphMessageBodyService {
     let material = try requiredMaterial(productAccountId: session.productAccountId)
     for message in messages where try loadCached(message: message, session: session) == nil {
       try Task.checkCancellation()
-      let text = try await client.loadTextBody(
-        messageId: message.providerMessageId,
-        accessToken: accessToken
-      )
+      let text: String
+      do {
+        text = try await client.loadTextBody(
+          messageId: message.providerMessageId,
+          accessToken: accessToken
+        )
+      } catch MicrosoftGraphClientError.requestFailed(404) {
+        continue
+      }
       _ = try cache.saveMessageBody(
         GmailMessageBodyCacheWrite(
           cachedAt: Date(
@@ -1679,6 +1709,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
+    try await syncGate.withLock(connection.id) {
+      try clearLocalConnectionWithoutLock(connection, session: session)
+    }
+  }
+
+  private func clearLocalConnectionWithoutLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws {
     var firstError: Error?
     do {
       try tokenStore.clear(
@@ -1725,10 +1764,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
     let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    let previousDefinition = snapshot.connections.first { definition in
+      definition.provider == MailProviderId.microsoftGraph.rawValue
+        && definition.providerAccountIdentifier == account.id
+    }
     let connection = MailboxConnection(
       authorizationState: .authorized,
       capabilities: .microsoftGraphRead,
-      connectedAt: timestamp,
+      connectedAt: previousDefinition?.connectedAt ?? timestamp,
       displayName: account.emailAddress,
       id: connectionId,
       lastVerifiedAt: timestamp,
@@ -1792,24 +1836,19 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     for connectionId in snapshot.removedConnectionIds
     where connectionId.providerId == .microsoftGraph {
-      if try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
-      ) != nil {
-        let removed = placeholderConnection(
-          definition: MailboxConnectionDefinition(
-            connectedAt: 0,
-            displayName: "",
-            provider: connectionId.providerId.rawValue,
-            providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
-            stableProviderConnectionKey: ""
-          ),
-          session: session,
-          authorized: true,
-          updatedAt: snapshot.updatedAt
-        )
-        try await clearLocalConnection(removed, session: session)
-      }
+      let removed = placeholderConnection(
+        definition: MailboxConnectionDefinition(
+          connectedAt: 0,
+          displayName: "",
+          provider: connectionId.providerId.rawValue,
+          providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+          stableProviderConnectionKey: ""
+        ),
+        session: session,
+        authorized: true,
+        updatedAt: snapshot.updatedAt
+      )
+      try await clearLocalConnection(removed, session: session)
     }
     return try snapshot.connections.compactMap { definition in
       guard definition.provider == MailProviderId.microsoftGraph.rawValue else { return nil }
