@@ -395,6 +395,7 @@ _Avoid_: Password reset, support recovery
 - When a **Mailbox Role** mapping changes, every pending **Provider Mail Action** whose target or meaning changed is cancelled until the user reconfirms it against the new mapping
 - A user may select either a **Unified Mailbox** or a mailbox within one **Mailbox Connection** to scope the messages being viewed
 - A **Mail View** filters the **Threads** in the selected mailbox or **Unified Mailbox**
+- Selecting Drafts or Outbox automatically selects the **All Messages Mail View**, because unsent items have no provider message identity or Category membership; switching back to a Thread scope preserves the prior selected Mail View when it is still available
 - A **Thread** appears in a **Mail View** when any current message in that thread matches the view; the whole conversation remains available and retains latest-message ordering
 - Important and the **All Messages Mail View** are permanent **Mail Views**; the remaining **Mail Views** are user-configurable
 - The Important **Mail View** matches the union of user-selected **System Categories** and **Custom Categories**; it is neither a separate message classification nor a substitute for **Pins**
