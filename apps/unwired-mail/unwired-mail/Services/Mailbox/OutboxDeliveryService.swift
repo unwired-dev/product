@@ -334,7 +334,8 @@ actor OutboxDeliveryService {
   ) async throws {
     var attempts = try store.load(productAccountId: session.productAccountId)
     var recoveredInterruptedHandoff = false
-    for index in attempts.indices where attempts[index].state == .handingOff {
+    for index in attempts.indices
+    where attempts[index].state == .handingOff && inFlightRetryTasks[attempts[index].id] == nil {
       attempts[index].state = .reconciling
       attempts[index].lastErrorDescription =
         "Confirming delivery after the app stopped during provider handoff."
@@ -394,7 +395,8 @@ actor OutboxDeliveryService {
     try validate(connection: connection, session: session)
     var attempts = try store.load(productAccountId: session.productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
-      attempts[index].state.canEditOrCancel
+      attempts[index].state.canEditOrCancel,
+      attempts[index].reconciliationPausedForAuthorization != true
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }

@@ -1948,12 +1948,13 @@ struct MailShellCompositionDraft: Identifiable {
 
   static func replyAll(
     to message: MailboxMessageMetadata,
-    senderAddress _: String
+    senderAddress: String
   ) -> MailShellCompositionDraft {
     let senderAliases = Set(
-      message.providerStateIds?.contains("SENT") == true
-        ? mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
-        : []
+      [normalizedMailboxAddress(senderAddress)]
+        + (message.providerStateIds?.contains("SENT") == true
+          ? mailboxValues(in: message.from ?? "").map(normalizedMailboxAddress)
+          : [])
     )
     let candidates =
       [message.replyTo ?? message.from].compactMap(\.self)
