@@ -325,6 +325,122 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(bodyCache.savedMessageIds, [message.stableProviderMessageId])
   }
 
+  // swiftlint:disable:next function_body_length
+  func testCachedBodyReadRejectsRemovedConnectionAndClearsLocalCache() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      bodyCache: bodyCache,
+      client: client,
+      definitions: definitions,
+      keyMaterialStore: keyStore,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    _ = try await adapter.loadMessageBody(message: message, session: session)
+    definitions.definitions = []
+    definitions.removedConnectionIds = [connection.id]
+
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected a removal tombstone to reject the cached body")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .connectionRemoved)
+    }
+
+    XCTAssertNil(bodyCache.payloads[message.stableProviderMessageId])
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
+  }
+
+  func testCategoryOverrideSurvivesMetadataRecoveryThroughProductSync() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    let assignmentSync = RecordingGraphCategoryAssignmentSync()
+    let store = try SwiftDataMicrosoftGraphMetadataStore.inMemory()
+    let adapter = try authorizedAdapter(
+      assignmentSync: assignmentSync,
+      client: client,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+
+    let overridden = try await adapter.overrideCategory(
+      "system:invoices",
+      for: message,
+      session: session
+    )
+    try store.clear(productAccountId: session.productAccountId, connectionId: connection.id)
+    let recovered = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(overridden.categoryId, "system:invoices")
+    XCTAssertEqual(assignmentSync.savedUserOverrides.count, 1)
+    XCTAssertEqual(recovered.messages.first?.categoryId, "system:invoices")
+  }
+
+  func testHistoricalBackfillPausesBeforeRequestingPagesInLowPowerMode() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: (1...50).reversed().map { graphMessage($0) },
+      nextLink: URL(string: "https://graph.microsoft.test/inbox/page-2"),
+      deltaLink: nil
+    )
+    let adapter = try authorizedAdapter(
+      client: client,
+      shouldContinueHistoricalBackfill: { false }
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let requestCount = client.requestedContinuations.count
+
+    let paused = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(paused.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(client.requestedContinuations.count, requestCount)
+  }
+
   func testSentMessagesUseTheirSentTimestampForMetadata() {
     let sentDate = "2026-06-01T12:00:00Z"
     let message = MicrosoftGraphProviderMessage(
@@ -659,9 +775,11 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
   }
 
   private func authorizedAdapter(
+    assignmentSync: MessageCategoryAssignmentSyncing = RecordingGraphCategoryAssignmentSync(),
     bodyCache: GmailMessageBodyCaching = RecordingMicrosoftGraphBodyCache(),
     client: RecordingMicrosoftGraphClient,
     keyMaterialStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
+    shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
     store: MicrosoftGraphMetadataPersisting? = nil
   ) throws -> MicrosoftGraphMailboxConnectionAdapter {
     let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
@@ -675,6 +793,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       providerAccountIdentifier: graphAccount.id
     )
     return try makeAdapter(
+      assignmentSync: assignmentSync,
       bodyCache: bodyCache,
       client: client,
       definitions: RecordingMicrosoftGraphDefinitionSyncService(
@@ -682,11 +801,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       ),
       keyMaterialStore: keyMaterialStore,
       metadataStore: store,
+      shouldContinueHistoricalBackfill: shouldContinueHistoricalBackfill,
       tokenStore: tokenStore
     )
   }
 
   private func makeAdapter(
+    assignmentSync: MessageCategoryAssignmentSyncing = RecordingGraphCategoryAssignmentSync(),
     authorizer: RecordingMicrosoftGraphAuthorizer? = nil,
     bodyCache: GmailMessageBodyCaching = RecordingMicrosoftGraphBodyCache(),
     client: RecordingMicrosoftGraphClient,
@@ -694,6 +815,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     keyMaterialStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
     metadataStore: MicrosoftGraphMetadataPersisting? = nil,
     now: @escaping () -> Date = Date.init,
+    shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
     tokenStore: MicrosoftGraphAuthorizationPersisting
   ) throws -> MicrosoftGraphMailboxConnectionAdapter {
     let resolvedMetadataStore: MicrosoftGraphMetadataPersisting
@@ -703,6 +825,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       resolvedMetadataStore = try SwiftDataMicrosoftGraphMetadataStore.inMemory()
     }
     return MicrosoftGraphMailboxConnectionAdapter(
+      assignmentSync: assignmentSync,
       authorizer: authorizer ?? RecordingMicrosoftGraphAuthorizer(),
       bodyCache: bodyCache,
       client: client,
@@ -710,6 +833,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       keyMaterialStore: keyMaterialStore,
       metadataStore: resolvedMetadataStore,
       now: now,
+      shouldContinueHistoricalBackfill: shouldContinueHistoricalBackfill,
       tokenStore: tokenStore
     )
   }
@@ -895,6 +1019,49 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     if rejectedAccessTokens.contains(accessToken) {
       throw MicrosoftGraphClientError.requestFailed(401)
     }
+  }
+}
+
+private final class RecordingGraphCategoryAssignmentSync: MessageCategoryAssignmentSyncing {
+  var assignmentsByMessageId: [String: MessageCategoryAssignment] = [:]
+  private(set) var savedUserOverrides: [MessageCategoryAssignment] = []
+
+  func loadAssignments(
+    stableProviderMessageIds: [String],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [String: MessageCategoryAssignment] {
+    assignmentsByMessageId.filter { stableProviderMessageIds.contains($0.key) }
+  }
+
+  func loadAssignment(
+    stableProviderMessageId: String,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MessageCategoryAssignment? {
+    assignmentsByMessageId[stableProviderMessageId]
+  }
+
+  func loadFutureLearningSignals(
+    senderAddresses _: [String],
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [FutureLearningSignal] {
+    []
+  }
+
+  func saveAssignment(
+    _ assignment: MessageCategoryAssignment,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MessageCategoryAssignment {
+    assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
+    return assignment
+  }
+
+  func saveUserOverride(
+    _ assignment: MessageCategoryAssignment,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MessageCategoryAssignment {
+    assignmentsByMessageId[assignment.stableProviderMessageId] = assignment
+    savedUserOverrides.append(assignment)
+    return assignment
   }
 }
 

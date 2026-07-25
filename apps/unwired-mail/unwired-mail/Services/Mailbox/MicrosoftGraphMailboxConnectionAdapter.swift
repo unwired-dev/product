@@ -1248,13 +1248,18 @@ struct MicrosoftGraphMetadataService {
   static let initialPageSize = 50
 
   private let client: MicrosoftGraphClient
+  private let shouldContinueHistoricalBackfill: () -> Bool
   private let store: MicrosoftGraphMetadataPersisting
 
   init(
     client: MicrosoftGraphClient,
+    shouldContinueHistoricalBackfill: @escaping () -> Bool = {
+      !ProcessInfo.processInfo.isLowPowerModeEnabled
+    },
     store: MicrosoftGraphMetadataPersisting
   ) {
     self.client = client
+    self.shouldContinueHistoricalBackfill = shouldContinueHistoricalBackfill
     self.store = store
   }
 
@@ -1417,10 +1422,11 @@ struct MicrosoftGraphMetadataService {
       )
     }
     do {
-      while let index = state.folders.firstIndex(where: { $0.deltaLink == nil }) {
+      backfill: while let index = state.folders.firstIndex(where: { $0.deltaLink == nil }) {
         var continuation = state.folders[index].nextLink
         repeat {
           try Task.checkCancellation()
+          guard shouldContinueHistoricalBackfill() else { break backfill }
           let page = try await client.loadMetadataPage(
             folder: state.folders[index].folder,
             continuationURL: continuation,
@@ -1770,6 +1776,7 @@ struct MicrosoftGraphMessageBodyService {
 }
 
 struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
+  private let assignmentSync: MessageCategoryAssignmentSyncing
   private let authorizer: MicrosoftGraphAuthorizing
   private let bodyService: MicrosoftGraphMessageBodyService
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
@@ -1780,6 +1787,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let tokenStore: MicrosoftGraphAuthorizationPersisting
 
   init(
+    assignmentSync: MessageCategoryAssignmentSyncing = MessageCategoryAssignmentSyncService(),
     authorizer: MicrosoftGraphAuthorizing = MicrosoftGraphOAuthService(),
     bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: MicrosoftGraphClient = URLSessionMicrosoftGraphClient(),
@@ -1789,10 +1797,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataStore: MicrosoftGraphMetadataPersisting =
       SwiftDataMicrosoftGraphMetadataStore(),
     now: @escaping () -> Date = Date.init,
+    shouldContinueHistoricalBackfill: @escaping () -> Bool = {
+      !ProcessInfo.processInfo.isLowPowerModeEnabled
+    },
     syncGate: MailboxConnectionSyncGate = .shared,
     tokenStore: MicrosoftGraphAuthorizationPersisting =
       KeychainMicrosoftGraphAuthorizationStore()
   ) {
+    self.assignmentSync = assignmentSync
     self.authorizer = authorizer
     self.bodyService = MicrosoftGraphMessageBodyService(
       cache: bodyCache,
@@ -1800,7 +1812,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       keyMaterialStore: keyMaterialStore
     )
     self.definitionSyncService = definitionSyncService
-    self.metadataService = MicrosoftGraphMetadataService(client: client, store: metadataStore)
+    self.metadataService = MicrosoftGraphMetadataService(
+      client: client,
+      shouldContinueHistoricalBackfill: shouldContinueHistoricalBackfill,
+      store: metadataStore
+    )
     self.metadataStore = metadataStore
     self.now = now
     self.syncGate = syncGate
@@ -2075,12 +2091,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try validate(connection: connection, session: session, requiresAuthorization: false)
-    return try metadataService.load(
-      connection: connection,
-      productAccountId: session.productAccountId
+    return try await applyingSyncedCategories(
+      to: metadataService.load(
+        connection: connection,
+        productAccountId: session.productAccountId
+      )
+      .projected(to: .role(.inbox))
+      .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize),
+      session: session
     )
-    .projected(to: .role(.inbox))
-    .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
   }
 
   func loadMailbox(
@@ -2089,10 +2108,13 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try validate(connection: connection, session: session, requiresAuthorization: false)
-    let result = try metadataService.load(
-      connection: connection,
-      productAccountId: session.productAccountId
-    ).projected(to: collection)
+    let result = try await applyingSyncedCategories(
+      to: metadataService.load(
+        connection: connection,
+        productAccountId: session.productAccountId
+      ).projected(to: collection),
+      session: session
+    )
     return collection == .allObserved
       ? result : result.limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
   }
@@ -2119,7 +2141,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
+    let result = try await syncGate.withLock(connection.id) {
       try await withAccessTokenRetry(
         connection: connection,
         session: session,
@@ -2132,13 +2154,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       }
     }
+    return try await applyingSyncedCategories(to: result, session: session)
   }
 
   func syncInbox(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
+    let result = try await syncGate.withLock(connection.id) {
       try await withAccessTokenRetry(
         connection: connection,
         session: session,
@@ -2153,6 +2176,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
       }
     }
+    return try await applyingSyncedCategories(to: result, session: session)
   }
 
   func syncRecentInbox(
@@ -2164,7 +2188,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
     guard shouldPersist() else { throw CancellationError() }
-    return try await syncGate.withLock(connection.id) {
+    let result = try await syncGate.withLock(connection.id) {
       try await withAccessTokenRetry(
         connection: connection,
         session: session,
@@ -2180,6 +2204,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
       }
     }
+    return try await applyingSyncedCategories(to: result, session: session)
   }
 
   func overrideCategory(
@@ -2189,8 +2214,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMessageMetadata {
     let connection = try await connection(id: message.connectionId, session: session)
     return try await syncGate.withLock(connection.id) {
-      try metadataService.overrideCategory(
-        categoryId,
+      let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+      let assignment = try await assignmentSync.saveUserOverride(
+        MessageCategoryAssignment(
+          categoryId: categoryId,
+          overrideTimestamp: timestamp,
+          source: .userOverride,
+          stableProviderMessageId: message.stableProviderMessageId
+        ),
+        session: session
+      )
+      return try metadataService.overrideCategory(
+        assignment.categoryId,
         message: message,
         connection: connection,
         productAccountId: session.productAccountId
@@ -2225,13 +2260,16 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .microsoftGraph else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
-    if let cached = try bodyService.loadCached(message: message, session: session) {
-      bodyService.recordAccess(message: message, session: session)
-      return cached
-    }
-    let connection = try await connection(id: message.connectionId, session: session)
-    return try await syncGate.withLock(connection.id) {
-      try await withAccessTokenRetry(
+    return try await syncGate.withLock(message.connectionId) {
+      let connection = try await activeConnectionWithinSyncGate(
+        id: message.connectionId,
+        session: session
+      )
+      if let cached = try bodyService.loadCached(message: message, session: session) {
+        bodyService.recordAccess(message: message, session: session)
+        return cached
+      }
+      return try await withAccessTokenRetry(
         connection: connection,
         session: session,
         isWithinSyncGate: true
@@ -2243,6 +2281,77 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       }
     }
+  }
+
+  private func activeConnectionWithinSyncGate(
+    id: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnection {
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    if snapshot.removedConnectionIds.contains(id) {
+      let removed = placeholderConnection(
+        definition: MailboxConnectionDefinition(
+          connectedAt: 0,
+          displayName: "",
+          provider: id.providerId.rawValue,
+          providerAccountIdentifier: id.providerMailboxIdentity.value,
+          stableProviderConnectionKey: ""
+        ),
+        session: session,
+        authorized: true,
+        updatedAt: snapshot.updatedAt
+      )
+      try clearLocalConnectionWithoutLock(removed, session: session)
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == id }),
+      definition.provider == MailProviderId.microsoftGraph.rawValue
+    else { throw MailboxConnectionAdapterError.connectionRemoved }
+    let authorized =
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: definition.providerAccountIdentifier
+      ) != nil
+    return placeholderConnection(
+      definition: definition,
+      session: session,
+      authorized: authorized,
+      updatedAt: snapshot.updatedAt
+    )
+  }
+
+  private func applyingSyncedCategories(
+    to result: MailboxMetadataSyncResult,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    let observedMessages = Dictionary(
+      (result.messages + result.threads.flatMap(\.messages)).map {
+        ($0.stableProviderMessageId, $0)
+      },
+      uniquingKeysWith: { first, _ in first }
+    ).values
+    let assignments = try await assignmentSync.loadAssignments(
+      stableProviderMessageIds: observedMessages.map(\.stableProviderMessageId),
+      session: session
+    )
+    let applyAssignment: (MailboxMessageMetadata) -> MailboxMessageMetadata = { message in
+      guard
+        let assignment = assignments[message.stableProviderMessageId],
+        message.categoryId == nil || assignment.source == .userOverride
+      else { return message }
+      return message.assigningCategory(assignment.categoryId)
+    }
+    let messages = result.messages.map(applyAssignment)
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: result.hasUnlistedNewMessages,
+      messages: messages,
+      newMessageIds: result.newMessageIds,
+      providerCursorIsExpired: result.providerCursorIsExpired,
+      threads: MailboxThread.group(result.threads.flatMap(\.messages).map(applyAssignment)),
+      hasInitialMailboxAvailability: result.hasInitialMailboxAvailability,
+      historicalMetadataBackfillIsComplete: result.historicalMetadataBackfillIsComplete
+    )
   }
 
   func prefetchMessageBodies(
@@ -2482,6 +2591,27 @@ enum MicrosoftGraphOAuthError: LocalizedError, Equatable {
     case .webAuthenticationUnavailable:
       return "Microsoft sign-in could not open the authentication window."
     }
+  }
+}
+
+extension MailboxMessageMetadata {
+  fileprivate func assigningCategory(_ categoryId: String) -> MailboxMessageMetadata {
+    MailboxMessageMetadata(
+      categoryId: categoryId,
+      connectionId: connectionId,
+      from: from,
+      isHistorical: isHistorical,
+      providerInternalDateMilliseconds: providerInternalDateMilliseconds,
+      providerMessageId: providerMessageId,
+      providerStateIds: providerStateIds,
+      providerThreadId: providerThreadId,
+      recipientHeaders: recipientHeaders,
+      replyTo: replyTo,
+      rfcMessageId: rfcMessageId,
+      snippet: snippet,
+      subject: subject,
+      bccRecipients: bccRecipients
+    )
   }
 }
 
