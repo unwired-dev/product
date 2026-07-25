@@ -159,6 +159,32 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testInitialAvailabilityIncludesNewestMessagesAcrossFolders() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "sent-id", displayName: "Sent Items", wellKnownName: "sentitems"),
+    ]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1, folderId: "inbox-id")],
+      nextLink: URL(string: "https://graph.microsoft.test/inbox/page-2"),
+      deltaLink: nil
+    )
+    client.pages[pageKey(folderId: "sent-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(100, folderId: "sent-id")],
+      nextLink: URL(string: "https://graph.microsoft.test/sent/page-2"),
+      deltaLink: nil
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(initial.messages.map(\.subject), ["Message 100", "Message 1"])
+    XCTAssertEqual(client.requestedContinuations, [nil, nil])
+  }
+
   func testExpiredDeltaCursorRestartsWithoutRetainingDuplicateOrStaleMessages() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]

@@ -1435,25 +1435,34 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: false
     )
-    var continuation: URL?
-    var messages: [MicrosoftGraphProviderMessage] = []
-    repeat {
-      let page = try await client.loadMetadataPage(
-        folder: state.folders[0].folder,
-        continuationURL: continuation,
-        pageSize: Self.initialPageSize,
-        accessToken: accessToken
+    for index in state.folders.indices {
+      var continuation: URL?
+      var messages: [MicrosoftGraphProviderMessage] = []
+      repeat {
+        let page = try await client.loadMetadataPage(
+          folder: state.folders[index].folder,
+          continuationURL: continuation,
+          pageSize: Self.initialPageSize,
+          accessToken: accessToken
+        )
+        try Task.checkCancellation()
+        guard shouldPersist() else { throw CancellationError() }
+        messages.append(contentsOf: page.messages)
+        state.folders[index].nextLink = page.nextLink
+        state.folders[index].deltaLink = page.deltaLink
+        continuation = page.nextLink
+      } while messages.count < Self.initialPageSize && continuation != nil
+      try store.savePage(
+        messages,
+        folderId: state.folders[index].folder.id,
+        state: state,
+        productAccountId: productAccountId,
+        connectionId: connection.id
       )
-      try Task.checkCancellation()
-      guard shouldPersist() else { throw CancellationError() }
-      messages.append(contentsOf: page.messages)
-      state.folders[0].nextLink = page.nextLink
-      state.folders[0].deltaLink = page.deltaLink
-      continuation = page.nextLink
-    } while messages.count < Self.initialPageSize && continuation != nil
+    }
     state.hasInitialMailboxAvailability = true
     try store.savePage(
-      messages,
+      [],
       folderId: state.folders[0].folder.id,
       state: state,
       productAccountId: productAccountId,

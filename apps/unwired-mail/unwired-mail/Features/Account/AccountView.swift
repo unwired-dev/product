@@ -1206,6 +1206,9 @@ extension AccountView {
           MicrosoftGraphConnectionPanel(
             cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             connectionsDidChange: {
+              if let connection = microsoftGraphViewModel.connection {
+                selectConnection(connection)
+              }
               Task {
                 _ = await gmailViewModel.load()
               }

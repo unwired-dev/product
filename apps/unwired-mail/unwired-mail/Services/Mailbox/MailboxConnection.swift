@@ -1107,7 +1107,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
     case .unsupportedCapability:
       return "This Mailbox Connection does not support that operation yet."
     case .unexpectedAuthorizedAccount:
-      return "Sign in to the Google account for the selected Mailbox Connection."
+      return "Sign in to the account for the selected Mailbox Connection."
     case .productAccountMismatch:
       return "The mailbox connection does not belong to the current Product Account."
     case .providerMailboxTargetRequired:
