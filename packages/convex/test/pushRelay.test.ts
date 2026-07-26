@@ -1022,6 +1022,51 @@ describe('gmail push relay', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('routes verified legacy Gmail rows during backend rollout', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-route-fallback',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'legacy-route-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'legacy-route@example.com',
+        lastVerifiedAt: now,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'legacy-route-user',
+        pushOwnershipVerifiedAt: now,
+        pushVerifiedAt: now,
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      t.query(internal.pushRelay.resolveGmailRecipients, {
+        routingDigest: routingDigest('legacy-route@example.com'),
+      }),
+    ).resolves.toStrictEqual([
+      {
+        apnsEnvironment: 'production',
+        apnsToken: 'legacy-route-token',
+        pushCleanupGeneration: expect.any(Number),
+        routeId: expect.any(String),
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    ]);
+  });
+
   it('removes a matching legacy Gmail connection by its opaque identifier', async () => {
     expect.assertions(2);
 

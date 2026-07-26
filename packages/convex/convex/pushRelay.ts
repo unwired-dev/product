@@ -68,6 +68,7 @@ const devicePushRouteReconciliationBatchSize = 10;
 const devicePushTokenCleanupBatchSize = 10;
 const gmailPushProofCleanupBatchSize = 10;
 const gmailConnectionLimitPerTrustedDevice = 20;
+const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
@@ -372,6 +373,34 @@ function gmailHistoryIdAtOrAfter(
   }
 }
 
+async function legacyGmailRecipient(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  routingDigest: string,
+): Promise<ApnsRecipient | null> {
+  if (connection.emailAddress === undefined) {
+    return null;
+  }
+  const legacyRoutingDigests = await gmailRoutingDigests(
+    connection.emailAddress,
+  );
+  if (
+    !legacyRoutingDigests.some(
+      (candidate) => candidate.digest === routingDigest,
+    )
+  ) {
+    return null;
+  }
+  // oxlint-disable-next-line eslint/no-use-before-define -- Function declarations are hoisted.
+  return apnsRecipientForDevice(ctx, {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    routeId: connection._id,
+    ownershipVerifiedAt: connection.pushOwnershipVerifiedAt ?? 0,
+    pushVerifiedAt: connection.pushVerifiedAt ?? 0,
+    trustedDeviceId: connection.trustedDeviceId,
+  });
+}
+
 // fallow-ignore-next-line complexity
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
@@ -393,6 +422,33 @@ async function gmailRecipients(
       pushVerifiedAt: connection.pushVerifiedAt ?? 0,
       trustedDeviceId: connection.trustedDeviceId,
     });
+    if (recipient !== null) {
+      recipients.push(recipient);
+      if (recipients.length === 100) {
+        break;
+      }
+    }
+  }
+
+  const legacyConnections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex(
+      'by_provider_and_emailAddress_and_pushVerificationRequestedAt',
+      (q) => q.eq('provider', 'gmail'),
+    )
+    .filter((q) =>
+      q.and(
+        q.eq(q.field('gmailRoutingDigest'), undefined),
+        q.neq(q.field('pushVerifiedAt'), undefined),
+      ),
+    )
+    .take(gmailLegacyRouteFallbackLimit);
+  for (const connection of legacyConnections) {
+    const recipient = await legacyGmailRecipient(
+      ctx,
+      connection,
+      routingDigest,
+    );
     if (recipient !== null) {
       recipients.push(recipient);
       if (recipients.length === 100) {
