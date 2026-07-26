@@ -521,6 +521,42 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(statuses, [transport.status])
   }
 
+  func testLoadConnectionsIsolatesOrphanRegistrationFailure() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "valid-access", refreshToken: "valid-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "orphan-access", refreshToken: "orphan-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-orphan"
+    )
+    let transport = RecordingGmailConnectionTransport()
+    transport.connectError = GmailProviderConnectionTestError.registrationFailed
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(connection: transport.status),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: "orphan@example.com",
+          providerAccountIdentifier: "gmail-user-orphan",
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "orphan-refresh",
+            idToken: "gmail-identity-token"
+          )
+        )
+      )
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses, [transport.status])
+  }
+
   func testLoadConnectionsMigratesLegacyTokensForExistingPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -867,6 +903,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
+      if request.url?.path == "/token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
       let response = HTTPURLResponse(
         url: request.url!,
         statusCode: request.url?.path == "/gmail/v1/users/me/profile" ? 403 : 200,
@@ -894,6 +936,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
   func testVerifierRejectsMetadataOnlyGmailAuthorization() async throws {
     let session = ConvexClientTesting.makeSession { request in
+      if request.url?.path == "/token" {
+        return (
+          Self.httpResponse(for: request, statusCode: 200),
+          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+        )
+      }
       if request.url?.path == "/gmail/v1/users/me/profile" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
@@ -1088,12 +1136,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(account.providerAccountIdentifier, "gmail-user-001")
     XCTAssertEqual(
       profileAuthorizations,
-      ["Bearer access-token", "Bearer refreshed-access-token"]
+      ["Bearer refreshed-access-token", "Bearer access-token"]
     )
     XCTAssertEqual(
       account.tokens,
       GmailProviderTokens(
-        accessToken: "access-token",
+        accessToken: "refreshed-access-token",
         refreshToken: "refresh-token",
         idToken: "refreshed-id-token"
       )

@@ -613,30 +613,29 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
     for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
     where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
-      let verifiedAccount: VerifiedGmailAccount
       do {
-        verifiedAccount = try await credentialVerifier.verify(
+        let verifiedAccount = try await credentialVerifier.verify(
           accessToken: tokens.accessToken,
           refreshToken: tokens.refreshToken
         )
+        let status = try await completeConnection(
+          verifiedAccount: verifiedAccount,
+          session: session
+        )
+        statuses.removeAll {
+          $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+        }
+        statuses.append(status)
+        tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = verifiedAccount.tokens
+        if storedIdentifier != verifiedAccount.providerAccountIdentifier {
+          try tokenStore.clear(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: storedIdentifier
+          )
+          tokensByIdentifier[storedIdentifier] = nil
+        }
       } catch {
         continue
-      }
-      let status = try await completeConnection(
-        verifiedAccount: verifiedAccount,
-        session: session
-      )
-      statuses.removeAll {
-        $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
-      }
-      statuses.append(status)
-      tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = verifiedAccount.tokens
-      if storedIdentifier != verifiedAccount.providerAccountIdentifier {
-        try tokenStore.clear(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: storedIdentifier
-        )
-        tokensByIdentifier[storedIdentifier] = nil
       }
     }
     if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
@@ -736,6 +735,36 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       throw GmailProviderCredentialVerificationError.missingOAuthClientId
     }
 
+    let refreshedProfileAndTokenInfo = try await refreshProfileAndTokenInfo(
+      refreshToken: refreshToken,
+      oauthClientId: oauthClientId
+    )
+    guard refreshedProfileAndTokenInfo.tokenInfo.allowsReadingMessageBodies else {
+      throw GmailProviderCredentialVerificationError.insufficientGmailScope
+    }
+    if let persistedIdentity = try? await verifyAccessToken(accessToken),
+      persistedIdentity.profile.emailAddress.caseInsensitiveCompare(
+        refreshedProfileAndTokenInfo.profile.emailAddress
+      ) != .orderedSame
+        || persistedIdentity.subject != refreshedProfileAndTokenInfo.subject
+    {
+      throw GmailProviderCredentialVerificationError.accountMismatch
+    }
+
+    return VerifiedGmailAccount(
+      emailAddress: refreshedProfileAndTokenInfo.profile.emailAddress,
+      providerAccountIdentifier: refreshedProfileAndTokenInfo.subject,
+      tokens: GmailProviderTokens(
+        accessToken: refreshedProfileAndTokenInfo.accessToken,
+        refreshToken: refreshToken,
+        idToken: refreshedProfileAndTokenInfo.idToken
+      )
+    )
+  }
+
+  private func verifyAccessToken(
+    _ accessToken: String
+  ) async throws -> PersistedGmailVerification {
     let profile = try await validateGmailAuthorization(accessToken: accessToken)
     var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
     components?.queryItems = [
@@ -744,43 +773,19 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     guard let url = components?.url else {
       throw GmailProviderCredentialVerificationError.invalidAccessToken
     }
-
     let (data, response) = try await session.data(from: url)
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode)
     else {
       throw GmailProviderCredentialVerificationError.invalidAccessToken
     }
-
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: data)
     guard tokenInfo.allowsReadingMessageBodies else {
       throw GmailProviderCredentialVerificationError.insufficientGmailScope
     }
-    let subject = try await loadGoogleAccountIdentifier(accessToken: accessToken)
-    let refreshedProfileAndTokenInfo = try await refreshProfileAndTokenInfo(
-      refreshToken: refreshToken,
-      oauthClientId: oauthClientId
-    )
-    guard
-      refreshedProfileAndTokenInfo.profile.emailAddress.caseInsensitiveCompare(
-        profile.emailAddress
-      ) == .orderedSame,
-      refreshedProfileAndTokenInfo.subject == subject
-    else {
-      throw GmailProviderCredentialVerificationError.accountMismatch
-    }
-    guard refreshedProfileAndTokenInfo.tokenInfo.allowsReadingMessageBodies else {
-      throw GmailProviderCredentialVerificationError.insufficientGmailScope
-    }
-
-    return VerifiedGmailAccount(
-      emailAddress: profile.emailAddress,
-      providerAccountIdentifier: subject,
-      tokens: GmailProviderTokens(
-        accessToken: accessToken,
-        refreshToken: refreshToken,
-        idToken: refreshedProfileAndTokenInfo.idToken
-      )
+    return PersistedGmailVerification(
+      profile: profile,
+      subject: try await loadGoogleAccountIdentifier(accessToken: accessToken)
     )
   }
 
@@ -848,6 +853,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: tokenInfoData)
     let subject = try await loadGoogleAccountIdentifier(accessToken: tokenResponse.accessToken)
     return RefreshedGmailVerification(
+      accessToken: tokenResponse.accessToken,
       idToken: tokenResponse.idToken,
       profile: profile,
       subject: subject,
@@ -926,10 +932,16 @@ private struct GoogleOpenIDUserInfoResponse: Decodable {
 }
 
 private struct RefreshedGmailVerification {
+  let accessToken: String
   let idToken: String?
   let profile: GoogleGmailProfileResponse
   let subject: String
   let tokenInfo: GoogleTokenInfoResponse
+}
+
+private struct PersistedGmailVerification {
+  let profile: GoogleGmailProfileResponse
+  let subject: String
 }
 
 private struct GoogleGmailProfileResponse: Decodable {

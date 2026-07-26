@@ -893,7 +893,7 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedThreadIds: selectedThreadsBinding,
         viewModel: inboxViewModel,
-        selectSearchResult: mailShellSelection.selectSearchResult,
+        selectSearchResult: selectSearchResult,
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         ),
@@ -1213,6 +1213,16 @@ extension AccountView {
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
     loadMailbox(for: connection)
+  }
+
+  private func selectSearchResult(_ message: MailboxMessageMetadata) {
+    if mailShellSelection.selectedMailbox?.isUnified != true,
+      let connection = gmailViewModel.connections.first(where: { $0.id == message.connectionId }),
+      gmailViewModel.selectedConnectionId != connection.id
+    {
+      selectConnection(connection)
+    }
+    mailShellSelection.selectSearchResult(message)
   }
 }
 
