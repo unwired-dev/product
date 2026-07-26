@@ -1543,7 +1543,7 @@ export const verifyGmailWatch = action({
   args: {
     gmailIdentityToken: v.string(),
     historyId: v.string(),
-    opaqueConnectionId: v.string(),
+    opaqueConnectionId: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -1590,7 +1590,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     currentRoutingKeyVersion: v.number(),
     emailAddress: v.string(),
     historyId: v.string(),
-    opaqueConnectionId: v.string(),
+    opaqueConnectionId: v.optional(v.string()),
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
@@ -1606,8 +1606,14 @@ export const verifyGmailWatchForIdentity = internalMutation({
       ctx,
       args.trustedDeviceId,
     );
+    const opaqueConnectionId =
+      args.opaqueConnectionId ??
+      (await opaqueGmailConnectionId(
+        account.productAccountId,
+        args.providerAccountIdentifier,
+      ));
     const opaqueConnection = await gmailConnection(ctx, {
-      opaqueConnectionId: args.opaqueConnectionId,
+      opaqueConnectionId,
       productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,
     });
@@ -1655,7 +1661,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
         q
           .eq('productAccountId', account.productAccountId)
-          .eq('opaqueConnectionId', args.opaqueConnectionId),
+          .eq('opaqueConnectionId', opaqueConnectionId),
       )
       .unique();
     if (
@@ -1668,7 +1674,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     if (identityBinding === null) {
       await ctx.db.insert('gmailOpaqueIdentityBindings', {
         identityBindingDigest,
-        opaqueConnectionId: args.opaqueConnectionId,
+        opaqueConnectionId,
         productAccountId: account.productAccountId,
         updatedAt: bindingUpdatedAt,
       });
@@ -1692,7 +1698,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
         lastVerifiedAt: Date.now(),
-        opaqueConnectionId: args.opaqueConnectionId,
+        opaqueConnectionId,
         providerAccountIdentifier: undefined,
         updatedAt: Date.now(),
       });
@@ -1726,7 +1732,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
         lastVerifiedAt: now,
-        opaqueConnectionId: args.opaqueConnectionId,
+        opaqueConnectionId,
         providerAccountIdentifier: undefined,
       },
     );

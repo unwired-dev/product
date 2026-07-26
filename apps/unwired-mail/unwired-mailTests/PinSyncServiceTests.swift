@@ -197,7 +197,8 @@ final class PinSyncServiceTests: XCTestCase {
       ),
       messageReader: mailboxService,
       pinViewModel: pinViewModel,
-      selection: MailShellSelectionModel()
+      selection: MailShellSelectionModel(),
+      session: firstDeviceSession
     )
 
     await reader.togglePin(Self.messageId)

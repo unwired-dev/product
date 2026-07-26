@@ -644,36 +644,40 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
           tokensByIdentifier[$0.providerAccountIdentifier] == nil
         })
     {
-      let verifiedAccount = try await credentialVerifier.verify(
-        accessToken: legacyTokens.accessToken,
-        refreshToken: legacyTokens.refreshToken
-      )
-      var didMigrateLegacyTokens = false
-      if statuses.contains(where: {
-        $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
-      }) {
-        let migratedTokens = GmailProviderTokens(
-          accessToken: verifiedAccount.tokens.accessToken,
-          refreshToken: verifiedAccount.tokens.refreshToken
+      do {
+        let verifiedAccount = try await credentialVerifier.verify(
+          accessToken: legacyTokens.accessToken,
+          refreshToken: legacyTokens.refreshToken
         )
-        try tokenStore.save(
-          migratedTokens,
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
-        )
-        tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = migratedTokens
-        didMigrateLegacyTokens = true
-      } else if statuses.isEmpty {
-        let status = try await completeConnection(
-          verifiedAccount: verifiedAccount,
-          session: session
-        )
-        statuses = [status]
-        tokensByIdentifier[status.providerAccountIdentifier] = verifiedAccount.tokens
-        didMigrateLegacyTokens = true
-      }
-      if didMigrateLegacyTokens {
-        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+        var didMigrateLegacyTokens = false
+        if statuses.contains(where: {
+          $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+        }) {
+          let migratedTokens = GmailProviderTokens(
+            accessToken: verifiedAccount.tokens.accessToken,
+            refreshToken: verifiedAccount.tokens.refreshToken
+          )
+          try tokenStore.save(
+            migratedTokens,
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+          )
+          tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = migratedTokens
+          didMigrateLegacyTokens = true
+        } else if statuses.isEmpty {
+          let status = try await completeConnection(
+            verifiedAccount: verifiedAccount,
+            session: session
+          )
+          statuses = [status]
+          tokensByIdentifier[status.providerAccountIdentifier] = verifiedAccount.tokens
+          didMigrateLegacyTokens = true
+        }
+        if didMigrateLegacyTokens {
+          try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+        }
+      } catch {
+        // A stale legacy credential must not hide connections with valid scoped tokens.
       }
     }
     return statuses.filter { status in

@@ -918,6 +918,7 @@ struct AccountView: View {
         messageReader: messageReader,
         pinViewModel: pinViewModel,
         selection: mailShellSelection,
+        session: snapshot,
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         )
@@ -2816,6 +2817,7 @@ struct MailShellConversationReader: View {
   let messageReader: MailboxMessageReading
   @Bindable var pinViewModel: PinViewModel
   @Bindable var selection: MailShellSelectionModel
+  let session: ProductAccountSessionSnapshot
   var categoryChoices: [MessageCategoryChoice] = []
 
   @State private var compositionDraft: MailShellCompositionDraft?
@@ -2861,6 +2863,15 @@ struct MailShellConversationReader: View {
                   try await inboxViewModel.loadMessageBody(message, using: messageReader)
                 },
                 message: message,
+                removeCachedBody: {
+                  do {
+                    try messageReader.removeCachedMessageBody(message: message, session: session)
+                    readerErrorMessage = nil
+                  } catch {
+                    readerErrorConnectionId = connection.id
+                    readerErrorMessage = error.localizedDescription
+                  }
+                },
                 reply: { compositionDraft = .reply(to: message) },
                 replyAll: {
                   compositionDraft = .replyAll(
@@ -3266,6 +3277,7 @@ private struct MailShellConversationMessage: View {
   let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
   let message: MailboxMessageMetadata
+  let removeCachedBody: () -> Void
   let reply: () -> Void
   let replyAll: () -> Void
   let forward: () async -> Void
@@ -3324,6 +3336,8 @@ private struct MailShellConversationMessage: View {
             }
             .buttonStyle(.bordered)
           }
+          Button("Remove Cached Body", role: .destructive, action: removeCachedBody)
+            .buttonStyle(.bordered)
         }
       }
     }

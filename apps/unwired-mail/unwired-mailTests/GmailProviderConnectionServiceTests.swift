@@ -595,6 +595,30 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertNil(transport.connectCall)
   }
 
+  func testLoadConnectionsIgnoresUnverifiableLegacyTokensForScopedConnections() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "scoped-access", refreshToken: "scoped-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "revoked-access", refreshToken: "revoked-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(connection: transport.status),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: RejectingGmailCredentialVerifier()
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses, [transport.status])
+  }
+
   func testLoadConnectionsRequiresLocalTokens() async throws {
     let service = GmailProviderConnectionService(
       tokenStore: InMemoryGmailProviderTokenStore(),

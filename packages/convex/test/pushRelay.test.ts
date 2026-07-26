@@ -298,6 +298,41 @@ describe('gmail push relay', () => {
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
   });
 
+  it('derives the opaque connection id for legacy watch verification calls', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-watch-verification',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'legacy@example.com',
+        lastVerifiedAt: now,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'gmail-user-legacy',
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: createGoogleIdentityToken(
+          'legacy@example.com',
+          'gmail-user-legacy',
+        ),
+        historyId: '100',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
+  });
+
   it('stops a mailbox watch only after its last active device route', async () => {
     expect.assertions(3);
 
