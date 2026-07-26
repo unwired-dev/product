@@ -2195,13 +2195,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await authorizationForProviderAccess(
+    let authorization = try await authorizationForProviderAccess(
       connection: connection,
       session: session
     )
+    let queuedTarget = queuedTargetProviderMailboxId(
+      for: action,
+      requestedProviderMailboxId: targetProviderMailboxId,
+      definition: authorization.definition
+    )
     try await pendingActionService.enqueue(
       action,
-      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderMailboxId: queuedTarget,
       sourceProviderMailboxId: sourceProviderMailboxId,
       messages: messages,
       connection: connection,
@@ -2634,9 +2639,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   ) throws -> String? {
     switch action {
     case .archive:
-      return definition.roleMappings[.archive]
+      return providerMailboxName(
+        from: requestedProviderMailboxId,
+        definition: definition
+      ) ?? definition.roleMappings[.archive]
     case .delete:
-      guard let trash = definition.roleMappings[.trash] else {
+      guard
+        let trash =
+          providerMailboxName(
+            from: requestedProviderMailboxId,
+            definition: definition
+          ) ?? definition.roleMappings[.trash]
+      else {
         throw IMAPMailboxError.unsupportedAction
       }
       return IMAPProviderMessage.mailboxNamesEqual(message.mailbox, trash) ? nil : trash
@@ -2653,10 +2667,33 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     case .notSpam, .restore:
       return "INBOX"
     case .spam:
-      return definition.roleMappings[.spam]
+      return providerMailboxName(
+        from: requestedProviderMailboxId,
+        definition: definition
+      ) ?? definition.roleMappings[.spam]
     case .markRead, .markUnread, .star, .unstar:
       return nil
     }
+  }
+
+  private func queuedTargetProviderMailboxId(
+    for action: ProviderMailAction,
+    requestedProviderMailboxId: String?,
+    definition: GenericMailConnectionDefinition
+  ) -> String? {
+    let mappedMailbox: String? =
+      switch action {
+      case .archive:
+        definition.roleMappings[.archive]
+      case .delete:
+        definition.roleMappings[.trash]
+      case .spam:
+        definition.roleMappings[.spam]
+      case .markRead, .markUnread, .move, .notSpam, .restore, .star, .unstar:
+        nil
+      }
+    return mappedMailbox.map(IMAPProviderMessage.customMailboxStateId)
+      ?? requestedProviderMailboxId
   }
 
   private func resolveBlockedPendingAction(
@@ -2775,6 +2812,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     return recipients
   }
 
+  // swiftlint:disable:next cyclomatic_complexity
   private static func splitMailboxValues(_ value: String) -> [String] {
     var values: [String] = []
     var valueBuffer = ""
@@ -2800,6 +2838,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         angleBracketDepth += 1
       case ">":
         angleBracketDepth = max(0, angleBracketDepth - 1)
+      case ":" where !isQuoted && angleBracketDepth == 0:
+        valueBuffer = ""
+        continue
+      case ";" where !isQuoted && angleBracketDepth == 0:
+        if !valueBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          values.append(valueBuffer)
+        }
+        valueBuffer = ""
+        continue
       case "," where !isQuoted && angleBracketDepth == 0:
         values.append(valueBuffer)
         valueBuffer = ""
@@ -2809,7 +2856,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       }
       valueBuffer.append(character)
     }
-    values.append(valueBuffer)
+    if !valueBuffer.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      values.append(valueBuffer)
+    }
     return values
   }
 

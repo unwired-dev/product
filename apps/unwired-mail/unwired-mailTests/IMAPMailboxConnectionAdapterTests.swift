@@ -153,6 +153,31 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(savedDraft.contains("\r\nTo:"))
   }
 
+  func testSMTPDeliveryExpandsRFCMailboxGroups() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Group delivery",
+        recipient: "Friends: a@example.com, b@example.com;",
+        subject: "Hello group"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(smtpClient.envelopeRecipients, [["a@example.com", "b@example.com"]])
+  }
+
   func testLongUnicodeSubjectUsesFoldedRFC2047EncodedWords() async throws {
     let definition = imapDefinition(username: "sender")
     let smtpClient = RecordingSMTPMailClient()
@@ -396,6 +421,43 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     _ = try await adapter.syncInbox(connection: connection, session: session)
     XCTAssertTrue(
       try pendingStore.load(productAccountId: session.productAccountId).isEmpty
+    )
+  }
+
+  func testQueuedArchiveRetainsOriginalRoleMapping() async throws {
+    let definition = imapDefinition(
+      username: "reader",
+      roleMappings: [.archive: "Old Archive"]
+    )
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 7)]
+    let pendingStore = RecordingPendingProviderActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingStore: pendingStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+
+    let pending = try XCTUnwrap(
+      pendingStore.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(
+      pending.targetProviderMailboxId.flatMap {
+        IMAPProviderMessage.mailboxName(fromProviderStateId: $0)
+      },
+      "Old Archive"
     )
   }
 
@@ -1330,18 +1392,14 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(task.writes.contains { $0.contains("EXPUNGE") })
   }
 
-  // swiftlint:disable:next function_body_length
-  func testSystemClientReconcilesUIDPLUSCopyBeforeRetryingMove() async throws {
+  func testSystemClientRepeatsUIDPLUSCopyBeforeRetryingExpunge() async throws {
     let firstTask = TranscriptIMAPStreamTask(
       responses: [
         .success("* OK ready\r\n"),
         .success("A1 OK authenticated\r\n"),
         .success("* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n"),
         .success("* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n"),
-        .success("* OK [UIDVALIDITY 8] selected\r\nA4 OK selected\r\n"),
-        .success("* SEARCH\r\nA5 OK searched\r\n"),
-        .success("* OK [UIDVALIDITY 1] selected\r\nA6 OK selected\r\n"),
-        .success("A7 OK [COPYUID 8 7 42] copied\r\n"),
+        .success("A4 OK [COPYUID 8 7 42] copied\r\n"),
         .failure(URLError(.networkConnectionLost)),
       ]
     )
@@ -1351,11 +1409,9 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         "A1 OK authenticated\r\n",
         "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n",
         "* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n",
-        "* OK [UIDVALIDITY 8] selected\r\nA4 OK selected\r\n",
-        "* SEARCH 42\r\nA5 OK searched\r\n",
-        "* OK [UIDVALIDITY 1] selected\r\nA6 OK selected\r\n",
-        "A7 OK stored\r\n",
-        "A8 OK expunged\r\n",
+        "A4 OK [COPYUID 8 7 43] copied\r\n",
+        "A5 OK stored\r\n",
+        "A6 OK expunged\r\n",
       ]
     )
     let definition = imapDefinition(username: "reader")
@@ -1385,9 +1441,71 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertTrue(firstTask.writes.contains("A7 UID COPY 7 \"Archive\"\r\n"))
-    XCTAssertFalse(retryTask.writes.contains { $0.contains("UID COPY") })
-    XCTAssertTrue(retryTask.writes.contains("A8 UID EXPUNGE 7\r\n"))
+    XCTAssertTrue(firstTask.writes.contains("A4 UID COPY 7 \"Archive\"\r\n"))
+    XCTAssertTrue(retryTask.writes.contains("A4 UID COPY 7 \"Archive\"\r\n"))
+    XCTAssertTrue(retryTask.writes.contains("A6 UID EXPUNGE 7\r\n"))
+  }
+
+  func testSystemClientDoesNotExpungeWhenCopyUIDDoesNotMatchSource() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n",
+        "A4 OK [COPYUID 8 99 42] copied\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.perform(
+        .archive,
+        message: imapMessage(uid: 7),
+        targetMailbox: "Archive",
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "reader")
+        )
+      )
+      XCTFail("Expected mismatched COPYUID to stop before expunge")
+    } catch IMAPMailboxError.unsafeExpunge {
+    }
+
+    XCTAssertFalse(task.writes.contains { $0.contains("EXPUNGE") })
+  }
+
+  func testSystemClientRejectsMailboxCommandInjection() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.appendMessage(
+        Data("Subject: Safe\r\n\r\nBody".utf8),
+        to: "Sent\r\nA9 LOGOUT",
+        flags: ["\\Seen"],
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "reader")
+        )
+      )
+      XCTFail("Expected mailbox command injection to be rejected")
+    } catch IMAPMailboxError.invalidProviderResponse {
+    }
+
+    XCTAssertFalse(
+      task.writes.contains { $0.contains("APPEND") || $0.contains("A9 LOGOUT") },
+      "\(task.writes)"
+    )
   }
 
   func testSystemSMTPClientSubmitsDotStuffedMessage() async throws {
