@@ -2626,7 +2626,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       session: session
     )
     for messageId in messageIds {
-      let appearances = try metadataStore.loadProviderMessages(
+      var appearances = try metadataStore.loadProviderMessages(
         stableProviderMessageId: StableProviderMessageIdentity(
           connectionId: connection.id,
           providerMessageId: messageId
@@ -2634,6 +2634,24 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
+      if [.markRead, .markUnread, .star, .unstar].contains(action),
+        let sourceMailbox = providerMailboxName(
+          from: sourceProviderMailboxId,
+          definition: authorization.definition
+        ),
+        !appearances.contains(where: {
+          IMAPProviderMessage.mailboxNamesEqual($0.mailbox, sourceMailbox)
+        }),
+        let rfcMessageId = appearances.first?.rfcMessageId,
+        let movedAppearance = try await client.loadMetadataMessage(
+          rfcMessageId: rfcMessageId,
+          mailbox: IMAPMailboxDescriptor(displayName: sourceMailbox, name: sourceMailbox),
+          requiresUniqueMatch: true,
+          authorization: authorization
+        )
+      {
+        appearances = [movedAppearance]
+      }
       let actionAppearances = providerActionAppearances(
         for: action,
         appearances: appearances,
@@ -2681,6 +2699,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     definition: GenericMailConnectionDefinition
   ) -> [IMAPProviderMessage] {
     if [.markRead, .markUnread, .star, .unstar].contains(action) {
+      if let sourceMailbox = providerMailboxName(
+        from: sourceProviderMailboxId,
+        definition: definition
+      ) {
+        return appearances.filter {
+          IMAPProviderMessage.mailboxNamesEqual($0.mailbox, sourceMailbox)
+        }
+      }
       return appearances
     }
     if let sourceMailbox = providerMailboxName(
@@ -2946,7 +2972,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         isEscaped = true
       } else if character == "\"" {
         isQuoted.toggle()
-      } else if !isQuoted, character == "," || character == ":" || character == ";" {
+      } else if !isQuoted, character == ":" {
+        let groupName = value[displayNameStart..<index]
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !groupName.unicodeScalars.allSatisfy(\.isASCII)
+          || groupName.utf8.count > 60
+        {
+          output += value[segmentStart..<displayNameStart]
+          output += try encodedHeaderValue(groupName)
+          output += ":"
+          segmentStart = value.index(after: index)
+        }
+        displayNameStart = value.index(after: index)
+      } else if !isQuoted, character == "," || character == ";" {
         displayNameStart = value.index(after: index)
       } else if !isQuoted, character == "<" {
         let displayName = value[displayNameStart..<index]

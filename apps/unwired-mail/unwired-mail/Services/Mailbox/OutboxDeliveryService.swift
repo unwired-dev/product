@@ -911,12 +911,24 @@ actor OutboxDeliveryService {
             )
             return
           case .unknown:
-            try update(
-              attemptId,
-              productAccountId: productAccountId,
-              state: .outcomeUnknown,
-              errorDescription: "Delivery outcome is unknown. Resolve it before sending again."
-            )
+            if try store.load(productAccountId: productAccountId)
+              .first(where: { $0.id == attemptId })?.message.sentCopyOnly == true
+            {
+              try handleTransientFailure(
+                attemptId,
+                error: error,
+                productAccountId: productAccountId,
+                provider: provider,
+                reconcile: reconcile
+              )
+            } else {
+              try update(
+                attemptId,
+                productAccountId: productAccountId,
+                state: .outcomeUnknown,
+                errorDescription: "Delivery outcome is unknown. Resolve it before sending again."
+              )
+            }
           }
         case .permanent:
           try update(

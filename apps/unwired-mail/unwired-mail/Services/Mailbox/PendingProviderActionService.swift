@@ -274,16 +274,32 @@ actor PendingProviderActionService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws -> String? {
-    try store.load(productAccountId: session.productAccountId)
-      .filter {
+    let actions = try store.load(productAccountId: session.productAccountId)
+    guard
+      let pendingAction = actions.filter({
         $0.connectionId == connection.id.rawValue
           && $0.state == .pending
           && $0.action == action
           && $0.targetProviderMailboxId == targetProviderMailboxId
           && $0.messageIds == messageIds
-      }
-      .min(by: { $0.sequence < $1.sequence })?
-      .sourceProviderMailboxId
+      }).min(by: { $0.sequence < $1.sequence })
+    else {
+      return nil
+    }
+    let movedTarget = actions.filter({
+      $0.connectionId == connection.id.rawValue
+        && $0.state == .providerConfirmed
+        && $0.sequence < pendingAction.sequence
+        && $0.action.confirmsWhenProviderMessageDisappears
+        && $0.targetProviderMailboxId != nil
+        && !Set($0.messageIds).isDisjoint(with: pendingAction.messageIds)
+    }).max(by: { $0.sequence < $1.sequence })?.targetProviderMailboxId
+    if let movedTarget {
+      return movedTarget
+    }
+    return [.markRead, .markUnread, .star, .unstar].contains(action)
+      ? nil
+      : pendingAction.sourceProviderMailboxId
   }
 
   func project(

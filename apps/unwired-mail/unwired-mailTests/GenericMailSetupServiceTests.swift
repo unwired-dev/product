@@ -647,6 +647,25 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertNil(store.authorization)
   }
 
+  func testIMAPAllowsRoleMappingsThatDifferOnlyByNonInboxCase() async throws {
+    var draft = manualDraft()
+    draft.roleMappings[.archive] = "Archive"
+    draft.roleMappings[.sent] = "archive"
+    let service = GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+
+    let definition = try await service.authorize(
+      draft: draft,
+      credential: "secret",
+      productAccountId: ProductAccountId("product-account-001")
+    )
+
+    XCTAssertEqual(definition.roleMappings[.archive], "Archive")
+    XCTAssertEqual(definition.roleMappings[.sent], "archive")
+  }
+
   func testUnambiguousIMAPSpecialUseRolesDoNotRequireManualMapping() async throws {
     let verifier = RecordingGenericMailEndpointVerifier()
     let discoveredRoles = Dictionary(
@@ -1010,6 +1029,39 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
     XCTAssertLessThan(secureIndex, authorizationIndex)
     XCTAssertEqual(factory.minimumTransportVersion, .tls12OrNewer)
+  }
+
+  func testSystemSMTPClientRejectsInternationalizedEnvelopeSenderWithoutSMTPUTF8() async {
+    let stream = ScriptedGenericMailStreamTask(responses: [])
+    let client = SystemSMTPMailClient(
+      streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)
+    )
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "jöhn@example.com",
+      incomingEndpoint: manualDraft().incomingEndpoint,
+      outgoingEndpoint: manualDraft().outgoingEndpoint,
+      roleMappings: manualDraft().roleMappings,
+      username: "reader@example.com"
+    )
+
+    do {
+      try await client.send(
+        Data("Message".utf8),
+        envelopeFrom: definition.emailAddress,
+        envelopeRecipients: ["recipient@example.com"],
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: definition
+        )
+      )
+      XCTFail("Expected the internationalized envelope sender to be rejected")
+    } catch SMTPMailError.invalidMessage {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(stream.events.isEmpty)
   }
 
   func testSystemVerifierReturnsSMTPAuthenticationFailureWithoutWaitingForTimeout() async {

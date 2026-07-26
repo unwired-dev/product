@@ -374,6 +374,7 @@ struct SystemSMTPMailClient: SMTPMailClient {
       !envelopeRecipients.isEmpty,
       ([envelopeFrom] + envelopeRecipients).allSatisfy({
         !$0.contains("\r") && !$0.contains("\n")
+          && $0.unicodeScalars.allSatisfy(\.isASCII)
       })
     else {
       throw SMTPMailError.invalidMessage

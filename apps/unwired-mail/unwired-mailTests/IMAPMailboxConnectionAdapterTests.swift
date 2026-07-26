@@ -216,6 +216,32 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testSMTPDeliveryEncodesInternationalizedMailboxGroupName() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Hello group",
+        recipient: "Frëunde: first@example.com;",
+        subject: "Group reply"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let submitted = try XCTUnwrap(String(data: smtpClient.sentMessages[0], encoding: .utf8))
+    XCTAssertTrue(submitted.contains("To: =?UTF-8?B?RnLDq3VuZGU=?=: first@example.com;"))
+  }
+
   func testSMTPDeliveryRejectsInternationalizedEnvelopeAddressWithoutSMTPUTF8() async throws {
     let definition = imapDefinition(username: "sender")
     let smtpClient = RecordingSMTPMailClient()
@@ -646,6 +672,55 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     _ = await adapter.resumePendingActions(connection: connection, session: session)
 
     XCTAssertEqual(client.performedActions.map(\.targetMailbox), ["Original Archive"])
+  }
+
+  func testQueuedFlagActionUsesEarlierConfirmedMoveTarget() async throws {
+    let definition = imapDefinition(username: "reader")
+    let sourceMessage = imapMessage(uid: 7, rfcMessageId: "<moved-then-read@example.com>")
+    let movedMessage = imapMessage(
+      mailbox: "Archive",
+      uid: 19,
+      rfcMessageId: "<moved-then-read@example.com>"
+    )
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [sourceMessage],
+      "Archive": [],
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [],
+      "Archive": [movedMessage],
+    ]
+
+    try await adapter.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(client.performedActions.map(\.uid), [7, 19])
   }
 
   func testFlagActionUpdatesEveryMergedIMAPAppearance() async throws {

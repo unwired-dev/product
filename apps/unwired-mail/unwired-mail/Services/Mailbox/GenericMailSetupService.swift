@@ -422,12 +422,12 @@ struct GenericMailSetupService {
         missing: missingRoles
       )
     }
-    let normalizedRoleMailboxes = roleMappings.values.map {
-      $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    let roleMailboxes = roleMappings.values.map {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines)
     }
     guard
-      !normalizedRoleMailboxes.contains("inbox"),
-      Set(normalizedRoleMailboxes).count == normalizedRoleMailboxes.count
+      !roleMailboxes.contains(where: { $0.caseInsensitiveCompare("INBOX") == .orderedSame }),
+      Set(roleMailboxes).count == roleMailboxes.count
     else {
       throw GenericMailSetupError.conflictingRoleMappings
     }

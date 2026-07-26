@@ -667,6 +667,26 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(attempt?.message.sentCopyOnly == true)
   }
 
+  func testAmbiguousAbsentSentCopyRetriesAppendOnlyDelivery() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw SMTPMailError.sentCopyOutcomeUnknownAfterAcceptance },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempt = try await service.items(session: session).first
+    XCTAssertEqual(attempt?.state, .retrying)
+    XCTAssertTrue(attempt?.message.sentCopyOnly == true)
+  }
+
   func testSMTP422IsTransient() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
