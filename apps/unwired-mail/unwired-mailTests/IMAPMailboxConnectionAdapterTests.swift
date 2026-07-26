@@ -69,6 +69,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(capabilities.supports(.delete))
   }
 
+  func testUIDPLUSOnlyServerDoesNotAdvertiseMovesWithoutMessageReconciliationKey() {
+    let capabilities = MailboxConnectionCapabilities.imapFull(
+      serverCapabilities: ["IMAP4REV1", "UIDPLUS"]
+    )
+
+    XCTAssertFalse(capabilities.supports(.archive))
+    XCTAssertFalse(capabilities.supports(.move))
+    XCTAssertTrue(capabilities.supports(.delete))
+  }
+
   func testSMTPDeliveryAndDraftAppendUseMappedMailboxes() async throws {
     let definition = imapDefinition(
       username: "sender",
@@ -122,6 +132,37 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       String(data: client.appendedMessages[1].message, encoding: .utf8)
     )
     XCTAssertFalse(savedDraft.contains("\r\nTo:"))
+  }
+
+  func testLongUnicodeSubjectUsesFoldedRFC2047EncodedWords() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Body",
+        recipient: "reader@example.com",
+        subject: String(repeating: "Příliš žluťoučký kůň ", count: 8)
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let submitted = try XCTUnwrap(
+      String(data: smtpClient.sentMessages[0], encoding: .utf8)
+    )
+    let encodedWords = submitted.split(whereSeparator: \.isWhitespace)
+      .filter { $0.hasPrefix("=?UTF-8?B?") }
+    XCTAssertGreaterThan(encodedWords.count, 1)
+    XCTAssertTrue(encodedWords.allSatisfy { $0.count <= 75 })
   }
 
   func testSentCopyFailureIsReportedAfterSMTPAcceptance() async throws {
@@ -353,6 +394,32 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(refreshed.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(refreshed.messages.count, 77)
     XCTAssertEqual(refreshed.messages.last?.subject, "Message 1")
+  }
+
+  func testRefreshCoverageIncludesMessageRemovedFromNewestPage() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = (1...75).map {
+      imapMessage(uid: Int64($0), subject: "Message \($0)")
+    }
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    let removedMessageId = imapMessage(uid: 75).providerMessageId
+    client.messagesByUsername[definition.username]?.removeAll { $0.uid == 75 }
+
+    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertTrue(refreshed.refreshedMessageIds?.contains(removedMessageId) == true)
   }
 
   func testInitialAvailabilityKeepsEachMailboxsFirstPageUsable() async throws {

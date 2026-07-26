@@ -175,7 +175,7 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     var providerActions: Set<ProviderMailAction> = [
       .markRead, .markUnread, .star, .unstar,
     ]
-    if !normalized.isDisjoint(with: ["MOVE", "UIDPLUS"]) {
+    if normalized.contains("MOVE") {
       providerActions.formUnion([.archive, .move, .notSpam, .restore, .spam])
     }
     if normalized.contains("UIDPLUS") {
@@ -605,7 +605,8 @@ extension MailboxMetadataSyncResult {
       providerCursorIsExpired: providerCursorIsExpired,
       threads: MailboxThread.group(messages),
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
-      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 
@@ -636,7 +637,8 @@ extension MailboxMetadataSyncResult {
       providerCursorIsExpired: providerCursorIsExpired,
       threads: visibleThreads,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
-      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 

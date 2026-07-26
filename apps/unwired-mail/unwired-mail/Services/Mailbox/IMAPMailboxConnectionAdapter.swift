@@ -1095,6 +1095,10 @@ struct IMAPMessageMetadataService {
     let activeNames = Set(descriptors.map(\.name))
     var state = existingState
     var refreshedMessageIds: Set<String> = []
+    let previouslyStoredMessages = try store.loadMessages(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
     try store.beginScan(
       activeMailboxes: activeNames,
       state: state,
@@ -1117,6 +1121,17 @@ struct IMAPMessageMetadataService {
         authorization: authorization
       )
       refreshedMessageIds.formUnion(page.messages.map(\.providerMessageId))
+      let oldestFetchedUID = page.messages.map(\.uid).min()
+      refreshedMessageIds.formUnion(
+        previouslyStoredMessages.filter { message in
+          guard IMAPProviderMessage.mailboxNamesEqual(message.mailbox, descriptor.name) else {
+            return false
+          }
+          return message.uidValidity != page.uidValidity
+            || page.nextOlderUID == nil
+            || oldestFetchedUID.map { message.uid >= $0 } == true
+        }.map(\.providerMessageId)
+      )
       let existingIndex = state.mailboxes.firstIndex(where: {
         IMAPProviderMessage.mailboxNamesEqual($0.descriptor.name, descriptor.name)
       })
@@ -2476,7 +2491,26 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   private static func encodedHeaderValue(_ value: String) throws -> String {
     let value = try safeHeaderValue(value)
     guard !value.unicodeScalars.allSatisfy(\.isASCII) else { return value }
-    return "=?UTF-8?B?\(Data(value.utf8).base64EncodedString())?="
+    var chunks: [String] = []
+    var chunk = ""
+    var byteCount = 0
+    for scalar in value.unicodeScalars {
+      let scalarText = String(scalar)
+      let scalarByteCount = scalarText.utf8.count
+      if byteCount + scalarByteCount > 45, !chunk.isEmpty {
+        chunks.append(chunk)
+        chunk = ""
+        byteCount = 0
+      }
+      chunk.append(scalarText)
+      byteCount += scalarByteCount
+    }
+    if !chunk.isEmpty {
+      chunks.append(chunk)
+    }
+    return chunks.map {
+      "=?UTF-8?B?\(Data($0.utf8).base64EncodedString())?="
+    }.joined(separator: "\r\n ")
   }
 
   private static func envelopeRecipients(in value: String) throws -> [String] {

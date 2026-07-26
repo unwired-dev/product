@@ -340,6 +340,10 @@ final class MailboxFreshnessViewModel {
         }
       } catch is CancellationError {
         return
+      } catch IMAPMailboxError.authorizationRejected {
+        statuses[connection.id] = .authorizationRequired(
+          lastSuccessfulSyncAt: statuses[connection.id]?.lastSuccessfulSyncAt
+        )
       } catch {
         continue
       }
@@ -534,7 +538,10 @@ final class MailboxFreshnessViewModel {
           session: session
         )
         guard !Task.isCancelled, knownConnections[connection.id] != nil else { return }
-        _ = try await syncInbox(connection: connection, session: session)
+        let result = try await syncInbox(connection: connection, session: session)
+        if !result.historicalMetadataBackfillIsComplete {
+          startHistoricalBackfill(connection: connection)
+        }
         await didSynchronize()
       } catch is CancellationError {
         return
@@ -2523,6 +2530,8 @@ private struct MailShellThreadList: View {
             HStack {
               if attempt.canEditOrCancel {
                 Button("Edit") { editingAttempt = attempt }
+              }
+              if attempt.canCancel {
                 Button("Cancel", role: .destructive) {
                   Task { await mailActionViewModel.cancelOutboxAttempt(attempt) }
                 }

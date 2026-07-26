@@ -147,7 +147,9 @@ private let defaultFailureDisposition:
         break
       }
     }
-    if error as? MailboxConnectionAdapterError == .authorizationRequired {
+    if error as? MailboxConnectionAdapterError == .authorizationRequired
+      || error as? IMAPMailboxError == .authorizationRejected
+    {
       return .userActionRequired
     }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {

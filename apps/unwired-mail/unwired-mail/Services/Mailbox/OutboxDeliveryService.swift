@@ -58,6 +58,10 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
     state.canEditOrCancel && reconciliationPausedForAuthorization != true
       && message.sentCopyOnly != true
   }
+
+  var canCancel: Bool {
+    state.canEditOrCancel && reconciliationPausedForAuthorization != true
+  }
 }
 
 protocol OutboxDeliveryPersisting {
@@ -223,7 +227,9 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
         break
       }
     }
-    if error as? MailboxConnectionAdapterError == .authorizationRequired {
+    if error as? MailboxConnectionAdapterError == .authorizationRequired
+      || error as? IMAPMailboxError == .authorizationRejected
+    {
       return .userActionRequired
     }
     if let smtpError = error as? SMTPMailError {
@@ -237,7 +243,7 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
       case .sentCopyOutcomeUnknownAfterAcceptance:
         return .ambiguous
       case .responseCode(let code):
-        if code == 421 || (450...499).contains(code) {
+        if (400...499).contains(code) {
           return .transient
         }
         if code == 530 || code == 534 || code == 535 {
@@ -520,6 +526,21 @@ actor OutboxDeliveryService {
       attempts[index].lastErrorDescription = nil
       attempts[index].nextRetryAtMilliseconds = nil
       attempts[index].reconciliationPausedForAuthorization = nil
+      try store.save(attempts, productAccountId: session.productAccountId)
+      scheduleRetry(attempts[index], delay: 0, provider: provider, reconcile: reconcile)
+      return try requiredAttempt(attemptId, productAccountId: session.productAccountId)
+    }
+    if prior.message.sentCopyOnly == true {
+      try validate(connection: connection, session: session)
+      var attempts = try store.load(productAccountId: session.productAccountId)
+      guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else {
+        throw OutboxDeliveryError.attemptCannotBeChanged
+      }
+      attempts[index].attemptCount = 0
+      attempts[index].firstAttemptAtMilliseconds = nil
+      attempts[index].lastErrorDescription = nil
+      attempts[index].nextRetryAtMilliseconds = nil
+      attempts[index].state = .retrying
       try store.save(attempts, productAccountId: session.productAccountId)
       scheduleRetry(attempts[index], delay: 0, provider: provider, reconcile: reconcile)
       return try requiredAttempt(attemptId, productAccountId: session.productAccountId)

@@ -596,6 +596,64 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testUserRetryOfFailedSentCopyKeepsCopyOnlyMode() async throws {
+    let deliveries = SentCopyDeliveryRecorder()
+    let service = OutboxDeliveryService(
+      failureDisposition: { _ in .permanent },
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let copyOnlyMessage = OutgoingMessage(
+      body: message.body,
+      recipient: message.recipient,
+      subject: message.subject,
+      sentCopyOnly: true
+    )
+    let failed = try await service.enqueue(
+      copyOnlyMessage,
+      connection: connection,
+      session: session,
+      provider: { message, _, _ in try await deliveries.deliver(message) },
+      reconcile: { _, _ in .unknown }
+    )
+    XCTAssertEqual(failed.state, .failed)
+    XCTAssertFalse(failed.canEditOrCancel)
+    XCTAssertTrue(failed.canCancel)
+
+    _ = try await service.retry(
+      failed.id,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .unknown }
+    )
+    _ = await service.waitForScheduledRetries()
+
+    let attempts = try await service.items(session: session)
+    let sentCopyModes = await deliveries.sentCopyModes
+    XCTAssertEqual(attempts.first?.id, failed.id)
+    XCTAssertEqual(attempts.first?.state, .sent)
+    XCTAssertEqual(sentCopyModes, [true])
+  }
+
+  func testSMTP422IsTransient() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    let attempt = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw SMTPMailError.responseCode(422) },
+      reconcile: { _, _ in .notSent }
+    )
+
+    XCTAssertEqual(attempt.state, .retrying)
+  }
+
   func testPermanentFailureCanBeEditedIntoANewImmutableAttempt() async throws {
     let service = OutboxDeliveryService(
       failureDisposition: { _ in .permanent },
