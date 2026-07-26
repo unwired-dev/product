@@ -526,6 +526,43 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(client.appendedMessages.isEmpty)
   }
 
+  func testSentLookupFailurePreservesSMTPAcceptanceForCopyOnlyRetry() async throws {
+    let definition = imapDefinition(username: "sender")
+    let client = RecordingIMAPClient()
+    client.metadataMessageError = CancellationError()
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let message = OutgoingMessage(
+      body: "Accepted once",
+      recipient: "reader@example.com",
+      subject: "Sent lookup failed",
+      idempotencyKey: "delivery-lookup-failed"
+    )
+
+    do {
+      try await adapter.send(message, connection: connection, session: session)
+      XCTFail("Expected the failed Sent lookup to preserve SMTP acceptance")
+    } catch {
+      XCTAssertEqual(error as? SMTPMailError, .sentCopyFailedAfterAcceptance)
+    }
+    client.metadataMessageError = nil
+    try await adapter.send(
+      message.requiringSentCopyOnly(),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(smtpClient.sentMessages.count, 1)
+    XCTAssertEqual(client.appendedMessages.count, 1)
+  }
+
   func testDraftRetrySkipsAppendWhenStableMessageIdAlreadyExists() async throws {
     let definition = imapDefinition(username: "sender")
     let client = RecordingIMAPClient()
@@ -2546,6 +2583,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var mailboxesByUsername: [String: [IMAPMailboxDescriptor]] = [:]
   var messagesByUsername: [String: [IMAPProviderMessage]] = [:]
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
+  var metadataMessageError: Error?
   private(set) var metadataRequestCount = 0
   private(set) var performedActions: [PerformedAction] = []
   var performError: Error?
@@ -2609,6 +2647,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     requiresUniqueMatch: Bool,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPProviderMessage? {
+    if let metadataMessageError { throw metadataMessageError }
     let username = authorization.definition.username
     let normalizedMessageId = rfcMessageId.trimmingCharacters(
       in: .whitespacesAndNewlines

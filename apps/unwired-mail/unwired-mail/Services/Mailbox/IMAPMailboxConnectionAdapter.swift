@@ -2454,16 +2454,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         authorization: authorization
       )
     }
-    if let messageId = message.rfcMessageId,
-      try await mailboxContainsMessage(
-        messageId,
-        mailbox: sentMailbox,
-        authorization: authorization
-      )
-    {
-      return
-    }
     do {
+      if let messageId = message.rfcMessageId,
+        try await mailboxContainsMessage(
+          messageId,
+          mailbox: sentMailbox,
+          authorization: authorization
+        )
+      {
+        return
+      }
       try await client.appendMessage(
         rfc822Message,
         to: sentMailbox,
