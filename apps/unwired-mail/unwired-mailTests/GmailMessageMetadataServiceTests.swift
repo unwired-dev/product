@@ -891,6 +891,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelAppliesCategoryOverrideInUnifiedInbox() async throws {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    let message = try XCTUnwrap(
+      fixture.viewModel.threads
+        .flatMap(\.messages)
+        .first(where: { $0.connectionId == fixture.connections[1].id })
+    )
+
+    let overrideTask = Task {
+      await fixture.viewModel.overrideCategory("system:invoices", for: message)
+    }
+    await fixture.service.waitUntilOverrideStarts()
+    await fixture.service.releaseOverride()
+    await overrideTask.value
+
+    XCTAssertEqual(
+      fixture.viewModel.threads
+        .flatMap(\.messages)
+        .first(where: { $0.id == message.id })?
+        .categoryId,
+      "system:invoices"
+    )
+  }
+
+  @MainActor
   func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     let pinnedMessageId = StableProviderMessageIdentity(
@@ -2304,7 +2330,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSyncInboxRejectsRefreshedTokenForDifferentGoogleAccount() async throws {
-    let fixture = try makeSyncFixture(tokenInfoSubject: "different-gmail-user")
+    let fixture = try makeSyncFixture(
+      tokenInfoSubject: "different-gmail-user",
+      usesLegacyTokens: true
+    )
 
     do {
       _ = try await fixture.service.syncInbox(
@@ -2314,6 +2343,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       XCTFail("Expected refreshed token account mismatch")
     } catch GmailMessageMetadataSyncError.refreshedTokenAccountMismatch {
       XCTAssertEqual(fixture.store.savedMessages, [])
+      XCTAssertNil(
+        try fixture.tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      )
+      XCTAssertNotNil(
+        try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId)
+      )
       XCTAssertFalse(
         fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages")
       )
@@ -2342,6 +2380,30 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
+  }
+
+  func testSyncInboxMigratesLegacyDeviceHeldGmailTokens() async throws {
+    let fixture = try makeSyncFixture(usesLegacyTokens: true)
+
+    _ = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(
+      try fixture.tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      GmailProviderTokens(
+        accessToken: "refreshed-access-token",
+        refreshToken: "refresh-token"
+      )
+    )
+    XCTAssertNil(try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId))
   }
 
   func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
@@ -3270,16 +3332,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8),
     shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
     labelIdsByMessageId: [String: [String]] = [:],
-    messageIdsWithoutLabelIds: Set<String> = []
+    messageIdsWithoutLabelIds: Set<String> = [],
+    usesLegacyTokens: Bool = false
   ) throws -> GmailMessageMetadataSyncFixture {
     let eligibilityStore = RecordingGmailPushEligibilityStore()
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
     let requestRecorder = GmailMetadataRequestRecorder()
-    try tokenStore.save(
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
-      productAccountId: session.productAccountId
+    let tokens = GmailProviderTokens(
+      accessToken: "access-token",
+      refreshToken: "refresh-token"
     )
+    if usesLegacyTokens {
+      tokenStore.saveLegacy(tokens, productAccountId: session.productAccountId)
+    } else {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    }
     let urlSession = ConvexClientTesting.makeSession { request in
       self.makeSyncResponse(
         for: request,
@@ -4211,6 +4279,15 @@ private final class RecordingGmailMessageMetadataStore: GmailMessageMetadataPers
     savedMessages = []
   }
 
+  func clearMessages(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    didClear = true
+    messages = []
+    savedMessages = []
+  }
+
   func loadMessages(
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -4354,6 +4431,11 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
 
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
   func loadMessageBody(
     message _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
@@ -4377,6 +4459,7 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
 }
 
 private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisting {
+  var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
   var tokensByProductAccountId: [String: GmailProviderTokens] = [:]
 
   func clear(productAccountId: String) throws {
@@ -4403,6 +4486,18 @@ private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisti
     providerAccountIdentifier _: String
   ) throws -> GmailProviderTokens? {
     try load(productAccountId: productAccountId)
+  }
+
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+    legacyTokensByProductAccountId[productAccountId]
+  }
+
+  func clearLegacy(productAccountId: String) throws {
+    legacyTokensByProductAccountId[productAccountId] = nil
+  }
+
+  func saveLegacy(_ tokens: GmailProviderTokens, productAccountId: String) {
+    legacyTokensByProductAccountId[productAccountId] = tokens
   }
 
   func save(

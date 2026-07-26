@@ -346,7 +346,7 @@ extension MessageCategorizationServiceTests {
   func testUserCanOverrideHistoricalUncategorizedMessage() async throws {
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+    cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
       cachedAtMilliseconds: 1_781_300_000_000
     )
     let service = GmailMessageCategorizationService(
@@ -365,7 +365,7 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(overridden.categoryId, "system:invoices")
-    XCTAssertNil(cacheStore.caches[session.productAccountId])
+    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
     XCTAssertEqual(
       assignmentSync.savedUserOverrides,
       [
@@ -1498,7 +1498,7 @@ extension MessageCategorizationServiceTests {
     _ testCase: InvalidBackgroundContextCase
   ) async throws {
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = testCase.cache
+    cacheStore.caches["\(session.productAccountId):account"] = testCase.cache
     cacheStore.loadError = testCase.loadError
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailLearningSignalLoad = true
@@ -1523,22 +1523,23 @@ extension MessageCategorizationServiceTests {
     async throws
   {
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = BackgroundCategorizationContextCache(
-      customCategory: CustomCategory(name: "Private", description: "Encrypted"),
-      customCategoryCachedAtMilliseconds: 1,
-      learningSignalsBySender: [
-        "sender@example.com": BackgroundCategorizationSenderContext(
-          cachedAtMilliseconds: 1,
-          learningSignals: [
-            FutureLearningSignal(
-              appliesAfterTimestamp: 1,
-              categoryId: "custom-category-primary",
-              senderAddresses: ["sender@example.com"]
-            )
-          ]
-        )
-      ]
-    )
+    cacheStore.caches["\(session.productAccountId):account"] =
+      BackgroundCategorizationContextCache(
+        customCategory: CustomCategory(name: "Private", description: "Encrypted"),
+        customCategoryCachedAtMilliseconds: 1,
+        learningSignalsBySender: [
+          "sender@example.com": BackgroundCategorizationSenderContext(
+            cachedAtMilliseconds: 1,
+            learningSignals: [
+              FutureLearningSignal(
+                appliesAfterTimestamp: 1,
+                categoryId: "custom-category-primary",
+                senderAddresses: ["sender@example.com"]
+              )
+            ]
+          )
+        ]
+      )
     let service = GmailMessageCategorizationService(
       assignmentSync: RecordingMessageCategoryAssignmentSync(),
       backgroundContextCacheStore: cacheStore,
@@ -1551,7 +1552,7 @@ extension MessageCategorizationServiceTests {
     _ = try await service.categorize(messages: [message()], session: session)
 
     XCTAssertEqual(
-      cacheStore.caches[session.productAccountId],
+      cacheStore.caches["\(session.productAccountId):account"],
       BackgroundCategorizationContextCache(
         customCategory: nil,
         customCategoryCachedAtMilliseconds: 1_781_400_000_000,
@@ -1598,7 +1599,8 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertEqual(
-      cacheStore.caches[session.productAccountId]?.learningSignalsBySender["override@example.com"]?
+      cacheStore.caches["\(session.productAccountId):account"]?
+        .learningSignalsBySender["override@example.com"]?
         .learningSignals,
       [
         FutureLearningSignal(
@@ -1632,22 +1634,23 @@ extension MessageCategorizationServiceTests {
     async throws
   {
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = BackgroundCategorizationContextCache(
-      customCategory: nil,
-      customCategoryCachedAtMilliseconds: 1_781_400_000_000,
-      learningSignalsBySender: [
-        "sender@example.com": BackgroundCategorizationSenderContext(
-          cachedAtMilliseconds: 1_781_400_000_000,
-          learningSignals: [
-            FutureLearningSignal(
-              appliesAfterTimestamp: 1_781_300_000_000,
-              categoryId: "system:flights",
-              senderAddresses: ["sender@example.com"]
-            )
-          ]
-        )
-      ]
-    )
+    cacheStore.caches["\(session.productAccountId):account"] =
+      BackgroundCategorizationContextCache(
+        customCategory: nil,
+        customCategoryCachedAtMilliseconds: 1_781_400_000_000,
+        learningSignalsBySender: [
+          "sender@example.com": BackgroundCategorizationSenderContext(
+            cachedAtMilliseconds: 1_781_400_000_000,
+            learningSignals: [
+              FutureLearningSignal(
+                appliesAfterTimestamp: 1_781_300_000_000,
+                categoryId: "system:flights",
+                senderAddresses: ["sender@example.com"]
+              )
+            ]
+          )
+        ]
+      )
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.shouldFailLearningSignalLoad = true
     let service = GmailMessageCategorizationService(
@@ -1678,7 +1681,7 @@ extension MessageCategorizationServiceTests {
     async throws
   {
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+    cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
       cachedAtMilliseconds: 1_781_400_000_000,
       learningSignals: [
         FutureLearningSignal(
@@ -1708,12 +1711,15 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertNil(categorized[0].categoryId)
-    XCTAssertNil(cacheStore.caches[session.productAccountId])
+    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
   }
 
   func testBackgroundCategorizationClearsCacheWhenLearningSignalsLoadFails() async throws {
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+    cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
+      cachedAtMilliseconds: 1_781_400_000_000
+    )
+    cacheStore.caches["\(session.productAccountId):other-account"] = backgroundContextCache(
       cachedAtMilliseconds: 1_781_400_000_000
     )
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
@@ -1732,13 +1738,14 @@ extension MessageCategorizationServiceTests {
       session: session
     )
 
-    XCTAssertNil(cacheStore.caches[session.productAccountId])
+    XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
+    XCTAssertNotNil(cacheStore.caches["\(session.productAccountId):other-account"])
   }
 
   func testBackgroundCategorizationDoesNotUseCacheForNonAuthenticationFailure() async throws {
     let cachedAtMilliseconds: Int64 = 1_781_400_000_000
     let cacheStore = InMemoryBackgroundContextCacheStore()
-    cacheStore.caches[session.productAccountId] = backgroundContextCache(
+    cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
       cachedAtMilliseconds: cachedAtMilliseconds,
       learningSignals: [
         FutureLearningSignal(
@@ -1806,9 +1813,12 @@ extension MessageCategorizationServiceTests {
     }
   }
 
-  func testBackgroundCategorizationContextIsEncryptedAndAccountScopedInKeychain() throws {
+  // swiftlint:disable:next function_body_length
+  func testBackgroundCategorizationContextIsEncryptedAndConnectionScopedInKeychain() throws {
     let productAccountId = "background-categorization-\(UUID().uuidString)"
     let otherProductAccountId = "background-categorization-\(UUID().uuidString)"
+    let providerAccountIdentifier = "gmail-user-001"
+    let otherProviderAccountIdentifier = "gmail-user-002"
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: productAccountId,
@@ -1836,18 +1846,126 @@ extension MessageCategorizationServiceTests {
       try? store.clear(productAccountId: otherProductAccountId)
     }
 
-    try store.save(cache, productAccountId: productAccountId)
+    try store.save(
+      cache,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    let otherCache = BackgroundCategorizationContextCache(
+      customCategory: nil,
+      customCategoryCachedAtMilliseconds: 1_781_400_000_001,
+      learningSignalsBySender: [:]
+    )
+    try store.save(
+      otherCache,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: otherProviderAccountIdentifier
+    )
 
     let rawValue = try XCTUnwrap(
       KeychainStore.readString(
         service: KeychainBackgroundContextCacheStore.serviceName,
-        account: productAccountId
+        account: "gmail.\(gmailSafeFileComponent(productAccountId))."
+          + gmailSafeFileComponent(providerAccountIdentifier)
       )
     )
     XCTAssertFalse(rawValue.contains("Private"))
     XCTAssertFalse(rawValue.contains("sender@example.com"))
-    XCTAssertEqual(try store.load(productAccountId: productAccountId), cache)
-    XCTAssertNil(try store.load(productAccountId: otherProductAccountId))
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      cache
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: otherProviderAccountIdentifier
+      ),
+      otherCache
+    )
+    XCTAssertNil(
+      try store.load(
+        productAccountId: otherProductAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    )
+    try store.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    XCTAssertNil(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: otherProviderAccountIdentifier
+      ),
+      otherCache
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testBackgroundCategorizationMigratesLegacyAccountCacheToConnectionScope() throws {
+    let productAccountId = "background-categorization-legacy-\(UUID().uuidString)"
+    let providerAccountIdentifier = "gmail-user-001"
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: productAccountId,
+      allowCreation: true
+    )
+    let store = KeychainBackgroundContextCacheStore(
+      keyMaterialStore: keyMaterialStore
+    )
+    let cache = BackgroundCategorizationContextCache(
+      customCategory: CustomCategory(name: "Legacy", description: "Migrated category"),
+      customCategoryCachedAtMilliseconds: 1_781_400_000_000,
+      learningSignalsBySender: [:]
+    )
+    let encryptedPayload = try material.encryptPayload(
+      JSONEncoder().encode(cache),
+      associatedData: Data(
+        "dev.unwired.mail.background-categorization-context.v1".utf8
+      )
+    )
+    let rawValue = try XCTUnwrap(
+      String(data: JSONEncoder().encode(encryptedPayload), encoding: .utf8)
+    )
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+    }
+    try KeychainStore.writeString(
+      rawValue,
+      service: KeychainBackgroundContextCacheStore.serviceName,
+      account: productAccountId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      cache
+    )
+    XCTAssertNil(
+      try KeychainStore.readString(
+        service: KeychainBackgroundContextCacheStore.serviceName,
+        account: productAccountId
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      cache
+    )
   }
 
   func testAssignmentSyncKeepsValidAssignmentsWhenAnotherPayloadIsCorrupt() async throws {
@@ -2149,17 +2267,29 @@ private final class InMemoryBackgroundContextCacheStore:
 
   func clear(productAccountId: String) throws {
     if let clearError { throw clearError }
-    caches[productAccountId] = nil
+    caches = caches.filter { !$0.key.hasPrefix("\(productAccountId):") }
   }
 
-  func load(productAccountId: String) throws -> BackgroundCategorizationContextCache? {
+  func clear(productAccountId: String, providerAccountIdentifier: String) throws {
+    if let clearError { throw clearError }
+    caches["\(productAccountId):\(providerAccountIdentifier)"] = nil
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> BackgroundCategorizationContextCache? {
     if let loadError { throw loadError }
-    return caches[productAccountId]
+    return caches["\(productAccountId):\(providerAccountIdentifier)"]
   }
 
-  func save(_ cache: BackgroundCategorizationContextCache, productAccountId: String) throws {
+  func save(
+    _ cache: BackgroundCategorizationContextCache,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
     if let saveError { throw saveError }
-    caches[productAccountId] = cache
+    caches["\(productAccountId):\(providerAccountIdentifier)"] = cache
   }
 }
 

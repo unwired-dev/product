@@ -133,6 +133,15 @@ struct GmailMetadataSyncState: Equatable {
   }
 }
 
+private struct GmailSyncTokens {
+  let providerTokens: GmailProviderTokens
+  let usedLegacyTokens: Bool
+
+  var accessToken: String {
+    providerTokens.accessToken
+  }
+}
+
 protocol GmailMessageMetadataPersisting {
   func clearMessages(productAccountId: String) throws
 
@@ -167,13 +176,6 @@ protocol GmailMessageMetadataPersisting {
 }
 
 extension GmailMessageMetadataPersisting {
-  func clearMessages(
-    productAccountId: String,
-    providerAccountIdentifier _: String
-  ) throws {
-    try clearMessages(productAccountId: productAccountId)
-  }
-
   func loadSyncState(
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -1317,7 +1319,7 @@ struct GmailMessageMetadataService:
         shouldPersist: shouldPersist
       )
     } catch GmailMessageMetadataSyncError.expiredGmailHistoryId {
-      let result = try await syncInbox(
+      _ = try await syncInbox(
         connection: connection,
         includingHistoryCandidates: false,
         listingAllMessages: true,
@@ -1463,10 +1465,13 @@ struct GmailMessageMetadataService:
     }
     if shouldPersist != nil {
       try tokenStore.save(
-        tokens,
+        tokens.providerTokens,
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
+      if tokens.usedLegacyTokens {
+        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+      }
     }
     try store.saveMessages(
       fetchedMessages,
@@ -1490,18 +1495,16 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     deferPersistence: Bool,
     session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderTokens {
+  ) async throws -> GmailSyncTokens {
     let scopedTokens = try tokenStore.load(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-
-    var storedTokens = scopedTokens
-    if storedTokens == nil {
-      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    }
-
-    guard let storedTokens else {
+    let legacyTokens =
+      try scopedTokens == nil
+      ? tokenStore.loadLegacy(productAccountId: session.productAccountId)
+      : nil
+    guard let storedTokens = scopedTokens ?? legacyTokens else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
     let tokens = try await refreshedTokens(
@@ -1511,7 +1514,7 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
-    if scopedTokens == nil {
+    if legacyTokens != nil, !deferPersistence {
       try tokenStore.save(
         tokens,
         productAccountId: session.productAccountId,
@@ -1519,40 +1522,32 @@ struct GmailMessageMetadataService:
       )
       try tokenStore.clearLegacy(productAccountId: session.productAccountId)
     }
-    return tokens
+    return GmailSyncTokens(
+      providerTokens: tokens,
+      usedLegacyTokens: legacyTokens != nil
+    )
   }
 
   func refreshProviderTokens(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    let scopedTokens = try tokenStore.load(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
-    var storedTokens = scopedTokens
-    if storedTokens == nil {
-      storedTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    }
-    guard let storedTokens else {
+    guard
+      let storedTokens = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
 
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: scopedTokens != nil,
+      persist: true,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
-    if scopedTokens == nil {
-      try tokenStore.save(
-        tokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-    }
     return tokens
   }
 

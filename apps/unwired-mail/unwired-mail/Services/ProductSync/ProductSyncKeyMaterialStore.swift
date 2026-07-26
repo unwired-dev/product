@@ -110,7 +110,7 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     private var materials: [String: ProductSyncKeyMaterial] = [:]
     private(set) var saveCount = 0

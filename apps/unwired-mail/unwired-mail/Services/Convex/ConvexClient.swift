@@ -71,55 +71,32 @@ final class ConvexClient {
     )
   }
 
-  func connectGmailProvider(
+  func registerGmailConnection(
+    gmailIdentityToken: String,
     identityToken: String,
-    trustedDeviceId: String,
-    emailAddress: String,
-    providerAccountIdentifier: String
-  ) async throws -> GmailProviderConnectionStatus {
-    try await performMutation(
-      path: "productAccount:connectGmailProvider",
-      args: ConnectGmailProviderArgs(
-        emailAddress: emailAddress,
-        providerAccountIdentifier: providerAccountIdentifier,
-        supportsMultipleConnections: true,
+    opaqueConnectionId: String,
+    trustedDeviceId: String
+  ) async throws -> GmailOperationalConnectionStatus {
+    try await performAction(
+      path: "pushRelay:registerGmailConnection",
+      args: RegisterGmailConnectionArgs(
+        gmailIdentityToken: gmailIdentityToken,
+        opaqueConnectionId: opaqueConnectionId,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
     )
   }
 
-  func getGmailProviderConnection(
+  func removeGmailConnection(
     identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> GmailProviderConnectionStatus? {
-    try await performNullableQuery(
-      path: "productAccount:getGmailProviderConnection",
-      args: GetGmailProviderConnectionArgs(trustedDeviceId: trustedDeviceId),
-      identityToken: identityToken
-    )
-  }
-
-  func listGmailProviderConnections(
-    identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> [GmailProviderConnectionStatus] {
-    try await performQuery(
-      path: "productAccount:listGmailProviderConnections",
-      args: GetGmailProviderConnectionArgs(trustedDeviceId: trustedDeviceId),
-      identityToken: identityToken
-    )
-  }
-
-  func removeGmailProviderConnection(
-    identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool {
     let response: RemoveGmailProviderConnectionResponse = try await performMutation(
-      path: "productAccount:removeGmailProviderConnection",
+      path: "pushRelay:removeGmailConnection",
       args: RemoveGmailProviderConnectionArgs(
-        providerAccountIdentifier: providerAccountIdentifier,
+        opaqueConnectionId: opaqueConnectionId,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -129,13 +106,13 @@ final class ConvexClient {
 
   func shouldStopGmailPushWatch(
     identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool {
     try await performQuery(
       path: "pushRelay:shouldStopGmailWatch",
       args: ShouldStopGmailPushWatchArgs(
-        providerAccountIdentifier: providerAccountIdentifier,
+        opaqueConnectionId: opaqueConnectionId,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -174,6 +151,7 @@ final class ConvexClient {
     gmailIdentityToken: String,
     historyId: String,
     identityToken: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> GmailPushVerificationResponse {
     try await performAction(
@@ -181,6 +159,7 @@ final class ConvexClient {
       args: VerifyGmailPushWatchArgs(
         gmailIdentityToken: gmailIdentityToken,
         historyId: historyId,
+        opaqueConnectionId: opaqueConnectionId,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -439,14 +418,9 @@ private struct ConnectProductAccountArgs: Encodable {
   let platform: String
 }
 
-private struct ConnectGmailProviderArgs: Encodable {
-  let emailAddress: String
-  let providerAccountIdentifier: String
-  let supportsMultipleConnections: Bool
-  let trustedDeviceId: String
-}
-
-private struct GetGmailProviderConnectionArgs: Encodable {
+private struct RegisterGmailConnectionArgs: Encodable {
+  let gmailIdentityToken: String
+  let opaqueConnectionId: String
   let trustedDeviceId: String
 }
 
@@ -457,12 +431,12 @@ private struct RegisterDevicePushArgs: Encodable {
 }
 
 private struct ShouldStopGmailPushWatchArgs: Encodable {
-  let providerAccountIdentifier: String
+  let opaqueConnectionId: String
   let trustedDeviceId: String
 }
 
 private struct RemoveGmailProviderConnectionArgs: Encodable {
-  let providerAccountIdentifier: String
+  let opaqueConnectionId: String
   let trustedDeviceId: String
 }
 
@@ -478,6 +452,7 @@ private struct UnregisterDevicePushArgs: Encodable {
 private struct VerifyGmailPushWatchArgs: Encodable {
   let gmailIdentityToken: String
   let historyId: String
+  let opaqueConnectionId: String
   let trustedDeviceId: String
 }
 
@@ -551,7 +526,7 @@ private struct AnyEncodable: Encodable {
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   enum ConvexClientTesting {
     static func makeSession(
       stubbing handler: @escaping (URLRequest) throws -> (HTTPURLResponse, Data)

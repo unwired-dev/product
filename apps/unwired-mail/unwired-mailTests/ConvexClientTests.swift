@@ -145,16 +145,14 @@ final class ConvexClientTests: XCTestCase {
     XCTAssertEqual(response, ProductAccountConnectResponse.preview)
   }
 
-  func testConnectGmailProviderSendsOnlyMetadataToBackend() async throws {
+  func testRegisterGmailConnectionSendsOnlyOpaqueOperationalData() async throws {
     let fixtureEnvelope = """
       {
         "status": "success",
         "value": {
           "connectedAt": 1781200000000,
-          "emailAddress": "user@example.com",
           "lastVerifiedAt": 1781200000000,
-          "provider": "gmail",
-          "providerAccountIdentifier": "gmail-user-001",
+          "opaqueConnectionId": "opaque-connection-001",
           "trustedDeviceId": "trustedDeviceFixtureId",
           "updatedAt": 1781200000000
         }
@@ -165,17 +163,19 @@ final class ConvexClientTests: XCTestCase {
       convexURL: URL(string: "https://example.convex.cloud")!,
       session: ConvexClientTesting.makeSession { request in
         XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(request.url?.path, "/api/action")
         XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
         let requestBody = try Self.requestBody(from: request)
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
-        XCTAssertEqual(requestJSON["path"] as? String, "productAccount:connectGmailProvider")
+        XCTAssertEqual(requestJSON["path"] as? String, "pushRelay:registerGmailConnection")
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["emailAddress"] as? String, "user@example.com")
-        XCTAssertEqual(args["providerAccountIdentifier"] as? String, "gmail-user-001")
+        XCTAssertEqual(args["gmailIdentityToken"] as? String, "gmail-identity-token")
+        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
         XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        XCTAssertNil(args["emailAddress"])
+        XCTAssertNil(args["providerAccountIdentifier"])
         XCTAssertNil(args["accessToken"])
         XCTAssertNil(args["refreshToken"])
         let response = HTTPURLResponse(
@@ -188,103 +188,17 @@ final class ConvexClientTests: XCTestCase {
       }
     )
 
-    let response = try await client.connectGmailProvider(
+    let response = try await client.registerGmailConnection(
+      gmailIdentityToken: "gmail-identity-token",
       identityToken: "apple-token",
-      trustedDeviceId: "trustedDeviceFixtureId",
-      emailAddress: "user@example.com",
-      providerAccountIdentifier: "gmail-user-001"
-    )
-
-    XCTAssertEqual(response.emailAddress, "user@example.com")
-    XCTAssertEqual(response.provider, "gmail")
-  }
-
-  func testGetGmailProviderConnectionSendsAuthenticatedQuery() async throws {
-    let fixtureEnvelope = """
-      {
-        "status": "success",
-        "value": {
-          "connectedAt": 1781200000000,
-          "emailAddress": "user@example.com",
-          "lastVerifiedAt": 1781200000000,
-          "provider": "gmail",
-          "providerAccountIdentifier": "gmail-user-001",
-          "trustedDeviceId": "trustedDeviceFixtureId",
-          "updatedAt": 1781200000000
-        }
-      }
-      """.data(using: .utf8)!
-
-    let client = ConvexClient(
-      convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
-        XCTAssertEqual(request.httpMethod, "POST")
-        XCTAssertEqual(request.url?.path, "/api/query")
-        XCTAssertEqual(request.value(forHTTPHeaderField: "Authorization"), "Bearer apple-token")
-        let requestBody = try Self.requestBody(from: request)
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
-        )
-        XCTAssertEqual(requestJSON["path"] as? String, "productAccount:getGmailProviderConnection")
-        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
-        let response = HTTPURLResponse(
-          url: request.url!,
-          statusCode: 200,
-          httpVersion: nil,
-          headerFields: nil
-        )!
-        return (response, fixtureEnvelope)
-      }
-    )
-
-    let response = try await client.getGmailProviderConnection(
-      identityToken: "apple-token",
+      opaqueConnectionId: "opaque-connection-001",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
-    XCTAssertEqual(response?.emailAddress, "user@example.com")
+    XCTAssertEqual(response.opaqueConnectionId, "opaque-connection-001")
   }
 
-  func testListGmailProviderConnectionsSendsAuthenticatedQuery() async throws {
-    let fixtureEnvelope = """
-      {
-        "status": "success",
-        "value": [
-          {
-            "connectedAt": 1781200000000,
-            "emailAddress": "user@example.com",
-            "lastVerifiedAt": 1781200000000,
-            "provider": "gmail",
-            "providerAccountIdentifier": "gmail-user-001",
-            "trustedDeviceId": "trustedDeviceFixtureId",
-            "updatedAt": 1781200000000
-          }
-        ]
-      }
-      """.data(using: .utf8)!
-    let client = ConvexClient(
-      convexURL: URL(string: "https://example.convex.cloud")!,
-      session: ConvexClientTesting.makeSession { request in
-        let requestJSON = try XCTUnwrap(
-          JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
-        )
-        XCTAssertEqual(
-          requestJSON["path"] as? String, "productAccount:listGmailProviderConnections")
-        XCTAssertEqual(request.url?.path, "/api/query")
-        return (convexClientTestResponse(for: request), fixtureEnvelope)
-      }
-    )
-
-    let response = try await client.listGmailProviderConnections(
-      identityToken: "apple-token",
-      trustedDeviceId: "trustedDeviceFixtureId"
-    )
-
-    XCTAssertEqual(response.map(\.providerAccountIdentifier), ["gmail-user-001"])
-  }
-
-  func testRemoveGmailProviderConnectionSendsScopedMutation() async throws {
+  func testRemoveGmailConnectionSendsOpaqueScopedMutation() async throws {
     let fixtureEnvelope = """
       {"status":"success","value":{"hasRemainingGmailConnections":false,"removed":true}}
       """.data(using: .utf8)!
@@ -295,18 +209,19 @@ final class ConvexClientTests: XCTestCase {
           JSONSerialization.jsonObject(with: Self.requestBody(from: request)) as? [String: Any]
         )
         XCTAssertEqual(
-          requestJSON["path"] as? String, "productAccount:removeGmailProviderConnection")
+          requestJSON["path"] as? String, "pushRelay:removeGmailConnection")
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
-        XCTAssertEqual(args["providerAccountIdentifier"] as? String, "gmail-user-001")
+        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
+        XCTAssertNil(args["providerAccountIdentifier"])
         XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
         XCTAssertEqual(request.url?.path, "/api/mutation")
         return (convexClientTestResponse(for: request), fixtureEnvelope)
       }
     )
 
-    let hasRemainingGmailConnections = try await client.removeGmailProviderConnection(
+    let hasRemainingGmailConnections = try await client.removeGmailConnection(
       identityToken: "apple-token",
-      providerAccountIdentifier: "gmail-user-001",
+      opaqueConnectionId: "opaque-connection-001",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 
@@ -359,6 +274,7 @@ final class ConvexClientTests: XCTestCase {
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["gmailIdentityToken"] as? String, "gmail-identity-token")
         XCTAssertEqual(args["historyId"] as? String, "history-123")
+        XCTAssertEqual(args["opaqueConnectionId"] as? String, "opaque-connection-001")
         XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
         XCTAssertNil(args["accessToken"])
         XCTAssertNil(args["refreshToken"])
@@ -370,6 +286,7 @@ final class ConvexClientTests: XCTestCase {
       gmailIdentityToken: "gmail-identity-token",
       historyId: "history-123",
       identityToken: "apple-token",
+      opaqueConnectionId: "opaque-connection-001",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
 

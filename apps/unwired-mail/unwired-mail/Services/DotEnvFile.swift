@@ -20,7 +20,7 @@ enum DotEnvFile {
     try? load(at: url)
   }
 
-  #if DEBUG
+  #if DEBUG || TESTING
     private static let appleClientKeys: Set = [
       "CONVEX_URL",
       "GMAIL_OAUTH_CLIENT_ID",

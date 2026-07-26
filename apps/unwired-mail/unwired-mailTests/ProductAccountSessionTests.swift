@@ -767,6 +767,16 @@ private final class RecordingGmailProviderConnecting:
     }
   }
 
+  func clearLocalConnection(
+    _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func clearLocalConnection(
+    _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
     session: ProductAccountSessionSnapshot
@@ -776,11 +786,11 @@ private final class RecordingGmailProviderConnecting:
     throw ConvexClientError.missingConvexURL
   }
 
-  func loadConnection(
+  func loadConnections(
     session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus? {
+  ) async throws -> [GmailProviderConnectionStatus] {
     _ = session
-    return nil
+    return []
   }
 }
 
@@ -843,6 +853,16 @@ private struct SuspendingGmailProviderConnecting:
     await gate.waitForRelease()
   }
 
+  func clearLocalConnection(
+    _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func clearLocalConnection(
+    _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
   func completeConnection(
     verifiedAccount _: VerifiedGmailAccount,
     session _: ProductAccountSessionSnapshot
@@ -850,15 +870,22 @@ private struct SuspendingGmailProviderConnecting:
     throw ConvexClientError.missingConvexURL
   }
 
-  func loadConnection(
+  func loadConnections(
     session _: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus? {
-    nil
+  ) async throws -> [GmailProviderConnectionStatus] {
+    []
   }
 }
 
 private struct FailingGmailMessageReader: GmailMessageReading {
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {
+    throw ProductAccountSessionTestError.gmailCleanupFailed
+  }
+
+  func clearCachedMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
     throw ProductAccountSessionTestError.gmailCleanupFailed
   }
 

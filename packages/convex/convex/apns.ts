@@ -44,6 +44,11 @@ type StaleTokenRecipient = Readonly<{
   trustedDeviceId: Id<'trustedDevices'>;
 }>;
 
+type GmailWakeupRecipient = StaleTokenRecipient &
+  Readonly<{
+    routeId: string;
+  }>;
+
 class ApnsRequestError extends Error {
   public readonly status: number;
 
@@ -270,6 +275,66 @@ function apnsAuthority(environment: ApnsDelivery['apnsEnvironment']): string {
     : 'https://api.sandbox.push.apple.com';
 }
 
+async function deliverGmailWakeupBatch(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex supplies its mutable action context.
+  ctx: ActionCtx,
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex validates and owns the generated action arguments.
+  args: Readonly<{
+    historyId: string;
+    recipients: readonly GmailWakeupRecipient[];
+  }>,
+): Promise<null> {
+  const configuration = apnsConfiguration();
+  const authorization = providerToken(configuration);
+  const clients = new Map<
+    ApnsDelivery['apnsEnvironment'],
+    ClientHttp2Session
+  >();
+  const clientFor = (
+    environment: ApnsDelivery['apnsEnvironment'],
+  ): ClientHttp2Session => {
+    const existing = clients.get(environment);
+    if (existing !== undefined) {
+      return existing;
+    }
+    const client = connect(apnsAuthority(environment));
+    client.on('error', (error) => {
+      console.error('APNs HTTP/2 session failed', error);
+    });
+    clients.set(environment, client);
+    return client;
+  };
+
+  const results = await Promise.allSettled(
+    args.recipients.map(async (recipient) =>
+      sendWakeup(
+        {
+          apnsEnvironment: recipient.apnsEnvironment,
+          apnsToken: recipient.apnsToken,
+          authorization,
+          configuration,
+          payload: JSON.stringify(
+            gmailWakeupPayload(args.historyId, recipient.routeId),
+          ),
+        },
+        clientFor(recipient.apnsEnvironment),
+      ),
+    ),
+  ).finally(() => {
+    for (const client of clients.values()) {
+      client.close();
+    }
+  });
+
+  await Promise.all(
+    results.map(async (result, index) =>
+      handleDeliveryResult(ctx, result, args.recipients[index]),
+    ),
+  );
+
+  return null;
+}
+
 export const deliverGmailWakeups = internalAction({
   args: {
     historyId: v.string(),
@@ -283,55 +348,34 @@ export const deliverGmailWakeups = internalAction({
       }),
     ),
   },
+  handler: deliverGmailWakeupBatch,
+  returns: v.null(),
+});
+
+export const deliverQueuedGmailWakeups = internalAction({
+  args: {
+    historyId: v.string(),
+    recipients: v.array(
+      v.object({
+        apnsEnvironment: apnsEnvironmentValidator,
+        apnsToken: v.string(),
+        pushCleanupGeneration: v.number(),
+        routeId: v.string(),
+        trustedDeviceId: v.id('trustedDevices'),
+      }),
+    ),
+  },
   handler: async (ctx, args) => {
-    const configuration = apnsConfiguration();
-    const authorization = providerToken(configuration);
-    const clients = new Map<
-      ApnsDelivery['apnsEnvironment'],
-      ClientHttp2Session
-    >();
-    const clientFor = (
-      environment: ApnsDelivery['apnsEnvironment'],
-    ): ClientHttp2Session => {
-      const existing = clients.get(environment);
-      if (existing !== undefined) {
-        return existing;
-      }
-      const client = connect(apnsAuthority(environment));
-      client.on('error', (error) => {
-        console.error('APNs HTTP/2 session failed', error);
-      });
-      clients.set(environment, client);
-      return client;
-    };
-
-    const results = await Promise.allSettled(
-      args.recipients.map(async (recipient) =>
-        sendWakeup(
-          {
-            apnsEnvironment: recipient.apnsEnvironment,
-            apnsToken: recipient.apnsToken,
-            authorization,
-            configuration,
-            payload: JSON.stringify(
-              gmailWakeupPayload(args.historyId, recipient.routeId),
-            ),
-          },
-          clientFor(recipient.apnsEnvironment),
-        ),
-      ),
-    ).finally(() => {
-      for (const client of clients.values()) {
-        client.close();
-      }
-    });
-
-    await Promise.all(
-      results.map(async (result, index) =>
-        handleDeliveryResult(ctx, result, args.recipients[index]),
-      ),
+    const recipients = await ctx.runQuery(
+      internal.pushRelay.revalidateGmailRecipients,
+      { recipients: args.recipients },
     );
-
+    if (recipients.length > 0) {
+      await deliverGmailWakeupBatch(ctx, {
+        historyId: args.historyId,
+        recipients,
+      });
+    }
     return null;
   },
   returns: v.null(),
