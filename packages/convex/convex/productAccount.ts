@@ -277,6 +277,7 @@ export const connectGmailProvider = mutation({
   args: {
     emailAddress: v.string(),
     providerAccountIdentifier: v.string(),
+    supportsMultipleConnections: v.optional(v.boolean()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {

@@ -272,6 +272,7 @@ describe('gmail operational connection registration', () => {
       asUser.mutation(api.productAccount.connectGmailProvider, {
         emailAddress: 'updated@example.com',
         providerAccountIdentifier: 'gmail-user-001',
+        supportsMultipleConnections: true,
         trustedDeviceId: connect.trustedDeviceId,
       }),
     ).resolves.toMatchObject({

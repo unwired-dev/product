@@ -67,6 +67,7 @@ const devicePushRouteInactivityLifetimeMs = 30 * 24 * 60 * 60 * 1000;
 const devicePushRouteReconciliationBatchSize = 10;
 const devicePushTokenCleanupBatchSize = 10;
 const gmailPushProofCleanupBatchSize = 10;
+const gmailPushVerificationBatchSize = 10;
 const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
@@ -819,18 +820,24 @@ function pendingVerificationMatches(
 // fallow-ignore-next-line complexity
 async function verifyPendingGmailConnections(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  request: Readonly<{ historyId: string; now: number; routingDigest: string }>,
+  request: Readonly<{
+    cursor?: string | null;
+    historyId: string;
+    now: number;
+    routingDigest: string;
+  }>,
 ): Promise<void> {
-  const connections = await ctx.db
+  const page = await ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_gmailRoutingDigest_and_pushVerificationRequestedAt', (q) =>
-      q
-        .eq('gmailRoutingDigest', request.routingDigest)
-        .gt('pushVerificationRequestedAt', undefined),
+    .withIndex('by_gmailRoutingDigest', (q) =>
+      q.eq('gmailRoutingDigest', request.routingDigest),
     )
     .order('desc')
-    .collect();
-  for (const connection of connections) {
+    .paginate({
+      cursor: request.cursor ?? null,
+      numItems: gmailPushVerificationBatchSize,
+    });
+  for (const connection of page.page) {
     const device = await ctx.db.get(connection.trustedDeviceId);
     if (
       device !== null &&
@@ -858,6 +865,18 @@ async function verifyPendingGmailConnections(
         ),
       });
     }
+  }
+  if (!page.isDone) {
+    await ctx.scheduler.runAfter(
+      0,
+      internal.pushRelay.continuePendingGmailConnectionVerification,
+      {
+        cursor: page.continueCursor,
+        historyId: request.historyId,
+        now: request.now,
+        routingDigest: request.routingDigest,
+      },
+    );
   }
 }
 
@@ -1493,7 +1512,8 @@ export const removeGmailConnection = mutation({
 
 export const shouldStopGmailWatch = query({
   args: {
-    opaqueConnectionId: v.string(),
+    opaqueConnectionId: v.optional(v.string()),
+    providerAccountIdentifier: v.optional(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -1501,14 +1521,25 @@ export const shouldStopGmailWatch = query({
       ctx,
       args.trustedDeviceId,
     );
+    const opaqueConnectionId =
+      args.opaqueConnectionId ??
+      (args.providerAccountIdentifier === undefined
+        ? null
+        : await opaqueGmailConnectionId(
+            account.productAccountId,
+            args.providerAccountIdentifier,
+          ));
+    if (opaqueConnectionId === null) {
+      throw new Error('Gmail connection required');
+    }
     const connection =
       (await gmailConnection(ctx, {
-        opaqueConnectionId: args.opaqueConnectionId,
+        opaqueConnectionId,
         productAccountId: account.productAccountId,
         trustedDeviceId: args.trustedDeviceId,
       })) ??
       (await legacyGmailConnection(ctx, {
-        opaqueConnectionId: args.opaqueConnectionId,
+        opaqueConnectionId,
         productAccountId: account.productAccountId,
         trustedDeviceId: args.trustedDeviceId,
       }));
@@ -1844,6 +1875,20 @@ export const enqueueGmailWakeups = internalMutation({
     return { recipientCount: recipients.length };
   },
   returns: v.object({ recipientCount: v.number() }),
+});
+
+export const continuePendingGmailConnectionVerification = internalMutation({
+  args: {
+    cursor: v.union(v.string(), v.null()),
+    historyId: v.string(),
+    now: v.number(),
+    routingDigest: v.string(),
+  },
+  handler: async (ctx, args) => {
+    await verifyPendingGmailConnections(ctx, args);
+    return null;
+  },
+  returns: v.null(),
 });
 
 export const expireGmailVerificationSignal = internalMutation({

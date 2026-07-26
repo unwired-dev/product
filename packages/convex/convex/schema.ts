@@ -137,6 +137,7 @@ export default defineSchema({
       'gmailRoutingDigest',
       'pushVerificationRequestedAt',
     ])
+    .index('by_gmailRoutingDigest', ['gmailRoutingDigest'])
     .index('by_gmailPreviousRoutingDigest_and_pushVerifiedAt', [
       'gmailPreviousRoutingDigest',
       'pushVerifiedAt',
