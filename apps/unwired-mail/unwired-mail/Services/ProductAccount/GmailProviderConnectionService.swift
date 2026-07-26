@@ -96,6 +96,7 @@ protocol GmailProviderTokenPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens?
+  func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens]
   func loadLegacy(productAccountId: String) throws -> GmailProviderTokens?
   func clearLegacy(productAccountId: String) throws
   func save(
@@ -106,6 +107,7 @@ protocol GmailProviderTokenPersisting {
 }
 
 extension GmailProviderTokenPersisting {
+  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] { [:] }
   func loadLegacy(productAccountId _: String) throws -> GmailProviderTokens? { nil }
   func clearLegacy(productAccountId _: String) throws {}
 }
@@ -193,6 +195,18 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
         productAccountId: productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
       ))
+  }
+
+  func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens] {
+    try Dictionary(
+      uniqueKeysWithValues: providerAccountIdentifiers(productAccountId: productAccountId)
+        .compactMap { providerAccountIdentifier in
+          try load(
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier
+          ).map { (providerAccountIdentifier, $0) }
+        }
+    )
   }
 
   func save(
@@ -596,13 +610,28 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
-    var tokensByIdentifier: [String: GmailProviderTokens] = [:]
-    for status in statuses {
-      if let tokensForStatus = try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: status.providerAccountIdentifier
-      ) {
-        tokensByIdentifier[status.providerAccountIdentifier] = tokensForStatus
+    var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
+    for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
+    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
+      let verifiedAccount = try await credentialVerifier.verify(
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken
+      )
+      let status = try await completeConnection(
+        verifiedAccount: verifiedAccount,
+        session: session
+      )
+      statuses.removeAll {
+        $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+      }
+      statuses.append(status)
+      tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = verifiedAccount.tokens
+      if storedIdentifier != verifiedAccount.providerAccountIdentifier {
+        try tokenStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: storedIdentifier
+        )
+        tokensByIdentifier[storedIdentifier] = nil
       }
     }
     if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
@@ -922,6 +951,16 @@ private struct GoogleRefreshTokenResponse: Decodable {
       providerAccountIdentifier: String
     ) throws -> GmailProviderTokens? {
       tokensByConnectionKey[key(productAccountId, providerAccountIdentifier)]
+    }
+
+    func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens] {
+      let prefix = "\(productAccountId):"
+      return Dictionary(
+        uniqueKeysWithValues: tokensByConnectionKey.compactMap { key, tokens in
+          guard key.hasPrefix(prefix) else { return nil }
+          return (String(key.dropFirst(prefix.count)), tokens)
+        }
+      )
     }
 
     func save(

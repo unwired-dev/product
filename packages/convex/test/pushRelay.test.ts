@@ -13,6 +13,7 @@ import {
   decodeGmailPushEnvelope,
   gmailWakeupPayload,
 } from '../convex/gmailPushPayload.js';
+import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import schema from '../convex/schema.js';
 
 type ObservedApnsRequest = Readonly<{
@@ -984,6 +985,58 @@ describe('gmail push relay', () => {
       t.query(internal.pushRelay.revalidateGmailRecipients, {
         recipients: queued,
       }),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('removes a matching legacy Gmail connection by its opaque identifier', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-removal',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'legacy@example.com',
+        lastVerifiedAt: now,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'legacy-gmail-user',
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.removeGmailConnection, {
+        opaqueConnectionId: await opaqueGmailConnectionId(
+          device.productAccountId,
+          'legacy-gmail-user',
+        ),
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({
+      hasRemainingGmailConnections: false,
+      removed: true,
+    });
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId),
+          )
+          .collect(),
+      ),
     ).resolves.toStrictEqual([]);
   });
 

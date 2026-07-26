@@ -82,6 +82,19 @@ export async function gmailIdentityBindingDigest(
   return `identity:${base64Url(digest)}`;
 }
 
+export async function opaqueGmailConnectionId(
+  productAccountId: string,
+  providerAccountIdentifier: string,
+): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(
+      `dev.unwired.mail.gmail-operational-connection.v1\0${productAccountId}\0${providerAccountIdentifier}`,
+    ),
+  );
+  return base64Url(digest);
+}
+
 async function routingDigest(
   canonicalEmailAddress: string,
   routingKey: GmailRoutingKey,

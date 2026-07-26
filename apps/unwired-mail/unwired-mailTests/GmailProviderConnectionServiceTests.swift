@@ -464,6 +464,38 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
   }
 
+  func testLoadConnectionsReconstructsStatusFromScopedTokensWithoutPushConnection() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "scoped-access", refreshToken: "scoped-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
+    let pushConnectionStore = RecordingPushConnectionStore()
+    let transport = RecordingGmailConnectionTransport()
+    let verifiedAccount = VerifiedGmailAccount(
+      emailAddress: "user@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      tokens: GmailProviderTokens(
+        accessToken: "refreshed-access",
+        refreshToken: "scoped-refresh",
+        idToken: "gmail-identity-token"
+      )
+    )
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(account: verifiedAccount)
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
+    XCTAssertEqual(pushConnectionStore.connections, statuses)
+    XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
+  }
+
   func testLoadConnectionsMigratesLegacyTokensForExistingPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -1463,6 +1495,10 @@ private final class FailingLoadGmailProviderTokenStore: GmailProviderTokenPersis
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> GmailProviderTokens? {
+    throw GmailProviderConnectionTestError.tokenLoadFailed
+  }
+
+  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] {
     throw GmailProviderConnectionTestError.tokenLoadFailed
   }
 

@@ -21,6 +21,7 @@ import {
 import {
   gmailIdentityBindingDigest,
   gmailRoutingDigests,
+  opaqueGmailConnectionId,
 } from './gmailRouting.js';
 import { requireAuthenticatedTrustedDevice } from './productAccountAuth.js';
 
@@ -1319,11 +1320,44 @@ export const removeGmailConnection = mutation({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await gmailConnection(ctx, {
+    const currentConnection = await gmailConnection(ctx, {
       opaqueConnectionId: args.opaqueConnectionId,
       productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,
     });
+    const legacyDeviceConnections =
+      currentConnection === null
+        ? await gmailConnectionsForDevice(
+            ctx,
+            account.productAccountId,
+            args.trustedDeviceId,
+          ).take(gmailConnectionLimitPerTrustedDevice + 1)
+        : [];
+    const legacyConnections = await Promise.all(
+      legacyDeviceConnections.flatMap((candidate) => {
+        if (
+          candidate.opaqueConnectionId !== undefined ||
+          candidate.providerAccountIdentifier === undefined
+        ) {
+          return [];
+        }
+        return [
+          opaqueGmailConnectionId(
+            account.productAccountId,
+            candidate.providerAccountIdentifier,
+          ).then((opaqueConnectionId) => ({
+            candidate,
+            opaqueConnectionId,
+          })),
+        ];
+      }),
+    );
+    const connection =
+      currentConnection ??
+      legacyConnections.find(
+        (candidate) => candidate.opaqueConnectionId === args.opaqueConnectionId,
+      )?.candidate ??
+      null;
     if (connection !== null) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(connection._id);
