@@ -1470,6 +1470,40 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(retryTask.writes.contains { $0.contains("EXPUNGE") })
   }
 
+  func testSystemClientDoesNotExpungeWhenCopyUIDDoesNotMatchSource() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n",
+        "* OK [UIDVALIDITY 8] selected\r\nA4 OK selected\r\n",
+        "* SEARCH\r\nA5 OK searched\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA6 OK selected\r\n",
+        "A7 OK [COPYUID 8 99 42] copied\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.perform(
+        .archive,
+        message: imapMessage(uid: 7),
+        targetMailbox: "Archive",
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "reader")
+        )
+      )
+      XCTFail("Expected mismatched COPYUID to stop before expunge")
+    } catch IMAPMailboxError.unsafeExpunge {
+    }
+
+    XCTAssertFalse(task.writes.contains { $0.contains("EXPUNGE") })
+  }
+
   func testSystemIMAPClientRejectsLineBreaksInAppendMailbox() async throws {
     let task = TranscriptIMAPStreamTask(
       responses: [

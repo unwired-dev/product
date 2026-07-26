@@ -2199,13 +2199,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       connection: connection,
       session: session
     )
+    let queuedTarget = queuedTargetProviderMailboxId(
+      for: action,
+      requestedProviderMailboxId: targetProviderMailboxId,
+      definition: authorization.definition
+    )
     try await pendingActionService.enqueue(
       action,
-      targetProviderMailboxId: queuedTargetProviderMailboxId(
-        for: action,
-        requestedProviderMailboxId: targetProviderMailboxId,
-        definition: authorization.definition
-      ),
+      targetProviderMailboxId: queuedTarget,
       sourceProviderMailboxId: queuedSourceProviderMailboxId(
         for: action,
         requestedProviderMailboxId: sourceProviderMailboxId,
