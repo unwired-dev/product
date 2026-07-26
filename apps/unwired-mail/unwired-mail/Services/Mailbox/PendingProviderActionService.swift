@@ -520,7 +520,6 @@ actor PendingProviderActionService {
         action.connectionId == connection.id.rawValue
           && isFreshlyObserved(action)
           && action.state == .providerConfirmed
-          && action.action.confirmsWhenProviderMessageDisappears
           && action.messageIds.allSatisfy { messageId in
             !messages.contains { $0.providerMessageId == messageId }
           }

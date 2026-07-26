@@ -489,6 +489,43 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(client.appendedMessages.isEmpty)
   }
 
+  func testSMTPDeliverySkipsAppendWhenServerAlreadyFiledSentCopy() async throws {
+    let definition = imapDefinition(username: "sender")
+    let client = RecordingIMAPClient()
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "Sent": [
+        imapMessage(
+          mailbox: "Sent",
+          uid: 10,
+          rfcMessageId: "<delivery-server-filed@outbox.unwired.mail>"
+        )
+      ]
+    ]
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Accepted once",
+        recipient: "reader@example.com",
+        subject: "Server-filed copy",
+        idempotencyKey: "delivery-server-filed"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(smtpClient.sentMessages.count, 1)
+    XCTAssertTrue(client.appendedMessages.isEmpty)
+  }
+
   func testDraftRetrySkipsAppendWhenStableMessageIdAlreadyExists() async throws {
     let definition = imapDefinition(username: "sender")
     let client = RecordingIMAPClient()
@@ -674,22 +711,36 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.performedActions.map(\.targetMailbox), ["Original Archive"])
   }
 
+  // swiftlint:disable:next function_body_length
   func testQueuedFlagActionUsesEarlierConfirmedMoveTarget() async throws {
     let definition = imapDefinition(username: "reader")
-    let sourceMessage = imapMessage(uid: 7, rfcMessageId: "<moved-then-read@example.com>")
+    let sourceMessage = imapMessage(
+      uid: 7,
+      rfcMessageId: "<moved-then-read@example.com>",
+      providerEmailId: "moved-then-read"
+    )
     let movedMessage = imapMessage(
       mailbox: "Archive",
       uid: 19,
-      rfcMessageId: "<moved-then-read@example.com>"
+      rfcMessageId: "<moved-then-read@example.com>",
+      providerEmailId: "moved-then-read"
+    )
+    let customMessage = imapMessage(
+      mailbox: "Projects",
+      uid: 23,
+      rfcMessageId: "<moved-then-read@example.com>",
+      providerEmailId: "moved-then-read"
     )
     let client = RecordingIMAPClient()
     client.mailboxesByUsername[definition.username] = [
       IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
       IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+      IMAPMailboxDescriptor(displayName: "Projects", name: "Projects"),
     ]
     client.messagesByUsernameAndMailbox[definition.username] = [
       "INBOX": [sourceMessage],
       "Archive": [],
+      "Projects": [customMessage],
     ]
     let adapter = try makeAdapter(
       authorizationStore: authorizedStore(definition),
@@ -710,6 +761,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     client.messagesByUsernameAndMailbox[definition.username] = [
       "INBOX": [],
       "Archive": [movedMessage],
+      "Projects": [customMessage],
     ]
 
     try await adapter.perform(
@@ -720,7 +772,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     _ = await adapter.resumePendingActions(connection: connection, session: session)
 
-    XCTAssertEqual(client.performedActions.map(\.uid), [7, 19])
+    XCTAssertEqual(
+      Set(
+        client.performedActions.filter { $0.action == .markRead }.map(\.uid)
+      ),
+      [19, 23]
+    )
   }
 
   func testFlagActionUpdatesEveryMergedIMAPAppearance() async throws {
@@ -1149,6 +1206,58 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
           mailbox: "Archive",
           uid: 19,
           rfcMessageId: "<move-recovery@example.com>"
+        )
+      ],
+    ]
+
+    let error = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertNil(error)
+    XCTAssertEqual(
+      try pendingStore.load(productAccountId: session.productAccountId).first?.state,
+      .providerConfirmed
+    )
+  }
+
+  func testAmbiguousMoveCompletionChecksOriginalSourceUID() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    let movedMessage = imapMessage(uid: 7, rfcMessageId: "<duplicate-source@example.com>")
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [movedMessage],
+      "Archive": [],
+    ]
+    let pendingStore = RecordingPendingProviderActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingStore: pendingStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    client.performError = IMAPMailboxError.invalidProviderResponse
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [
+        imapMessage(uid: 8, rfcMessageId: "<duplicate-source@example.com>")
+      ],
+      "Archive": [
+        imapMessage(
+          mailbox: "Archive",
+          uid: 19,
+          rfcMessageId: "<duplicate-source@example.com>"
         )
       ],
     ]

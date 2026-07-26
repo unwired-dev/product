@@ -782,6 +782,29 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(pendingActions.isEmpty)
   }
 
+  func testProviderSyncClearsConfirmedFlagActionWhenMessageDisappears() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-before-expunge",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [],
+      connection: connection,
+      session: session
+    )
+
+    let pendingActions = try await service.pendingActions(session: session)
+    XCTAssertTrue(pendingActions.isEmpty)
+  }
+
   func testDeleteProjectionRemovesSpam() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(

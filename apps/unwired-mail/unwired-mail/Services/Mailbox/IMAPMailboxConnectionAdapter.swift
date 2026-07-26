@@ -2454,8 +2454,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         authorization: authorization
       )
     }
-    if message.sentCopyOnly == true,
-      let messageId = message.rfcMessageId,
+    if let messageId = message.rfcMessageId,
       try await mailboxContainsMessage(
         messageId,
         mailbox: sentMailbox,
@@ -2650,7 +2649,26 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
           authorization: authorization
         )
       {
-        appearances = [movedAppearance]
+        let movedSourceProviderMailboxId =
+          try await pendingActionService.providerConfirmedActions(
+            connection: connection,
+            session: session
+          )
+          .filter {
+            [.archive, .delete, .move, .notSpam, .restore, .spam].contains($0.action)
+              && $0.targetProviderMailboxId == sourceProviderMailboxId
+              && $0.messageIds.contains(messageId)
+          }
+          .max(by: { $0.sequence < $1.sequence })?
+          .sourceProviderMailboxId
+        let movedSourceMailbox = providerMailboxName(
+          from: movedSourceProviderMailboxId,
+          definition: authorization.definition
+        )
+        appearances.removeAll {
+          IMAPProviderMessage.mailboxNamesEqual($0.mailbox, movedSourceMailbox ?? "")
+        }
+        appearances.append(movedAppearance)
       }
       let actionAppearances = providerActionAppearances(
         for: action,
@@ -2682,7 +2700,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
             let rfcMessageId = message.rfcMessageId,
             try await moveWasApplied(
               rfcMessageId: rfcMessageId,
-              sourceMailbox: message.mailbox,
+              sourceMessage: message,
               targetMailbox: target,
               authorization: authorization
             )
@@ -2699,14 +2717,6 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     definition: GenericMailConnectionDefinition
   ) -> [IMAPProviderMessage] {
     if [.markRead, .markUnread, .star, .unstar].contains(action) {
-      if let sourceMailbox = providerMailboxName(
-        from: sourceProviderMailboxId,
-        definition: definition
-      ) {
-        return appearances.filter {
-          IMAPProviderMessage.mailboxNamesEqual($0.mailbox, sourceMailbox)
-        }
-      }
       return appearances
     }
     if let sourceMailbox = providerMailboxName(
@@ -3055,7 +3065,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
 
   private func moveWasApplied(
     rfcMessageId: String,
-    sourceMailbox: String,
+    sourceMessage: IMAPProviderMessage,
     targetMailbox: String,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> Bool {
@@ -3066,13 +3076,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       authorization: authorization
     )
     guard targetAppearance != nil else { return false }
-    let sourceAppearance = try await client.loadMetadataMessage(
-      rfcMessageId: rfcMessageId,
-      mailbox: IMAPMailboxDescriptor(displayName: sourceMailbox, name: sourceMailbox),
-      requiresUniqueMatch: false,
+    let sourcePage = try await client.loadMetadataPage(
+      mailbox: IMAPMailboxDescriptor(
+        displayName: sourceMessage.mailbox,
+        name: sourceMessage.mailbox
+      ),
+      beforeUID: sourceMessage.uid == Int64.max ? nil : sourceMessage.uid + 1,
+      limit: 1,
       authorization: authorization
     )
-    return sourceAppearance == nil
+    return sourcePage.uidValidity != sourceMessage.uidValidity
+      || !sourcePage.messages.contains {
+        $0.uid == sourceMessage.uid && $0.uidValidity == sourceMessage.uidValidity
+      }
   }
 
   private static func splitMailboxValues(_ value: String) -> [String] {
