@@ -11,7 +11,7 @@ catalog:
   "@rajzik/oxlint-config": ^4.0.3
   "@rajzik/tsconfig": ^4.0.3
   "@types/node": ^25.9.1
-  convex: ^1.40.0
+  convex: ^1.41.0
   oxfmt: ^0.53.0
   oxlint: ^1.68.0
   oxlint-tsgolint: ^0.23.0
