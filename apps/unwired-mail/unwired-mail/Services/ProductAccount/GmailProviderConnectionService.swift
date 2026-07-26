@@ -613,10 +613,15 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
     for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
     where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
-      let verifiedAccount = try await credentialVerifier.verify(
-        accessToken: tokens.accessToken,
-        refreshToken: tokens.refreshToken
-      )
+      let verifiedAccount: VerifiedGmailAccount
+      do {
+        verifiedAccount = try await credentialVerifier.verify(
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken
+        )
+      } catch {
+        continue
+      }
       let status = try await completeConnection(
         verifiedAccount: verifiedAccount,
         session: session

@@ -1363,11 +1363,13 @@ export const removeGmailConnection = mutation({
       await ctx.db.delete(connection._id);
       const remainingOpaqueConnection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex('by_product_provider_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('opaqueConnectionId', args.opaqueConnectionId),
+        .withIndex(
+          'by_productAccountId_and_provider_and_opaqueConnectionId',
+          (q) =>
+            q
+              .eq('productAccountId', account.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('opaqueConnectionId', args.opaqueConnectionId),
         )
         .first();
       if (remainingOpaqueConnection === null) {

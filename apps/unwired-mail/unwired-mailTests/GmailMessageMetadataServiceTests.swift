@@ -2344,6 +2344,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
   }
 
+  func testSyncInboxMigratesLegacyTokensBeforeForegroundLaunch() async throws {
+    let fixture = try makeSyncFixture(usesLegacyTokens: true)
+
+    _ = try await fixture.service.syncInbox(connection: connection, session: session)
+
+    XCTAssertNil(
+      try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    )
+    XCTAssertNotNil(
+      try fixture.tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    )
+  }
+
   func testProviderActionsUseGmailModifyAndTrashEndpoints() async throws {
     let fixture = try makeMailActionFixture()
 
@@ -3270,16 +3286,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     historyResponseData: Data = Data(#"{"history":[]}"#.utf8),
     shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
     labelIdsByMessageId: [String: [String]] = [:],
-    messageIdsWithoutLabelIds: Set<String> = []
+    messageIdsWithoutLabelIds: Set<String> = [],
+    usesLegacyTokens: Bool = false
   ) throws -> GmailMessageMetadataSyncFixture {
     let eligibilityStore = RecordingGmailPushEligibilityStore()
     let store = RecordingGmailMessageMetadataStore()
     let tokenStore = RecordingGmailProviderTokenStore()
     let requestRecorder = GmailMetadataRequestRecorder()
-    try tokenStore.save(
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
-      productAccountId: session.productAccountId
-    )
+    let tokens = GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+    if usesLegacyTokens {
+      tokenStore.legacyTokensByProductAccountId[session.productAccountId] = tokens
+    } else {
+      try tokenStore.save(tokens, productAccountId: session.productAccountId)
+    }
     let urlSession = ConvexClientTesting.makeSession { request in
       self.makeSyncResponse(
         for: request,
@@ -4391,6 +4410,7 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
 }
 
 private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisting {
+  var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
   var tokensByProductAccountId: [String: GmailProviderTokens] = [:]
 
   func clear(productAccountId: String) throws {
@@ -4417,6 +4437,14 @@ private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisti
     providerAccountIdentifier _: String
   ) throws -> GmailProviderTokens? {
     try load(productAccountId: productAccountId)
+  }
+
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+    legacyTokensByProductAccountId[productAccountId]
+  }
+
+  func clearLegacy(productAccountId: String) throws {
+    legacyTokensByProductAccountId[productAccountId] = nil
   }
 
   func save(

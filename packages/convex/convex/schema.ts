@@ -120,7 +120,7 @@ export default defineSchema({
       'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
       ['productAccountId', 'provider', 'trustedDeviceId', 'opaqueConnectionId'],
     )
-    .index('by_product_provider_opaqueConnectionId', [
+    .index('by_productAccountId_and_provider_and_opaqueConnectionId', [
       'productAccountId',
       'provider',
       'opaqueConnectionId',

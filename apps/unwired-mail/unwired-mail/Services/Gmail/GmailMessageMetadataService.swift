@@ -1484,12 +1484,13 @@ struct GmailMessageMetadataService:
     deferPersistence: Bool,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderTokens {
-    guard
-      let storedTokens = try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-    else {
+    let scopedTokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let storedTokens =
+      try scopedTokens ?? tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    guard let storedTokens else {
       throw GmailMessageMetadataSyncError.missingLocalGmailTokens
     }
     let tokens = try await refreshedTokens(
@@ -1499,6 +1500,14 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
+    if scopedTokens == nil {
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+    }
     return tokens
   }
 
