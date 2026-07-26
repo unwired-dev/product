@@ -1054,6 +1054,7 @@ describe('gmail push relay', () => {
 
     await expect(
       t.query(internal.pushRelay.resolveGmailRecipients, {
+        emailAddress: 'legacy-route@example.com',
         routingDigest: routingDigest('legacy-route@example.com'),
       }),
     ).resolves.toStrictEqual([

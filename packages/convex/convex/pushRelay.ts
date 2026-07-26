@@ -405,6 +405,7 @@ async function legacyGmailRecipient(
 async function gmailRecipients(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   routingDigest: string,
+  emailAddress?: string,
 ): Promise<ApnsRecipient[]> {
   const connections = ctx.db
     .query('mailProviderConnections')
@@ -430,29 +431,34 @@ async function gmailRecipients(
     }
   }
 
-  const legacyConnections = await ctx.db
-    .query('mailProviderConnections')
-    .withIndex(
-      'by_provider_and_emailAddress_and_pushVerificationRequestedAt',
-      (q) => q.eq('provider', 'gmail'),
-    )
-    .filter((q) =>
-      q.and(
-        q.eq(q.field('gmailRoutingDigest'), undefined),
-        q.neq(q.field('pushVerifiedAt'), undefined),
-      ),
-    )
-    .take(gmailLegacyRouteFallbackLimit);
-  for (const connection of legacyConnections) {
-    const recipient = await legacyGmailRecipient(
-      ctx,
-      connection,
-      routingDigest,
-    );
-    if (recipient !== null) {
-      recipients.push(recipient);
-      if (recipients.length === 100) {
+  if (emailAddress !== undefined && recipients.length < 100) {
+    const legacyConnections = ctx.db
+      .query('mailProviderConnections')
+      .withIndex(
+        'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
+        (q) =>
+          q
+            .eq('provider', 'gmail')
+            .eq('emailAddress', emailAddress)
+            .eq('gmailRoutingDigest', undefined)
+            .gt('pushVerifiedAt', undefined),
+      );
+    let inspectedLegacyConnections = 0;
+    for await (const connection of legacyConnections) {
+      inspectedLegacyConnections += 1;
+      if (inspectedLegacyConnections > gmailLegacyRouteFallbackLimit) {
         break;
+      }
+      const recipient = await legacyGmailRecipient(
+        ctx,
+        connection,
+        routingDigest,
+      );
+      if (recipient !== null) {
+        recipients.push(recipient);
+        if (recipients.length >= 100) {
+          break;
+        }
       }
     }
   }
@@ -1706,8 +1712,12 @@ export const verifyGmailWatchForIdentity = internalMutation({
 });
 
 export const resolveGmailRecipients = internalQuery({
-  args: { routingDigest: v.string() },
-  handler: async (ctx, args) => gmailRecipients(ctx, args.routingDigest),
+  args: {
+    emailAddress: v.optional(v.string()),
+    routingDigest: v.string(),
+  },
+  handler: async (ctx, args) =>
+    gmailRecipients(ctx, args.routingDigest, args.emailAddress),
   returns: v.array(apnsRecipientValidator),
 });
 
@@ -1759,6 +1769,7 @@ export const enqueueGmailWakeupsFromMetadata = internalAction({
     const results: Array<{ recipientCount: number }> = await Promise.all(
       routings.map((routing) =>
         ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, {
+          emailAddress: args.emailAddress,
           historyId: args.historyId,
           routingDigest: routing.digest,
         }),
@@ -1776,6 +1787,7 @@ export const enqueueGmailWakeupsFromMetadata = internalAction({
 
 export const enqueueGmailWakeups = internalMutation({
   args: {
+    emailAddress: v.optional(v.string()),
     historyId: v.string(),
     routingDigest: v.string(),
   },
@@ -1792,7 +1804,11 @@ export const enqueueGmailWakeups = internalMutation({
       routingDigest: args.routingDigest,
     });
 
-    const recipients = await gmailRecipients(ctx, args.routingDigest);
+    const recipients = await gmailRecipients(
+      ctx,
+      args.routingDigest,
+      args.emailAddress,
+    );
     await scheduleGmailWakeups(ctx, args.historyId, recipients);
 
     return { recipientCount: recipients.length };

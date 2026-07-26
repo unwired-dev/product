@@ -1179,6 +1179,28 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.expandedMessageIds, [searchMessage.id])
   }
 
+  func testMailShellSelectionSwitchesConnectionForProviderSearchResult() {
+    let otherConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let searchMessage = mailShellMessage(
+      connectionId: otherConnectionId,
+      providerMessageId: "other-message",
+      providerThreadId: "other-thread",
+      receivedAt: 100
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+
+    viewModel.selectSearchResult(searchMessage)
+
+    XCTAssertEqual(viewModel.selectedConnectionId, otherConnectionId)
+    XCTAssertEqual(viewModel.selectedThread?.messages, [searchMessage])
+  }
+
   func testMailShellUnifiedInboxInterleavesThreadsAndShowsSourceConnections() {
     let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId

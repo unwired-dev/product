@@ -1780,6 +1780,12 @@ final class MailShellSelectionModel {
   }
 
   func selectSearchResult(_ message: MailboxMessageMetadata) {
+    if selectedMailbox?.isUnified != true {
+      selectedMailbox = .connection(
+        message.connectionId,
+        selectedMailbox?.collection ?? .role(.inbox)
+      )
+    }
     let thread = MailboxThread.group([message])[0]
     var connectionThreads = threadsByConnection[message.connectionId] ?? []
     if let index = connectionThreads.firstIndex(where: { $0.id == thread.id }) {

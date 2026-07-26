@@ -87,6 +87,10 @@ export default defineSchema({
       'emailAddress',
       'pushVerifiedAt',
     ])
+    .index(
+      'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
+      ['provider', 'emailAddress', 'gmailRoutingDigest', 'pushVerifiedAt'],
+    )
     .index('by_provider_and_emailAddress_and_pushVerificationRequestedAt', [
       'provider',
       'emailAddress',
