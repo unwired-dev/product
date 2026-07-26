@@ -87,10 +87,12 @@ export default defineSchema({
       'emailAddress',
       'pushVerifiedAt',
     ])
-    .index(
-      'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
-      ['provider', 'emailAddress', 'gmailRoutingDigest', 'pushVerifiedAt'],
-    )
+    .index('by_provider_email_gmailDigest_pushVerifiedAt', [
+      'provider',
+      'emailAddress',
+      'gmailRoutingDigest',
+      'pushVerifiedAt',
+    ])
     .index('by_provider_and_emailAddress_and_pushVerificationRequestedAt', [
       'provider',
       'emailAddress',
@@ -107,23 +109,22 @@ export default defineSchema({
       'provider',
       'trustedDeviceId',
     ])
-    .index(
-      'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-      [
-        'productAccountId',
-        'provider',
-        'trustedDeviceId',
-        'providerAccountIdentifier',
-      ],
-    )
+    .index('by_productId_provider_deviceId_providerAccountId', [
+      'productAccountId',
+      'provider',
+      'trustedDeviceId',
+      'providerAccountIdentifier',
+    ])
     .index('by_productAccountId_and_providerAccountIdentifier', [
       'productAccountId',
       'providerAccountIdentifier',
     ])
-    .index(
-      'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
-      ['productAccountId', 'provider', 'trustedDeviceId', 'opaqueConnectionId'],
-    )
+    .index('by_productId_provider_deviceId_connectionId', [
+      'productAccountId',
+      'provider',
+      'trustedDeviceId',
+      'opaqueConnectionId',
+    ])
     .index('by_productAccountId_and_provider_and_opaqueConnectionId', [
       'productAccountId',
       'provider',
