@@ -20,7 +20,6 @@ reviews:
 
   path_filters:
     - "!packages/convex/convex/_generated/**"
-    - "packages/convex/convex/_generated/ai/guidelines.md"
 
   path_instructions:
     - path: "apps/unwired-mail/**/*.swift"
