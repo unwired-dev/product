@@ -817,14 +817,16 @@ struct AccountView: View {
 
   private var mailboxActivePollingTaskId: MailboxActivePollingTaskId {
     MailboxActivePollingTaskId(
-      idleConnectionIds: gmailViewModel.connections
+      idleConnections: gmailViewModel.connections
         .filter {
           $0.authorizationState == .authorized
             && $0.providerId == .imapSMTP
             && $0.capabilities.canRegisterPush
         }
-        .map(\.id)
-        .sorted { $0.rawValue < $1.rawValue },
+        .map {
+          MailboxActivePollingConnection(id: $0.id, updatedAt: $0.updatedAt)
+        }
+        .sorted { $0.id.rawValue < $1.id.rawValue },
       scenePhase: scenePhase
     )
   }
@@ -1123,8 +1125,13 @@ struct AccountView: View {
 }
 
 private struct MailboxActivePollingTaskId: Equatable {
-  let idleConnectionIds: [MailboxConnectionId]
+  let idleConnections: [MailboxActivePollingConnection]
   let scenePhase: ScenePhase
+}
+
+private struct MailboxActivePollingConnection: Equatable {
+  let id: MailboxConnectionId
+  let updatedAt: Int64
 }
 
 extension AccountView {

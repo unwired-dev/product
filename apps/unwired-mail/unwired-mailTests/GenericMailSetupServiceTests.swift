@@ -1084,7 +1084,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
       .success("* CAPABILITY IMAP4rev1 IDLE MOVE\r\na3 OK capable\r\n"),
       .success(
         "* LIST (\\Drafts) \"/\" \"Drafts\"\r\n"
-          + "* LIST (\\Sent) \"/\" \"Sent Items\"\r\n"
+          + "* LIST (\\Sent) \"/\" \"Envoy&AOk-s\"\r\n"
           + "* LIST (\\Archive) \"/\" \"Archive\"\r\n"
           + "* LIST (\\Junk) \"/\" \"Junk\"\r\n"
           + "* LIST (\\Trash) \"/\" \"Deleted\"\r\n"
@@ -1107,7 +1107,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
       authorizationMethod: .password
     )
 
-    XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Sent Items")
+    XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Envoyés")
     XCTAssertEqual(verification.discoveredRoleMappings[.trash], "Deleted")
     XCTAssertEqual(verification.discoveredIMAPCapabilities, ["IMAP4REV1", "IDLE", "MOVE"])
   }

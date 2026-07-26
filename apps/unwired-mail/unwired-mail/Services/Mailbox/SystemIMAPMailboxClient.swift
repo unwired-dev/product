@@ -252,9 +252,14 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
   func supportsIdle(
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> Bool {
+    try await serverCapabilities(authorization: authorization).contains("IDLE")
+  }
+
+  func serverCapabilities(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Set<String> {
     try await withSession(authorization: authorization) { session in
-      let capabilityResponse = try await session.command("CAPABILITY")
-      return IMAPResponseParser.capabilities(capabilityResponse).contains("IDLE")
+      IMAPResponseParser.capabilities(try await session.command("CAPABILITY"))
     }
   }
 
@@ -685,7 +690,7 @@ private enum IMAPResponseParser {
         let (_, afterDelimiter) = token(in: remaining),
         let (mailboxName, _) = token(in: afterDelimiter)
       else { throw IMAPMailboxError.invalidProviderResponse }
-      let decodedMailboxName = decodeModifiedUTF7(mailboxName)
+      let decodedMailboxName = decodeIMAPMailboxName(mailboxName)
       mailboxes.append(
         IMAPMailboxDescriptor(
           displayName: decodedMailboxName,
@@ -970,38 +975,39 @@ private enum IMAPResponseParser {
     return nil
   }
 
-  private static func decodeModifiedUTF7(_ value: String) -> String {
-    var result = ""
-    var index = value.startIndex
-    while index < value.endIndex {
-      guard value[index] == "&" else {
-        result.append(value[index])
-        index = value.index(after: index)
-        continue
-      }
-      guard let end = value[index...].firstIndex(of: "-") else {
-        result.append(contentsOf: value[index...])
-        break
-      }
-      let encodedStart = value.index(after: index)
-      let encoded = String(value[encodedStart..<end])
-      if encoded.isEmpty {
-        result.append("&")
-      } else {
-        var base64 = encoded.replacingOccurrences(of: ",", with: "/")
-        base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
-        if let data = Data(base64Encoded: base64),
-          let decoded = String(data: data, encoding: .utf16BigEndian)
-        {
-          result.append(decoded)
-        } else {
-          result.append(contentsOf: value[index...end])
-        }
-      }
-      index = value.index(after: end)
+}
+
+func decodeIMAPMailboxName(_ value: String) -> String {
+  var result = ""
+  var index = value.startIndex
+  while index < value.endIndex {
+    guard value[index] == "&" else {
+      result.append(value[index])
+      index = value.index(after: index)
+      continue
     }
-    return result
+    guard let end = value[index...].firstIndex(of: "-") else {
+      result.append(contentsOf: value[index...])
+      break
+    }
+    let encodedStart = value.index(after: index)
+    let encoded = String(value[encodedStart..<end])
+    if encoded.isEmpty {
+      result.append("&")
+    } else {
+      var base64 = encoded.replacingOccurrences(of: ",", with: "/")
+      base64 += String(repeating: "=", count: (4 - base64.count % 4) % 4)
+      if let data = Data(base64Encoded: base64),
+        let decoded = String(data: data, encoding: .utf16BigEndian)
+      {
+        result.append(decoded)
+      } else {
+        result.append(contentsOf: value[index...end])
+      }
+    }
+    index = value.index(after: end)
   }
+  return result
 }
 
 private enum IMAPSExpression: Equatable {

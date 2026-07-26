@@ -279,6 +279,10 @@ protocol IMAPMailboxClient {
   func supportsIdle(
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> Bool
+
+  func serverCapabilities(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Set<String>
 }
 
 extension IMAPMailboxClient {
@@ -319,6 +323,12 @@ extension IMAPMailboxClient {
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> Bool {
     false
+  }
+
+  func serverCapabilities(
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Set<String> {
+    []
   }
 }
 
@@ -721,8 +731,15 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       },
       uniquingKeysWith: { first, _ in first }
     )
+    let reconciledMessages = messages.map { message in
+      var message = message
+      message.providerMessageIdOverride =
+        message.providerMessageIdOverride
+        ?? priorProviderMessageIdOverridesByUID[message.uid]
+      return message
+    }
     if case .newest(let coversEntireMailbox) = reconciliation {
-      let incomingIds = Set(messages.map(\.providerMessageId))
+      let incomingIds = Set(reconciledMessages.map(\.providerMessageId))
       let oldestFetchedUID = messages.map(\.uid).min()
       for record in matchingRecords {
         let existingMessage = try record.message()
@@ -733,10 +750,7 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
         }
       }
     }
-    for var message in messages {
-      message.providerMessageIdOverride =
-        message.providerMessageIdOverride
-        ?? priorProviderMessageIdOverridesByUID[message.uid]
+    for var message in reconciledMessages {
       let stableId = StableProviderMessageIdentity(
         connectionId: connectionId,
         providerMessageId: message.providerMessageId
@@ -1857,12 +1871,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         try clearLocalConnectionWithoutLock(removedId, session: session)
       }
     }
-    return try snapshot.connections.compactMap { definition in
+    var connections: [MailboxConnection] = []
+    for definition in snapshot.connections {
       guard
         definition.provider == MailProviderId.imapSMTP.rawValue,
         let genericDefinition = definition.genericMailDefinition,
         genericDefinition.incomingEndpoint.mailProtocol == .imap
-      else { return nil }
+      else { continue }
       let authorization = try authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: definition.id
@@ -1871,24 +1886,32 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         authorization.map {
           hasMatchingCredentials($0.definition, genericDefinition)
         } ?? false
-      let capabilities =
-        if let serverCapabilities = genericDefinition.imapCapabilities {
-          MailboxConnectionCapabilities.imapFull(serverCapabilities: serverCapabilities)
-        } else {
-          MailboxConnectionCapabilities.imapFull(serverCapabilities: [])
-        }
-      return MailboxConnection(
-        authorizationState: isAuthorized ? .authorized : .required,
-        capabilities: isAuthorized ? capabilities : .none,
-        connectedAt: definition.connectedAt,
-        displayName: definition.displayName,
-        id: definition.id,
-        lastVerifiedAt: isAuthorized ? definition.connectedAt : 0,
-        productAccountId: ProductAccountId(session.productAccountId),
-        trustedDeviceId: session.trustedDeviceId,
-        updatedAt: snapshot.updatedAt ?? definition.connectedAt
+      let serverCapabilities: Set<String>
+      if let savedCapabilities = genericDefinition.imapCapabilities {
+        serverCapabilities = savedCapabilities
+      } else if isAuthorized, let authorization {
+        serverCapabilities =
+          (try? await client.serverCapabilities(authorization: authorization)) ?? []
+      } else {
+        serverCapabilities = []
+      }
+      let capabilities = MailboxConnectionCapabilities.imapFull(
+        serverCapabilities: serverCapabilities
       )
+      connections.append(
+        MailboxConnection(
+          authorizationState: isAuthorized ? .authorized : .required,
+          capabilities: isAuthorized ? capabilities : .none,
+          connectedAt: definition.connectedAt,
+          displayName: definition.displayName,
+          id: definition.id,
+          lastVerifiedAt: isAuthorized ? definition.connectedAt : 0,
+          productAccountId: ProductAccountId(session.productAccountId),
+          trustedDeviceId: session.trustedDeviceId,
+          updatedAt: snapshot.updatedAt ?? definition.connectedAt
+        ))
     }
+    return connections
   }
 
   func loadDefaultSendingConnectionId(
@@ -2499,17 +2522,11 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     mailbox: String,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> Bool {
-    let normalizedMessageId = messageId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-    let page = try await client.loadMetadataPage(
+    try await client.loadMetadataMessage(
+      rfcMessageId: messageId,
       mailbox: IMAPMailboxDescriptor(displayName: mailbox, name: mailbox),
-      beforeUID: nil,
-      limit: 50,
       authorization: authorization
-    )
-    return page.messages.contains {
-      $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        == normalizedMessageId
-    }
+    ) != nil
   }
 
   private func pendingActionPerformer(

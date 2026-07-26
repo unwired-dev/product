@@ -204,7 +204,7 @@ private final class MailEndpointConversation {
       guard let mailbox = listedMailbox(in: line) else { continue }
       let flags = imapListFlags(in: line)
       for (flag, role) in specialUseRoles where flags.contains(flag) {
-        candidates[role, default: []].insert(mailbox)
+        candidates[role, default: []].insert(decodeIMAPMailboxName(mailbox))
       }
     }
     return candidates.reduce(into: [:]) { mappings, candidate in
@@ -470,7 +470,9 @@ private final class SMTPDeliveryConversation {
       throw SMTPMailError.connectionFailedBeforeSubmission
     }
     do {
-      try await write("\(Self.dotStuffed(message))\r\n.\r\n")
+      let submittedMessage = Self.dotStuffed(message)
+      let terminator = submittedMessage.hasSuffix("\r\n") ? ".\r\n" : "\r\n.\r\n"
+      try await write("\(submittedMessage)\(terminator)")
       try await expect(250)
     } catch let error as SMTPMailError {
       if case .responseCode = error { throw error }
@@ -545,17 +547,12 @@ private final class SMTPDeliveryConversation {
   }
 
   private static func dotStuffed(_ message: String) -> String {
-    var normalized =
-      message
+    message
       .replacingOccurrences(of: "\r\n", with: "\n")
       .replacingOccurrences(of: "\r", with: "\n")
       .split(separator: "\n", omittingEmptySubsequences: false)
       .map { line in line.hasPrefix(".") ? ".\(line)" : String(line) }
       .joined(separator: "\r\n")
-    while normalized.hasSuffix("\r\n") {
-      normalized.removeLast(2)
-    }
-    return normalized
   }
 }
 

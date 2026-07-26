@@ -59,6 +59,24 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connection.capabilities.canSend)
   }
 
+  func testLegacyConnectionProbesServerCapabilities() async throws {
+    let definition = imapDefinition(username: "legacy")
+    let client = RecordingIMAPClient()
+    client.serverCapabilitiesResult = ["IMAP4REV1", "IDLE", "MOVE"]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    XCTAssertTrue(connection.capabilities.canRegisterPush)
+    XCTAssertTrue(connection.capabilities.supports(.move))
+    XCTAssertEqual(client.serverCapabilitiesRequestCount, 1)
+  }
+
   func testMOVEOnlyServerDoesNotAdvertiseUnsafePermanentDelete() {
     let capabilities = MailboxConnectionCapabilities.imapFull(
       serverCapabilities: ["IMAP4REV1", "MOVE"]
@@ -1687,6 +1705,36 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(task.writes.contains("Subject: Dot\r\n\r\n..first\r\nsecond\r\n.\r\n"))
   }
 
+  func testSystemSMTPClientPreservesEmptyBodySeparator() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "220 ready\r\n",
+        "250 AUTH PLAIN\r\n",
+        "235 authenticated\r\n",
+        "250 sender accepted\r\n",
+        "250 recipient accepted\r\n",
+        "354 send data\r\n",
+        "250 queued\r\n",
+      ]
+    )
+    let definition = imapDefinition(username: "sender")
+    let client = SystemSMTPMailClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    try await client.send(
+      Data("Subject: Empty\r\n\r\n".utf8),
+      envelopeFrom: definition.emailAddress,
+      envelopeRecipients: ["reader@example.com"],
+      authorization: DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: definition
+      )
+    )
+
+    XCTAssertTrue(task.writes.contains("Subject: Empty\r\n\r\n.\r\n"))
+  }
+
   func testSystemSMTPClientReportsUncertainDeliveryAfterDataDisconnect() async throws {
     let task = TranscriptIMAPStreamTask(
       responses: [
@@ -2113,6 +2161,8 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
   private(set) var performedActions: [PerformedAction] = []
+  var serverCapabilitiesResult: Set<String> = []
+  private(set) var serverCapabilitiesRequestCount = 0
   var supportsIdleResult = false
   private(set) var supportsIdleRequestCount = 0
   var uidValidityByUsername: [String: Int64] = [:]
@@ -2206,6 +2256,13 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   ) async throws -> Bool {
     supportsIdleRequestCount += 1
     return supportsIdleResult
+  }
+
+  func serverCapabilities(
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Set<String> {
+    serverCapabilitiesRequestCount += 1
+    return serverCapabilitiesResult
   }
 
   func waitForChange(
