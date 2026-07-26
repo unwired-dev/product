@@ -370,7 +370,7 @@ _Avoid_: Password reset, support recovery
 - **Delete Product Account** never deletes provider mail and does not promise to revoke authorization already issued by a **Mail Provider**
 - A **Standards-Based Mailbox Connection** requires both IMAP and SMTP before it is considered complete
 - Gmail, **Standards-Based Mailbox Connections**, Microsoft Graph, and **On-Premises Exchange Connections** are **Full-Capability Mailbox Connections** only when every **Mailbox Role** required by their supported actions is mapped or successfully created; otherwise they remain incomplete for actions requiring a missing role
-- A **Standards-Based Mailbox Connection** supports move, archive, and trash actions only when its server offers `MOVE` or `UIDPLUS` for targeted removal; it never uses an unrestricted expunge fallback that could remove unrelated messages
+- A **Standards-Based Mailbox Connection** supports move, archive, and trash actions only when its server offers `MOVE` or `UIDPLUS` for targeted removal and returns a verified source-to-destination UID mapping such as `COPYUID`; it never uses an unrestricted expunge fallback that could remove unrelated messages
 - A **Full-Capability Mailbox Connection** supports read state, archive, move, delete and restore, spam state, compose, reply, reply all, forward, drafts, and Outbox recovery
 - **Read Receipt** preferences distinguish responding to incoming requests from requesting receipts for outgoing messages
 - Incoming **Read Receipt** requests default to asking the user every time and are never acknowledged silently
