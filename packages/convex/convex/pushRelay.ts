@@ -1350,11 +1350,8 @@ export const removeGmailConnection = mutation({
       account.productAccountId,
       args.trustedDeviceId,
     ).take(gmailConnectionLimitPerTrustedDevice + 1);
-    const remainingConnections = deviceConnections.filter(
-      (candidate) => candidate.opaqueConnectionId !== undefined,
-    );
     return {
-      hasRemainingGmailConnections: remainingConnections.length > 0,
+      hasRemainingGmailConnections: deviceConnections.length > 0,
       removed: connection !== null,
     };
   },
@@ -1417,6 +1414,7 @@ export const verifyGmailWatch = action({
         acceptedRoutingDigests: routings.map((routing) => routing.digest),
         currentRoutingDigest: currentRouting.digest,
         currentRoutingKeyVersion: currentRouting.keyVersion,
+        emailAddress: identity.emailAddress,
         historyId: args.historyId,
         opaqueConnectionId: args.opaqueConnectionId,
         providerAccountIdentifier: identity.providerAccountIdentifier,
@@ -1443,6 +1441,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     acceptedRoutingDigests: v.array(v.string()),
     currentRoutingDigest: v.string(),
     currentRoutingKeyVersion: v.number(),
+    emailAddress: v.string(),
     historyId: v.string(),
     opaqueConnectionId: v.string(),
     providerAccountIdentifier: v.string(),
@@ -1450,6 +1449,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
   },
   // The mutation has distinct authentication, freshness, and signal-verification guards.
   // fallow-ignore-next-line complexity
+  // oxlint-disable-next-line complexity -- Verification keeps migration and proof updates atomic.
   handler: async (ctx, args) => {
     if (args.historyId.length === 0) {
       throw new Error('Gmail history id required');
@@ -1459,17 +1459,41 @@ export const verifyGmailWatchForIdentity = internalMutation({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await gmailConnection(ctx, {
+    const opaqueConnection = await gmailConnection(ctx, {
       opaqueConnectionId: args.opaqueConnectionId,
       productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,
     });
+    const legacyConnection =
+      opaqueConnection === null
+        ? await ctx.db
+            .query('mailProviderConnections')
+            .withIndex('by_product_provider_device_account', (q) =>
+              q
+                .eq('productAccountId', account.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', args.trustedDeviceId)
+                .eq(
+                  'providerAccountIdentifier',
+                  args.providerAccountIdentifier,
+                ),
+            )
+            .unique()
+        : null;
+    if (
+      legacyConnection !== null &&
+      legacyConnection.emailAddress !== args.emailAddress
+    ) {
+      throw new Error('Gmail mailbox ownership proof rejected');
+    }
+    const connection = opaqueConnection ?? legacyConnection;
     if (connection === null) {
       throw new Error('Gmail mailbox ownership proof rejected');
     }
     if (
-      connection.gmailRoutingDigest === undefined ||
-      !args.acceptedRoutingDigests.includes(connection.gmailRoutingDigest)
+      opaqueConnection !== null &&
+      (connection.gmailRoutingDigest === undefined ||
+        !args.acceptedRoutingDigests.includes(connection.gmailRoutingDigest))
     ) {
       throw new Error('Gmail mailbox ownership proof rejected');
     }
@@ -1514,9 +1538,13 @@ export const verifyGmailWatchForIdentity = internalMutation({
         (device.gmailPushProofsInvalidatedAt ?? 0)
     ) {
       await ctx.db.patch(routeId, {
+        emailAddress: undefined,
         gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
+        lastVerifiedAt: Date.now(),
+        opaqueConnectionId: args.opaqueConnectionId,
+        providerAccountIdentifier: undefined,
         updatedAt: Date.now(),
       });
       return { routeId, verified: true };
@@ -1539,6 +1567,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       connection._id,
       {
+        emailAddress: undefined,
         ...gmailVerificationPatch(connection, {
           historyId: args.historyId,
           now,
@@ -1547,6 +1576,9 @@ export const verifyGmailWatchForIdentity = internalMutation({
         gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
+        lastVerifiedAt: now,
+        opaqueConnectionId: args.opaqueConnectionId,
+        providerAccountIdentifier: undefined,
       },
     );
     return { routeId, verified };

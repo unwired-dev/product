@@ -1783,7 +1783,11 @@ final class MailShellSelectionModel {
     let thread = MailboxThread.group([message])[0]
     var connectionThreads = threadsByConnection[message.connectionId] ?? []
     if let index = connectionThreads.firstIndex(where: { $0.id == thread.id }) {
-      connectionThreads[index] = thread
+      let messages = Dictionary(
+        (connectionThreads[index].messages + [message]).map { ($0.id, $0) },
+        uniquingKeysWith: { existing, _ in existing }
+      ).values
+      connectionThreads[index] = MailboxThread.group(Array(messages))[0]
     } else {
       connectionThreads.append(thread)
     }
@@ -2861,6 +2865,18 @@ struct MailShellConversationReader: View {
                   }
                 }
               )
+              if connection.providerId == .gmail,
+                message.providerStateIds?.contains("INBOX") == true
+              {
+                MessageCategoryMenu(
+                  categoryChoices: categoryChoices,
+                  currentCategoryId: message.categoryId,
+                  isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
+                  setCategory: { categoryId in
+                    await inboxViewModel.overrideCategory(categoryId, for: message)
+                  }
+                )
+              }
             }
           }
           .padding()
@@ -2898,17 +2914,6 @@ struct MailShellConversationReader: View {
                 Label("Forward", systemImage: "arrowshape.turn.up.right")
               }
               .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
-            }
-            if connection.providerId == .gmail {
-              let categoryMessage = thread.inboxMessages.first ?? thread.latestMessage
-              MessageCategoryMenu(
-                categoryChoices: categoryChoices,
-                currentCategoryId: categoryMessage.categoryId,
-                isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
-                setCategory: { categoryId in
-                  await inboxViewModel.overrideCategory(categoryId, for: categoryMessage)
-                }
-              )
             }
             providerActionMenu(thread: thread, connection: connection)
           }
