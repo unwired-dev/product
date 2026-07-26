@@ -1266,10 +1266,12 @@ extension AccountView {
       return false
     }
     return await mailActionViewModel.saveDraft(
-      recipient: draft.recipient,
-      subject: draft.subject,
-      body: draft.body,
-      replyTo: nil,
+      OutgoingMessage(
+        body: draft.body,
+        recipient: draft.recipient,
+        subject: draft.subject,
+        idempotencyKey: draft.id.uuidString.lowercased()
+      ),
       connection: connection
     )
   }
@@ -3175,10 +3177,14 @@ struct MailShellConversationReader: View {
       return false
     }
     let didSave = await mailActionViewModel.saveDraft(
-      recipient: draft.recipient,
-      subject: draft.subject,
-      body: draft.body,
-      replyTo: draft.replyToMessage,
+      OutgoingMessage(
+        body: draft.body,
+        recipient: draft.recipient,
+        subject: draft.subject,
+        inReplyTo: draft.replyToMessage?.rfcMessageId,
+        providerThreadId: draft.replyToMessage?.providerThreadId,
+        idempotencyKey: draft.id.uuidString.lowercased()
+      ),
       connection: connection
     )
     if !didSave {
@@ -3917,13 +3923,7 @@ final class GmailMailActionViewModel {
     }
   }
 
-  func saveDraft(
-    recipient: String,
-    subject: String,
-    body: String,
-    replyTo: MailboxMessageMetadata?,
-    connection: MailboxConnection
-  ) async -> Bool {
+  func saveDraft(_ message: OutgoingMessage, connection: MailboxConnection) async -> Bool {
     guard
       connection.providerId == .imapSMTP,
       connection.authorizationState == .authorized,
@@ -3933,17 +3933,7 @@ final class GmailMailActionViewModel {
     isPerformingAction = true
     defer { isPerformingAction = false }
     do {
-      try await service.saveDraft(
-        OutgoingMessage(
-          body: body,
-          recipient: recipient,
-          subject: subject,
-          inReplyTo: replyTo?.rfcMessageId,
-          providerThreadId: replyTo?.providerThreadId
-        ),
-        connection: connection,
-        session: session
-      )
+      try await service.saveDraft(message, connection: connection, session: session)
       errorMessage = nil
       return true
     } catch is CancellationError {

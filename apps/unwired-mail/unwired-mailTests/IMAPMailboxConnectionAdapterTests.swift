@@ -69,13 +69,21 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(capabilities.supports(.delete))
   }
 
-  func testUIDPLUSOnlyServerDoesNotAdvertiseMovesWithoutMessageReconciliationKey() {
+  func testUIDPLUSOnlyServerDoesNotAdvertiseActionsThatMayRequireUnsafeMove() {
     let capabilities = MailboxConnectionCapabilities.imapFull(
       serverCapabilities: ["IMAP4REV1", "UIDPLUS"]
     )
 
     XCTAssertFalse(capabilities.supports(.archive))
     XCTAssertFalse(capabilities.supports(.move))
+    XCTAssertFalse(capabilities.supports(.delete))
+  }
+
+  func testMoveAndUIDPLUSServerAdvertisesSafeDelete() {
+    let capabilities = MailboxConnectionCapabilities.imapFull(
+      serverCapabilities: ["IMAP4REV1", "MOVE", "UIDPLUS"]
+    )
+
     XCTAssertTrue(capabilities.supports(.delete))
   }
 
@@ -208,6 +216,74 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.appendedMessages.count, 1)
   }
 
+  func testSentCopyAuthorizationFailureRetainsAcceptanceForReauthorization() async throws {
+    let definition = imapDefinition(username: "sender")
+    let client = RecordingIMAPClient()
+    client.appendError = IMAPMailboxError.authorizationRejected
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      try await adapter.send(
+        OutgoingMessage(
+          body: "Accepted once",
+          recipient: "reader@example.com",
+          subject: "Authorization required"
+        ),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected Sent-copy authorization failure")
+    } catch {
+      XCTAssertEqual(
+        error as? SMTPMailError,
+        .sentCopyAuthorizationRejectedAfterAcceptance
+      )
+    }
+    XCTAssertEqual(smtpClient.sentMessages.count, 1)
+  }
+
+  func testDraftRetrySkipsAppendWhenStableMessageIdAlreadyExists() async throws {
+    let definition = imapDefinition(username: "sender")
+    let client = RecordingIMAPClient()
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "Drafts": [
+        imapMessage(
+          mailbox: "Drafts",
+          uid: 3,
+          rfcMessageId: "<draft-1@outbox.unwired.mail>"
+        )
+      ]
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.saveDraft(
+      OutgoingMessage(
+        body: "Unfinished",
+        recipient: "",
+        subject: "Draft",
+        idempotencyKey: "draft-1"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(client.appendedMessages.isEmpty)
+  }
+
   func testUnknownSentCopyOutcomeReconcilesAgainstRemoteSentMailbox() async throws {
     let definition = imapDefinition(username: "sender")
     let client = RecordingIMAPClient()
@@ -310,6 +386,88 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(
       try pendingStore.load(productAccountId: session.productAccountId).isEmpty
     )
+  }
+
+  func testFlagActionUpdatesEveryMergedIMAPAppearance() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [imapMessage(uid: 7, providerEmailId: "shared-email")],
+      "Archive": [
+        imapMessage(mailbox: "Archive", uid: 19, providerEmailId: "shared-email")
+      ],
+    ]
+    let pendingStore = RecordingPendingProviderActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingStore: pendingStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let result = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(result.messages.first)
+
+    try await adapter.perform(
+      .star,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(Set(client.performedActions.map(\.uid)), [7, 19])
+  }
+
+  func testProviderConfirmedActionTargetsMessageOlderThanNewestPage() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = (1...75).map {
+      imapMessage(uid: Int64($0))
+    }
+    let pendingStore = RecordingPendingProviderActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingStore: pendingStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    let allMessages = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
+    let oldestMessage = try XCTUnwrap(
+      allMessages.messages.first(where: {
+        $0.providerMessageId == imapMessage(uid: 1).providerMessageId
+      })
+    )
+    try await adapter.perform(
+      .markRead,
+      messages: [oldestMessage],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    client.messagesByUsername[definition.username] = (1...75).map {
+      imapMessage(uid: Int64($0), flags: $0 == 1 ? ["\\Seen"] : [])
+    }
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertTrue(try pendingStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
   func testIDLERegistrationAndChangeWaitUseIMAPClient() async throws {

@@ -178,7 +178,7 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     if normalized.contains("MOVE") {
       providerActions.formUnion([.archive, .move, .notSpam, .restore, .spam])
     }
-    if normalized.contains("UIDPLUS") {
+    if normalized.contains("MOVE") && normalized.contains("UIDPLUS") {
       providerActions.insert(.delete)
     }
     return MailboxConnectionCapabilities(

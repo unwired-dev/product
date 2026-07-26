@@ -238,6 +238,8 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
         return .transient
       case .deliveryUncertainAfterSubmission:
         return .ambiguous
+      case .sentCopyAuthorizationRejectedAfterAcceptance:
+        return .userActionRequired
       case .sentCopyFailedAfterAcceptance:
         return .transient
       case .sentCopyOutcomeUnknownAfterAcceptance:
@@ -851,7 +853,8 @@ actor OutboxDeliveryService {
         throw CancellationError()
       } catch {
         if let smtpError = error as? SMTPMailError,
-          smtpError == .sentCopyFailedAfterAcceptance
+          smtpError == .sentCopyAuthorizationRejectedAfterAcceptance
+            || smtpError == .sentCopyFailedAfterAcceptance
             || smtpError == .sentCopyOutcomeUnknownAfterAcceptance
         {
           try markSentCopyOnly(attemptId, productAccountId: productAccountId)

@@ -43,6 +43,7 @@ enum SMTPMailError: LocalizedError, Equatable {
   case deliveryUncertainAfterSubmission
   case invalidMessage
   case responseCode(Int)
+  case sentCopyAuthorizationRejectedAfterAcceptance
   case sentCopyFailedAfterAcceptance
   case sentCopyOutcomeUnknownAfterAcceptance
 
@@ -56,6 +57,9 @@ enum SMTPMailError: LocalizedError, Equatable {
       return "The outgoing message contains an invalid address or header."
     case .responseCode(let code):
       return "The SMTP server rejected the outgoing message with status \(code)."
+    case .sentCopyAuthorizationRejectedAfterAcceptance:
+      return
+        "SMTP accepted the message, but the IMAP server rejected authorization for its Sent copy."
     case .sentCopyFailedAfterAcceptance:
       return
         "SMTP accepted the message, but the server did not confirm its Sent mailbox copy."
@@ -373,6 +377,14 @@ protocol IMAPMessageMetadataPersisting {
     connectionId: MailboxConnectionId
   ) throws -> IMAPMetadataSyncState?
 
+  func removeProviderMessageAppearance(
+    mailbox: String,
+    uid: Int64,
+    uidValidity: Int64,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws
+
   func savePage(
     _ messages: [IMAPProviderMessage],
     mailbox: String,
@@ -628,6 +640,28 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       connectionId: connectionId,
       context: context
     )?.state()
+  }
+
+  func removeProviderMessageAppearance(
+    mailbox: String,
+    uid: Int64,
+    uidValidity: Int64,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    let context = try makeContext()
+    for record in try fetchRecords(
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      mailbox: mailbox,
+      context: context
+    ) {
+      guard record.uidValidity == uidValidity, try record.message().uid == uid else {
+        continue
+      }
+      context.delete(record)
+    }
+    try context.save()
   }
 
   // swiftlint:disable:next function_body_length
@@ -934,7 +968,8 @@ struct IMAPMessageMetadataService {
   func sync(
     authorization: DeviceLocalGenericMailAuthorization,
     connectedAt: Int64,
-    productAccountId: String
+    productAccountId: String,
+    targetedProviderMessageIds: Set<String> = []
   ) async throws -> MailboxMetadataSyncResult {
     let definition = authorization.definition
     if let state = try store.loadState(
@@ -945,7 +980,8 @@ struct IMAPMessageMetadataService {
         state: state,
         authorization: authorization,
         connectedAt: connectedAt,
-        productAccountId: productAccountId
+        productAccountId: productAccountId,
+        targetedProviderMessageIds: targetedProviderMessageIds
       )
     }
     let descriptors = try await client.listMailboxes(authorization: authorization)
@@ -1087,7 +1123,8 @@ struct IMAPMessageMetadataService {
     state existingState: IMAPMetadataSyncState,
     authorization: DeviceLocalGenericMailAuthorization,
     connectedAt: Int64,
-    productAccountId: String
+    productAccountId: String,
+    targetedProviderMessageIds: Set<String>
   ) async throws -> MailboxMetadataSyncResult {
     let definition = authorization.definition
     let descriptors = try await client.listMailboxes(authorization: authorization)
@@ -1168,6 +1205,43 @@ struct IMAPMessageMetadataService {
         productAccountId: productAccountId,
         connectionId: definition.connectionId
       )
+      let targetedAppearances = previouslyStoredMessages.filter { appearance in
+        targetedProviderMessageIds.contains(appearance.providerMessageId)
+          && IMAPProviderMessage.mailboxNamesEqual(appearance.mailbox, descriptor.name)
+          && appearance.uidValidity == page.uidValidity
+          && page.nextOlderUID != nil
+          && oldestFetchedUID.map { oldestUID in appearance.uid < oldestUID } == true
+      }
+      for appearance in targetedAppearances {
+        let targetedPage = try await client.loadMetadataPage(
+          mailbox: descriptor,
+          beforeUID: appearance.uid == .max ? nil : appearance.uid + 1,
+          limit: 1,
+          authorization: authorization
+        )
+        refreshedMessageIds.insert(appearance.providerMessageId)
+        if let refreshedAppearance = targetedPage.messages.first(where: {
+          $0.uid == appearance.uid && $0.uidValidity == appearance.uidValidity
+        }) {
+          try store.savePage(
+            [refreshedAppearance],
+            mailbox: descriptor.name,
+            reconciliation: .backfill,
+            state: state,
+            uidValidity: targetedPage.uidValidity,
+            productAccountId: productAccountId,
+            connectionId: definition.connectionId
+          )
+        } else {
+          try store.removeProviderMessageAppearance(
+            mailbox: appearance.mailbox,
+            uid: appearance.uid,
+            uidValidity: appearance.uidValidity,
+            productAccountId: productAccountId,
+            connectionId: definition.connectionId
+          )
+        }
+      }
     }
 
     if state.historicalMetadataBackfillIsComplete {
@@ -1884,10 +1958,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         session: session,
         isWithinSyncGate: true
       )
+      let targetedProviderMessageIds = try await pendingActionService.providerConfirmedMessageIds(
+        connection: connection,
+        session: session
+      )
       let result = try await metadataService.sync(
         authorization: authorization,
         connectedAt: connection.connectedAt,
-        productAccountId: session.productAccountId
+        productAccountId: session.productAccountId,
+        targetedProviderMessageIds: targetedProviderMessageIds
       )
       try await reconcileAndResumePendingActions(
         messages: result.messages,
@@ -2226,6 +2305,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       )
     } catch IMAPMailboxError.appendOutcomeUnknown {
       throw SMTPMailError.sentCopyOutcomeUnknownAfterAcceptance
+    } catch IMAPMailboxError.authorizationRejected {
+      throw SMTPMailError.sentCopyAuthorizationRejectedAfterAcceptance
     } catch {
       throw SMTPMailError.sentCopyFailedAfterAcceptance
     }
@@ -2243,16 +2324,39 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     guard let draftsMailbox = authorization.definition.roleMappings[.drafts] else {
       throw IMAPMailboxError.unsupportedAction
     }
-    try await client.appendMessage(
-      try Self.rfc822Message(
-        message,
-        sender: authorization.definition.emailAddress,
-        requiresRecipient: false
-      ),
-      to: draftsMailbox,
-      flags: ["\\Draft"],
-      authorization: authorization
+    let rfc822Message = try Self.rfc822Message(
+      message,
+      sender: authorization.definition.emailAddress,
+      requiresRecipient: false
     )
+    if let messageId = message.rfcMessageId,
+      try await mailboxContainsMessage(
+        messageId,
+        mailbox: draftsMailbox,
+        authorization: authorization
+      )
+    {
+      return
+    }
+    do {
+      try await client.appendMessage(
+        rfc822Message,
+        to: draftsMailbox,
+        flags: ["\\Draft"],
+        authorization: authorization
+      )
+    } catch IMAPMailboxError.appendOutcomeUnknown {
+      if let messageId = message.rfcMessageId,
+        try await mailboxContainsMessage(
+          messageId,
+          mailbox: draftsMailbox,
+          authorization: authorization
+        )
+      {
+        return
+      }
+      throw IMAPMailboxError.appendOutcomeUnknown
+    }
   }
 
   func deliveryStatus(
@@ -2282,16 +2386,29 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     }) {
       return .sent
     }
+    return try await mailboxContainsMessage(
+      messageId,
+      mailbox: sentMailbox,
+      authorization: authorization
+    ) ? .sent : .unknown
+  }
+
+  private func mailboxContainsMessage(
+    _ messageId: String,
+    mailbox: String,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Bool {
+    let normalizedMessageId = messageId.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     let page = try await client.loadMetadataPage(
-      mailbox: IMAPMailboxDescriptor(displayName: sentMailbox, name: sentMailbox),
+      mailbox: IMAPMailboxDescriptor(displayName: mailbox, name: mailbox),
       beforeUID: nil,
       limit: 50,
       authorization: authorization
     )
     return page.messages.contains {
       $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        == messageId
-    } ? .sent : .unknown
+        == normalizedMessageId
+    }
   }
 
   private func pendingActionPerformer(
@@ -2344,34 +2461,38 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
-      guard
-        let message = providerActionAppearance(
-          for: action,
-          appearances: appearances,
-          definition: authorization.definition
-        )
-      else {
+      let actionAppearances = providerActionAppearances(
+        for: action,
+        appearances: appearances,
+        definition: authorization.definition
+      )
+      guard !actionAppearances.isEmpty else {
         throw IMAPMailboxError.missingMessage
       }
-      try await client.perform(
-        action,
-        message: message,
-        targetMailbox: try targetMailbox(
-          for: action,
-          requestedProviderMailboxId: targetProviderMailboxId,
+      for message in actionAppearances {
+        try await client.perform(
+          action,
           message: message,
-          definition: authorization.definition
-        ),
-        authorization: authorization
-      )
+          targetMailbox: try targetMailbox(
+            for: action,
+            requestedProviderMailboxId: targetProviderMailboxId,
+            message: message,
+            definition: authorization.definition
+          ),
+          authorization: authorization
+        )
+      }
     }
   }
 
-  private func providerActionAppearance(
+  private func providerActionAppearances(
     for action: ProviderMailAction,
     appearances: [IMAPProviderMessage],
     definition: GenericMailConnectionDefinition
-  ) -> IMAPProviderMessage? {
+  ) -> [IMAPProviderMessage] {
+    if [.markRead, .markUnread, .star, .unstar].contains(action) {
+      return appearances
+    }
     let preferredMailbox =
       switch action {
       case .notSpam:
@@ -2381,13 +2502,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       default:
         "INBOX"
       }
-    return appearances.first {
-      IMAPProviderMessage.mailboxNamesEqual($0.mailbox, preferredMailbox ?? "")
-    }
+    let selected =
+      appearances.first {
+        IMAPProviderMessage.mailboxNamesEqual($0.mailbox, preferredMailbox ?? "")
+      }
       ?? appearances.sorted {
         if $0.mailbox == $1.mailbox { return $0.uid < $1.uid }
         return $0.mailbox.localizedCaseInsensitiveCompare($1.mailbox) == .orderedAscending
       }.first
+    return selected.map { [$0] } ?? []
   }
 
   private func targetMailbox(

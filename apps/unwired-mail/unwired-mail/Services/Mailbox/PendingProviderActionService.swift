@@ -282,7 +282,8 @@ actor PendingProviderActionService {
     ).values
     let projectedMessages: [MailboxMessageMetadata] = observedMessages.compactMap { message in
       if pendingActions.contains(where: {
-        $0.action == .delete && $0.applies(to: message)
+        connection.providerId == .imapSMTP
+          && $0.action == .delete && $0.applies(to: message)
           && Set(message.providerStateIds ?? []).contains("TRASH")
       }) {
         return nil
@@ -499,6 +500,19 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws -> [PendingProviderAction] {
     try store.load(productAccountId: session.productAccountId)
+  }
+
+  func providerConfirmedMessageIds(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Set<String> {
+    Set(
+      try store.load(productAccountId: session.productAccountId)
+        .filter {
+          $0.connectionId == connection.id.rawValue && $0.state == .providerConfirmed
+        }
+        .flatMap(\.messageIds)
+    )
   }
 
   func hasBlockedAction(
