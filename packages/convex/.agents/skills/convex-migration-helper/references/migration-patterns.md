@@ -6,11 +6,17 @@ for Convex schema and data migrations.
 ## Adding a Required Field
 
 ```typescript
-// Deploy 1: Schema allows both states
+// Deploy 1: Schema allows both states and stages the new index
 users: defineTable({
   name: v.string(),
   role: v.optional(v.union(v.literal('user'), v.literal('admin'))),
-});
+}).index('by_role', { fields: ['role'], staged: true });
+
+// Deploy 2: After the index backfill completes, activate it
+users: defineTable({
+  name: v.string(),
+  role: v.optional(v.union(v.literal('user'), v.literal('admin'))),
+}).index('by_role', ['role']);
 
 // Migration: backfill the field
 export const addDefaultRole = migrations.define({
@@ -22,11 +28,11 @@ export const addDefaultRole = migrations.define({
   },
 });
 
-// Deploy 2: After migration completes, make it required
+// Deploy 3: After migration completes, make it required
 users: defineTable({
   name: v.string(),
   role: v.union(v.literal('user'), v.literal('admin')),
-});
+}).index('by_role', ['role']);
 ```
 
 ## Deleting a Field
@@ -225,7 +231,7 @@ export const verifyMigration = query({
   handler: async (ctx) => {
     const remaining = await ctx.db
       .query('users')
-      .filter((q) => q.eq(q.field('role'), undefined))
+      .withIndex('by_role', (q) => q.eq('role', undefined))
       .take(10);
 
     return {
