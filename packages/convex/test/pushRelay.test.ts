@@ -365,6 +365,40 @@ describe('gmail push relay', () => {
     ).resolves.toBe(true);
   });
 
+  it('stops a legacy mailbox watch after its last active device route', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-watch-stop',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'legacy-watch@example.com',
+        lastVerifiedAt: now,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'legacy-watch-user',
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        opaqueConnectionId: await opaqueGmailConnectionId(
+          device.productAccountId,
+          'legacy-watch-user',
+        ),
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it('keeps a mailbox watch while active routes use both rotation keys', async () => {
     expect.assertions(2);
 
@@ -1038,6 +1072,73 @@ describe('gmail push relay', () => {
           .collect(),
       ),
     ).resolves.toStrictEqual([]);
+  });
+
+  it('retains an identity binding while a matching legacy route remains', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-current-binding',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-legacy-binding',
+      platform: 'macos',
+    });
+    const opaqueConnection = await opaqueGmailConnectionId(
+      firstDevice.productAccountId,
+      'shared-legacy-user',
+    );
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        gmailRoutingDigest: routingDigest('shared-legacy@example.com'),
+        gmailRoutingKeyVersion: 1,
+        lastVerifiedAt: now,
+        opaqueConnectionId: opaqueConnection,
+        productAccountId: firstDevice.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: firstDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'shared-legacy@example.com',
+        lastVerifiedAt: now,
+        productAccountId: secondDevice.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'shared-legacy-user',
+        trustedDeviceId: secondDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: 'identity:shared-legacy-user',
+        opaqueConnectionId: opaqueConnection,
+        productAccountId: firstDevice.productAccountId,
+        updatedAt: now,
+      });
+    });
+
+    await asUser.mutation(api.pushRelay.removeGmailConnection, {
+      opaqueConnectionId: opaqueConnection,
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    });
+
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query('gmailOpaqueIdentityBindings')
+          .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+            q
+              .eq('productAccountId', firstDevice.productAccountId)
+              .eq('opaqueConnectionId', opaqueConnection),
+          )
+          .unique(),
+      ),
+    ).resolves.not.toBeNull();
   });
 
   it('keeps the cleanup generation for a same-route registration heartbeat', async () => {

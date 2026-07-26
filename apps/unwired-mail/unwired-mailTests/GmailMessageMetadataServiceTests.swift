@@ -2304,7 +2304,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   func testSyncInboxRejectsRefreshedTokenForDifferentGoogleAccount() async throws {
-    let fixture = try makeSyncFixture(tokenInfoSubject: "different-gmail-user")
+    let fixture = try makeSyncFixture(
+      tokenInfoSubject: "different-gmail-user",
+      usesLegacyTokens: true
+    )
 
     do {
       _ = try await fixture.service.syncInbox(
@@ -2314,6 +2317,15 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       XCTFail("Expected refreshed token account mismatch")
     } catch GmailMessageMetadataSyncError.refreshedTokenAccountMismatch {
       XCTAssertEqual(fixture.store.savedMessages, [])
+      XCTAssertNil(
+        try fixture.tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      )
+      XCTAssertNotNil(
+        try fixture.tokenStore.loadLegacy(productAccountId: session.productAccountId)
+      )
       XCTAssertFalse(
         fixture.requestRecorder.paths.contains("/gmail/v1/users/me/messages")
       )

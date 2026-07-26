@@ -1509,12 +1509,17 @@ struct GmailMessageMetadataService:
     }
     let tokens = try await refreshedTokens(
       storedTokens,
-      persist: !deferPersistence,
+      persist: scopedTokens != nil && !deferPersistence,
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
     try await validateRefreshedToken(tokens.accessToken, matches: connection)
     if legacyTokens != nil, !deferPersistence {
+      try tokenStore.save(
+        tokens,
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
       try tokenStore.clearLegacy(productAccountId: session.productAccountId)
     }
     return GmailSyncTokens(

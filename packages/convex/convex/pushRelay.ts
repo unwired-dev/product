@@ -568,20 +568,44 @@ async function gmailConnection(
     .unique();
 }
 
-async function requireGmailConnection(
+async function legacyGmailConnection(
   ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
     opaqueConnectionId: string;
     productAccountId: Id<'productAccounts'>;
-    trustedDeviceId: Id<'trustedDevices'>;
+    trustedDeviceId?: Id<'trustedDevices'>;
   }>,
-): Promise<Doc<'mailProviderConnections'>> {
-  const connection = await gmailConnection(ctx, request);
-  if (connection === null) {
-    throw new Error('Gmail connection required');
+): Promise<Doc<'mailProviderConnections'> | null> {
+  const connections =
+    request.trustedDeviceId === undefined
+      ? ctx.db
+          .query('mailProviderConnections')
+          .withIndex('by_productAccountId_and_provider', (q) =>
+            q
+              .eq('productAccountId', request.productAccountId)
+              .eq('provider', 'gmail'),
+          )
+      : gmailConnectionsForDevice(
+          ctx,
+          request.productAccountId,
+          request.trustedDeviceId,
+        );
+  for await (const candidate of connections) {
+    if (
+      candidate.opaqueConnectionId === undefined &&
+      candidate.providerAccountIdentifier !== undefined
+    ) {
+      const opaqueConnectionId = await opaqueGmailConnectionId(
+        request.productAccountId,
+        candidate.providerAccountIdentifier,
+      );
+      if (opaqueConnectionId === request.opaqueConnectionId) {
+        return candidate;
+      }
+    }
   }
-  return connection;
+  return null;
 }
 
 function hasMatchingVerificationSignal(
@@ -1325,39 +1349,13 @@ export const removeGmailConnection = mutation({
       productAccountId: account.productAccountId,
       trustedDeviceId: args.trustedDeviceId,
     });
-    const legacyDeviceConnections =
-      currentConnection === null
-        ? await gmailConnectionsForDevice(
-            ctx,
-            account.productAccountId,
-            args.trustedDeviceId,
-          ).take(gmailConnectionLimitPerTrustedDevice + 1)
-        : [];
-    const legacyConnections = await Promise.all(
-      legacyDeviceConnections.flatMap((candidate) => {
-        if (
-          candidate.opaqueConnectionId !== undefined ||
-          candidate.providerAccountIdentifier === undefined
-        ) {
-          return [];
-        }
-        return [
-          opaqueGmailConnectionId(
-            account.productAccountId,
-            candidate.providerAccountIdentifier,
-          ).then((opaqueConnectionId) => ({
-            candidate,
-            opaqueConnectionId,
-          })),
-        ];
-      }),
-    );
     const connection =
       currentConnection ??
-      legacyConnections.find(
-        (candidate) => candidate.opaqueConnectionId === args.opaqueConnectionId,
-      )?.candidate ??
-      null;
+      (await legacyGmailConnection(ctx, {
+        opaqueConnectionId: args.opaqueConnectionId,
+        productAccountId: account.productAccountId,
+        trustedDeviceId: args.trustedDeviceId,
+      }));
     if (connection !== null) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(connection._id);
@@ -1372,7 +1370,14 @@ export const removeGmailConnection = mutation({
               .eq('opaqueConnectionId', args.opaqueConnectionId),
         )
         .first();
-      if (remainingOpaqueConnection === null) {
+      const remainingLegacyConnection = await legacyGmailConnection(ctx, {
+        opaqueConnectionId: args.opaqueConnectionId,
+        productAccountId: account.productAccountId,
+      });
+      if (
+        remainingOpaqueConnection === null &&
+        remainingLegacyConnection === null
+      ) {
         const identityBinding = await ctx.db
           .query('gmailOpaqueIdentityBindings')
           .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
@@ -1413,21 +1418,35 @@ export const shouldStopGmailWatch = query({
       ctx,
       args.trustedDeviceId,
     );
-    const connection = await requireGmailConnection(ctx, {
-      opaqueConnectionId: args.opaqueConnectionId,
-      productAccountId: account.productAccountId,
-      trustedDeviceId: args.trustedDeviceId,
-    });
-    if (connection.gmailRoutingDigest === undefined) {
-      throw new Error('Gmail connection migration required');
+    const connection =
+      (await gmailConnection(ctx, {
+        opaqueConnectionId: args.opaqueConnectionId,
+        productAccountId: account.productAccountId,
+        trustedDeviceId: args.trustedDeviceId,
+      })) ??
+      (await legacyGmailConnection(ctx, {
+        opaqueConnectionId: args.opaqueConnectionId,
+        productAccountId: account.productAccountId,
+        trustedDeviceId: args.trustedDeviceId,
+      }));
+    if (connection === null) {
+      throw new Error('Gmail connection required');
     }
+    const legacyRoutings =
+      connection.gmailRoutingDigest === undefined
+        ? await gmailRoutingDigests(connection.emailAddress ?? '')
+        : [];
+    const routingDigests =
+      connection.gmailRoutingDigest === undefined
+        ? legacyRoutings.map((routing) => routing.digest)
+        : [
+            connection.gmailRoutingDigest,
+            ...(connection.gmailPreviousRoutingDigest === undefined
+              ? []
+              : [connection.gmailPreviousRoutingDigest]),
+          ];
     return !(await hasOtherActiveGmailRoute(ctx, {
-      routingDigests: [
-        connection.gmailRoutingDigest,
-        ...(connection.gmailPreviousRoutingDigest === undefined
-          ? []
-          : [connection.gmailPreviousRoutingDigest]),
-      ],
+      routingDigests,
       trustedDeviceId: args.trustedDeviceId,
     }));
   },
