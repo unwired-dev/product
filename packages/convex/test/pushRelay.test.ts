@@ -399,6 +399,57 @@ describe('gmail push relay', () => {
     ).resolves.toBe(true);
   });
 
+  it('keeps a legacy mailbox watch while another legacy device route is active', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-first-legacy-watch',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-second-legacy-watch',
+      platform: 'macos',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'second-legacy-apns-token',
+      trustedDeviceId: secondDevice.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const [trustedDeviceId, providerAccountIdentifier] of [
+        [firstDevice.trustedDeviceId, 'first-legacy-watch-user'],
+        [secondDevice.trustedDeviceId, 'second-legacy-watch-user'],
+      ] as const) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          emailAddress: 'shared-legacy-watch@example.com',
+          lastVerifiedAt: now,
+          productAccountId: firstDevice.productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier,
+          pushOwnershipVerifiedAt: now,
+          pushVerifiedAt: now,
+          trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await expect(
+      asUser.query(api.pushRelay.shouldStopGmailWatch, {
+        opaqueConnectionId: await opaqueGmailConnectionId(
+          firstDevice.productAccountId,
+          'first-legacy-watch-user',
+        ),
+        trustedDeviceId: firstDevice.trustedDeviceId,
+      }),
+      // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+    ).resolves.toBe(false);
+  });
+
   it('keeps a mailbox watch while active routes use both rotation keys', async () => {
     expect.assertions(2);
 
@@ -2023,6 +2074,62 @@ describe('gmail push relay', () => {
     expect(JSON.stringify(verifiedRecipients)).not.toMatch(
       /accessToken|refreshToken|messageBody|category|classification/iu,
     );
+  });
+
+  it('enqueues a legacy Gmail route once during routing-key rotation', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+
+    const t = convexTest(schema, modules);
+    const now = Date.now();
+    await t.run(async (ctx) => {
+      const productAccountId = await ctx.db.insert('productAccounts', {
+        createdAt: now,
+        lastSeenAt: now,
+        tokenIdentifier: 'legacy-rotation-account',
+      });
+      const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+        apnsEnvironment: 'production',
+        apnsToken: 'legacy-rotation-token',
+        deviceIdentifier: 'legacy-rotation-device',
+        lastSeenAt: now,
+        platform: 'ios',
+        productAccountId,
+        registeredAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'legacy-rotation@example.com',
+        lastVerifiedAt: now,
+        productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'legacy-rotation-user',
+        pushOwnershipVerifiedAt: now,
+        pushVerifiedAt: now,
+        trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', 'gmail-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '1');
+    try {
+      await expect(
+        t.action(internal.pushRelay.enqueueGmailWakeupsFromMetadata, {
+          emailAddress: 'legacy-rotation@example.com',
+          historyId: 'history-rotation',
+        }),
+      ).resolves.toStrictEqual({ recipientCount: 1 });
+    } finally {
+      vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+      vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '');
+      vi.clearAllTimers();
+      vi.useRealTimers();
+    }
   });
 
   it('keeps multiple Gmail verification signals until the matching device verifies', async () => {

@@ -5225,7 +5225,10 @@ final class GmailInboxViewModel {
         for: message,
         session: session
       )
-      guard currentConnectionId == message.connectionId else {
+      guard
+        currentConnectionId == message.connectionId
+          || (currentConnectionId == nil && unifiedConnectionIds.contains(message.connectionId))
+      else {
         return
       }
       let messages = threads.flatMap(\.messages).map { existingMessage in

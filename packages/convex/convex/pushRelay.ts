@@ -558,6 +558,7 @@ async function hasOtherActiveGmailRoute(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
+    emailAddress?: string;
     routingDigests: readonly string[];
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
@@ -586,6 +587,26 @@ async function hasOtherActiveGmailRoute(
         ) {
           return true;
         }
+      }
+    }
+  }
+  if (request.emailAddress !== undefined) {
+    const legacyConnections = ctx.db
+      .query('mailProviderConnections')
+      .withIndex(
+        'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
+        (q) =>
+          q
+            .eq('provider', 'gmail')
+            .eq('emailAddress', request.emailAddress)
+            .eq('gmailRoutingDigest', undefined)
+            .gt('pushVerifiedAt', undefined),
+      );
+    for await (const connection of legacyConnections) {
+      if (
+        await isActiveOtherGmailRoute(ctx, connection, request.trustedDeviceId)
+      ) {
+        return true;
       }
     }
   }
@@ -1508,6 +1529,9 @@ export const shouldStopGmailWatch = query({
               : [connection.gmailPreviousRoutingDigest]),
           ];
     return !(await hasOtherActiveGmailRoute(ctx, {
+      ...(connection.emailAddress === undefined
+        ? {}
+        : { emailAddress: connection.emailAddress }),
       routingDigests,
       trustedDeviceId: args.trustedDeviceId,
     }));
@@ -1767,9 +1791,9 @@ export const enqueueGmailWakeupsFromMetadata = internalAction({
   handler: async (ctx, args) => {
     const routings = await gmailRoutingDigests(args.emailAddress);
     const results: Array<{ recipientCount: number }> = await Promise.all(
-      routings.map((routing) =>
+      routings.map((routing, index) =>
         ctx.runMutation(internal.pushRelay.enqueueGmailWakeups, {
-          emailAddress: args.emailAddress,
+          ...(index === 0 ? { emailAddress: args.emailAddress } : {}),
           historyId: args.historyId,
           routingDigest: routing.digest,
         }),

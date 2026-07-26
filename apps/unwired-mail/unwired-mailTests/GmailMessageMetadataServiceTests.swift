@@ -891,6 +891,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelAppliesCategoryOverrideInUnifiedInbox() async throws {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    let message = try XCTUnwrap(
+      fixture.viewModel.threads
+        .flatMap(\.messages)
+        .first(where: { $0.connectionId == fixture.connections[1].id })
+    )
+
+    let overrideTask = Task {
+      await fixture.viewModel.overrideCategory("system:invoices", for: message)
+    }
+    await fixture.service.waitUntilOverrideStarts()
+    await fixture.service.releaseOverride()
+    await overrideTask.value
+
+    XCTAssertEqual(
+      fixture.viewModel.threads
+        .flatMap(\.messages)
+        .first(where: { $0.id == message.id })?
+        .categoryId,
+      "system:invoices"
+    )
+  }
+
+  @MainActor
   func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     let pinnedMessageId = StableProviderMessageIdentity(
