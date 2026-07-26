@@ -496,6 +496,31 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
   }
 
+  func testLoadConnectionsIgnoresUnverifiableOrphanScopedTokens() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "valid-access", refreshToken: "valid-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "revoked-access", refreshToken: "revoked-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-orphan"
+    )
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(connection: transport.status),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: RejectingGmailCredentialVerifier()
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses, [transport.status])
+  }
+
   func testLoadConnectionsMigratesLegacyTokensForExistingPushConnection() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -1326,6 +1351,15 @@ private struct StaticGmailCredentialVerifier: GmailProviderCredentialVerifying {
     refreshToken _: String
   ) async throws -> VerifiedGmailAccount {
     account
+  }
+}
+
+private struct RejectingGmailCredentialVerifier: GmailProviderCredentialVerifying {
+  func verify(
+    accessToken _: String,
+    refreshToken _: String
+  ) async throws -> VerifiedGmailAccount {
+    throw GmailProviderConnectionTestError.tokenLoadFailed
   }
 }
 
