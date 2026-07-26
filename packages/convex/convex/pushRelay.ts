@@ -20,7 +20,6 @@ import {
 } from './_generated/server.js';
 import {
   gmailIdentityBindingDigests,
-  gmailRoutingDigest,
   gmailRoutingDigests,
 } from './gmailRouting.js';
 import { requireAuthenticatedTrustedDevice } from './productAccountAuth.js';
@@ -472,33 +471,58 @@ function isOtherVerifiedGmailRoute(
   );
 }
 
+async function isActiveOtherGmailRoute(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  connection: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<boolean> {
+  if (!isOtherVerifiedGmailRoute(connection, trustedDeviceId)) {
+    return false;
+  }
+  const device = await ctx.db.get(connection.trustedDeviceId);
+  return (
+    hasActiveApnsRoute(device) &&
+    (connection.pushVerifiedAt ?? 0) >
+      (device.gmailPushProofsInvalidatedAt ?? 0) &&
+    (connection.pushOwnershipVerifiedAt ?? 0) >
+      (device.gmailPushProofsInvalidatedAt ?? 0)
+  );
+}
+
 // The query must distinguish another device's currently routable Gmail proof.
 // fallow-ignore-next-line complexity
 async function hasOtherActiveGmailRoute(
   ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
   request: Readonly<{
-    routingDigest: string;
+    routingDigests: readonly string[];
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<boolean> {
-  const connections = ctx.db
-    .query('mailProviderConnections')
-    .withIndex('by_gmailRoutingDigest_and_pushVerifiedAt', (q) =>
-      q.eq('gmailRoutingDigest', request.routingDigest),
-    );
-
-  for await (const connection of connections) {
-    if (isOtherVerifiedGmailRoute(connection, request.trustedDeviceId)) {
-      const device = await ctx.db.get(connection.trustedDeviceId);
-      if (
-        hasActiveApnsRoute(device) &&
-        (connection.pushVerifiedAt ?? 0) >
-          (device.gmailPushProofsInvalidatedAt ?? 0) &&
-        (connection.pushOwnershipVerifiedAt ?? 0) >
-          (device.gmailPushProofsInvalidatedAt ?? 0)
-      ) {
-        return true;
+  for (const routingDigest of request.routingDigests) {
+    const connections = [
+      ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_gmailRoutingDigest_and_pushVerifiedAt', (q) =>
+          q.eq('gmailRoutingDigest', routingDigest),
+        ),
+      ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_gmailPreviousRoutingDigest_and_pushVerifiedAt', (q) =>
+          q.eq('gmailPreviousRoutingDigest', routingDigest),
+        ),
+    ];
+    for (const matchingConnections of connections) {
+      for await (const connection of matchingConnections) {
+        if (
+          await isActiveOtherGmailRoute(
+            ctx,
+            connection,
+            request.trustedDeviceId,
+          )
+        ) {
+          return true;
+        }
       }
     }
   }
@@ -1066,7 +1090,12 @@ export const registerGmailConnection = action({
       throw new Error('Opaque Gmail connection id required');
     }
     const identity = await verifyGoogleIdentityToken(args.gmailIdentityToken);
-    const routing = await gmailRoutingDigest(identity.emailAddress);
+    const [routing, previousRouting] = await gmailRoutingDigests(
+      identity.emailAddress,
+    );
+    if (routing === undefined) {
+      throw new Error('Gmail mailbox ownership proof rejected');
+    }
     while (
       await ctx.runMutation(
         internal.pushRelay.clearLegacyGmailSignalsForRegistration,
@@ -1083,6 +1112,7 @@ export const registerGmailConnection = action({
       internal.pushRelay.registerGmailConnectionForIdentity,
       {
         emailAddress: identity.emailAddress,
+        gmailPreviousRoutingDigest: previousRouting?.digest,
         gmailRoutingDigest: routing.digest,
         gmailRoutingKeyVersion: routing.keyVersion,
         opaqueConnectionId: args.opaqueConnectionId,
@@ -1142,6 +1172,7 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
 export const registerGmailConnectionForIdentity = internalMutation({
   args: {
     emailAddress: v.string(),
+    gmailPreviousRoutingDigest: v.optional(v.string()),
     gmailRoutingDigest: v.string(),
     gmailRoutingKeyVersion: v.number(),
     opaqueConnectionId: v.string(),
@@ -1221,6 +1252,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       connectedAt = existingConnectedAt;
       await ctx.db.patch(connectionId, {
         emailAddress: undefined,
+        gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
         gmailRoutingKeyVersion: args.gmailRoutingKeyVersion,
         lastVerifiedAt: now,
@@ -1249,6 +1281,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       }
       await ctx.db.insert('mailProviderConnections', {
         connectedAt: now,
+        gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
         gmailRoutingKeyVersion: args.gmailRoutingKeyVersion,
         lastVerifiedAt: now,
@@ -1264,6 +1297,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
       connectedAt = existingConnectedAt;
       await ctx.db.patch(connectionId, {
         emailAddress: undefined,
+        gmailPreviousRoutingDigest: args.gmailPreviousRoutingDigest,
         gmailRoutingDigest: args.gmailRoutingDigest,
         gmailRoutingKeyVersion: args.gmailRoutingKeyVersion,
         lastVerifiedAt: now,
@@ -1364,7 +1398,12 @@ export const shouldStopGmailWatch = query({
       throw new Error('Gmail connection migration required');
     }
     return !(await hasOtherActiveGmailRoute(ctx, {
-      routingDigest: connection.gmailRoutingDigest,
+      routingDigests: [
+        connection.gmailRoutingDigest,
+        ...(connection.gmailPreviousRoutingDigest === undefined
+          ? []
+          : [connection.gmailPreviousRoutingDigest]),
+      ],
       trustedDeviceId: args.trustedDeviceId,
     }));
   },
@@ -1501,13 +1540,12 @@ export const verifyGmailWatchForIdentity = internalMutation({
       (connection.pushOwnershipVerifiedAt ?? 0) >
         (device.gmailPushProofsInvalidatedAt ?? 0)
     ) {
-      if (connection.gmailRoutingDigest !== args.currentRoutingDigest) {
-        await ctx.db.patch(routeId, {
-          gmailRoutingDigest: args.currentRoutingDigest,
-          gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
-          updatedAt: Date.now(),
-        });
-      }
+      await ctx.db.patch(routeId, {
+        gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
+        gmailRoutingDigest: args.currentRoutingDigest,
+        gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
+        updatedAt: Date.now(),
+      });
       return { routeId, verified: true };
     }
 
@@ -1533,6 +1571,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
           now,
           verified,
         }),
+        gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
       },

@@ -313,6 +313,87 @@ describe('gmail push relay', () => {
     ).resolves.toBe(true);
   });
 
+  it('keeps a mailbox watch while active routes use both rotation keys', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    for (const [trustedDeviceId, apnsToken] of [
+      [firstDevice.trustedDeviceId, 'first-apns-token'],
+      [secondDevice.trustedDeviceId, 'second-apns-token'],
+    ] as const) {
+      await registerGmailConnection(asUser, {
+        emailAddress: 'matching@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId,
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'production',
+        apnsToken,
+        trustedDeviceId,
+      });
+      await t.run(async (ctx) => {
+        const connection = await ctx.db
+          .query('mailProviderConnections')
+          .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
+            q
+              .eq('productAccountId', firstDevice.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+          )
+          .unique();
+        const now = Date.now();
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(connection!._id, {
+          pushOwnershipVerifiedAt: now,
+          pushVerifiedAt: now,
+          pushVerifiedHistoryId: '100',
+        });
+      });
+    }
+
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', 'gmail-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '1');
+    try {
+      await asUser.action(api.pushRelay.verifyGmailWatch, {
+        gmailIdentityToken: matchingIdentityToken,
+        historyId: '100',
+        opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+        trustedDeviceId: secondDevice.trustedDeviceId,
+      });
+      await expect(
+        asUser.query(api.pushRelay.shouldStopGmailWatch, {
+          opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+          trustedDeviceId: firstDevice.trustedDeviceId,
+        }),
+        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+      ).resolves.toBe(false);
+      await expect(
+        asUser.query(api.pushRelay.shouldStopGmailWatch, {
+          opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+          trustedDeviceId: secondDevice.trustedDeviceId,
+        }),
+        // oxlint-disable-next-line vitest/prefer-to-be-falsy -- The strict boolean matcher is required by vitest/prefer-strict-boolean-matchers.
+      ).resolves.toBe(false);
+    } finally {
+      vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+      vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '');
+    }
+  });
+
   it('keeps a mailbox watch when another account has an active verified route', async () => {
     expect.assertions(1);
 

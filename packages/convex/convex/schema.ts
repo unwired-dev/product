@@ -64,6 +64,7 @@ export default defineSchema({
   mailProviderConnections: defineTable({
     connectedAt: v.number(),
     emailAddress: v.optional(v.string()),
+    gmailPreviousRoutingDigest: v.optional(v.string()),
     gmailRoutingDigest: v.optional(v.string()),
     gmailRoutingKeyVersion: v.optional(v.number()),
     lastVerifiedAt: v.number(),
@@ -130,6 +131,10 @@ export default defineSchema({
     .index('by_gmailRoutingDigest_and_pushVerificationRequestedAt', [
       'gmailRoutingDigest',
       'pushVerificationRequestedAt',
+    ])
+    .index('by_gmailPreviousRoutingDigest_and_pushVerifiedAt', [
+      'gmailPreviousRoutingDigest',
+      'pushVerifiedAt',
     ]),
 
   gmailOpaqueIdentityBindings: defineTable({
