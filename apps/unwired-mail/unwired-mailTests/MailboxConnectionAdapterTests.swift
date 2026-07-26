@@ -1156,6 +1156,29 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.preferredCompactColumn, .content)
   }
 
+  func testMailShellSelectionCanOpenProviderSearchResultOutsideLoadedMailbox() {
+    let loadedThread = mailShellThread(
+      connectionId: adapterConnectionId,
+      providerMessageId: "loaded-message",
+      providerThreadId: "loaded-thread",
+      receivedAt: 200
+    )
+    let searchMessage = mailShellMessage(
+      providerMessageId: "archived-message",
+      providerThreadId: "archived-thread",
+      receivedAt: 100
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectMailbox(connectionId: adapterConnectionId)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
+
+    viewModel.selectSearchResult(searchMessage)
+
+    XCTAssertEqual(viewModel.selectedThreadId, searchMessage.threadIdentity)
+    XCTAssertEqual(viewModel.selectedThread?.messages, [searchMessage])
+    XCTAssertEqual(viewModel.expandedMessageIds, [searchMessage.id])
+  }
+
   func testMailShellUnifiedInboxInterleavesThreadsAndShowsSourceConnections() {
     let firstConnection = RecordingAdapterConnectionService.status.mailboxConnection(
       productAccountId: session.productAccountId

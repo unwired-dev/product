@@ -598,9 +598,21 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     let identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
-    return identifiers.compactMap {
+    var connections = identifiers.compactMap {
       try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
     }
+    guard
+      let legacyConnection = try legacyConnection(productAccountId: productAccountId),
+      !identifiers.contains(legacyConnection.providerAccountIdentifier)
+    else {
+      return connections
+    }
+    try save(legacyConnection, productAccountId: productAccountId)
+    for account in legacyKeys(productAccountId) {
+      try? KeychainStore.delete(service: service, account: account)
+    }
+    connections.append(legacyConnection)
+    return connections
   }
 
   func save(
@@ -646,6 +658,17 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       legacyKey(productAccountId),
       "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))",
     ]
+  }
+
+  private func legacyConnection(
+    productAccountId: String
+  ) throws -> GmailProviderConnectionStatus? {
+    for account in legacyKeys(productAccountId) {
+      if let connection = try connection(account: account) {
+        return connection
+      }
+    }
+    return nil
   }
 
   private func manifestKey(_ productAccountId: String) -> String {

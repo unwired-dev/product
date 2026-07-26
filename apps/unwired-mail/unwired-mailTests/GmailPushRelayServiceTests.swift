@@ -436,6 +436,29 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNotNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
+  func testPushConnectionStoreMigratesLegacyConnectionWithoutManifest() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer { try? store.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [connection])
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      connection
+    )
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
   func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
     let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

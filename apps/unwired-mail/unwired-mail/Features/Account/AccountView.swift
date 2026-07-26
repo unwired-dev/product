@@ -893,6 +893,7 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedThreadIds: selectedThreadsBinding,
         viewModel: inboxViewModel,
+        selectSearchResult: mailShellSelection.selectSearchResult,
         categoryChoices: MessageCategoryChoice.available(
           customCategory: categoryViewModel.category
         ),
@@ -1778,6 +1779,19 @@ final class MailShellSelectionModel {
     reconcileSelectedThreads()
   }
 
+  func selectSearchResult(_ message: MailboxMessageMetadata) {
+    let thread = MailboxThread.group([message])[0]
+    var connectionThreads = threadsByConnection[message.connectionId] ?? []
+    if let index = connectionThreads.firstIndex(where: { $0.id == thread.id }) {
+      connectionThreads[index] = thread
+    } else {
+      connectionThreads.append(thread)
+    }
+    threadsByConnection[message.connectionId] = connectionThreads
+    selectedThreadIds = [thread.id]
+    expandedMessageIds = [message.id]
+  }
+
   func updateThreads(
     _ threads: [MailboxThread],
     for connectionId: MailboxConnectionId
@@ -2283,6 +2297,7 @@ struct MailShellThreadList: View {
   let navigationSnapshot: MailboxNavigationSnapshot
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   @Bindable var viewModel: GmailInboxViewModel
+  var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
   @State private var editingAttempt: OutgoingDeliveryAttempt?
@@ -2406,7 +2421,7 @@ struct MailShellThreadList: View {
         connection: connection,
         isConnectionBusy: isConnectionBusy,
         selectMessage: { message in
-          selectedThreadIds = [message.threadIdentity]
+          selectSearchResult(message)
           showsMailboxTools = false
         },
         viewModel: viewModel
@@ -2885,12 +2900,13 @@ struct MailShellConversationReader: View {
               .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
             }
             if connection.providerId == .gmail {
+              let categoryMessage = thread.inboxMessages.first ?? thread.latestMessage
               MessageCategoryMenu(
                 categoryChoices: categoryChoices,
-                currentCategoryId: thread.latestMessage.categoryId,
+                currentCategoryId: categoryMessage.categoryId,
                 isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
                 setCategory: { categoryId in
-                  await inboxViewModel.overrideCategory(categoryId, for: thread.latestMessage)
+                  await inboxViewModel.overrideCategory(categoryId, for: categoryMessage)
                 }
               )
             }
