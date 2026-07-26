@@ -136,6 +136,9 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     flags: [String],
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws {
+    guard !mailbox.utf8.contains(0x0D), !mailbox.utf8.contains(0x0A) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
     try await withSession(authorization: authorization) { session in
       try await session.append(message, to: mailbox, flags: flags)
     }
@@ -317,6 +320,9 @@ private final class IMAPWireSession {
     respondsToContinuation: Bool = false
   ) async throws -> String {
     try Task.checkCancellation()
+    guard !command.utf8.contains(0x0D), !command.utf8.contains(0x0A) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
     let tag = "A\(nextTagNumber)"
     nextTagNumber += 1
     try await task.write("\(tag) \(command)\r\n")
@@ -340,6 +346,9 @@ private final class IMAPWireSession {
     respondsToContinuation: Bool = false
   ) async throws -> Data {
     try Task.checkCancellation()
+    guard !command.utf8.contains(0x0D), !command.utf8.contains(0x0A) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
     let tag = "A\(nextTagNumber)"
     nextTagNumber += 1
     try await task.write("\(tag) \(command)\r\n")
@@ -355,6 +364,9 @@ private final class IMAPWireSession {
     to mailbox: String,
     flags: [String]
   ) async throws {
+    guard !mailbox.utf8.contains(0x0D), !mailbox.utf8.contains(0x0A) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
     guard let message = String(data: message, encoding: .utf8) else {
       throw SMTPMailError.invalidMessage
     }
@@ -415,14 +427,23 @@ private final class IMAPWireSession {
       "UID SEARCH HEADER Message-ID \(Self.quoted(rfcMessageId))"
     )
     let destinationContainsMessage = search.components(separatedBy: "\r\n").contains {
-      $0.uppercased().hasPrefix("* SEARCH ")
+      let values = $0.split(whereSeparator: \.isWhitespace)
+      return values.count > 2
+        && values[0] == "*"
+        && values[1].uppercased() == "SEARCH"
+    }
+    guard !destinationContainsMessage else {
+      throw IMAPMailboxError.unsafeExpunge
     }
     let selected = try await command("SELECT \(Self.quoted(message.mailbox))")
     guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
       throw IMAPMailboxError.missingMessage
     }
-    if !destinationContainsMessage {
-      _ = try await command("UID COPY \(message.uid) \(Self.quoted(mailbox))")
+    let copyResponse = try await command(
+      "UID COPY \(message.uid) \(Self.quoted(mailbox))"
+    )
+    guard IMAPResponseParser.copiedUID(copyResponse, sourceUID: message.uid) != nil else {
+      throw IMAPMailboxError.unsafeExpunge
     }
     try await delete(uid: message.uid, capabilities: capabilities)
   }
@@ -571,6 +592,23 @@ private enum IMAPResponseParser {
     response.components(separatedBy: "\r\n").contains {
       $0.uppercased().hasPrefix("\(tag.uppercased()) OK")
     }
+  }
+
+  static func copiedUID(_ response: String, sourceUID: Int64) -> Int64? {
+    for line in response.components(separatedBy: "\r\n") {
+      guard
+        let marker = line.range(of: "[COPYUID ", options: .caseInsensitive),
+        let closing = line[marker.upperBound...].firstIndex(of: "]")
+      else { continue }
+      let fields = line[marker.upperBound..<closing].split(whereSeparator: \.isWhitespace)
+      guard
+        fields.count == 3,
+        Int64(fields[1]) == sourceUID,
+        let destinationUID = Int64(fields[2])
+      else { return nil }
+      return destinationUID
+    }
+    return nil
   }
 
   static func mailboxes(_ response: String) throws -> [IMAPMailboxDescriptor] {

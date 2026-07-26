@@ -2195,14 +2195,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await authorizationForProviderAccess(
+    let authorization = try await authorizationForProviderAccess(
       connection: connection,
       session: session
     )
     try await pendingActionService.enqueue(
       action,
-      targetProviderMailboxId: targetProviderMailboxId,
-      sourceProviderMailboxId: sourceProviderMailboxId,
+      targetProviderMailboxId: queuedTargetProviderMailboxId(
+        for: action,
+        requestedProviderMailboxId: targetProviderMailboxId,
+        definition: authorization.definition
+      ),
+      sourceProviderMailboxId: queuedSourceProviderMailboxId(
+        for: action,
+        requestedProviderMailboxId: sourceProviderMailboxId,
+        definition: authorization.definition
+      ),
       messages: messages,
       connection: connection,
       session: session
@@ -2626,17 +2634,67 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     }
   }
 
+  private func queuedTargetProviderMailboxId(
+    for action: ProviderMailAction,
+    requestedProviderMailboxId: String?,
+    definition: GenericMailConnectionDefinition
+  ) -> String? {
+    let mailbox: String? =
+      switch action {
+      case .archive:
+        definition.roleMappings[.archive]
+      case .delete:
+        definition.roleMappings[.trash]
+      case .move:
+        providerMailboxName(from: requestedProviderMailboxId, definition: definition)
+      case .notSpam, .restore:
+        "INBOX"
+      case .spam:
+        definition.roleMappings[.spam]
+      case .markRead, .markUnread, .star, .unstar:
+        nil
+      }
+    return mailbox.map(IMAPProviderMessage.customMailboxStateId)
+  }
+
+  private func queuedSourceProviderMailboxId(
+    for action: ProviderMailAction,
+    requestedProviderMailboxId: String?,
+    definition: GenericMailConnectionDefinition
+  ) -> String? {
+    if let mailbox = providerMailboxName(
+      from: requestedProviderMailboxId,
+      definition: definition
+    ) {
+      return IMAPProviderMessage.customMailboxStateId(mailbox)
+    }
+    let mailbox: String? =
+      switch action {
+      case .notSpam:
+        definition.roleMappings[.spam]
+      case .restore:
+        definition.roleMappings[.trash] ?? definition.roleMappings[.spam]
+      default:
+        "INBOX"
+      }
+    return mailbox.map(IMAPProviderMessage.customMailboxStateId)
+  }
+
   private func targetMailbox(
     for action: ProviderMailAction,
     requestedProviderMailboxId: String?,
     message: IMAPProviderMessage,
     definition: GenericMailConnectionDefinition
   ) throws -> String? {
+    let queuedMailbox = providerMailboxName(
+      from: requestedProviderMailboxId,
+      definition: definition
+    )
     switch action {
     case .archive:
-      return definition.roleMappings[.archive]
+      return queuedMailbox ?? definition.roleMappings[.archive]
     case .delete:
-      guard let trash = definition.roleMappings[.trash] else {
+      guard let trash = queuedMailbox ?? definition.roleMappings[.trash] else {
         throw IMAPMailboxError.unsupportedAction
       }
       return IMAPProviderMessage.mailboxNamesEqual(message.mailbox, trash) ? nil : trash
@@ -2653,7 +2711,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     case .notSpam, .restore:
       return "INBOX"
     case .spam:
-      return definition.roleMappings[.spam]
+      return queuedMailbox ?? definition.roleMappings[.spam]
     case .markRead, .markUnread, .star, .unstar:
       return nil
     }
@@ -2804,13 +2862,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         values.append(valueBuffer)
         valueBuffer = ""
         continue
+      case ":" where !isQuoted && angleBracketDepth == 0:
+        valueBuffer = ""
+        continue
+      case ";" where !isQuoted && angleBracketDepth == 0:
+        values.append(valueBuffer)
+        valueBuffer = ""
+        continue
       default:
         break
       }
       valueBuffer.append(character)
     }
     values.append(valueBuffer)
-    return values
+    return values.filter {
+      !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
   }
 
   private static func mailboxAddress(_ value: String) -> String {

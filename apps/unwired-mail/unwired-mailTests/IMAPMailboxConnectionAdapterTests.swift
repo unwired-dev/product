@@ -153,6 +153,34 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(savedDraft.contains("\r\nTo:"))
   }
 
+  func testSMTPDeliveryExpandsMailboxGroupsIntoEnvelopeRecipients() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Hello group",
+        recipient: "Friends: first@example.com, \"Second\" <second@example.com>;",
+        subject: "Group reply"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      smtpClient.envelopeRecipients,
+      [["first@example.com", "second@example.com"]]
+    )
+  }
+
   func testLongUnicodeSubjectUsesFoldedRFC2047EncodedWords() async throws {
     let definition = imapDefinition(username: "sender")
     let smtpClient = RecordingSMTPMailClient()
@@ -397,6 +425,53 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(
       try pendingStore.load(productAccountId: session.productAccountId).isEmpty
     )
+  }
+
+  func testQueuedActionKeepsRoleMappingFromConfirmationTime() async throws {
+    let original = imapDefinition(
+      username: "reader",
+      roleMappings: [
+        .archive: "Original Archive",
+        .drafts: "Drafts",
+        .sent: "Sent",
+        .spam: "Spam",
+        .trash: "Trash",
+      ]
+    )
+    let updated = imapDefinition(
+      username: "reader",
+      roleMappings: [
+        .archive: "Replacement Archive",
+        .drafts: "Drafts",
+        .sent: "Sent",
+        .spam: "Spam",
+        .trash: "Trash",
+      ]
+    )
+    let definitionSyncService = RecordingIMAPDefinitionSyncService(definitions: [original])
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[original.username] = [imapMessage(uid: 7)]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(original),
+      client: client,
+      definitions: [original],
+      definitionSyncService: definitionSyncService
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    definitionSyncService.replaceDefinitions([updated])
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(client.performedActions.map(\.targetMailbox), ["Original Archive"])
   }
 
   func testFlagActionUpdatesEveryMergedIMAPAppearance() async throws {
@@ -1331,7 +1406,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testSystemClientReconcilesUIDPLUSCopyBeforeRetryingMove() async throws {
+  func testSystemClientStopsUIDPLUSRetryWhenDestinationIdentityIsAmbiguous() async throws {
     let firstTask = TranscriptIMAPStreamTask(
       responses: [
         .success("* OK ready\r\n"),
@@ -1378,16 +1453,50 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected the first deletion attempt to disconnect")
     } catch is URLError {
     }
-    try await client.perform(
-      .archive,
-      message: message,
-      targetMailbox: "Archive",
-      authorization: authorization
-    )
+    do {
+      try await client.perform(
+        .archive,
+        message: message,
+        targetMailbox: "Archive",
+        authorization: authorization
+      )
+      XCTFail("Expected ambiguous destination identity to block expunge")
+    } catch {
+      XCTAssertEqual(error as? IMAPMailboxError, .unsafeExpunge)
+    }
 
     XCTAssertTrue(firstTask.writes.contains("A7 UID COPY 7 \"Archive\"\r\n"))
     XCTAssertFalse(retryTask.writes.contains { $0.contains("UID COPY") })
-    XCTAssertTrue(retryTask.writes.contains("A8 UID EXPUNGE 7\r\n"))
+    XCTAssertFalse(retryTask.writes.contains { $0.contains("EXPUNGE") })
+  }
+
+  func testSystemIMAPClientRejectsLineBreaksInAppendMailbox() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.appendMessage(
+        Data("Subject: Safe\r\n\r\nbody".utf8),
+        to: "Sent\r\nA3 NOOP",
+        flags: ["\\Seen"],
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: imapDefinition(username: "sender")
+        )
+      )
+      XCTFail("Expected mailbox control characters to be rejected")
+    } catch {
+      XCTAssertEqual(error as? IMAPMailboxError, .invalidProviderResponse)
+    }
+
+    XCTAssertEqual(task.writes, [])
   }
 
   func testSystemSMTPClientSubmitsDotStuffedMessage() async throws {
@@ -1596,6 +1705,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     cache: GmailMessageBodyCaching = RecordingIMAPBodyCache(),
     client: RecordingIMAPClient,
     definitions: [GenericMailConnectionDefinition],
+    definitionSyncService: MailboxConnectionDefinitionSyncing? = nil,
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
     store: IMAPMessageMetadataPersisting? = nil,
     pendingStore: PendingProviderActionPersisting = RecordingPendingProviderActionStore(),
@@ -1606,9 +1716,8 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       authorizationStore: authorizationStore,
       cache: cache,
       client: client,
-      definitionSyncService: RecordingIMAPDefinitionSyncService(
-        definitions: definitions
-      ),
+      definitionSyncService: definitionSyncService
+        ?? RecordingIMAPDefinitionSyncService(definitions: definitions),
       keyMaterialStore: keyStore,
       metadataStore: metadataStore,
       outboxService: OutboxDeliveryService(store: RecordingIMAPOutboxStore()),
@@ -1744,6 +1853,17 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
       defaultSendingConnectionId: nil,
       removedConnectionIds: [],
       updatedAt: 10
+    )
+  }
+
+  func replaceDefinitions(_ definitions: [GenericMailConnectionDefinition]) {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: definitions.enumerated().map {
+        $0.element.synchronizedDefinition(connectedAt: Int64($0.offset + 1))
+      },
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds,
+      updatedAt: snapshot.updatedAt
     )
   }
 
