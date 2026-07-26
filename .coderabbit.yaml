@@ -70,6 +70,22 @@ reviews:
         cache safety, secret handling, path filters, and parity with the local
         validation commands documented in AGENTS.md.
 
+    - path: "AGENTS.md"
+      instructions: |
+        Verify parity with the local validation commands documented in AGENTS.md.
+
+    - path: "docs/**/*.md"
+      instructions: |
+        Treat docs as product truth, not marketing. Prefer precise domain language
+        from CONTEXT.md; flag undefined terms, synonym drift, and conflicts with
+        existing ADRs under docs/adr/. For ADR changes, require a clear decision,
+        consequences, and privacy or security boundary impact; flag silent
+        reversals of prior ADRs without an explicit supersession note. For
+        docs/agents/ and bootstrap docs, verify agent workflow, validation, and
+        triage guidance stay aligned with AGENTS.md. Flag broken cross-links,
+        speculative future claims presented as shipped behavior, and docs that
+        omit the Apple vs TypeScript ownership of a boundary they describe.
+
   auto_review:
     enabled: true
     drafts: false
