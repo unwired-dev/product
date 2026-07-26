@@ -18,6 +18,8 @@ reviews:
   review_details: true
   enable_prompt_for_ai_agents: true
 
+  # Keep filters exclusion-only: positive entries turn the scope into an
+  # allowlist. Unmatched files, including Markdown, are reviewed by default.
   path_filters:
     - "!packages/convex/convex/_generated/**"
 
@@ -73,7 +75,7 @@ reviews:
       instructions: |
         Verify parity with the local validation commands documented in AGENTS.md.
 
-    - path: "docs/**/*.md"
+    - path: "**/*.md"
       instructions: |
         Treat docs as product truth, not marketing. Prefer precise domain language
         from CONTEXT.md; flag undefined terms, synonym drift, and conflicts with
