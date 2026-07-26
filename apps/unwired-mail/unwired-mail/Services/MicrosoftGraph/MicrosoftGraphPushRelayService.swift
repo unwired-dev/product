@@ -7,6 +7,13 @@ struct MicrosoftGraphPushRouteResponse: Decodable, Equatable {
   let routeId: String
 }
 
+struct MicrosoftGraphPushRouteConfirmation: Equatable {
+  let clientStateDigest: String?
+  let expiresAt: Int64
+  let routeId: String
+  let subscriptionId: String
+}
+
 protocol MicrosoftGraphPushRouteTransport {
   func prepareMicrosoftGraphPushRoute(
     clientStateDigest: String,
@@ -16,10 +23,8 @@ protocol MicrosoftGraphPushRouteTransport {
   ) async throws -> MicrosoftGraphPushRouteResponse
 
   func confirmMicrosoftGraphPushRoute(
-    expiresAt: Int64,
+    confirmation: MicrosoftGraphPushRouteConfirmation,
     identityToken: String,
-    routeId: String,
-    subscriptionId: String,
     trustedDeviceId: String
   ) async throws -> MicrosoftGraphPushRouteResponse
 
@@ -33,11 +38,28 @@ protocol MicrosoftGraphPushRouteTransport {
 extension ConvexClient: MicrosoftGraphPushRouteTransport {}
 
 struct MicrosoftGraphPushStatus: Codable, Equatable {
+  let clientStateDigest: String?
   let expiresAtMilliseconds: Int64
   let opaqueConnectionId: String
   let providerAccountIdentifier: String
   let routeId: String
   let subscriptionId: String
+
+  init(
+    clientStateDigest: String? = nil,
+    expiresAtMilliseconds: Int64,
+    opaqueConnectionId: String,
+    providerAccountIdentifier: String,
+    routeId: String,
+    subscriptionId: String
+  ) {
+    self.clientStateDigest = clientStateDigest
+    self.expiresAtMilliseconds = expiresAtMilliseconds
+    self.opaqueConnectionId = opaqueConnectionId
+    self.providerAccountIdentifier = providerAccountIdentifier
+    self.routeId = routeId
+    self.subscriptionId = subscriptionId
+  }
 }
 
 protocol MicrosoftGraphPushStatusPersisting {
@@ -377,8 +399,9 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
       throw MicrosoftGraphPushError.missingNotificationURL
     }
     let clientState = UUID().uuidString
+    let clientStateDigest = sha256Hex(clientState)
     let route = try await transport.prepareMicrosoftGraphPushRoute(
-      clientStateDigest: sha256Hex(clientState),
+      clientStateDigest: clientStateDigest,
       identityToken: session.identityToken,
       opaqueConnectionId: opaqueConnectionId(connection, session: session),
       trustedDeviceId: session.trustedDeviceId
@@ -392,6 +415,7 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     )
     try await confirmAndSave(
       current: MicrosoftGraphPushStatus(
+        clientStateDigest: clientStateDigest,
         expiresAtMilliseconds: 0,
         opaqueConnectionId: opaqueConnectionId(connection, session: session),
         providerAccountIdentifier: connection.providerMailboxIdentity.value,
@@ -408,48 +432,70 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    var firstError: Error?
     if let status = try statusStore.load(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
     ) {
       if let accessToken {
-        try await subscriptionClient.delete(
-          accessToken: accessToken,
-          subscriptionId: status.subscriptionId
-        )
+        do {
+          try await subscriptionClient.delete(
+            accessToken: accessToken,
+            subscriptionId: status.subscriptionId
+          )
+        } catch MicrosoftGraphClientError.requestFailed(404) {
+        } catch {
+          firstError = error
+        }
       }
-      _ = try await transport.removeMicrosoftGraphPushRoute(
-        identityToken: session.identityToken,
-        opaqueConnectionId: status.opaqueConnectionId,
-        trustedDeviceId: session.trustedDeviceId
-      )
+      do {
+        _ = try await transport.removeMicrosoftGraphPushRoute(
+          identityToken: session.identityToken,
+          opaqueConnectionId: status.opaqueConnectionId,
+          trustedDeviceId: session.trustedDeviceId
+        )
+      } catch {
+        firstError = firstError ?? error
+      }
     }
     try statusStore.clear(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
     )
+    if let firstError { throw firstError }
   }
 
   func clearAll(
     accessTokensByProviderAccountIdentifier: [String: String],
     session: ProductAccountSessionSnapshot
   ) async throws {
+    var firstError: Error?
     for status in try statusStore.loadAll(productAccountId: session.productAccountId) {
       if let accessToken =
         accessTokensByProviderAccountIdentifier[status.providerAccountIdentifier]
       {
-        try await subscriptionClient.delete(
-          accessToken: accessToken,
-          subscriptionId: status.subscriptionId
-        )
+        do {
+          try await subscriptionClient.delete(
+            accessToken: accessToken,
+            subscriptionId: status.subscriptionId
+          )
+        } catch MicrosoftGraphClientError.requestFailed(404) {
+        } catch {
+          firstError = firstError ?? error
+        }
       }
-      _ = try await transport.removeMicrosoftGraphPushRoute(
-        identityToken: session.identityToken,
-        opaqueConnectionId: status.opaqueConnectionId,
-        trustedDeviceId: session.trustedDeviceId
-      )
+      do {
+        _ = try await transport.removeMicrosoftGraphPushRoute(
+          identityToken: session.identityToken,
+          opaqueConnectionId: status.opaqueConnectionId,
+          trustedDeviceId: session.trustedDeviceId
+        )
+      } catch {
+        firstError = firstError ?? error
+      }
     }
     try statusStore.clearAll(productAccountId: session.productAccountId)
+    if let firstError { throw firstError }
   }
 
   private func confirmAndSave(
@@ -459,14 +505,18 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
   ) async throws {
     let expiresAt = Int64(providerResponse.expirationDate.timeIntervalSince1970 * 1_000)
     _ = try await transport.confirmMicrosoftGraphPushRoute(
-      expiresAt: expiresAt,
+      confirmation: MicrosoftGraphPushRouteConfirmation(
+        clientStateDigest: current.clientStateDigest,
+        expiresAt: expiresAt,
+        routeId: current.routeId,
+        subscriptionId: providerResponse.subscriptionId
+      ),
       identityToken: session.identityToken,
-      routeId: current.routeId,
-      subscriptionId: providerResponse.subscriptionId,
       trustedDeviceId: session.trustedDeviceId
     )
     try statusStore.save(
       MicrosoftGraphPushStatus(
+        clientStateDigest: current.clientStateDigest,
         expiresAtMilliseconds: expiresAt,
         opaqueConnectionId: current.opaqueConnectionId,
         providerAccountIdentifier: current.providerAccountIdentifier,

@@ -2161,6 +2161,7 @@ export const prepareMicrosoftGraphRoute = mutation({
 
 export const confirmMicrosoftGraphRoute = mutation({
   args: {
+    clientStateDigest: v.optional(v.string()),
     expiresAt: v.number(),
     routeId: v.id('mailProviderConnections'),
     subscriptionId: v.string(),
@@ -2178,6 +2179,9 @@ export const confirmMicrosoftGraphRoute = mutation({
       route.provider !== 'microsoft-graph' ||
       route.trustedDeviceId !== args.trustedDeviceId ||
       route.microsoftClientStateDigest === undefined ||
+      (args.clientStateDigest === undefined
+        ? route.microsoftSubscriptionId !== args.subscriptionId
+        : route.microsoftClientStateDigest !== args.clientStateDigest) ||
       args.subscriptionId.length === 0 ||
       args.expiresAt <= Date.now()
     ) {

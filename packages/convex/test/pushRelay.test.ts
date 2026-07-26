@@ -3518,17 +3518,19 @@ describe('gmail push relay', () => {
         trustedDeviceId: device.trustedDeviceId,
       });
       const clientState = 'graph-client-state';
+      const clientStateDigest = createHash('sha256')
+        .update(clientState)
+        .digest('hex');
       const route = await asUser.mutation(
         api.pushRelay.prepareMicrosoftGraphRoute,
         {
-          clientStateDigest: createHash('sha256')
-            .update(clientState)
-            .digest('hex'),
+          clientStateDigest,
           opaqueConnectionId: 'opaque-graph-connection',
           trustedDeviceId: device.trustedDeviceId,
         },
       );
       await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest,
         expiresAt: Date.now() + 60_000,
         routeId: route.routeId,
         subscriptionId: 'graph-subscription',
@@ -3586,5 +3588,58 @@ describe('gmail push relay', () => {
       vi.useRealTimers();
       vi.unstubAllEnvs();
     }
+  });
+
+  it('rejects a stale Microsoft Graph subscription confirmation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-confirmation-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256')
+      .update('first-state')
+      .digest('hex');
+    const secondDigest = createHash('sha256')
+      .update('second-state')
+      .digest('hex');
+    const firstRoute = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-confirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    const secondRoute = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: secondDigest,
+        opaqueConnectionId: 'opaque-graph-confirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+
+    expect(secondRoute.routeId).toBe(firstRoute.routeId);
+    await expect(
+      asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest: firstDigest,
+        expiresAt: Date.now() + 60_000,
+        routeId: firstRoute.routeId,
+        subscriptionId: 'stale-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Microsoft Graph route rejected');
+    await expect(
+      asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest: secondDigest,
+        expiresAt: Date.now() + 60_000,
+        routeId: secondRoute.routeId,
+        subscriptionId: 'current-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ routeId: secondRoute.routeId });
   });
 });

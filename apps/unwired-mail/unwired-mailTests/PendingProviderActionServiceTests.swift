@@ -718,6 +718,38 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(actions.isEmpty)
   }
 
+  func testNonAuthoritativeSyncKeepsContradictedConfirmedAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-confirmed-archive",
+      providerStateIds: ["INBOX"]
+    )
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+
+    try await service.reconcileProviderSync(
+      messages: [message],
+      removesContradictedActions: false,
+      connection: connection,
+      session: session
+    )
+
+    var actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    actions = try await service.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
   func testDeleteProjectionRemovesSpam() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(

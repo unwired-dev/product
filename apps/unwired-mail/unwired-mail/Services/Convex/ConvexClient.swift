@@ -184,18 +184,17 @@ final class ConvexClient {
   }
 
   func confirmMicrosoftGraphPushRoute(
-    expiresAt: Int64,
+    confirmation: MicrosoftGraphPushRouteConfirmation,
     identityToken: String,
-    routeId: String,
-    subscriptionId: String,
     trustedDeviceId: String
   ) async throws -> MicrosoftGraphPushRouteResponse {
     try await performMutation(
       path: "pushRelay:confirmMicrosoftGraphRoute",
       args: ConfirmMicrosoftGraphPushRouteArgs(
-        expiresAt: expiresAt,
-        routeId: routeId,
-        subscriptionId: subscriptionId,
+        clientStateDigest: confirmation.clientStateDigest,
+        expiresAt: confirmation.expiresAt,
+        routeId: confirmation.routeId,
+        subscriptionId: confirmation.subscriptionId,
         trustedDeviceId: trustedDeviceId
       ),
       identityToken: identityToken
@@ -515,6 +514,7 @@ private struct PrepareMicrosoftGraphPushRouteArgs: Encodable {
 }
 
 private struct ConfirmMicrosoftGraphPushRouteArgs: Encodable {
+  let clientStateDigest: String?
   let expiresAt: Int64
   let routeId: String
   let subscriptionId: String

@@ -27,8 +27,35 @@ extension MailboxConnectionCapabilities {
     canSearchProvider: false,
     canSend: true,
     canSynchronizeMetadata: true,
-    providerActions: [.archive, .delete, .markRead, .markUnread, .move, .notSpam, .restore, .spam]
+    providerActions: [.markRead, .markUnread]
   )
+
+  static func microsoftGraph(
+    folders: [MicrosoftGraphFolder]
+  ) -> MailboxConnectionCapabilities {
+    var actions: Set<ProviderMailAction> = [.markRead, .markUnread]
+    let roles = Set(folders.compactMap(\.role))
+    if roles.contains(.archive) { actions.insert(.archive) }
+    if roles.contains(.trash) { actions.insert(.delete) }
+    if roles.contains(.spam) { actions.insert(.spam) }
+    if roles.contains(.inbox) {
+      actions.formUnion([.notSpam, .restore])
+    }
+    if folders.contains(where: { $0.role == nil }) {
+      actions.insert(.move)
+    }
+    return MailboxConnectionCapabilities(
+      canCategorizeHistorical: false,
+      canForward: true,
+      canReadMessages: true,
+      canRegisterPush: true,
+      canReply: true,
+      canSearchProvider: false,
+      canSend: true,
+      canSynchronizeMetadata: true,
+      providerActions: actions
+    )
+  }
 }
 
 struct MicrosoftGraphTokens: Codable, Equatable, Sendable {
@@ -2691,8 +2718,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
     }
     let categorized = try await applyingSyncedCategories(to: result, session: session)
+    try? await registerOrRenewPush(connection: connection, session: session)
     try await reconcileAndResumePendingActions(
       messages: categorized.messages,
+      removesContradictedActions: categorized.historicalMetadataBackfillIsComplete,
       connection: connection,
       session: session
     )
@@ -2730,6 +2759,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     let categorized = try await applyingSyncedCategories(to: result, session: session)
     try await reconcileAndResumePendingActions(
       messages: categorized.messages,
+      removesContradictedActions: categorized.historicalMetadataBackfillIsComplete,
       connection: connection,
       session: session
     )
@@ -3313,11 +3343,13 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func reconcileAndResumePendingActions(
     messages: [MailboxMessageMetadata],
+    removesContradictedActions: Bool,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await pendingActionService.reconcileProviderSync(
       messages: messages,
+      removesContradictedActions: removesContradictedActions,
       connection: connection,
       session: session
     )
@@ -3378,11 +3410,19 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     do {
       return try await operation(token)
-    } catch MicrosoftGraphClientError.requestFailed(401) {
+    } catch let error where isUnauthorized(error) {
       return try await operation(
         try await refreshAccessToken(connection: connection, session: session)
       )
     }
+  }
+
+  private func isUnauthorized(_ error: Error) -> Bool {
+    if case .requestFailed(401) = error as? MicrosoftGraphClientError {
+      return true
+    }
+    guard let sendError = error as? MicrosoftGraphSendError else { return false }
+    return isUnauthorized(sendError.underlyingError)
   }
 
   private func refreshAccessToken(
@@ -3428,9 +3468,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     authorized: Bool,
     updatedAt: Int64?
   ) -> MailboxConnection {
-    MailboxConnection(
+    let folders =
+      try? metadataStore.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: definition.id
+      )?.folders.map(\.folder)
+    return MailboxConnection(
       authorizationState: authorized ? .authorized : .required,
-      capabilities: authorized ? .microsoftGraph : .none,
+      capabilities: authorized ? .microsoftGraph(folders: folders ?? []) : .none,
       connectedAt: definition.connectedAt,
       displayName: definition.displayName,
       id: definition.id,

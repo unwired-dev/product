@@ -154,8 +154,11 @@ private let defaultFailureDisposition:
       if status == 401 || status == 403 {
         return .userActionRequired
       }
-      if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+      if status == 429 {
         return .transient
+      }
+      if status == 408 || status == 409 || status == 425 || status >= 500 {
+        return .userActionRequired
       }
     }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
@@ -438,6 +441,7 @@ actor PendingProviderActionService {
 
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
+    removesContradictedActions: Bool = true,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
@@ -463,7 +467,8 @@ actor PendingProviderActionService {
     )
     let contradictedActionIds = Set(
       actions.filter { action in
-        action.connectionId == connection.id.rawValue
+        removesContradictedActions
+          && action.connectionId == connection.id.rawValue
           && action.state == .providerConfirmed
           && action.messageIds.allSatisfy { messageId in
             messages.contains { $0.providerMessageId == messageId }
