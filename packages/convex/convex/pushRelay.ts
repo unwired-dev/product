@@ -436,14 +436,12 @@ async function gmailRecipients(
   if (emailAddress !== undefined && recipients.length < 100) {
     const legacyConnections = ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
-        (q) =>
-          q
-            .eq('provider', 'gmail')
-            .eq('emailAddress', emailAddress)
-            .eq('gmailRoutingDigest', undefined)
-            .gt('pushVerifiedAt', undefined),
+      .withIndex('by_provider_email_gmailDigest_pushVerifiedAt', (q) =>
+        q
+          .eq('provider', 'gmail')
+          .eq('emailAddress', emailAddress)
+          .eq('gmailRoutingDigest', undefined)
+          .gt('pushVerifiedAt', undefined),
       );
     let inspectedLegacyConnections = 0;
     for await (const connection of legacyConnections) {
@@ -602,14 +600,12 @@ async function hasOtherActiveGmailRoute(
   if (request.emailAddress !== undefined) {
     const legacyConnections = ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_provider_and_emailAddress_and_gmailRoutingDigest_and_pushVerifiedAt',
-        (q) =>
-          q
-            .eq('provider', 'gmail')
-            .eq('emailAddress', request.emailAddress)
-            .eq('gmailRoutingDigest', undefined)
-            .gt('pushVerifiedAt', undefined),
+      .withIndex('by_provider_email_gmailDigest_pushVerifiedAt', (q) =>
+        q
+          .eq('provider', 'gmail')
+          .eq('emailAddress', request.emailAddress)
+          .eq('gmailRoutingDigest', undefined)
+          .gt('pushVerifiedAt', undefined),
       );
     for await (const connection of legacyConnections) {
       inspectedConnections += 1;
@@ -654,14 +650,12 @@ async function gmailConnection(
 ): Promise<Doc<'mailProviderConnections'> | null> {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex(
-      'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
-      (q) =>
-        q
-          .eq('productAccountId', request.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', request.trustedDeviceId)
-          .eq('opaqueConnectionId', request.opaqueConnectionId),
+    .withIndex('by_productId_provider_deviceId_connectionId', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('trustedDeviceId', request.trustedDeviceId)
+        .eq('opaqueConnectionId', request.opaqueConnectionId),
     )
     .unique();
 }
@@ -1329,14 +1323,12 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
     );
     const legacyConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (
@@ -1372,6 +1364,8 @@ export const registerGmailConnectionForIdentity = internalMutation({
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // Registration keeps identity binding and legacy route adoption atomic.
+  // fallow-ignore-next-line complexity
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
@@ -1388,14 +1382,12 @@ export const registerGmailConnectionForIdentity = internalMutation({
     });
     const legacyConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
-        (q) =>
-          q
-            .eq('productAccountId', account.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', args.trustedDeviceId)
-            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex('by_productId_provider_deviceId_providerAccountId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (
@@ -1686,8 +1678,8 @@ export const verifyGmailWatchForIdentity = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   // The mutation has distinct authentication, freshness, and signal-verification guards.
+  /* oxlint-disable complexity -- Verification keeps migration and proof updates atomic. */
   // fallow-ignore-next-line complexity
-  // oxlint-disable-next-line complexity -- Verification keeps migration and proof updates atomic.
   handler: async (ctx, args) => {
     if (args.historyId.length === 0) {
       throw new Error('Gmail history id required');
@@ -1714,7 +1706,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
         ? await ctx.db
             .query('mailProviderConnections')
             .withIndex(
-              'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+              'by_productId_provider_deviceId_providerAccountId',
               (q) =>
                 q
                   .eq('productAccountId', account.productAccountId)
@@ -1834,6 +1826,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     );
     return { routeId, verified };
   },
+  /* oxlint-enable complexity */
   returns: gmailPushVerificationResponseValidator,
 });
 
