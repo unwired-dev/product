@@ -432,6 +432,38 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(pushConnectionStore.loadedProductAccountId, session.productAccountId)
   }
 
+  func testLoadConnectionsMigratesLegacyTokensWithoutPushConnection() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let pushConnectionStore = RecordingPushConnectionStore()
+    let transport = RecordingGmailConnectionTransport()
+    let verifiedAccount = VerifiedGmailAccount(
+      emailAddress: "user@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      tokens: GmailProviderTokens(
+        accessToken: "refreshed-access",
+        refreshToken: "legacy-refresh",
+        idToken: "gmail-identity-token"
+      )
+    )
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(account: verifiedAccount)
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+    XCTAssertEqual(pushConnectionStore.connections, statuses)
+    XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
+  }
+
   func testLoadConnectionsRequiresLocalTokens() async throws {
     let service = GmailProviderConnectionService(
       tokenStore: InMemoryGmailProviderTokenStore(),
@@ -1207,6 +1239,17 @@ private enum GmailProviderConnectionTestError: Error {
   case tokenCleanupFailed
   case tokenLoadFailed
   case watchStopFailed
+}
+
+private struct StaticGmailCredentialVerifier: GmailProviderCredentialVerifying {
+  let account: VerifiedGmailAccount
+
+  func verify(
+    accessToken _: String,
+    refreshToken _: String
+  ) async throws -> VerifiedGmailAccount {
+    account
+  }
 }
 
 private struct FailingGmailMessageReader: GmailMessageReading {

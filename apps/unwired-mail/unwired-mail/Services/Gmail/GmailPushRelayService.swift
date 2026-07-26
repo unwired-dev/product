@@ -568,6 +568,13 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
+    if try legacyConnection(productAccountId: productAccountId)?
+      .providerAccountIdentifier == providerAccountIdentifier
+    {
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
+    }
     try KeychainStore.delete(
       service: service,
       account: key(productAccountId, providerAccountIdentifier)

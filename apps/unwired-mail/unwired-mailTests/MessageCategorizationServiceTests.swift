@@ -1719,6 +1719,9 @@ extension MessageCategorizationServiceTests {
     cacheStore.caches["\(session.productAccountId):account"] = backgroundContextCache(
       cachedAtMilliseconds: 1_781_400_000_000
     )
+    cacheStore.caches["\(session.productAccountId):other-account"] = backgroundContextCache(
+      cachedAtMilliseconds: 1_781_400_000_000
+    )
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     assignmentSync.learningSignalLoadError = URLError(.cannotConnectToHost)
     let service = GmailMessageCategorizationService(
@@ -1736,6 +1739,7 @@ extension MessageCategorizationServiceTests {
     )
 
     XCTAssertNil(cacheStore.caches["\(session.productAccountId):account"])
+    XCTAssertNotNil(cacheStore.caches["\(session.productAccountId):other-account"])
   }
 
   func testBackgroundCategorizationDoesNotUseCacheForNonAuthenticationFailure() async throws {

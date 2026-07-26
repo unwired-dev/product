@@ -96,11 +96,18 @@ protocol GmailProviderTokenPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens?
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens?
+  func clearLegacy(productAccountId: String) throws
   func save(
     _ tokens: GmailProviderTokens,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws
+}
+
+extension GmailProviderTokenPersisting {
+  func loadLegacy(productAccountId _: String) throws -> GmailProviderTokens? { nil }
+  func clearLegacy(productAccountId _: String) throws {}
 }
 
 protocol GmailProviderConnectionTransport {
@@ -253,6 +260,14 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
     try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
   }
 
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+    try tokens(account: legacyAccountName(productAccountId))
+  }
+
+  func clearLegacy(productAccountId: String) throws {
+    try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
+  }
+
   private func accountName(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -338,6 +353,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
+  private let credentialVerifier: GmailProviderCredentialVerifying
 
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
@@ -349,7 +365,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     pushWatchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
     metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
-    transport: GmailProviderConnectionTransport = ConvexClient()
+    transport: GmailProviderConnectionTransport = ConvexClient(),
+    credentialVerifier: GmailProviderCredentialVerifying =
+      GoogleGmailProviderCredentialVerifier()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
     self.bodyReader = bodyReader
@@ -359,6 +377,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
+    self.credentialVerifier = credentialVerifier
   }
 
   func completeConnection(
@@ -575,7 +594,22 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
-    let statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+    var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+    if statuses.isEmpty,
+      let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    {
+      let verifiedAccount = try await credentialVerifier.verify(
+        accessToken: legacyTokens.accessToken,
+        refreshToken: legacyTokens.refreshToken
+      )
+      statuses = [
+        try await completeConnection(
+          verifiedAccount: verifiedAccount,
+          session: session
+        )
+      ]
+      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+    }
     var tokensByIdentifier: [String: GmailProviderTokens] = [:]
     for status in statuses {
       if let tokensForStatus = try tokenStore.load(
@@ -851,6 +885,7 @@ private struct GoogleRefreshTokenResponse: Decodable {
 
 #if DEBUG || TESTING
   final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
+    private var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
     private var tokensByConnectionKey: [String: GmailProviderTokens] = [:]
 
     func load(
@@ -878,6 +913,19 @@ private struct GoogleRefreshTokenResponse: Decodable {
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId):"
       tokensByConnectionKey = tokensByConnectionKey.filter { !$0.key.hasPrefix(prefix) }
+      legacyTokensByProductAccountId[productAccountId] = nil
+    }
+
+    func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+      legacyTokensByProductAccountId[productAccountId]
+    }
+
+    func clearLegacy(productAccountId: String) throws {
+      legacyTokensByProductAccountId[productAccountId] = nil
+    }
+
+    func saveLegacy(_ tokens: GmailProviderTokens, productAccountId: String) {
+      legacyTokensByProductAccountId[productAccountId] = tokens
     }
 
     private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {

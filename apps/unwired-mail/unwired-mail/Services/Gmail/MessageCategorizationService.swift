@@ -1362,7 +1362,10 @@ extension GmailMessageCategorizationService {
         session: session
       )
     } catch {
-      try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      try? backgroundContextCacheStore.clear(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
       throw error
     }
     let cachedSenderAddresses = Array(

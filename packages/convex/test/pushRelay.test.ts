@@ -328,12 +328,14 @@ describe('gmail push relay', () => {
     await t.run(async (ctx) => {
       const connection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', secondDevice.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', secondDevice.trustedDeviceId)
-            .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+          (q) =>
+            q
+              .eq('productAccountId', secondDevice.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', secondDevice.trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
         )
         .unique();
       expect(connection).not.toBeNull();
@@ -392,12 +394,14 @@ describe('gmail push relay', () => {
       await t.run(async (ctx) => {
         const connection = await ctx.db
           .query('mailProviderConnections')
-          .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-            q
-              .eq('productAccountId', firstDevice.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', trustedDeviceId)
-              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+            (q) =>
+              q
+                .eq('productAccountId', firstDevice.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', trustedDeviceId)
+                .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
           )
           .unique();
         const now = Date.now();
@@ -566,12 +570,14 @@ describe('gmail push relay', () => {
       const proofUpdatedAt = Date.now();
       const connection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', secondDevice.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', secondDevice.trustedDeviceId)
-            .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+          (q) =>
+            q
+              .eq('productAccountId', secondDevice.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', secondDevice.trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
         )
         .unique();
       expect(connection).not.toBeNull();
@@ -654,12 +660,14 @@ describe('gmail push relay', () => {
     await t.run(async (ctx) => {
       const connection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', secondDevice.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', secondDevice.trustedDeviceId)
-            .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+          (q) =>
+            q
+              .eq('productAccountId', secondDevice.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', secondDevice.trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
         )
         .unique();
       expect(connection).not.toBeNull();
@@ -1608,12 +1616,14 @@ describe('gmail push relay', () => {
     await t.run(async (ctx) => {
       const connection = await ctx.db
         .query('mailProviderConnections')
-        .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', device.productAccountId)
-            .eq('provider', 'gmail')
-            .eq('trustedDeviceId', device.trustedDeviceId)
-            .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+          (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
         )
         .unique();
       const now = Date.now();
@@ -1641,12 +1651,14 @@ describe('gmail push relay', () => {
       const route = await t.run((ctx) =>
         ctx.db
           .query('mailProviderConnections')
-          .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-            q
-              .eq('productAccountId', device.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', device.trustedDeviceId)
-              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId)
+                .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
           )
           .unique(),
       );

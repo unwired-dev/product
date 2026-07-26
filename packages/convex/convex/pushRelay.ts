@@ -555,12 +555,14 @@ async function gmailConnection(
 ): Promise<Doc<'mailProviderConnections'> | null> {
   return ctx.db
     .query('mailProviderConnections')
-    .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
-      q
-        .eq('productAccountId', request.productAccountId)
-        .eq('provider', 'gmail')
-        .eq('trustedDeviceId', request.trustedDeviceId)
-        .eq('opaqueConnectionId', request.opaqueConnectionId),
+    .withIndex(
+      'by_productAccountId_and_provider_and_trustedDeviceId_and_opaqueConnectionId',
+      (q) =>
+        q
+          .eq('productAccountId', request.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', request.trustedDeviceId)
+          .eq('opaqueConnectionId', request.opaqueConnectionId),
     )
     .unique();
 }
@@ -1138,12 +1140,14 @@ export const clearLegacyGmailSignalsForRegistration = internalMutation({
     );
     const legacyConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_product_provider_device_account', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId)
-          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex(
+        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+        (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', args.trustedDeviceId)
+            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (
@@ -1195,12 +1199,14 @@ export const registerGmailConnectionForIdentity = internalMutation({
     });
     const legacyConnection = await ctx.db
       .query('mailProviderConnections')
-      .withIndex('by_product_provider_device_account', (q) =>
-        q
-          .eq('productAccountId', account.productAccountId)
-          .eq('provider', 'gmail')
-          .eq('trustedDeviceId', args.trustedDeviceId)
-          .eq('providerAccountIdentifier', args.providerAccountIdentifier),
+      .withIndex(
+        'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+        (q) =>
+          q
+            .eq('productAccountId', account.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', args.trustedDeviceId)
+            .eq('providerAccountIdentifier', args.providerAccountIdentifier),
       )
       .unique();
     if (
@@ -1468,15 +1474,17 @@ export const verifyGmailWatchForIdentity = internalMutation({
       opaqueConnection === null
         ? await ctx.db
             .query('mailProviderConnections')
-            .withIndex('by_product_provider_device_account', (q) =>
-              q
-                .eq('productAccountId', account.productAccountId)
-                .eq('provider', 'gmail')
-                .eq('trustedDeviceId', args.trustedDeviceId)
-                .eq(
-                  'providerAccountIdentifier',
-                  args.providerAccountIdentifier,
-                ),
+            .withIndex(
+              'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+              (q) =>
+                q
+                  .eq('productAccountId', account.productAccountId)
+                  .eq('provider', 'gmail')
+                  .eq('trustedDeviceId', args.trustedDeviceId)
+                  .eq(
+                    'providerAccountIdentifier',
+                    args.providerAccountIdentifier,
+                  ),
             )
             .unique()
         : null;
