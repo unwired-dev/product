@@ -15,7 +15,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
   func testOAuthRequestUsesPKCEAndValidatesTheCallbackState() throws {
     let request = MicrosoftGraphOAuthRequest(
-      callbackScheme: "dev.unwired.mail.microsoft",
+      callbackScheme: "msauth.dev.unwired.mail",
       clientIdentifier: "client-id"
     )
     let queryItems = try XCTUnwrap(
@@ -28,16 +28,17 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(values["code_challenge_method"], "S256")
     XCTAssertFalse(try XCTUnwrap(values["code_challenge"] ?? nil).isEmpty)
     XCTAssertTrue(try XCTUnwrap(values["scope"] ?? nil).contains("offline_access"))
+    XCTAssertEqual(request.redirectURI.absoluteString, "msauth.dev.unwired.mail://auth")
     XCTAssertEqual(
       try request.authorizationCode(
-        from: URL(string: "dev.unwired.mail.microsoft:/oauthredirect?code=code-1&state=\(state)")!
+        from: URL(string: "msauth.dev.unwired.mail://auth?code=code-1&state=\(state)")!
       ),
       "code-1"
     )
     XCTAssertThrowsError(
       try request.authorizationCode(
         from: URL(
-          string: "dev.unwired.mail.microsoft:/oauthredirect?code=code-1&state=incorrect"
+          string: "msauth.dev.unwired.mail://auth?code=code-1&state=incorrect"
         )!
       )
     ) {
