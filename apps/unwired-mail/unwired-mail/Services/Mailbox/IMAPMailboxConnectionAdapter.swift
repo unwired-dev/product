@@ -2369,6 +2369,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         authorization: authorization
       )
     }
+    if message.sentCopyOnly == true,
+      let messageId = message.rfcMessageId,
+      try await mailboxContainsMessage(
+        messageId,
+        mailbox: sentMailbox,
+        authorization: authorization
+      )
+    {
+      return
+    }
     do {
       try await client.appendMessage(
         rfc822Message,
@@ -3321,6 +3331,25 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxChangeObserving
     try await adapter(for: connection.id).perform(
       action,
       targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    sourceProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await adapter(for: connection.id).perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       messages: messages,
       connection: connection,
       session: session

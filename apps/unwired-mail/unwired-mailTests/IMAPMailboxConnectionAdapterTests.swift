@@ -332,6 +332,44 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(smtpClient.sentMessages.count, 1)
   }
 
+  func testSentCopyOnlySkipsAppendWhenStableMessageAlreadyExists() async throws {
+    let definition = imapDefinition(username: "sender")
+    let client = RecordingIMAPClient()
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "Sent": [
+        imapMessage(
+          mailbox: "Sent",
+          uid: 10,
+          rfcMessageId: "<delivery-existing-copy@outbox.unwired.mail>"
+        )
+      ]
+    ]
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Accepted once",
+        recipient: "reader@example.com",
+        subject: "Existing copy",
+        idempotencyKey: "delivery-existing-copy",
+        sentCopyOnly: true
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(smtpClient.sentMessages.isEmpty)
+    XCTAssertTrue(client.appendedMessages.isEmpty)
+  }
+
   func testDraftRetrySkipsAppendWhenStableMessageIdAlreadyExists() async throws {
     let definition = imapDefinition(username: "sender")
     let client = RecordingIMAPClient()
@@ -979,8 +1017,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let connection = try XCTUnwrap(connections.first)
     let syncResult = try await adapter.syncInbox(connection: connection, session: session)
     let message = try XCTUnwrap(syncResult.messages.first)
+    let router = MailboxConnectionRouter(
+      gmail: adapter,
+      imap: adapter,
+      microsoftGraph: adapter
+    )
 
-    try await adapter.perform(
+    try await router.perform(
       .move,
       targetProviderMailboxId: IMAPProviderMessage.customMailboxStateId("Archive"),
       sourceProviderMailboxId: IMAPProviderMessage.customMailboxStateId("Projects"),
@@ -988,7 +1031,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
-    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    _ = await router.resumePendingActions(connection: connection, session: session)
 
     XCTAssertEqual(client.performedActions.map(\.uid), [8])
     XCTAssertEqual(client.performedActions.map(\.targetMailbox), ["Archive"])
