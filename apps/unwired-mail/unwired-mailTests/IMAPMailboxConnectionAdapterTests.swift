@@ -864,8 +864,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     ]
     let movedMessage = imapMessage(
       uid: 1,
-      rfcMessageId: "<moved@example.com>",
-      providerEmailId: "moved-email"
+      rfcMessageId: "<moved@example.com>"
     )
     client.messagesByUsernameAndMailbox[definition.username] = [
       "INBOX": [movedMessage],
@@ -901,8 +900,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       imapMessage(
         mailbox: "Archive",
         uid: 50,
-        rfcMessageId: "<moved@example.com>",
-        providerEmailId: "moved-email"
+        rfcMessageId: "<moved@example.com>"
       )
     )
     client.messagesByUsernameAndMailbox[definition.username] = serverMessages
@@ -918,6 +916,17 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(Set(refreshedMessage.providerStateIds ?? []), ["ARCHIVE", "UNREAD"])
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let persisted = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(
+      persisted.messages.first { $0.rfcMessageId == "<moved@example.com>" }?.providerMessageId,
+      movedMessage.providerMessageId
+    )
   }
 
   func testProviderActionUsesInboxAppearanceForMessageObservedInMultipleMailboxes() async throws {
@@ -1493,7 +1502,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testSystemClientStopsUIDPLUSRetryWhenDestinationIdentityIsAmbiguous() async throws {
+  func testSystemClientCompletesUIDPLUSRetryAfterCopySucceeded() async throws {
     let firstTask = TranscriptIMAPStreamTask(
       responses: [
         .success("* OK ready\r\n"),
@@ -1540,21 +1549,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected the first deletion attempt to disconnect")
     } catch is URLError {
     }
-    do {
-      try await client.perform(
-        .archive,
-        message: message,
-        targetMailbox: "Archive",
-        authorization: authorization
-      )
-      XCTFail("Expected ambiguous destination identity to block expunge")
-    } catch {
-      XCTAssertEqual(error as? IMAPMailboxError, .unsafeExpunge)
-    }
+    try await client.perform(
+      .archive,
+      message: message,
+      targetMailbox: "Archive",
+      authorization: authorization
+    )
 
     XCTAssertTrue(firstTask.writes.contains("A7 UID COPY 7 \"Archive\"\r\n"))
     XCTAssertFalse(retryTask.writes.contains { $0.contains("UID COPY") })
-    XCTAssertFalse(retryTask.writes.contains { $0.contains("EXPUNGE") })
+    XCTAssertTrue(retryTask.writes.contains("A8 UID EXPUNGE 7\r\n"))
   }
 
   func testSystemClientDoesNotExpungeWhenCopyUIDDoesNotMatchSource() async throws {

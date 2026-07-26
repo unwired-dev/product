@@ -481,18 +481,17 @@ private final class IMAPWireSession {
         && values[0] == "*"
         && values[1].uppercased() == "SEARCH"
     }
-    guard !destinationContainsMessage else {
-      throw IMAPMailboxError.unsafeExpunge
-    }
     let selected = try await command("SELECT \(try Self.quotedMailbox(message.mailbox))")
     guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
       throw IMAPMailboxError.missingMessage
     }
-    let copyResponse = try await command(
-      "UID COPY \(message.uid) \(try Self.quotedMailbox(mailbox))"
-    )
-    guard IMAPResponseParser.copiedUID(copyResponse, sourceUID: message.uid) != nil else {
-      throw IMAPMailboxError.unsafeExpunge
+    if !destinationContainsMessage {
+      let copyResponse = try await command(
+        "UID COPY \(message.uid) \(try Self.quotedMailbox(mailbox))"
+      )
+      guard IMAPResponseParser.copiedUID(copyResponse, sourceUID: message.uid) != nil else {
+        throw IMAPMailboxError.unsafeExpunge
+      }
     }
     try await delete(uid: message.uid, capabilities: capabilities)
   }

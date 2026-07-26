@@ -93,8 +93,10 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
   let to: String?
   let uid: Int64
   let uidValidity: Int64
+  var providerMessageIdOverride: String?
 
   var providerMessageId: String {
+    if let providerMessageIdOverride { return providerMessageIdOverride }
     if let providerEmailId = providerEmailId?.trimmingCharacters(in: .whitespacesAndNewlines),
       !providerEmailId.isEmpty
     {
@@ -709,6 +711,16 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       try connectionRecords.map { try ($0.stableProviderMessageId, $0.message().categoryId) },
       uniquingKeysWith: { first, _ in first }
     )
+    let priorProviderMessageIdOverridesByUID = Dictionary(
+      try matchingRecords.compactMap { record -> (Int64, String)? in
+        let message = try record.message()
+        guard let providerMessageIdOverride = message.providerMessageIdOverride else {
+          return nil
+        }
+        return (message.uid, providerMessageIdOverride)
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
     if case .newest(let coversEntireMailbox) = reconciliation {
       let incomingIds = Set(messages.map(\.providerMessageId))
       let oldestFetchedUID = messages.map(\.uid).min()
@@ -722,6 +734,9 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
       }
     }
     for var message in messages {
+      message.providerMessageIdOverride =
+        message.providerMessageIdOverride
+        ?? priorProviderMessageIdOverridesByUID[message.uid]
       let stableId = StableProviderMessageIdentity(
         connectionId: connectionId,
         providerMessageId: message.providerMessageId
@@ -1270,12 +1285,13 @@ struct IMAPMessageMetadataService {
           let rfcMessageId = previouslyStoredMessages.first(where: {
             $0.providerMessageId == providerMessageId
           })?.rfcMessageId,
-          let movedAppearance = try await client.loadMetadataMessage(
+          var movedAppearance = try await client.loadMetadataMessage(
             rfcMessageId: rfcMessageId,
             mailbox: descriptor,
             authorization: authorization
           )
         else { continue }
+        movedAppearance.providerMessageIdOverride = providerMessageId
         refreshedMessageIds.insert(providerMessageId)
         try store.savePage(
           [movedAppearance],
