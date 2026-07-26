@@ -1,23 +1,23 @@
 packages:
-  - "packages/*"
+  - 'packages/*'
 
 overrides:
-  baseline-browser-mapping: 2.10.33
-  electron-to-chromium: 1.5.367
+  baseline-browser-mapping: 2.11.4
+  electron-to-chromium: 1.5.396
 
 catalog:
-  "@changesets/cli": ^2.31.0
-  "@rajzik/oxfmt-config": ^4.0.3
-  "@rajzik/oxlint-config": ^4.0.3
-  "@rajzik/tsconfig": ^4.0.3
-  "@types/node": ^25.9.1
-  convex: ^1.41.0
-  oxfmt: ^0.53.0
-  oxlint: ^1.68.0
-  oxlint-tsgolint: ^0.23.0
-  turbo: ^2.9.16
-  typescript: ^6.0.3
-  vitest: ^4.1.8
+  '@changesets/cli': ^2.31.1
+  '@rajzik/oxfmt-config': ^4.0.3
+  '@rajzik/oxlint-config': ^4.0.3
+  '@rajzik/tsconfig': ^4.0.3
+  '@types/node': ^26.1.1
+  convex: ^1.42.3
+  oxfmt: ^0.60.0
+  oxlint: ^1.75.0
+  oxlint-tsgolint: ^7.0.2001
+  turbo: ^2.10.7
+  typescript: ^7.0.2
+  vitest: ^4.1.10
 
 allowBuilds:
   esbuild: true

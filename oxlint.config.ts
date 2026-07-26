@@ -5,6 +5,17 @@ export default buildOxlintConfig({
   node: true,
   turbo: true,
   overrides: {
-    ignorePatterns: ['convex/_generated'],
+    ignorePatterns: ['**/convex/_generated/**'],
+    rules: {
+      'unicorn/max-nested-calls': 'allow',
+    },
+    overrides: [
+      {
+        files: ['**/*.test.ts'],
+        rules: {
+          'node/no-sync': 'allow',
+        },
+      },
+    ],
   },
 });

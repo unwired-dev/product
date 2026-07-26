@@ -11,6 +11,7 @@
 import type * as apns from "../apns.js";
 import type * as crons from "../crons.js";
 import type * as gmailPushPayload from "../gmailPushPayload.js";
+import type * as gmailRouting from "../gmailRouting.js";
 import type * as health from "../health.js";
 import type * as http from "../http.js";
 import type * as productAccount from "../productAccount.js";
@@ -28,6 +29,7 @@ declare const fullApi: ApiFromModules<{
   apns: typeof apns;
   crons: typeof crons;
   gmailPushPayload: typeof gmailPushPayload;
+  gmailRouting: typeof gmailRouting;
   health: typeof health;
   http: typeof http;
   productAccount: typeof productAccount;

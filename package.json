@@ -19,7 +19,7 @@
     "@changesets/cli": "catalog:",
     "@rajzik/oxfmt-config": "catalog:",
     "@rajzik/oxlint-config": "catalog:",
-    "fallow": "^2.88.3",
+    "fallow": "^3.9.1",
     "turbo": "catalog:"
   },
   "engines": {
