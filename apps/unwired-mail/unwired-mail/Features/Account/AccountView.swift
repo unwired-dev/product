@@ -4083,8 +4083,11 @@ final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: attempt.message.inReplyTo,
+          kind: attempt.mailboxConnectionId == connection.id ? attempt.message.kind : nil,
           providerThreadId: attempt.mailboxConnectionId == connection.id
-            ? attempt.message.providerThreadId : nil
+            ? attempt.message.providerThreadId : nil,
+          sourceProviderMessageId: attempt.mailboxConnectionId == connection.id
+            ? attempt.message.sourceProviderMessageId : nil
         ),
         connection: connection,
         session: session,

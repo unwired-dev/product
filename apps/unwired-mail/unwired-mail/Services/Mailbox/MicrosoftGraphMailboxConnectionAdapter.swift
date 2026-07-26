@@ -715,10 +715,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     guard let idempotencyKey = message.idempotencyKey else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
-    let recipients = message.recipient
-      .split(whereSeparator: { $0 == "," || $0 == ";" })
-      .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-      .filter { !$0.isEmpty }
+    let recipients = Self.recipientAddresses(in: message.recipient)
     guard !recipients.isEmpty else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
@@ -797,6 +794,59 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       acceptedStatusCodes: 200..<300
     )
     return response
+  }
+
+  private static func recipientAddresses(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<" where !isQuoted:
+        angleBracketDepth += 1
+      case ">" where !isQuoted:
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0,
+        ";" where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+      mailbox.append(character)
+    }
+    mailboxes.append(mailbox)
+    return mailboxes.compactMap(mailboxAddress)
+  }
+
+  private static func mailboxAddress(in value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let address: String
+    if let opening = trimmed.lastIndex(of: "<"),
+      let closing = trimmed.lastIndex(of: ">"),
+      opening < closing
+    {
+      address = String(trimmed[trimmed.index(after: opening)..<closing])
+    } else {
+      address = trimmed
+    }
+    return address.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
   }
 
   private func folderListURL(parentFolderId: String?) throws -> URL {
@@ -1826,31 +1876,38 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: false
     )
-    for index in state.folders.indices {
+    var initialMessageCount = 0
+    for index in state.folders.indices where initialMessageCount < Self.initialPageSize {
       var continuation: URL?
       var messages: [MicrosoftGraphProviderMessage] = []
+      let remainingMessageCount = Self.initialPageSize - initialMessageCount
       if state.folders[index].folder.role == .sent {
         let recentPage = try await client.loadRecentMetadataPage(
           folder: state.folders[index].folder,
-          pageSize: Self.initialPageSize,
+          pageSize: remainingMessageCount,
           accessToken: accessToken
         )
         messages = recentPage.messages
+      } else {
+        repeat {
+          let page = try await client.loadMetadataPage(
+            folder: state.folders[index].folder,
+            continuationURL: continuation,
+            pageSize: Self.initialPageSize - initialMessageCount - messages.count,
+            accessToken: accessToken
+          )
+          try Task.checkCancellation()
+          guard shouldPersist() else { throw CancellationError() }
+          messages.append(contentsOf: page.messages)
+          state.folders[index].nextLink = page.nextLink
+          state.folders[index].deltaLink = page.deltaLink
+          continuation = page.nextLink
+        } while initialMessageCount + messages.count < Self.initialPageSize
+          && continuation != nil
       }
-      repeat {
-        let page = try await client.loadMetadataPage(
-          folder: state.folders[index].folder,
-          continuationURL: continuation,
-          pageSize: Self.initialPageSize,
-          accessToken: accessToken
-        )
-        try Task.checkCancellation()
-        guard shouldPersist() else { throw CancellationError() }
-        messages.append(contentsOf: page.messages)
-        state.folders[index].nextLink = page.nextLink
-        state.folders[index].deltaLink = page.deltaLink
-        continuation = page.nextLink
-      } while messages.count < Self.initialPageSize && continuation != nil
+      try Task.checkCancellation()
+      guard shouldPersist() else { throw CancellationError() }
+      initialMessageCount += messages.count
       try store.savePage(
         messages,
         folderId: state.folders[index].folder.id,

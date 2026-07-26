@@ -153,7 +153,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     try await client.send(
       OutgoingMessage(
         body: "Reply body",
-        recipient: "first@example.com, second@example.com",
+        recipient: #""Doe, Jane" <jane@example.com>, Second <second@example.com>"#,
         subject: "Re: Subject",
         inReplyTo: "<source@example.com>",
         kind: .reply,
@@ -178,7 +178,12 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     let updateJSON = try XCTUnwrap(
       JSONSerialization.jsonObject(with: updateBody) as? [String: Any]
     )
-    XCTAssertEqual((updateJSON["toRecipients"] as? [[String: Any]])?.count, 2)
+    let recipients = try XCTUnwrap(updateJSON["toRecipients"] as? [[String: Any]])
+    XCTAssertEqual(recipients.count, 2)
+    XCTAssertEqual(
+      recipients.compactMap { ($0["emailAddress"] as? [String: Any])?["address"] as? String },
+      ["jane@example.com", "second@example.com"]
+    )
     XCTAssertNil(updateJSON["internetMessageHeaders"])
   }
 
@@ -504,11 +509,33 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       [
         nil,
         "https://graph.microsoft.test/inbox/page-2",
-        nil,
-        "https://graph.microsoft.test/sent/page-2",
       ]
     )
     XCTAssertEqual(client.requestedRecentFolderIds, ["sent-id"])
+  }
+
+  func testInitialAvailabilityStopsAfterFiftyMessagesBeforeLoadingOtherFolders() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "sent-id", displayName: "Sent Items", wellKnownName: "sentitems"),
+    ]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: (1...50).reversed().map { graphMessage($0, folderId: "inbox-id") },
+      nextLink: URL(string: "https://graph.microsoft.test/inbox/page-2"),
+      deltaLink: nil
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertTrue(initial.hasInitialMailboxAvailability)
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(initial.messages.count, 50)
+    XCTAssertEqual(client.requestedContinuations, [nil])
+    XCTAssertTrue(client.requestedRecentFolderIds.isEmpty)
   }
 
   func testExpiredDeltaCursorRestartsWithoutRetainingDuplicateOrStaleMessages() async throws {
