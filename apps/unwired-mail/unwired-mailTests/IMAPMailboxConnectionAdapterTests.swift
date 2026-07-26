@@ -91,7 +91,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
     let message = OutgoingMessage(
-      body: "Hello from IMAP",
+      body: "Héllo from IMAP",
       recipient: "\"Reader, Sr.\" <reader@example.com>, teammate@example.com",
       subject: "Mapped folders",
       inReplyTo: "<parent@example.com>",
@@ -116,6 +116,8 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let submitted = try XCTUnwrap(String(data: smtpClient.sentMessages[0], encoding: .utf8))
     XCTAssertTrue(submitted.contains("Message-ID: <delivery-1@outbox.unwired.mail>"))
     XCTAssertTrue(submitted.contains("In-Reply-To: <parent@example.com>"))
+    XCTAssertTrue(submitted.contains("Content-Transfer-Encoding: base64"))
+    XCTAssertTrue(submitted.contains(Data("Héllo from IMAP".utf8).base64EncodedString()))
     let savedDraft = try XCTUnwrap(
       String(data: client.appendedMessages[1].message, encoding: .utf8)
     )
@@ -194,6 +196,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         .sentCopyOutcomeUnknownAfterAcceptance
       )
     }
+    let unresolvedStatus = try await adapter.deliveryStatus(
+      idempotencyKey: "delivery-unknown-copy",
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(unresolvedStatus, .unknown)
     client.messagesByUsernameAndMailbox[definition.username] = [
       "Sent": [
         imapMessage(
@@ -944,6 +952,66 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(task.writes.contains { $0.contains("EXPUNGE") })
   }
 
+  // swiftlint:disable:next function_body_length
+  func testSystemClientReconcilesUIDPLUSCopyBeforeRetryingMove() async throws {
+    let firstTask = TranscriptIMAPStreamTask(
+      responses: [
+        .success("* OK ready\r\n"),
+        .success("A1 OK authenticated\r\n"),
+        .success("* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n"),
+        .success("* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n"),
+        .success("* OK [UIDVALIDITY 8] selected\r\nA4 OK selected\r\n"),
+        .success("* SEARCH\r\nA5 OK searched\r\n"),
+        .success("* OK [UIDVALIDITY 1] selected\r\nA6 OK selected\r\n"),
+        .success("A7 OK [COPYUID 8 7 42] copied\r\n"),
+        .failure(URLError(.networkConnectionLost)),
+      ]
+    )
+    let retryTask = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "* CAPABILITY IMAP4rev1 UIDPLUS\r\nA2 OK capable\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA3 OK selected\r\n",
+        "* OK [UIDVALIDITY 8] selected\r\nA4 OK selected\r\n",
+        "* SEARCH 42\r\nA5 OK searched\r\n",
+        "* OK [UIDVALIDITY 1] selected\r\nA6 OK selected\r\n",
+        "A7 OK stored\r\n",
+        "A8 OK expunged\r\n",
+      ]
+    )
+    let definition = imapDefinition(username: "reader")
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [firstTask, retryTask])
+    )
+    let authorization = DeviceLocalGenericMailAuthorization(
+      credential: "secret",
+      definition: definition
+    )
+    let message = imapMessage(uid: 7)
+
+    do {
+      try await client.perform(
+        .archive,
+        message: message,
+        targetMailbox: "Archive",
+        authorization: authorization
+      )
+      XCTFail("Expected the first deletion attempt to disconnect")
+    } catch is URLError {
+    }
+    try await client.perform(
+      .archive,
+      message: message,
+      targetMailbox: "Archive",
+      authorization: authorization
+    )
+
+    XCTAssertTrue(firstTask.writes.contains("A7 UID COPY 7 \"Archive\"\r\n"))
+    XCTAssertFalse(retryTask.writes.contains { $0.contains("UID COPY") })
+    XCTAssertTrue(retryTask.writes.contains("A8 UID EXPUNGE 7\r\n"))
+  }
+
   func testSystemSMTPClientSubmitsDotStuffedMessage() async throws {
     let task = TranscriptIMAPStreamTask(
       responses: [
@@ -1009,6 +1077,38 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testSystemSMTPClientCompletesXOAUTH2ErrorContinuation() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "220 ready\r\n",
+        "250 AUTH XOAUTH2\r\n",
+        "334 eyJzdGF0dXMiOiI0MDEifQ==\r\n",
+        "535 authentication rejected\r\n",
+      ]
+    )
+    let definition = imapDefinition(username: "sender", authorizationMethod: .oauth)
+    let client = SystemSMTPMailClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.send(
+        Data("Subject: Auth\r\n\r\nbody".utf8),
+        envelopeFrom: definition.emailAddress,
+        envelopeRecipients: ["reader@example.com"],
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "expired-token",
+          definition: definition
+        )
+      )
+      XCTFail("Expected authentication rejection")
+    } catch {
+      XCTAssertEqual(error as? SMTPMailError, .responseCode(535))
+    }
+
+    XCTAssertTrue(task.writes.contains("\r\n"))
+  }
+
   func testSystemIMAPClientUsesLongLivedReadForIDLEChanges() async throws {
     let task = TranscriptIMAPStreamTask(
       responses: [
@@ -1072,6 +1172,36 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(task.writes.contains("Subject: Saved?\r\n\r\nbody\r\n"))
   }
 
+  func testSystemIMAPClientReportsUnknownAppendWhenLiteralWriteFails() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "+ continue\r\n",
+      ]
+    )
+    task.writeFailureAtCall = 3
+    let definition = imapDefinition(username: "sender")
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    do {
+      try await client.appendMessage(
+        Data("Subject: Saved?\r\n\r\nbody".utf8),
+        to: "Sent",
+        flags: ["\\Seen"],
+        authorization: DeviceLocalGenericMailAuthorization(
+          credential: "secret",
+          definition: definition
+        )
+      )
+      XCTFail("Expected an unknown APPEND outcome")
+    } catch {
+      XCTAssertEqual(error as? IMAPMailboxError, .appendOutcomeUnknown)
+    }
+  }
+
   private func authorizedStore(
     _ definition: GenericMailConnectionDefinition
   ) -> RecordingIMAPAuthorizationStore {
@@ -1116,6 +1246,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
 private func imapDefinition(
   username: String,
+  authorizationMethod: MailAuthorizationMethod = .password,
   imapCapabilities: Set<String>? = nil,
   roleMappings: [CanonicalMailboxRole: String] = [
     .archive: "Archive",
@@ -1126,7 +1257,7 @@ private func imapDefinition(
   ]
 ) -> GenericMailConnectionDefinition {
   GenericMailConnectionDefinition(
-    authorizationMethod: .password,
+    authorizationMethod: authorizationMethod,
     emailAddress: "\(username)@example.com",
     imapCapabilities: imapCapabilities,
     incomingEndpoint: GenericMailEndpoint(
@@ -1529,6 +1660,7 @@ private final class TranscriptIMAPStreamTask: GenericMailStreamTasking {
   private var responses: [Result<Data, Error>]
   private(set) var readTimeouts: [TimeInterval] = []
   private(set) var writes: [String] = []
+  var writeFailureAtCall: Int?
 
   init(responses: [String]) {
     self.responses = responses.map { .success(Data($0.utf8)) }
@@ -1569,6 +1701,9 @@ private final class TranscriptIMAPStreamTask: GenericMailStreamTasking {
 
   func write(_ value: String) async throws {
     writes.append(value)
+    if writes.count == writeFailureAtCall {
+      throw URLError(.networkConnectionLost)
+    }
   }
 }
 

@@ -2257,7 +2257,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     return page.messages.contains {
       $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         == messageId
-    } ? .sent : .notSent
+    } ? .sent : .unknown
   }
 
   private func pendingActionPerformer(
@@ -2433,7 +2433,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       "Subject: \(try encodedHeaderValue(message.subject))",
       "MIME-Version: 1.0",
       "Content-Type: text/plain; charset=utf-8",
-      "Content-Transfer-Encoding: 8bit",
+      "Content-Transfer-Encoding: base64",
     ]
     if !recipient.isEmpty {
       headers.insert("To: \(recipient)", at: 0)
@@ -2446,7 +2446,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     if let rfcMessageId = message.rfcMessageId {
       headers.append("Message-ID: \(try safeHeaderValue(rfcMessageId))")
     }
-    return Data((headers + ["", message.body]).joined(separator: "\r\n").utf8)
+    let encodedBody = Data(message.body.utf8).base64EncodedString(
+      options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
+    )
+    return Data((headers + ["", encodedBody]).joined(separator: "\r\n").utf8)
   }
 
   private static func encodedHeaderValue(_ value: String) throws -> String {

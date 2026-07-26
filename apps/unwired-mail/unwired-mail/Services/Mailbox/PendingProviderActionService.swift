@@ -455,11 +455,22 @@ actor PendingProviderActionService {
           && !action.isConfirmed(in: messages)
       }.map(\.id)
     )
+    let disappearedActionIds = Set(
+      actions.filter { action in
+        action.connectionId == connection.id.rawValue
+          && action.state == .providerConfirmed
+          && action.action.confirmsWhenProviderMessageDisappears
+          && action.messageIds.allSatisfy { messageId in
+            !messages.contains { $0.providerMessageId == messageId }
+          }
+      }.map(\.id)
+    )
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && (confirmedActionIds.contains($0.id)
           || supersededActionIds.contains($0.id)
-          || contradictedActionIds.contains($0.id))
+          || contradictedActionIds.contains($0.id)
+          || disappearedActionIds.contains($0.id))
     }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -653,6 +664,17 @@ actor PendingProviderActionService {
       connectionId: connection.id.rawValue,
       productAccountId: session.productAccountId
     )
+  }
+}
+
+extension ProviderMailAction {
+  fileprivate var confirmsWhenProviderMessageDisappears: Bool {
+    switch self {
+    case .archive, .delete, .move, .notSpam, .restore, .spam:
+      return true
+    case .markRead, .markUnread, .star, .unstar:
+      return false
+    }
   }
 }
 

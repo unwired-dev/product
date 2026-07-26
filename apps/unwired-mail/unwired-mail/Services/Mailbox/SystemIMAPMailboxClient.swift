@@ -145,7 +145,7 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       case .delete:
         if let targetMailbox, !targetMailbox.isEmpty {
           try await session.move(
-            uid: message.uid,
+            message: message,
             to: targetMailbox,
             capabilities: capabilities
           )
@@ -157,7 +157,7 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
           throw IMAPMailboxError.unsupportedAction
         }
         try await session.move(
-          uid: message.uid,
+          message: message,
           to: targetMailbox,
           capabilities: capabilities
         )
@@ -328,7 +328,11 @@ private final class IMAPWireSession {
     guard try await readLine().hasPrefix("+") else {
       throw IMAPMailboxError.invalidProviderResponse
     }
-    try await task.write("\(message)\r\n")
+    do {
+      try await task.write("\(message)\r\n")
+    } catch {
+      throw IMAPMailboxError.appendOutcomeUnknown
+    }
     let response: String
     do {
       response = try await readTaggedResponse(tag: tag, respondsToContinuation: false)
@@ -352,19 +356,35 @@ private final class IMAPWireSession {
   }
 
   func move(
-    uid: Int64,
+    message: IMAPProviderMessage,
     to mailbox: String,
     capabilities: Set<String>
   ) async throws {
     if capabilities.contains("MOVE") {
-      _ = try await command("UID MOVE \(uid) \(Self.quoted(mailbox))")
+      _ = try await command("UID MOVE \(message.uid) \(Self.quoted(mailbox))")
       return
     }
     guard capabilities.contains("UIDPLUS") else {
       throw IMAPMailboxError.unsafeExpunge
     }
-    _ = try await command("UID COPY \(uid) \(Self.quoted(mailbox))")
-    try await delete(uid: uid, capabilities: capabilities)
+    guard let rfcMessageId = message.rfcMessageId, !rfcMessageId.isEmpty else {
+      throw IMAPMailboxError.unsafeExpunge
+    }
+    _ = try await command("SELECT \(Self.quoted(mailbox))")
+    let search = try await command(
+      "UID SEARCH HEADER Message-ID \(Self.quoted(rfcMessageId))"
+    )
+    let destinationContainsMessage = search.components(separatedBy: "\r\n").contains {
+      $0.uppercased().hasPrefix("* SEARCH ")
+    }
+    let selected = try await command("SELECT \(Self.quoted(message.mailbox))")
+    guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
+      throw IMAPMailboxError.missingMessage
+    }
+    if !destinationContainsMessage {
+      _ = try await command("UID COPY \(message.uid) \(Self.quoted(mailbox))")
+    }
+    try await delete(uid: message.uid, capabilities: capabilities)
   }
 
   func waitForIdleChange() async throws {

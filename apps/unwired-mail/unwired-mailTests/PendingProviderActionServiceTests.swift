@@ -718,6 +718,35 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(actions.isEmpty)
   }
 
+  func testProviderSyncClearsConfirmedUIDChangingActionWhenOldIdentityDisappears() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-before-move",
+      providerStateIds: ["INBOX"]
+    )
+
+    try await service.perform(
+      .move,
+      targetProviderMailboxId: "Archive",
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: "message-after-move",
+          providerStateIds: ["Archive"]
+        )
+      ],
+      connection: connection,
+      session: session
+    )
+
+    let pendingActions = try await service.pendingActions(session: session)
+    XCTAssertTrue(pendingActions.isEmpty)
+  }
+
   func testDeleteProjectionRemovesSpam() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(

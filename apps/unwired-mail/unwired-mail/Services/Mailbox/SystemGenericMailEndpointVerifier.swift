@@ -481,11 +481,18 @@ private final class SMTPDeliveryConversation {
         "user=\(username)\u{1}auth=Bearer \(credential)\u{1}\u{1}".utf8
       ).base64EncodedString()
       try await write("AUTH XOAUTH2 \(payload)\r\n")
+      let code = try await readResponseCode()
+      if code == 334 {
+        try await write("\r\n")
+        try await expect(235)
+      } else if code != 235 {
+        throw SMTPMailError.responseCode(code)
+      }
     } else {
       let payload = Data("\u{0}\(username)\u{0}\(credential)".utf8).base64EncodedString()
       try await write("AUTH PLAIN \(payload)\r\n")
+      try await expect(235)
     }
-    try await expect(235)
   }
 
   private func expect(_ code: Int) async throws {
