@@ -1364,6 +1364,8 @@ export const registerGmailConnectionForIdentity = internalMutation({
     providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
+  // Registration keeps identity binding and legacy route adoption atomic.
+  // fallow-ignore-next-line complexity
   handler: async (ctx, args) => {
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
@@ -1676,8 +1678,8 @@ export const verifyGmailWatchForIdentity = internalMutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   // The mutation has distinct authentication, freshness, and signal-verification guards.
+  /* oxlint-disable complexity -- Verification keeps migration and proof updates atomic. */
   // fallow-ignore-next-line complexity
-  // oxlint-disable-next-line complexity -- Verification keeps migration and proof updates atomic.
   handler: async (ctx, args) => {
     if (args.historyId.length === 0) {
       throw new Error('Gmail history id required');
@@ -1824,6 +1826,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     );
     return { routeId, verified };
   },
+  /* oxlint-enable complexity */
   returns: gmailPushVerificationResponseValidator,
 });
 
