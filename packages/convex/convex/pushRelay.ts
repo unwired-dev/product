@@ -1395,6 +1395,7 @@ export const verifyGmailWatch = action({
         currentRoutingKeyVersion: currentRouting.keyVersion,
         historyId: args.historyId,
         opaqueConnectionId: args.opaqueConnectionId,
+        providerAccountIdentifier: identity.providerAccountIdentifier,
         trustedDeviceId: args.trustedDeviceId,
       });
     return result;
@@ -1420,6 +1421,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
     currentRoutingKeyVersion: v.number(),
     historyId: v.string(),
     opaqueConnectionId: v.string(),
+    providerAccountIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   // The mutation has distinct authentication, freshness, and signal-verification guards.
@@ -1446,6 +1448,45 @@ export const verifyGmailWatchForIdentity = internalMutation({
       !args.acceptedRoutingDigests.includes(connection.gmailRoutingDigest)
     ) {
       throw new Error('Gmail mailbox ownership proof rejected');
+    }
+    const identityBindingDigests = await gmailIdentityBindingDigests(
+      account.productAccountId,
+      args.providerAccountIdentifier,
+    );
+    const [currentIdentityBindingDigest] = identityBindingDigests;
+    if (currentIdentityBindingDigest === undefined) {
+      throw new Error('Gmail mailbox ownership proof rejected');
+    }
+    const identityBinding = await ctx.db
+      .query('gmailOpaqueIdentityBindings')
+      .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('opaqueConnectionId', args.opaqueConnectionId),
+      )
+      .unique();
+    if (
+      identityBinding !== null &&
+      !identityBindingDigests.includes(identityBinding.identityBindingDigest)
+    ) {
+      throw new Error('Gmail mailbox ownership proof rejected');
+    }
+    const bindingUpdatedAt = Date.now();
+    if (identityBinding === null) {
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: currentIdentityBindingDigest,
+        opaqueConnectionId: args.opaqueConnectionId,
+        productAccountId: account.productAccountId,
+        updatedAt: bindingUpdatedAt,
+      });
+    } else if (
+      identityBinding.identityBindingDigest !== currentIdentityBindingDigest
+    ) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(identityBinding._id, {
+        identityBindingDigest: currentIdentityBindingDigest,
+        updatedAt: bindingUpdatedAt,
+      });
     }
     const device = await ctx.db.get(args.trustedDeviceId);
     if (device === null) {

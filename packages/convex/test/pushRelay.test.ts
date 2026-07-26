@@ -1462,7 +1462,7 @@ describe('gmail push relay', () => {
   });
 
   it('upgrades an already verified route during routing-key rotation', async () => {
-    expect.assertions(2);
+    expect.assertions(3);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1526,6 +1526,23 @@ describe('gmail push relay', () => {
           'rotated-routing-test-key',
           2,
         ),
+      );
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '');
+      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      });
+      await expect(
+        registerGmailConnection(asUser, {
+          emailAddress: 'matching@example.com',
+          providerAccountIdentifier: 'gmail-user-001',
+          trustedDeviceId: secondDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual(
+        expect.objectContaining({
+          opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+        }),
       );
     } finally {
       vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
