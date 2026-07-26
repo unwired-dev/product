@@ -197,7 +197,8 @@ final class PinSyncServiceTests: XCTestCase {
       ),
       messageReader: mailboxService,
       pinViewModel: pinViewModel,
-      selection: MailShellSelectionModel()
+      selection: MailShellSelectionModel(),
+      session: firstDeviceSession
     )
 
     await reader.togglePin(Self.messageId)
@@ -608,6 +609,11 @@ private final class EmptyMailboxService:
   }
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
 
   func loadMessageBody(
     message _: MailboxMessageMetadata,

@@ -553,4 +553,11 @@ struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
     }
     if let firstError { throw firstError }
   }
+
+  func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await gmailConnection.clearLocalConnection(connection, session: session)
+  }
 }

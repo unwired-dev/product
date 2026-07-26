@@ -1033,6 +1033,13 @@ private final class RecordingGmailMessageBodyCache: GmailMessageBodyCaching {
     payload = nil
   }
 
+  func clearMessageBodies(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    payload = nil
+  }
+
   func loadMessageBody(
     productAccountId _: String,
     stableProviderMessageId _: String
@@ -1075,6 +1082,13 @@ private final class RecordingBodyPrefetchMetadataStore: GmailMessageMetadataPers
   }
 
   func clearMessages(productAccountId _: String) throws {
+    messages = []
+  }
+
+  func clearMessages(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
     messages = []
   }
 

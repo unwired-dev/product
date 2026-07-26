@@ -1518,12 +1518,6 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> MailboxConnection? {
-    try await loadConnections(session: session).first
-  }
-
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
@@ -1960,12 +1954,6 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
       session: session,
       isSessionCurrent: isSessionCurrent
     )
-  }
-
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> MailboxConnection? {
-    try await loadConnections(session: session).first
   }
 
   func loadConnections(

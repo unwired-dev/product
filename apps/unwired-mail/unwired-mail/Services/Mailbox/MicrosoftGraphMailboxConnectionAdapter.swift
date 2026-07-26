@@ -199,7 +199,7 @@ struct KeychainMicrosoftGraphAuthorizationStore: MicrosoftGraphAuthorizationPers
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryMicrosoftGraphAuthorizationStore:
     MicrosoftGraphAuthorizationPersisting
   {

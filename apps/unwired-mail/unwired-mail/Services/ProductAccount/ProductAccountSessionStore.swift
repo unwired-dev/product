@@ -72,7 +72,7 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var snapshot: ProductAccountSessionSnapshot?
 

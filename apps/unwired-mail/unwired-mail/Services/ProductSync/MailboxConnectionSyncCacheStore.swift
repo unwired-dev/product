@@ -38,7 +38,7 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersisting {
     private var payloads: [String: EncryptedProductSyncPayload] = [:]
 

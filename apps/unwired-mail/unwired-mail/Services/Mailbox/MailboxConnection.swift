@@ -763,12 +763,6 @@ extension MailboxConnectionClearing {
     try await clearLocalConnection(session: session)
   }
 
-  func clearLocalConnection(
-    _ connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    try await clearLocalConnection(session: session)
-  }
 }
 
 protocol MailboxConnectionManaging: MailboxConnectionClearing {
@@ -777,10 +771,6 @@ protocol MailboxConnectionManaging: MailboxConnectionClearing {
     expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
-  ) async throws -> MailboxConnection?
-
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnection?
 
   func loadConnections(
@@ -815,14 +805,6 @@ extension MailboxConnectionManaging {
     )
   }
 
-  func loadConnections(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> [MailboxConnection] {
-    if let connection = try await loadConnection(session: session) {
-      return [connection]
-    }
-    return []
-  }
 }
 
 protocol MailboxMetadataSyncing {
@@ -937,15 +919,6 @@ protocol MailboxMessageReading {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws
-}
-
-extension MailboxMessageReading {
-  func clearCachedMessageBodies(
-    connection _: MailboxConnection,
-    session: ProductAccountSessionSnapshot
-  ) throws {
-    try clearCachedMessageBodies(session: session)
-  }
 }
 
 protocol MailboxPushRegistering {
@@ -1328,12 +1301,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       throw error
     }
-  }
-
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> MailboxConnection? {
-    try await loadConnections(session: session).first
   }
 
   func loadConnections(

@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // swiftlint:disable file_length
@@ -38,6 +39,14 @@ struct GmailProviderConnectionStatus: Codable, Equatable {
   let lastVerifiedAt: Int64
   let provider: String
   let providerAccountIdentifier: String
+  let trustedDeviceId: String
+  let updatedAt: Int64
+}
+
+struct GmailOperationalConnectionStatus: Codable, Equatable {
+  let connectedAt: Int64
+  let lastVerifiedAt: Int64
+  let opaqueConnectionId: String
   let trustedDeviceId: String
   let updatedAt: Int64
 }
@@ -83,12 +92,13 @@ protocol GmailProviderTokenPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
-  func clearLegacy(productAccountId: String) throws
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderTokens?
+  func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens]
   func loadLegacy(productAccountId: String) throws -> GmailProviderTokens?
+  func clearLegacy(productAccountId: String) throws
   func save(
     _ tokens: GmailProviderTokens,
     productAccountId: String,
@@ -97,60 +107,53 @@ protocol GmailProviderTokenPersisting {
 }
 
 extension GmailProviderTokenPersisting {
-  func clearLegacy(productAccountId _: String) throws {}
+  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] { [:] }
   func loadLegacy(productAccountId _: String) throws -> GmailProviderTokens? { nil }
+  func clearLegacy(productAccountId _: String) throws {}
 }
 
 protocol GmailProviderConnectionTransport {
-  func connectGmailProvider(
+  func registerGmailConnection(
+    gmailIdentityToken: String,
     identityToken: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String,
-    emailAddress: String,
-    providerAccountIdentifier: String
-  ) async throws -> GmailProviderConnectionStatus
+  ) async throws -> GmailOperationalConnectionStatus
 
-  func getGmailProviderConnection(
+  func removeGmailConnection(
     identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> GmailProviderConnectionStatus?
-
-  func listGmailProviderConnections(
-    identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> [GmailProviderConnectionStatus]
-
-  func removeGmailProviderConnection(
-    identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool
 
   func shouldStopGmailPushWatch(
     identityToken: String,
-    providerAccountIdentifier: String,
+    opaqueConnectionId: String,
     trustedDeviceId: String
   ) async throws -> Bool
 }
 
 extension GmailProviderConnectionTransport {
-  func listGmailProviderConnections(
-    identityToken: String,
-    trustedDeviceId: String
-  ) async throws -> [GmailProviderConnectionStatus] {
-    if let connection = try await getGmailProviderConnection(
-      identityToken: identityToken,
-      trustedDeviceId: trustedDeviceId
-    ) {
-      return [connection]
-    }
-    return []
-  }
-
-  func removeGmailProviderConnection(
+  func removeGmailConnection(
     identityToken _: String,
-    providerAccountIdentifier _: String,
+    opaqueConnectionId _: String,
     trustedDeviceId _: String
   ) async throws -> Bool { false }
+}
+
+func opaqueGmailConnectionId(
+  productAccountId: String,
+  providerAccountIdentifier: String
+) -> String {
+  let input = Data(
+    "dev.unwired.mail.gmail-operational-connection.v1"
+      .appending("\0\(productAccountId)\0\(providerAccountIdentifier)")
+      .utf8
+  )
+  return Data(SHA256.hash(data: input)).base64EncodedString()
+    .replacingOccurrences(of: "+", with: "-")
+    .replacingOccurrences(of: "/", with: "_")
+    .replacingOccurrences(of: "=", with: "")
 }
 
 protocol GmailProviderConnecting {
@@ -168,31 +171,9 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus
 
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus?
-
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
-}
-
-extension GmailProviderConnecting {
-  func clearLocalConnection(
-    _ connection: GmailProviderConnectionStatus,
-    session: ProductAccountSessionSnapshot
-  ) async throws {
-    try await clearLocalConnection(session: session)
-  }
-
-  func loadConnections(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> [GmailProviderConnectionStatus] {
-    if let connection = try await loadConnection(session: session) {
-      return [connection]
-    }
-    return []
-  }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -216,8 +197,16 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
       ))
   }
 
-  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
-    try tokens(account: legacyAccountName(productAccountId))
+  func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens] {
+    try Dictionary(
+      uniqueKeysWithValues: providerAccountIdentifiers(productAccountId: productAccountId)
+        .compactMap { providerAccountIdentifier in
+          try load(
+            productAccountId: productAccountId,
+            providerAccountIdentifier: providerAccountIdentifier
+          ).map { (providerAccountIdentifier, $0) }
+        }
+    )
   }
 
   func save(
@@ -285,6 +274,10 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
     try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
   }
 
+  func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
+    try tokens(account: legacyAccountName(productAccountId))
+  }
+
   func clearLegacy(productAccountId: String) throws {
     try KeychainStore.delete(service: service, account: legacyAccountName(productAccountId))
   }
@@ -348,6 +341,23 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
   }
 }
 
+private func clearGmailProviderTokens(
+  _ tokenStore: GmailProviderTokenPersisting,
+  productAccountId: String,
+  providerAccountIdentifier: String,
+  hasRemainingGmailConnections: Bool
+) throws {
+  if hasRemainingGmailConnections {
+    try tokenStore.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  } else {
+    try tokenStore.clearAll(productAccountId: productAccountId)
+  }
+}
+
+// swiftlint:disable:next type_body_length
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
@@ -357,6 +367,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   private let metadataStore: GmailMessageMetadataPersisting
   private let tokenStore: GmailProviderTokenPersisting
   private let transport: GmailProviderConnectionTransport
+  private let credentialVerifier: GmailProviderCredentialVerifying
 
   init(
     backgroundContextCacheStore: BackgroundContextCachePersisting =
@@ -368,7 +379,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     pushWatchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore(),
     metadataStore: GmailMessageMetadataPersisting = SwiftDataGmailMessageMetadataStore(),
     tokenStore: GmailProviderTokenPersisting = KeychainGmailProviderTokenStore(),
-    transport: GmailProviderConnectionTransport = ConvexClient()
+    transport: GmailProviderConnectionTransport = ConvexClient(),
+    credentialVerifier: GmailProviderCredentialVerifying =
+      GoogleGmailProviderCredentialVerifier()
   ) {
     self.backgroundContextCacheStore = backgroundContextCacheStore
     self.bodyReader = bodyReader
@@ -378,6 +391,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     self.metadataStore = metadataStore
     self.tokenStore = tokenStore
     self.transport = transport
+    self.credentialVerifier = credentialVerifier
   }
 
   func completeConnection(
@@ -390,7 +404,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       providerAccountIdentifier: providerAccountIdentifier
     )
     try tokenStore.save(
-      verifiedAccount.tokens,
+      GmailProviderTokens(
+        accessToken: verifiedAccount.tokens.accessToken,
+        refreshToken: verifiedAccount.tokens.refreshToken
+      ),
       productAccountId: session.productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
@@ -455,10 +472,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
-    try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
-    let hasRemainingGmailConnections = try await transport.removeGmailProviderConnection(
+    try backgroundContextCacheStore.clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let hasRemainingGmailConnections = try await transport.removeGmailConnection(
       identityToken: session.identityToken,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
+      opaqueConnectionId: opaqueGmailConnectionId(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
       trustedDeviceId: session.trustedDeviceId
     )
     if shouldStopWatch {
@@ -472,6 +495,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     if !hasRemainingGmailConnections {
       do {
+        try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+      do {
         try bodyReader.clearCachedMessageBodies(session: session)
       } catch {
         cleanupError = cleanupError ?? error
@@ -483,19 +511,14 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     do {
-      try tokenStore.clear(
+      try clearGmailProviderTokens(
+        tokenStore,
         productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
+        providerAccountIdentifier: connection.providerAccountIdentifier,
+        hasRemainingGmailConnections: hasRemainingGmailConnections
       )
     } catch {
       cleanupError = cleanupError ?? error
-    }
-    if !hasRemainingGmailConnections {
-      do {
-        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
     }
     do {
       try metadataStore.clearMessages(
@@ -547,12 +570,29 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     previousTokens: GmailProviderTokens?
   ) async throws -> GmailProviderConnectionStatus {
     do {
-      return try await transport.connectGmailProvider(
+      guard let gmailIdentityToken = verifiedAccount.tokens.idToken else {
+        throw GmailProviderCredentialVerificationError.missingVerificationResponse
+      }
+      let operationalStatus = try await transport.registerGmailConnection(
+        gmailIdentityToken: gmailIdentityToken,
         identityToken: session.identityToken,
-        trustedDeviceId: session.trustedDeviceId,
-        emailAddress: verifiedAccount.emailAddress,
-        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+        opaqueConnectionId: opaqueGmailConnectionId(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+        ),
+        trustedDeviceId: session.trustedDeviceId
       )
+      let status = GmailProviderConnectionStatus(
+        connectedAt: operationalStatus.connectedAt,
+        emailAddress: verifiedAccount.emailAddress,
+        lastVerifiedAt: operationalStatus.lastVerifiedAt,
+        provider: "gmail",
+        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+        trustedDeviceId: operationalStatus.trustedDeviceId,
+        updatedAt: operationalStatus.updatedAt
+      )
+      try pushConnectionStore.save(status, productAccountId: session.productAccountId)
+      return status
     } catch {
       if let previousTokens {
         try tokenStore.save(
@@ -570,34 +610,80 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
-    let statuses = try await transport.listGmailProviderConnections(
-      identityToken: session.identityToken,
-      trustedDeviceId: session.trustedDeviceId
-    )
-    var tokensByIdentifier: [String: GmailProviderTokens] = [:]
-    for status in statuses {
-      if let tokensForStatus = try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: status.providerAccountIdentifier
-      ) {
-        tokensByIdentifier[status.providerAccountIdentifier] = tokensForStatus
+    var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+    var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
+    for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
+    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
+      do {
+        let verifiedAccount = try await credentialVerifier.verify(
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken
+        )
+        let status = try await completeConnection(
+          verifiedAccount: verifiedAccount,
+          session: session
+        )
+        statuses.removeAll {
+          $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+        }
+        statuses.append(status)
+        tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = verifiedAccount.tokens
+        if storedIdentifier != verifiedAccount.providerAccountIdentifier {
+          try tokenStore.clear(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: storedIdentifier
+          )
+          tokensByIdentifier[storedIdentifier] = nil
+        }
+      } catch {
+        continue
       }
     }
-    if statuses.count == 1,
-      let status = statuses.first,
-      tokensByIdentifier[status.providerAccountIdentifier] == nil,
-      let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+    if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
+      statuses.isEmpty
+        || statuses.contains(where: {
+          tokensByIdentifier[$0.providerAccountIdentifier] == nil
+        })
     {
-      try tokenStore.save(
-        legacyTokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: status.providerAccountIdentifier
-      )
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-      return [status]
+      do {
+        let verifiedAccount = try await credentialVerifier.verify(
+          accessToken: legacyTokens.accessToken,
+          refreshToken: legacyTokens.refreshToken
+        )
+        var didMigrateLegacyTokens = false
+        if statuses.contains(where: {
+          $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+        }) {
+          let migratedTokens = GmailProviderTokens(
+            accessToken: verifiedAccount.tokens.accessToken,
+            refreshToken: verifiedAccount.tokens.refreshToken
+          )
+          try tokenStore.save(
+            migratedTokens,
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+          )
+          tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = migratedTokens
+          didMigrateLegacyTokens = true
+        } else if statuses.isEmpty {
+          let status = try await completeConnection(
+            verifiedAccount: verifiedAccount,
+            session: session
+          )
+          statuses = [status]
+          tokensByIdentifier[status.providerAccountIdentifier] = verifiedAccount.tokens
+          didMigrateLegacyTokens = true
+        }
+        if didMigrateLegacyTokens {
+          try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+        }
+      } catch {
+        // A stale legacy credential must not hide connections with valid scoped tokens.
+      }
     }
     return statuses.filter { status in
       guard status.trustedDeviceId == session.trustedDeviceId else { return false }
@@ -606,19 +692,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
   }
 }
 extension GmailProviderConnectionService {
-  func loadConnection(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> GmailProviderConnectionStatus? {
-    try await loadConnections(session: session).first
-  }
-
   fileprivate func shouldStopPushWatch(
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async -> Bool {
     (try? await transport.shouldStopGmailPushWatch(
       identityToken: session.identityToken,
-      providerAccountIdentifier: connection.providerAccountIdentifier,
+      opaqueConnectionId: opaqueGmailConnectionId(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
       trustedDeviceId: session.trustedDeviceId
     )) == true
   }
@@ -661,6 +744,36 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       throw GmailProviderCredentialVerificationError.missingOAuthClientId
     }
 
+    let refreshedProfileAndTokenInfo = try await refreshProfileAndTokenInfo(
+      refreshToken: refreshToken,
+      oauthClientId: oauthClientId
+    )
+    guard refreshedProfileAndTokenInfo.tokenInfo.allowsReadingMessageBodies else {
+      throw GmailProviderCredentialVerificationError.insufficientGmailScope
+    }
+    if let persistedIdentity = try? await verifyAccessToken(accessToken),
+      persistedIdentity.profile.emailAddress.caseInsensitiveCompare(
+        refreshedProfileAndTokenInfo.profile.emailAddress
+      ) != .orderedSame
+        || persistedIdentity.subject != refreshedProfileAndTokenInfo.subject
+    {
+      throw GmailProviderCredentialVerificationError.accountMismatch
+    }
+
+    return VerifiedGmailAccount(
+      emailAddress: refreshedProfileAndTokenInfo.profile.emailAddress,
+      providerAccountIdentifier: refreshedProfileAndTokenInfo.subject,
+      tokens: GmailProviderTokens(
+        accessToken: refreshedProfileAndTokenInfo.accessToken,
+        refreshToken: refreshToken,
+        idToken: refreshedProfileAndTokenInfo.idToken
+      )
+    )
+  }
+
+  private func verifyAccessToken(
+    _ accessToken: String
+  ) async throws -> PersistedGmailVerification {
     let profile = try await validateGmailAuthorization(accessToken: accessToken)
     var components = URLComponents(url: tokenInfoURL, resolvingAgainstBaseURL: false)
     components?.queryItems = [
@@ -669,42 +782,19 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     guard let url = components?.url else {
       throw GmailProviderCredentialVerificationError.invalidAccessToken
     }
-
     let (data, response) = try await session.data(from: url)
     guard let httpResponse = response as? HTTPURLResponse,
       (200..<300).contains(httpResponse.statusCode)
     else {
       throw GmailProviderCredentialVerificationError.invalidAccessToken
     }
-
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: data)
     guard tokenInfo.allowsReadingMessageBodies else {
       throw GmailProviderCredentialVerificationError.insufficientGmailScope
     }
-    let subject = try await loadGoogleAccountIdentifier(accessToken: accessToken)
-    let refreshedProfileAndTokenInfo = try await refreshProfileAndTokenInfo(
-      refreshToken: refreshToken,
-      oauthClientId: oauthClientId
-    )
-    guard
-      refreshedProfileAndTokenInfo.profile.emailAddress.caseInsensitiveCompare(
-        profile.emailAddress
-      ) == .orderedSame,
-      refreshedProfileAndTokenInfo.subject == subject
-    else {
-      throw GmailProviderCredentialVerificationError.accountMismatch
-    }
-    guard refreshedProfileAndTokenInfo.tokenInfo.allowsReadingMessageBodies else {
-      throw GmailProviderCredentialVerificationError.insufficientGmailScope
-    }
-
-    return VerifiedGmailAccount(
-      emailAddress: profile.emailAddress,
-      providerAccountIdentifier: subject,
-      tokens: GmailProviderTokens(
-        accessToken: accessToken,
-        refreshToken: refreshToken
-      )
+    return PersistedGmailVerification(
+      profile: profile,
+      subject: try await loadGoogleAccountIdentifier(accessToken: accessToken)
     )
   }
 
@@ -772,6 +862,8 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: tokenInfoData)
     let subject = try await loadGoogleAccountIdentifier(accessToken: tokenResponse.accessToken)
     return RefreshedGmailVerification(
+      accessToken: tokenResponse.accessToken,
+      idToken: tokenResponse.idToken,
       profile: profile,
       subject: subject,
       tokenInfo: tokenInfo
@@ -849,9 +941,16 @@ private struct GoogleOpenIDUserInfoResponse: Decodable {
 }
 
 private struct RefreshedGmailVerification {
+  let accessToken: String
+  let idToken: String?
   let profile: GoogleGmailProfileResponse
   let subject: String
   let tokenInfo: GoogleTokenInfoResponse
+}
+
+private struct PersistedGmailVerification {
+  let profile: GoogleGmailProfileResponse
+  let subject: String
 }
 
 private struct GoogleGmailProfileResponse: Decodable {
@@ -860,22 +959,34 @@ private struct GoogleGmailProfileResponse: Decodable {
 
 private struct GoogleRefreshTokenResponse: Decodable {
   let accessToken: String
+  let idToken: String?
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
+    case idToken = "id_token"
   }
 }
 
-#if DEBUG
+#if DEBUG || TESTING
   final class InMemoryGmailProviderTokenStore: GmailProviderTokenPersisting {
-    private var tokensByConnectionKey: [String: GmailProviderTokens] = [:]
     private var legacyTokensByProductAccountId: [String: GmailProviderTokens] = [:]
+    private var tokensByConnectionKey: [String: GmailProviderTokens] = [:]
 
     func load(
       productAccountId: String,
       providerAccountIdentifier: String
     ) throws -> GmailProviderTokens? {
       tokensByConnectionKey[key(productAccountId, providerAccountIdentifier)]
+    }
+
+    func loadAll(productAccountId: String) throws -> [String: GmailProviderTokens] {
+      let prefix = "\(productAccountId):"
+      return Dictionary(
+        uniqueKeysWithValues: tokensByConnectionKey.compactMap { key, tokens in
+          guard key.hasPrefix(prefix) else { return nil }
+          return (String(key.dropFirst(prefix.count)), tokens)
+        }
+      )
     }
 
     func save(
@@ -899,38 +1010,16 @@ private struct GoogleRefreshTokenResponse: Decodable {
       legacyTokensByProductAccountId[productAccountId] = nil
     }
 
-    func clearLegacy(productAccountId: String) throws {
-      legacyTokensByProductAccountId[productAccountId] = nil
-    }
-
     func loadLegacy(productAccountId: String) throws -> GmailProviderTokens? {
       legacyTokensByProductAccountId[productAccountId]
     }
 
+    func clearLegacy(productAccountId: String) throws {
+      legacyTokensByProductAccountId[productAccountId] = nil
+    }
+
     func saveLegacy(_ tokens: GmailProviderTokens, productAccountId: String) {
       legacyTokensByProductAccountId[productAccountId] = tokens
-    }
-
-    func load(productAccountId: String) throws -> GmailProviderTokens? {
-      try load(
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
-    }
-
-    func save(_ tokens: GmailProviderTokens, productAccountId: String) throws {
-      try save(
-        tokens,
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
-    }
-
-    func clear(productAccountId: String) throws {
-      try clear(
-        productAccountId: productAccountId,
-        providerAccountIdentifier: "gmail-user-001"
-      )
     }
 
     private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {

@@ -116,8 +116,16 @@ private struct BackgroundClassificationContext {
 
 protocol BackgroundContextCachePersisting {
   func clear(productAccountId: String) throws
-  func load(productAccountId: String) throws -> BackgroundCategorizationContextCache?
-  func save(_ cache: BackgroundCategorizationContextCache, productAccountId: String) throws
+  func clear(productAccountId: String, providerAccountIdentifier: String) throws
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> BackgroundCategorizationContextCache?
+  func save(
+    _ cache: BackgroundCategorizationContextCache,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws
 }
 
 struct KeychainBackgroundContextCacheStore:
@@ -140,18 +148,71 @@ struct KeychainBackgroundContextCacheStore:
   }
 
   func clear(productAccountId: String) throws {
+    for providerAccountIdentifier in try providerAccountIdentifiers(
+      productAccountId: productAccountId
+    ) {
+      try KeychainStore.delete(
+        service: Self.serviceName,
+        account: accountName(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier
+        )
+      )
+    }
+    try KeychainStore.delete(service: Self.serviceName, account: manifestName(productAccountId))
     try KeychainStore.delete(service: Self.serviceName, account: productAccountId)
   }
 
-  func load(productAccountId: String) throws -> BackgroundCategorizationContextCache? {
+  func clear(productAccountId: String, providerAccountIdentifier: String) throws {
+    try KeychainStore.delete(
+      service: Self.serviceName,
+      account: accountName(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    )
+    var identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
+    identifiers.remove(providerAccountIdentifier)
+    try saveProviderAccountIdentifiers(identifiers, productAccountId: productAccountId)
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> BackgroundCategorizationContextCache? {
+    if let rawValue = try KeychainStore.readString(
+      service: Self.serviceName,
+      account: accountName(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    ) {
+      return try decode(rawValue, productAccountId: productAccountId)
+    }
     guard
-      let rawValue = try KeychainStore.readString(
+      let legacyRawValue = try KeychainStore.readString(
         service: Self.serviceName,
         account: productAccountId
-      ),
-      let data = rawValue.data(using: .utf8)
+      )
     else {
       return nil
+    }
+    let cache = try decode(legacyRawValue, productAccountId: productAccountId)
+    try save(
+      cache,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    try KeychainStore.delete(service: Self.serviceName, account: productAccountId)
+    return cache
+  }
+
+  private func decode(
+    _ rawValue: String,
+    productAccountId: String
+  ) throws -> BackgroundCategorizationContextCache {
+    guard let data = rawValue.data(using: .utf8) else {
+      throw KeychainStoreError.unexpectedData
     }
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
@@ -166,7 +227,8 @@ struct KeychainBackgroundContextCacheStore:
 
   func save(
     _ cache: BackgroundCategorizationContextCache,
-    productAccountId: String
+    productAccountId: String,
+    providerAccountIdentifier: String
   ) throws {
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial
@@ -180,10 +242,73 @@ struct KeychainBackgroundContextCacheStore:
     guard let rawValue = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
     }
+    let previousIdentifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
+    var identifiers = previousIdentifiers
+    identifiers.insert(providerAccountIdentifier)
+    try saveProviderAccountIdentifiers(identifiers, productAccountId: productAccountId)
+    do {
+      try KeychainStore.writeString(
+        rawValue,
+        service: Self.serviceName,
+        account: accountName(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier
+        ),
+        accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+      )
+    } catch {
+      try? saveProviderAccountIdentifiers(
+        previousIdentifiers,
+        productAccountId: productAccountId
+      )
+      throw error
+    }
+  }
+
+  private func accountName(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) -> String {
+    "gmail.\(gmailSafeFileComponent(productAccountId))."
+      + gmailSafeFileComponent(providerAccountIdentifier)
+  }
+
+  private func manifestName(_ productAccountId: String) -> String {
+    "gmail-identities.\(gmailSafeFileComponent(productAccountId))"
+  }
+
+  private func providerAccountIdentifiers(productAccountId: String) throws -> Set<String> {
+    guard
+      let rawValue = try KeychainStore.readString(
+        service: Self.serviceName,
+        account: manifestName(productAccountId)
+      ),
+      let data = rawValue.data(using: .utf8)
+    else {
+      return []
+    }
+    return try JSONDecoder().decode(Set<String>.self, from: data)
+  }
+
+  private func saveProviderAccountIdentifiers(
+    _ identifiers: Set<String>,
+    productAccountId: String
+  ) throws {
+    guard !identifiers.isEmpty else {
+      try KeychainStore.delete(
+        service: Self.serviceName,
+        account: manifestName(productAccountId)
+      )
+      return
+    }
+    let data = try JSONEncoder().encode(identifiers)
+    guard let rawValue = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
     try KeychainStore.writeString(
       rawValue,
       service: Self.serviceName,
-      account: productAccountId,
+      account: manifestName(productAccountId),
       accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
@@ -429,6 +554,7 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
   case conditionalWriteRetryLimitExceeded
   case invalidStableProviderMessageIdentity
   case missingProductSyncKeyMaterial
+  case mixedProviderAccounts
 
   var errorDescription: String? {
     switch self {
@@ -438,6 +564,8 @@ enum MessageCategoryAssignmentSyncError: LocalizedError, Equatable {
       return "The synced Message Category did not match this Gmail message."
     case .missingProductSyncKeyMaterial:
       return "Restore Product Sync key material before syncing Message Categories."
+    case .mixedProviderAccounts:
+      return "Categorize Gmail messages one Mailbox Connection at a time."
     }
   }
 }
@@ -944,6 +1072,7 @@ extension GmailMessageCategorizationService {
     do {
       remoteCategories = try await classificationCategories(
         learningSignalSenderAddresses: senderAddresses,
+        providerAccountIdentifier: try providerAccountIdentifier(in: messages),
         session: session
       )
     } catch {
@@ -980,7 +1109,7 @@ extension GmailMessageCategorizationService {
       let categories = try backgroundClassificationCategories(
         for: message,
         remoteCategories: remoteCategories,
-        productAccountId: session.productAccountId
+        session: session
       ),
       let categoryId = try await classifiedCategoryId(
         for: message,
@@ -996,7 +1125,7 @@ extension GmailMessageCategorizationService {
   private func backgroundClassificationCategories(
     for message: GmailMessageMetadata,
     remoteCategories: [MessageClassificationCategory]?,
-    productAccountId: String
+    session: ProductAccountSessionSnapshot
   ) throws -> [MessageClassificationCategory]? {
     if let remoteCategories { return remoteCategories }
     let messageSenders = MessageSenderAddressParser.addresses(
@@ -1005,7 +1134,8 @@ extension GmailMessageCategorizationService {
     guard messageSenders.count == 1 else { return nil }
     return try cachedClassificationCategories(
       senderAddress: messageSenders[0],
-      productAccountId: productAccountId
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: message.providerAccountIdentifier
     )
   }
 
@@ -1094,6 +1224,7 @@ extension GmailMessageCategorizationService {
         categories = try await classificationCategories(
           learningSignalSenderAddresses: classificationContext.learningSignalSenderAddresses,
           cachedLearningSignals: classificationContext.cachedLearningSignals,
+          providerAccountIdentifier: message.providerAccountIdentifier,
           session: session
         )
       }
@@ -1242,6 +1373,7 @@ extension GmailMessageCategorizationService {
   private func classificationCategories(
     learningSignalSenderAddresses: [String],
     cachedLearningSignals: [FutureLearningSignal] = [],
+    providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
   ) async throws -> [MessageClassificationCategory] {
     let customCategory = try await categorySync.loadCategory(session: session)
@@ -1252,7 +1384,10 @@ extension GmailMessageCategorizationService {
         session: session
       )
     } catch {
-      try? backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      try? backgroundContextCacheStore.clear(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
       throw error
     }
     let cachedSenderAddresses = Array(
@@ -1262,7 +1397,8 @@ extension GmailMessageCategorizationService {
       customCategory: customCategory,
       learningSignals: learningSignals + cachedLearningSignals,
       senderAddresses: cachedSenderAddresses,
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
     )
     return classificationCategories(
       customCategory: customCategory,
@@ -1272,10 +1408,14 @@ extension GmailMessageCategorizationService {
 
   private func cachedClassificationCategories(
     senderAddress: String,
-    productAccountId: String
+    productAccountId: String,
+    providerAccountIdentifier: String
   ) throws -> [MessageClassificationCategory]? {
     guard
-      let cache = try backgroundContextCacheStore.load(productAccountId: productAccountId),
+      let cache = try backgroundContextCacheStore.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
       cache.schemaVersion == 1,
       cacheIsFresh(cachedAtMilliseconds: cache.customCategoryCachedAtMilliseconds),
       let senderContext = cache.learningSignalsBySender[senderAddress],
@@ -1318,11 +1458,15 @@ extension GmailMessageCategorizationService {
     customCategory: CustomCategory?,
     learningSignals: [FutureLearningSignal],
     senderAddresses: [String],
-    productAccountId: String
+    productAccountId: String,
+    providerAccountIdentifier: String
   ) throws {
     let cachedAtMilliseconds = currentTimeMilliseconds()
     var learningSignalsBySender =
-      (try? backgroundContextCacheStore.load(productAccountId: productAccountId))?
+      (try? backgroundContextCacheStore.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ))?
       .learningSignalsBySender ?? [:]
     learningSignalsBySender = learningSignalsBySender.filter { _, context in
       let age = cachedAtMilliseconds - context.cachedAtMilliseconds
@@ -1343,15 +1487,31 @@ extension GmailMessageCategorizationService {
         learningSignals: exactSenderSignals
       )
     }
-    try backgroundContextCacheStore.clear(productAccountId: productAccountId)
+    try backgroundContextCacheStore.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     try backgroundContextCacheStore.save(
       BackgroundCategorizationContextCache(
         customCategory: customCategory,
         customCategoryCachedAtMilliseconds: cachedAtMilliseconds,
         learningSignalsBySender: learningSignalsBySender
       ),
-      productAccountId: productAccountId
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
     )
+  }
+
+  private func providerAccountIdentifier(in messages: [GmailMessageMetadata]) throws -> String {
+    guard
+      let providerAccountIdentifier = messages.first?.providerAccountIdentifier,
+      messages.allSatisfy({
+        $0.providerAccountIdentifier == providerAccountIdentifier
+      })
+    else {
+      throw MessageCategoryAssignmentSyncError.mixedProviderAccounts
+    }
+    return providerAccountIdentifier
   }
 
   private func cacheIsFresh(cachedAtMilliseconds: Int64) -> Bool {

@@ -1145,6 +1145,13 @@ private final class RecordingMicrosoftGraphBodyCache: GmailMessageBodyCaching {
     payloads = [:]
   }
 
+  func clearMessageBodies(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {
+    payloads = [:]
+  }
+
   func loadMessageBody(
     productAccountId _: String,
     stableProviderMessageId: String
