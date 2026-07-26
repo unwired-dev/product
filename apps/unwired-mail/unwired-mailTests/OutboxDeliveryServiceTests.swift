@@ -636,6 +636,37 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(sentCopyModes, [true])
   }
 
+  func testCancelledSentCopyRemainsOnAppendRetryPath() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+    let copyOnlyMessage = OutgoingMessage(
+      body: message.body,
+      recipient: message.recipient,
+      subject: message.subject,
+      sentCopyOnly: true
+    )
+
+    do {
+      _ = try await service.enqueue(
+        copyOnlyMessage,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in throw CancellationError() },
+        reconcile: { _, _ in .unknown }
+      )
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    let attempt = try await service.items(session: session).first
+    XCTAssertEqual(attempt?.state, .retrying)
+    XCTAssertTrue(attempt?.message.sentCopyOnly == true)
+  }
+
   func testSMTP422IsTransient() async throws {
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,

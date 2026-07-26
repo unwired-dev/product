@@ -623,6 +623,30 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertNil(store.authorization)
   }
 
+  func testIMAPRejectsTrashMappingToInbox() async {
+    let store = RecordingGenericMailAuthorizationStore()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    var draft = manualDraft()
+    draft.roleMappings[.trash] = "INBOX"
+
+    do {
+      _ = try await service.authorize(
+        draft: draft,
+        credential: "secret",
+        productAccountId: ProductAccountId("product-account-001")
+      )
+      XCTFail("Expected conflicting mailbox role mappings to be rejected")
+    } catch GenericMailSetupError.conflictingRoleMappings {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertNil(store.authorization)
+  }
+
   func testUnambiguousIMAPSpecialUseRolesDoNotRequireManualMapping() async throws {
     let verifier = RecordingGenericMailEndpointVerifier()
     let discoveredRoles = Dictionary(

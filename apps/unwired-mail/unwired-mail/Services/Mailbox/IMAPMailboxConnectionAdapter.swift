@@ -1014,7 +1014,8 @@ struct IMAPMessageMetadataService {
     authorization: DeviceLocalGenericMailAuthorization,
     connectedAt: Int64,
     productAccountId: String,
-    targetedProviderMessageIds: Set<String> = []
+    targetedProviderMessageIds: Set<String> = [],
+    targetMailboxIdsByProviderMessageId: [String: String] = [:]
   ) async throws -> MailboxMetadataSyncResult {
     let definition = authorization.definition
     if let state = try store.loadState(
@@ -1026,7 +1027,8 @@ struct IMAPMessageMetadataService {
         authorization: authorization,
         connectedAt: connectedAt,
         productAccountId: productAccountId,
-        targetedProviderMessageIds: targetedProviderMessageIds
+        targetedProviderMessageIds: targetedProviderMessageIds,
+        targetMailboxIdsByProviderMessageId: targetMailboxIdsByProviderMessageId
       )
     }
     let descriptors = try await client.listMailboxes(authorization: authorization)
@@ -1169,7 +1171,8 @@ struct IMAPMessageMetadataService {
     authorization: DeviceLocalGenericMailAuthorization,
     connectedAt: Int64,
     productAccountId: String,
-    targetedProviderMessageIds: Set<String>
+    targetedProviderMessageIds: Set<String>,
+    targetMailboxIdsByProviderMessageId: [String: String]
   ) async throws -> MailboxMetadataSyncResult {
     let definition = authorization.definition
     let descriptors = try await client.listMailboxes(authorization: authorization)
@@ -1298,6 +1301,11 @@ struct IMAPMessageMetadataService {
         && !pagedProviderMessageIds.contains(providerMessageId)
       {
         guard
+          let targetMailboxId = targetMailboxIdsByProviderMessageId[providerMessageId],
+          let targetMailbox = IMAPProviderMessage.mailboxName(
+            fromProviderStateId: targetMailboxId
+          ),
+          IMAPProviderMessage.mailboxNamesEqual(targetMailbox, descriptor.name),
           let rfcMessageId = previouslyStoredMessages.first(where: {
             $0.providerMessageId == providerMessageId
           })?.rfcMessageId,
@@ -1756,10 +1764,23 @@ private struct IMAPBodyPrefetchPlan {
 
 extension IMAPBodyPrefetchPlan: Sequence {}
 
+private actor IMAPCapabilityCache {
+  private var capabilitiesByConnectionId: [MailboxConnectionId: Set<String>] = [:]
+
+  func value(for connectionId: MailboxConnectionId) -> Set<String>? {
+    capabilitiesByConnectionId[connectionId]
+  }
+
+  func save(_ capabilities: Set<String>, for connectionId: MailboxConnectionId) {
+    capabilitiesByConnectionId[connectionId] = capabilities
+  }
+}
+
 struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObserving {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
   private let cache: GmailMessageBodyCaching
+  private let capabilityCache: IMAPCapabilityCache
   private let client: IMAPMailboxClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let metadataService: IMAPMessageMetadataService
@@ -1786,6 +1807,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   ) {
     self.authorizationStore = authorizationStore
     self.cache = cache
+    capabilityCache = IMAPCapabilityCache()
     self.client = client
     self.definitionSyncService = definitionSyncService
     self.metadataStore = metadataStore
@@ -1863,6 +1885,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     try await loadConnections(session: session).first
   }
 
+  // swiftlint:disable:next function_body_length
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
@@ -1892,9 +1915,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       let serverCapabilities: Set<String>
       if let savedCapabilities = genericDefinition.imapCapabilities {
         serverCapabilities = savedCapabilities
+      } else if let cachedCapabilities = await capabilityCache.value(for: definition.id) {
+        serverCapabilities = cachedCapabilities
       } else if isAuthorized, let authorization {
-        serverCapabilities =
-          (try? await client.serverCapabilities(authorization: authorization)) ?? []
+        if let recoveredCapabilities = try? await client.serverCapabilities(
+          authorization: authorization
+        ) {
+          await capabilityCache.save(recoveredCapabilities, for: definition.id)
+          serverCapabilities = recoveredCapabilities
+        } else {
+          serverCapabilities = []
+        }
       } else {
         serverCapabilities = []
       }
@@ -2047,15 +2078,25 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         session: session,
         isWithinSyncGate: true
       )
-      let targetedProviderMessageIds = try await pendingActionService.providerConfirmedMessageIds(
+      let confirmedActions = try await pendingActionService.providerConfirmedActions(
         connection: connection,
         session: session
+      )
+      let targetedProviderMessageIds = Set(confirmedActions.flatMap(\.messageIds))
+      let targetMailboxIdsByProviderMessageId = Dictionary(
+        confirmedActions.flatMap { action in
+          action.messageIds.compactMap { messageId in
+            action.targetProviderMailboxId.map { (messageId, $0) }
+          }
+        },
+        uniquingKeysWith: { _, newest in newest }
       )
       let result = try await metadataService.sync(
         authorization: authorization,
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId,
-        targetedProviderMessageIds: targetedProviderMessageIds
+        targetedProviderMessageIds: targetedProviderMessageIds,
+        targetMailboxIdsByProviderMessageId: targetMailboxIdsByProviderMessageId
       )
       try await reconcileAndResumePendingActions(
         messages: result.messages,
@@ -2571,6 +2612,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     _ = await resumePendingActions(connection: connection, session: session)
   }
 
+  // swiftlint:disable:next function_body_length
   private func performProviderAction(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
@@ -2602,17 +2644,32 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         throw IMAPMailboxError.missingMessage
       }
       for message in actionAppearances {
-        try await client.perform(
-          action,
+        let target = try targetMailbox(
+          for: action,
+          requestedProviderMailboxId: targetProviderMailboxId,
           message: message,
-          targetMailbox: try targetMailbox(
-            for: action,
-            requestedProviderMailboxId: targetProviderMailboxId,
-            message: message,
-            definition: authorization.definition
-          ),
-          authorization: authorization
+          definition: authorization.definition
         )
+        do {
+          try await client.perform(
+            action,
+            message: message,
+            targetMailbox: target,
+            authorization: authorization
+          )
+        } catch {
+          guard
+            let target,
+            [.archive, .delete, .move, .notSpam, .restore, .spam].contains(action),
+            let rfcMessageId = message.rfcMessageId,
+            try await moveWasApplied(
+              rfcMessageId: rfcMessageId,
+              sourceMailbox: message.mailbox,
+              targetMailbox: target,
+              authorization: authorization
+            )
+          else { throw error }
+        }
       }
     }
   }
@@ -2949,12 +3006,35 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       recipients.allSatisfy({
         !$0.isEmpty
           && $0.contains("@")
+          && $0.unicodeScalars.allSatisfy(\.isASCII)
           && !$0.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" || $0 == "," })
       })
     else {
       throw SMTPMailError.invalidMessage
     }
     return recipients
+  }
+
+  private func moveWasApplied(
+    rfcMessageId: String,
+    sourceMailbox: String,
+    targetMailbox: String,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Bool {
+    let targetAppearance = try await client.loadMetadataMessage(
+      rfcMessageId: rfcMessageId,
+      mailbox: IMAPMailboxDescriptor(displayName: targetMailbox, name: targetMailbox),
+      requiresUniqueMatch: true,
+      authorization: authorization
+    )
+    guard targetAppearance != nil else { return false }
+    let sourceAppearance = try await client.loadMetadataMessage(
+      rfcMessageId: rfcMessageId,
+      mailbox: IMAPMailboxDescriptor(displayName: sourceMailbox, name: sourceMailbox),
+      requiresUniqueMatch: false,
+      authorization: authorization
+    )
+    return sourceAppearance == nil
   }
 
   private static func splitMailboxValues(_ value: String) -> [String] {

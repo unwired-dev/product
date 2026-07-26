@@ -153,6 +153,7 @@ struct GenericMailEndpointVerification: Equatable, Sendable {
 }
 
 enum GenericMailSetupError: LocalizedError, Equatable {
+  case conflictingRoleMappings
   case ambiguousSavedSetup
   case authenticationFailed(GenericMailProtocol)
   case invalidEmailAddress
@@ -167,6 +168,8 @@ enum GenericMailSetupError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .conflictingRoleMappings:
+      return "Mailbox role mappings must use distinct folders and cannot use Inbox."
     case .ambiguousSavedSetup:
       return "Multiple saved setups use this address. Select the mailbox connection to load."
     case .authenticationFailed(let mailProtocol):
@@ -221,6 +224,7 @@ protocol GenericMailAuthorizationPersisting {
   ) throws
 }
 
+// swiftlint:disable:next type_body_length
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let clock: () -> Int64
@@ -417,6 +421,15 @@ struct GenericMailSetupService {
         discovered: discovered,
         missing: missingRoles
       )
+    }
+    let normalizedRoleMailboxes = roleMappings.values.map {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+    guard
+      !normalizedRoleMailboxes.contains("inbox"),
+      Set(normalizedRoleMailboxes).count == normalizedRoleMailboxes.count
+    else {
+      throw GenericMailSetupError.conflictingRoleMappings
     }
     return GenericMailConnectionDefinition(
       authorizationMethod: definition.authorizationMethod,

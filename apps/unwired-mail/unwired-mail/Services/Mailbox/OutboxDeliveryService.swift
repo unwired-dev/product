@@ -860,8 +860,11 @@ actor OutboxDeliveryService {
         try update(
           attemptId,
           productAccountId: productAccountId,
-          state: .reconciling,
-          errorDescription: "Confirming delivery after provider handoff was cancelled."
+          state: claimedAttempt.message.sentCopyOnly == true ? .retrying : .reconciling,
+          errorDescription:
+            claimedAttempt.message.sentCopyOnly == true
+            ? "Retrying the Sent copy after provider handoff was cancelled."
+            : "Confirming delivery after provider handoff was cancelled."
         )
         throw CancellationError()
       } catch {

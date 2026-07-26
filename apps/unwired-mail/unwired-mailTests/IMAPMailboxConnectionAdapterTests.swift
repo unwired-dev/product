@@ -75,6 +75,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connection.capabilities.canRegisterPush)
     XCTAssertTrue(connection.capabilities.supports(.move))
     XCTAssertEqual(client.serverCapabilitiesRequestCount, 1)
+
+    _ = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(client.serverCapabilitiesRequestCount, 1)
   }
 
   func testMOVEOnlyServerDoesNotAdvertiseUnsafePermanentDelete() {
@@ -210,6 +214,37 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       smtpClient.envelopeRecipients,
       [["first@example.com", "second@example.com"]]
     )
+  }
+
+  func testSMTPDeliveryRejectsInternationalizedEnvelopeAddressWithoutSMTPUTF8() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      try await adapter.send(
+        OutgoingMessage(
+          body: "Hello",
+          recipient: "jöhn@example.com",
+          subject: "SMTPUTF8 required"
+        ),
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected the internationalized envelope address to be rejected")
+    } catch SMTPMailError.invalidMessage {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertTrue(smtpClient.sentMessages.isEmpty)
   }
 
   func testSMTPDeliveryEncodesDisplayNameAndLongASCIISubject() async throws {
@@ -919,6 +954,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     client.mailboxesByUsername[definition.username] = [
       IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
       IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+      IMAPMailboxDescriptor(displayName: "Other", name: "Other"),
     ]
     let movedMessage = imapMessage(
       uid: 1,
@@ -933,6 +969,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
           rfcMessageId: "<archive-\($0)@example.com>"
         )
       },
+      "Other": [],
     ]
     let adapter = try makeAdapter(
       authorizationStore: authorizedStore(definition),
@@ -961,6 +998,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         rfcMessageId: "<moved@example.com>"
       )
     )
+    serverMessages["Other"] = [
+      imapMessage(
+        mailbox: "Other",
+        uid: 60,
+        rfcMessageId: "<moved@example.com>"
+      )
+    ]
     client.messagesByUsernameAndMailbox[definition.username] = serverMessages
 
     _ = try await adapter.syncInbox(connection: connection, session: session)
@@ -981,9 +1025,65 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
+    XCTAssertTrue(
+      persisted.messages.contains {
+        $0.rfcMessageId == "<moved@example.com>"
+          && $0.providerMessageId == movedMessage.providerMessageId
+      }
+    )
     XCTAssertEqual(
-      persisted.messages.first { $0.rfcMessageId == "<moved@example.com>" }?.providerMessageId,
-      movedMessage.providerMessageId
+      persisted.messages.filter { $0.rfcMessageId == "<moved@example.com>" }.count,
+      2
+    )
+  }
+
+  func testAmbiguousMoveCompletionReconcilesConcreteDestination() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    let movedMessage = imapMessage(uid: 7, rfcMessageId: "<move-recovery@example.com>")
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [movedMessage],
+      "Archive": [],
+    ]
+    let pendingStore = RecordingPendingProviderActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition],
+      pendingStore: pendingStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    client.performError = IMAPMailboxError.invalidProviderResponse
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [],
+      "Archive": [
+        imapMessage(
+          mailbox: "Archive",
+          uid: 19,
+          rfcMessageId: "<move-recovery@example.com>"
+        )
+      ],
+    ]
+
+    let error = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertNil(error)
+    XCTAssertEqual(
+      try pendingStore.load(productAccountId: session.productAccountId).first?.state,
+      .providerConfirmed
     )
   }
 
@@ -2264,6 +2364,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   var messagesByUsernameAndMailbox: [String: [String: [IMAPProviderMessage]]] = [:]
   private(set) var metadataRequestCount = 0
   private(set) var performedActions: [PerformedAction] = []
+  var performError: Error?
   var serverCapabilitiesResult: Set<String> = []
   private(set) var serverCapabilitiesRequestCount = 0
   var supportsIdleResult = false
@@ -2356,6 +2457,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     performedActions.append(
       PerformedAction(action: action, targetMailbox: targetMailbox, uid: message.uid)
     )
+    if let performError { throw performError }
   }
 
   func supportsIdle(

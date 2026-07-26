@@ -539,6 +539,15 @@ actor PendingProviderActionService {
     )
   }
 
+  func providerConfirmedActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> [PendingProviderAction] {
+    try store.load(productAccountId: session.productAccountId).filter {
+      $0.connectionId == connection.id.rawValue && $0.state == .providerConfirmed
+    }
+  }
+
   func hasBlockedAction(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
