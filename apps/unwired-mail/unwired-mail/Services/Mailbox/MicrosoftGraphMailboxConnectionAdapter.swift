@@ -2836,7 +2836,7 @@ struct MicrosoftGraphOAuthRequest {
   init(callbackScheme: String, clientIdentifier: String, selectingAccount: Bool = false) {
     codeVerifier = Self.randomValue(byteCount: 32)
     state = Self.randomValue(byteCount: 24)
-    redirectURI = URL(string: "\(callbackScheme):/oauthredirect")!
+    redirectURI = URL(string: "\(callbackScheme)://auth")!
     let challenge = Data(SHA256.hash(data: Data(codeVerifier.utf8))).graphBase64URLString()
     var components = URLComponents(
       string: "https://login.microsoftonline.com/common/oauth2/v2.0/authorize"
