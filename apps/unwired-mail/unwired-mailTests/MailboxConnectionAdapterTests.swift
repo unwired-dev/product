@@ -1173,6 +1173,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     viewModel.updateThreads([loadedThread], for: adapterConnectionId)
 
     viewModel.selectSearchResult(searchMessage)
+    viewModel.updateThreads([loadedThread], for: adapterConnectionId)
 
     XCTAssertEqual(viewModel.selectedThreadId, searchMessage.threadIdentity)
     XCTAssertEqual(viewModel.selectedThread?.messages, [searchMessage])

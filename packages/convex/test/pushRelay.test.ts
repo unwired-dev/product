@@ -299,7 +299,7 @@ describe('gmail push relay', () => {
   });
 
   it('derives the opaque connection id for legacy watch verification calls', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -331,6 +331,27 @@ describe('gmail push relay', () => {
         trustedDeviceId: device.trustedDeviceId,
       }),
     ).resolves.toStrictEqual(expect.objectContaining({ verified: false }));
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query('mailProviderConnections')
+          .withIndex(
+            'by_productAccountId_and_provider_and_trustedDeviceId_and_providerAccountIdentifier',
+            (q) =>
+              q
+                .eq('productAccountId', device.productAccountId)
+                .eq('provider', 'gmail')
+                .eq('trustedDeviceId', device.trustedDeviceId)
+                .eq('providerAccountIdentifier', 'gmail-user-legacy'),
+          )
+          .unique(),
+      ),
+    ).resolves.toStrictEqual(
+      expect.objectContaining({
+        emailAddress: 'legacy@example.com',
+        providerAccountIdentifier: 'gmail-user-legacy',
+      }),
+    );
   });
 
   it('stops a mailbox watch only after its last active device route', async () => {
@@ -2858,6 +2879,62 @@ describe('gmail push relay', () => {
           ),
         ),
       ).resolves.toStrictEqual(Array.from({ length: 11 }, () => '100'));
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('schedules a wakeup for a route verified by a continuation', async () => {
+    expect.assertions(1);
+    vi.useFakeTimers();
+
+    try {
+      const now = Date.now();
+      const t = convexTest(schema, modules);
+      await t.run(async (ctx) => {
+        const productAccountId = await ctx.db.insert('productAccounts', {
+          createdAt: now,
+          lastSeenAt: now,
+          tokenIdentifier: 'continued-pending-account',
+        });
+        const trustedDeviceId = await ctx.db.insert('trustedDevices', {
+          apnsEnvironment: 'production',
+          apnsToken: 'continued-pending-token',
+          deviceIdentifier: 'continued-pending-device',
+          lastSeenAt: now,
+          platform: 'ios',
+          productAccountId,
+          registeredAt: now,
+        });
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          emailAddress: 'continued-pending@example.com',
+          gmailRoutingDigest: routingDigest('continued-pending@example.com'),
+          gmailRoutingKeyVersion: 1,
+          lastVerifiedAt: now,
+          opaqueConnectionId: opaqueConnectionId('continued-pending'),
+          productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: 'continued-pending',
+          pushVerificationHistoryId: '100',
+          pushVerificationOwnershipVerifiedAt: now,
+          pushVerificationRequestedAt: now,
+          trustedDeviceId,
+          updatedAt: now,
+        });
+      });
+
+      await expect(
+        t.mutation(
+          internal.pushRelay.continuePendingGmailConnectionVerification,
+          {
+            cursor: null,
+            historyId: '101',
+            now,
+            routingDigest: routingDigest('continued-pending@example.com'),
+          },
+        ),
+      ).resolves.toStrictEqual({ recipientCount: 1 });
     } finally {
       vi.useRealTimers();
     }

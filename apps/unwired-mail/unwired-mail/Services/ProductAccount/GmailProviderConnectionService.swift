@@ -466,7 +466,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
@@ -494,6 +494,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = cleanupError ?? error
     }
     if !hasRemainingGmailConnections {
+      do {
+        try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
       do {
         try bodyReader.clearCachedMessageBodies(session: session)
       } catch {

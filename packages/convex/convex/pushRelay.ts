@@ -68,6 +68,7 @@ const devicePushRouteReconciliationBatchSize = 10;
 const devicePushTokenCleanupBatchSize = 10;
 const gmailPushProofCleanupBatchSize = 10;
 const gmailPushVerificationBatchSize = 10;
+const gmailActiveRouteInspectionLimit = 100;
 const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
@@ -564,6 +565,7 @@ async function hasOtherActiveGmailRoute(
     trustedDeviceId: Id<'trustedDevices'>;
   }>,
 ): Promise<boolean> {
+  let inspectedConnections = 0;
   for (const routingDigest of request.routingDigests) {
     const connections = [
       ctx.db
@@ -579,6 +581,7 @@ async function hasOtherActiveGmailRoute(
     ];
     for (const matchingConnections of connections) {
       for await (const connection of matchingConnections) {
+        inspectedConnections += 1;
         if (
           await isActiveOtherGmailRoute(
             ctx,
@@ -586,6 +589,11 @@ async function hasOtherActiveGmailRoute(
             request.trustedDeviceId,
           )
         ) {
+          return true;
+        }
+        if (inspectedConnections >= gmailActiveRouteInspectionLimit) {
+          // Retaining the provider watch is safer than stopping it when the
+          // bounded proof search cannot establish that this is the last route.
           return true;
         }
       }
@@ -604,9 +612,15 @@ async function hasOtherActiveGmailRoute(
             .gt('pushVerifiedAt', undefined),
       );
     for await (const connection of legacyConnections) {
+      inspectedConnections += 1;
       if (
         await isActiveOtherGmailRoute(ctx, connection, request.trustedDeviceId)
       ) {
+        return true;
+      }
+      if (inspectedConnections >= gmailActiveRouteInspectionLimit) {
+        // Retaining the provider watch is safer than stopping it when the
+        // bounded proof search cannot establish that this is the last route.
         return true;
       }
     }
@@ -826,7 +840,7 @@ async function verifyPendingGmailConnections(
     now: number;
     routingDigest: string;
   }>,
-): Promise<void> {
+): Promise<ApnsRecipient[]> {
   const page = await ctx.db
     .query('mailProviderConnections')
     .withIndex('by_gmailRoutingDigest', (q) =>
@@ -837,6 +851,7 @@ async function verifyPendingGmailConnections(
       cursor: request.cursor ?? null,
       numItems: gmailPushVerificationBatchSize,
     });
+  const recipients: ApnsRecipient[] = [];
   for (const connection of page.page) {
     const device = await ctx.db.get(connection.trustedDeviceId);
     if (
@@ -847,23 +862,30 @@ async function verifyPendingGmailConnections(
         now: request.now,
       })
     ) {
+      const proofUpdatedAt = gmailPushProofUpdatedAt(
+        device,
+        connection,
+        request.now,
+      );
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch(connection._id, {
         pushVerificationHistoryId: undefined,
         pushVerificationOwnershipVerifiedAt: undefined,
         pushVerificationRequestedAt: undefined,
-        pushOwnershipVerifiedAt: gmailPushProofUpdatedAt(
-          device,
-          connection,
-          request.now,
-        ),
+        pushOwnershipVerifiedAt: proofUpdatedAt,
         pushVerifiedHistoryId: connection.pushVerificationHistoryId,
-        pushVerifiedAt: gmailPushProofUpdatedAt(
-          device,
-          connection,
-          request.now,
-        ),
+        pushVerifiedAt: proofUpdatedAt,
       });
+      const recipient = await apnsRecipientForDevice(ctx, {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        routeId: connection._id,
+        ownershipVerifiedAt: proofUpdatedAt,
+        pushVerifiedAt: proofUpdatedAt,
+        trustedDeviceId: connection.trustedDeviceId,
+      });
+      if (recipient !== null) {
+        recipients.push(recipient);
+      }
     }
   }
   if (!page.isDone) {
@@ -878,6 +900,7 @@ async function verifyPendingGmailConnections(
       },
     );
   }
+  return recipients;
 }
 
 async function scheduleGmailWakeups(
@@ -1643,6 +1666,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
         account.productAccountId,
         args.providerAccountIdentifier,
       ));
+    const preservesLegacyIdentity = args.opaqueConnectionId === undefined;
     const opaqueConnection = await gmailConnection(ctx, {
       opaqueConnectionId,
       productAccountId: account.productAccountId,
@@ -1724,13 +1748,15 @@ export const verifyGmailWatchForIdentity = internalMutation({
         (device.gmailPushProofsInvalidatedAt ?? 0)
     ) {
       await ctx.db.patch(routeId, {
-        emailAddress: undefined,
+        ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
         gmailPreviousRoutingDigest: args.acceptedRoutingDigests.at(1),
         gmailRoutingDigest: args.currentRoutingDigest,
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
         lastVerifiedAt: Date.now(),
         opaqueConnectionId,
-        providerAccountIdentifier: undefined,
+        ...(preservesLegacyIdentity
+          ? {}
+          : { providerAccountIdentifier: undefined }),
         updatedAt: Date.now(),
       });
       return { routeId, verified: true };
@@ -1753,7 +1779,7 @@ export const verifyGmailWatchForIdentity = internalMutation({
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       connection._id,
       {
-        emailAddress: undefined,
+        ...(preservesLegacyIdentity ? {} : { emailAddress: undefined }),
         ...gmailVerificationPatch(connection, {
           historyId: args.historyId,
           now,
@@ -1764,7 +1790,9 @@ export const verifyGmailWatchForIdentity = internalMutation({
         gmailRoutingKeyVersion: args.currentRoutingKeyVersion,
         lastVerifiedAt: now,
         opaqueConnectionId,
-        providerAccountIdentifier: undefined,
+        ...(preservesLegacyIdentity
+          ? {}
+          : { providerAccountIdentifier: undefined }),
       },
     );
     return { routeId, verified };
@@ -1885,10 +1913,11 @@ export const continuePendingGmailConnectionVerification = internalMutation({
     routingDigest: v.string(),
   },
   handler: async (ctx, args) => {
-    await verifyPendingGmailConnections(ctx, args);
-    return null;
+    const recipients = await verifyPendingGmailConnections(ctx, args);
+    await scheduleGmailWakeups(ctx, args.historyId, recipients);
+    return { recipientCount: recipients.length };
   },
-  returns: v.null(),
+  returns: v.object({ recipientCount: v.number() }),
 });
 
 export const expireGmailVerificationSignal = internalMutation({

@@ -1671,10 +1671,12 @@ private struct MailboxBulkActionBatchOutcome: Sendable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class MailShellSelectionModel {
   private(set) var expandedMessageIds: Set<StableProviderMessageIdentity> = []
   private(set) var selectedMailbox: MailShellMailboxSelection?
   private(set) var selectedThreadIds: Set<MailboxThreadIdentity> = []
+  private var retainedSearchResultThread: MailboxThread?
   private var threadsByConnection: [MailboxConnectionId: [MailboxThread]] = [:]
 
   var selectedThreadId: MailboxThreadIdentity? {
@@ -1739,12 +1741,14 @@ final class MailShellSelectionModel {
   func clearSelection() {
     selectedMailbox = nil
     selectedThreadIds = []
+    retainedSearchResultThread = nil
     threadsByConnection = [:]
     expandedMessageIds = []
   }
 
   func clearThreadSelection() {
     selectedThreadIds = []
+    retainedSearchResultThread = nil
     expandedMessageIds = []
   }
 
@@ -1756,6 +1760,7 @@ final class MailShellSelectionModel {
     guard selectedMailbox != mailbox else { return }
     selectedMailbox = mailbox
     selectedThreadIds = []
+    retainedSearchResultThread = nil
     expandedMessageIds = []
   }
 
@@ -1768,6 +1773,7 @@ final class MailShellSelectionModel {
     guard selectedMailbox != selection else { return }
     selectedMailbox = selection
     selectedThreadIds = []
+    retainedSearchResultThread = nil
     expandedMessageIds = []
   }
 
@@ -1775,16 +1781,21 @@ final class MailShellSelectionModel {
     guard selectedMailbox != .outbox else { return }
     selectedMailbox = .outbox
     selectedThreadIds = []
+    retainedSearchResultThread = nil
     expandedMessageIds = []
   }
 
   func selectThread(_ threadId: MailboxThreadIdentity) {
     guard let thread = threads.first(where: { $0.id == threadId }) else { return }
+    retainedSearchResultThread = nil
     selectedThreadIds = [threadId]
     expandedMessageIds = [thread.latestMessage.id]
   }
 
   func selectThreads(_ threadIds: Set<MailboxThreadIdentity>) {
+    if retainedSearchResultThread.map({ !threadIds.contains($0.id) }) == true {
+      retainedSearchResultThread = nil
+    }
     let availableThreadIds = Set(threads.map(\.id))
     selectedThreadIds = threadIds.intersection(availableThreadIds)
     reconcileSelectedThreads()
@@ -1809,6 +1820,7 @@ final class MailShellSelectionModel {
       connectionThreads.append(thread)
     }
     threadsByConnection[message.connectionId] = connectionThreads
+    retainedSearchResultThread = thread
     selectedThreadIds = [thread.id]
     expandedMessageIds = [message.id]
   }
@@ -1817,7 +1829,15 @@ final class MailShellSelectionModel {
     _ threads: [MailboxThread],
     for connectionId: MailboxConnectionId
   ) {
-    threadsByConnection[connectionId] = threads.filter { $0.id.connectionId == connectionId }
+    var connectionThreads = threads.filter { $0.id.connectionId == connectionId }
+    if let retainedSearchResultThread,
+      retainedSearchResultThread.id.connectionId == connectionId,
+      selectedThreadIds.contains(retainedSearchResultThread.id),
+      !connectionThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      connectionThreads.append(retainedSearchResultThread)
+    }
+    threadsByConnection[connectionId] = connectionThreads
     guard selectedMailbox?.isUnified == true || selectedConnectionId == connectionId else {
       return
     }
@@ -1828,8 +1848,16 @@ final class MailShellSelectionModel {
     _ threads: [MailboxThread],
     connectionIds: Set<MailboxConnectionId>
   ) {
+    var retainedThreads = threads.filter { connectionIds.contains($0.id.connectionId) }
+    if let retainedSearchResultThread,
+      connectionIds.contains(retainedSearchResultThread.id.connectionId),
+      selectedThreadIds.contains(retainedSearchResultThread.id),
+      !retainedThreads.contains(where: { $0.id == retainedSearchResultThread.id })
+    {
+      retainedThreads.append(retainedSearchResultThread)
+    }
     threadsByConnection = Dictionary(
-      grouping: threads.filter { connectionIds.contains($0.id.connectionId) },
+      grouping: retainedThreads,
       by: { $0.id.connectionId }
     )
     reconcileSelectedThreads()
@@ -2867,9 +2895,11 @@ struct MailShellConversationReader: View {
                   do {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
                     readerErrorMessage = nil
+                    return true
                   } catch {
                     readerErrorConnectionId = connection.id
                     readerErrorMessage = error.localizedDescription
+                    return false
                   }
                 },
                 reply: { compositionDraft = .reply(to: message) },
@@ -3277,12 +3307,14 @@ private struct MailShellConversationMessage: View {
   let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
   let message: MailboxMessageMetadata
-  let removeCachedBody: () -> Void
+  let removeCachedBody: () -> Bool
   let reply: () -> Void
   let replyAll: () -> Void
   let forward: () async -> Void
   let toggleExpansion: () -> Void
   let togglePin: () -> Void
+
+  @State private var messageBodyResetId = UUID()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -3314,7 +3346,7 @@ private struct MailShellConversationMessage: View {
 
       if isExpanded {
         Divider()
-        MailShellMessageBody(load: loadBody)
+        MailShellMessageBody(clearSignal: messageBodyResetId, load: loadBody)
         HStack {
           Button(action: togglePin) {
             Label(
@@ -3336,8 +3368,12 @@ private struct MailShellConversationMessage: View {
             }
             .buttonStyle(.bordered)
           }
-          Button("Remove Cached Body", role: .destructive, action: removeCachedBody)
-            .buttonStyle(.bordered)
+          Button("Remove Cached Body", role: .destructive) {
+            if removeCachedBody() {
+              messageBodyResetId = UUID()
+            }
+          }
+          .buttonStyle(.bordered)
         }
       }
     }
@@ -3356,16 +3392,20 @@ private struct MailShellConversationMessage: View {
 }
 
 struct MailShellMessageBody: View {
+  let clearSignal: UUID?
   let load: () async throws -> MailboxMessageBody
   let onLoaded: () -> Void
   @State private var messageBody: MailboxMessageBody?
   @State private var errorMessage: String?
+  @State private var isCleared = false
   @State private var isLoading = false
 
   init(
+    clearSignal: UUID? = nil,
     onLoaded: @escaping () -> Void = {},
     load: @escaping () async throws -> MailboxMessageBody
   ) {
+    self.clearSignal = clearSignal
     self.load = load
     self.onLoaded = onLoaded
   }
@@ -3376,6 +3416,9 @@ struct MailShellMessageBody: View {
         Text(messageBody.text)
           .frame(maxWidth: .infinity, alignment: .leading)
           .textSelection(.enabled)
+      } else if isCleared {
+        Text("Cached body removed.")
+          .foregroundStyle(.secondary)
       } else if isLoading {
         ProgressView("Loading message…")
       } else if let errorMessage {
@@ -3394,11 +3437,18 @@ struct MailShellMessageBody: View {
       do {
         messageBody = try await load()
         errorMessage = nil
+        isCleared = false
         onLoaded()
       } catch is CancellationError {
       } catch {
         errorMessage = error.localizedDescription
       }
+    }
+    .onChange(of: clearSignal) {
+      messageBody = nil
+      errorMessage = nil
+      isCleared = true
+      isLoading = false
     }
   }
 }
