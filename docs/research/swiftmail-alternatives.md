@@ -1,0 +1,96 @@
+# SwiftMail alternatives for safe IMAP mutation and SMTP retry
+
+Research date: 2026-07-26
+
+## Question
+
+Can an Apple-platform mail library replace SwiftMail while already providing both:
+
+1. a server-derived, verifiable IMAP `COPYUID` source-to-destination UID mapping for `COPY` and `MOVE`; and
+2. SMTP outcomes that distinguish failures before `DATA`, explicit final `4xx` and `5xx` replies, and a transport loss after content where delivery is ambiguous?
+
+## Conclusion
+
+No high-level Swift/Objective-C library reviewed satisfies both requirements unchanged.
+
+The strongest technical alternative is **direct libEtPan**. Its public C API exposes the destination `UIDVALIDITY` plus source and destination UID sets for both copy and move, and it splits SMTP into envelope, `DATA`, and content/final-response calls while retaining the numeric server reply. A thin Swift adapter could therefore validate the UID pairing and classify SMTP outcomes without implementing either wire protocol. This is not an out-of-the-box Swift API, however, and the latest tagged release does not include the SwiftPM manifest now on `master`.
+
+The strongest native-Swift direction is **swift-nio-imap 0.4.0 paired with libEtPan SMTP**, but this would introduce two protocol engines and require the product to own high-level IMAP connection behavior. Apple still labels swift-nio-imap as pre-production. That conflicts with ADR-0027's reason for choosing a complete third-party engine.
+
+Unless the SwiftMail fixes stall, the lowest-risk recommendation remains to qualify the next SwiftMail release. The decision point is when the qualification boundary in [product issue #177](https://github.com/unwired-dev/product/issues/177) is complete and [product issue #178](https://github.com/unwired-dev/product/issues/178) is ready to start. If no exact SwiftMail tag contains both required capabilities then, run a time-boxed direct-libEtPan spike before changing ADR-0027.
+
+## Capability matrix
+
+| Candidate | IMAP mapping | SMTP outcome | Apple/toolchain and maintenance | Result |
+| --- | --- | --- | --- | --- |
+| libEtPan | Public destination `UIDVALIDITY` and ordered source/destination sets for COPY and MOVE; adapter must verify cardinality and pair expansion | Public phase-separated calls and numeric response; stream loss during content/final-response phase can be classified ambiguous | Active C project; 1.10.1 released June 2026; Apple Xcode targets; SwiftPM support is currently only on `master` | **Possible via public primitives; strongest alternative** |
+| swift-nio-imap 0.4.0 + libEtPan SMTP | Public ordered `ResponseCodeCopy` including destination `UIDVALIDITY`; low-level client must correlate tagged completion and validate cardinality | libEtPan can provide the required SMTP distinction | Swift 6 / Apache-2.0; 0.4.0 tagged July 2026; upstream warns it is not production-ready | **Technically possible, not a complete engine** |
+| MailCore2 | Public COPY/MOVE UID dictionary, but destination `UIDVALIDITY` is discarded | Final SMTP code is available, but connection loss has no public pre/post-DATA stage | Last commit 2022; release 0.6.4 from 2020; old binary/toolchain posture | **Fails SMTP and full mapping verification** |
+| Postal | MOVE mapping only; discards destination `UIDVALIDITY`; no COPY | No SMTP implementation | Last commit 2019; no SwiftPM; Swift 5/Xcode 10 era | **Not a complete alternative** |
+| Mikroservices/Smtp as NIO pairing | Not applicable | Internal state machine knows the phase, but the public API reduces it to success or generic error | Last commit September 2024; Vapor-oriented | **Fails at public API boundary** |
+| Kitura Swift-SMTP as NIO pairing | Not applicable | Rejection text survives in `SMTPError`, but transport errors carry no public protocol-stage marker | Swift tools 5.0; macOS/Linux documented; latest source activity April 2025 | **Fails ambiguous-outcome classification** |
+
+## Evidence
+
+### 1. Direct libEtPan
+
+#### IMAP
+
+The public UIDPLUS functions return `uidvalidity_result`, `source_result`, and `dest_result` for all four relevant operations: `COPY`, `UID COPY`, `MOVE`, and `UID MOVE` ([public header](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/src/low-level/imap/uidplus.h#L45-L75)). The implementation extracts these values directly from the parsed server `COPYUID` response ([implementation](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/src/low-level/imap/uidplus.c#L103-L211)).
+
+This exposes all information needed for verification, but the adapter must still reject a mapping whose expanded source and destination sets have unequal cardinality and retain the destination `UIDVALIDITY` with the mapping.
+
+#### SMTP
+
+The public API separates `MAIL FROM`, `RCPT TO`, `DATA`, and message-content/final-response processing ([public API](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/src/low-level/smtp/mailsmtp.h#L91-L108)). `mailsmtp_data()` handles the pre-content `354` decision separately; `mailsmtp_data_message()` sends the content and then reads the final reply, mapping explicit `4xx`/`5xx` replies separately from a stream failure ([implementation](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/src/low-level/smtp/mailsmtp.c#L391-L459)). The public session structure also retains the raw numeric `response_code` ([session type](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/src/low-level/smtp/mailsmtp_types.h#L104-L139)).
+
+Therefore an adapter can classify:
+
+- envelope or `DATA` failure: safe pre-content failure;
+- final `4xx`: explicit transient rejection;
+- final `5xx`: explicit permanent rejection;
+- `MAILSMTP_ERROR_STREAM` after `mailsmtp_data()` accepted content: ambiguous, so do not retry automatically.
+
+The convenience `mailsmtp_send()` should not be used because it hides which phase failed; the phase-specific public calls are the important capability.
+
+#### Adoption posture
+
+libEtPan is BSD-3-Clause licensed ([license](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/COPYRIGHT)). It documents macOS and iOS Xcode targets ([Apple build instructions](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/README.md#L36-L59)). Release 1.10.1 was published in June 2026 and current development remains active ([releases](https://github.com/dinhvh/libetpan/releases/tag/1.10.1)).
+
+The current `master` SwiftPM manifest declares Swift tools 5.9, macOS 10.13, and iOS 12 ([Package.swift](https://github.com/dinhvh/libetpan/blob/e79e9b5e2cc61778ead1425b334209d96e1af49f/Package.swift#L1-L15)), but that manifest is absent from the 1.10.1 tag. Production adoption would therefore require either an exact audited commit, the existing Xcode/static-library integration, or waiting for another tagged release. The C API is synchronous, so the spike must also prove cancellation, connection isolation, dedicated-executor behavior, TLS policy, XOAUTH2, logging redaction, MIME coverage, and the performance gates from ADR-0027.
+
+### 2. apple/swift-nio-imap 0.4.0 with an SMTP pairing
+
+Version 0.4.0, tagged July 21, 2026 ([release](https://github.com/apple/swift-nio-imap/releases/tag/0.4.0)), now has a public `ResponseCodeCopy` containing destination `UIDVALIDITY` and ordered source and destination UID ranges. Its documentation explicitly says the ordering preserves source-to-destination correlation for successful `COPY` or `MOVE` ([source](https://github.com/apple/swift-nio-imap/blob/0.4.0/Sources/NIOIMAPCore/Grammar/Response/ResponseCodeCopy.swift#L15-L73)). The response parser exposes this as `ResponseTextCode.uidCopy`, so a client can receive it from the command's tagged completion ([response type](https://github.com/apple/swift-nio-imap/blob/0.4.0/Sources/NIOIMAPCore/Grammar/Response/ResponseTextCode.swift#L153-L168)).
+
+This solves the IMAP representation gap, subject to adapter validation. It does not provide SMTP or a high-level mail client. Upstream describes it as a low-level building block and still warns that it is not ready for production ([README](https://github.com/apple/swift-nio-imap/blob/0.4.0/README.md#L19-L35)). The package requires Swift 6 and is Apache-2.0 licensed ([Package.swift](https://github.com/apple/swift-nio-imap/blob/0.4.0/Package.swift#L1-L17), [license](https://github.com/apple/swift-nio-imap/blob/0.4.0/LICENSE.txt)).
+
+For SMTP, the only reviewed pairing that can meet the outcome gate without a fork is libEtPan's phase-specific C API above. That leaves two protocol stacks and makes the product responsible for the high-level NIO IMAP client, connection lifecycle, authentication orchestration, MIME integration, and cancellation semantics.
+
+The available pure-Swift SMTP packages do not meet the public outcome requirement:
+
+- Mikroservices/Smtp has an internal state for `okAfterDataCommand` versus `okAfterMailData`, but its public send method returns only success or a generic error ([state machine](https://github.com/Mikroservices/Smtp/blob/2f77e5cc35778976a403752fcd74682c4cb5c5f4/Sources/Smtp/Handlers/InboundSendEmailHandler.swift#L13-L149), [public result](https://github.com/Mikroservices/Smtp/blob/2f77e5cc35778976a403752fcd74682c4cb5c5f4/Sources/Smtp/Application%2BSend.swift#L114-L169)).
+- Kitura Swift-SMTP includes the failed command and response in `SMTPError.badResponse`, but socket transport errors are passed through without a public stage marker while the library runs the entire transaction internally ([send sequence](https://github.com/Kitura/Swift-SMTP/blob/3eaa80f5dbac5a043fd42da6306449a9b0cd8a3d/Sources/SwiftSMTP/MailSender.swift#L50-L128), [error API](https://github.com/Kitura/Swift-SMTP/blob/3eaa80f5dbac5a043fd42da6306449a9b0cd8a3d/Sources/SwiftSMTP/SMTPError.swift#L20-L72)).
+
+### 3. MailCore2
+
+MailCore2's public Apple operations return an optional source-to-destination UID dictionary for both [COPY](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/objc/imap/MCOIMAPCopyMessagesOperation.h#L20-L34) and [MOVE](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/objc/imap/MCOIMAPMoveMessagesOperation.h#L20-L34). Internally it constructs that dictionary from the server's UIDPLUS source and destination sets ([COPY](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/core/imap/MCIMAPSession.cpp#L1841-L1881), [MOVE](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/core/imap/MCIMAPSession.cpp#L1926-L1966)). It discards the destination `UIDVALIDITY`, so the result is insufficient for the full verification and persistence contract.
+
+SMTP errors expose the last response text and numeric code ([Objective-C wrapper](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/objc/smtp/MCOSMTPOperation.mm#L59-L76)), but sending is a monolithic operation and all stream failures become `MCOErrorConnection`; there is no public indication of whether content had been submitted before the connection disappeared ([send implementation](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/src/core/smtp/MCSMTPSession.cpp#L752-L826)).
+
+MailCore2 is BSD-3-Clause licensed ([license](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/LICENSE)), but its last default-branch commit was in November 2022 and release 0.6.4 dates to August 2020 ([commit](https://github.com/MailCore/mailcore2/commit/7417b2e8dd7e2c028aadb72056e4d1428c0627c4), [release](https://github.com/MailCore/mailcore2/releases/tag/0.6.4)). Its SwiftPM manifest still uses tools 5.3 and an old binary dependency ([Package.swift](https://github.com/MailCore/mailcore2/blob/7417b2e8dd7e2c028aadb72056e4d1428c0627c4/Package.swift#L1-L20)).
+
+### 4. Postal
+
+Postal exposes only a MOVE operation returning `[Int: Int]`, derived from libEtPan's UIDPLUS sets, and discards destination `UIDVALIDITY` ([public operation](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/Postal/Postal.swift#L245-L263), [mapping implementation](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/Postal/IMAPSession%2BMove.swift#L29-L55)). It has no COPY or SMTP API; upstream describes it as an asynchronous wrapper over an IMAP connection ([technical notes](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/Documentation/TechnicalNotes.md#L3-L10)).
+
+There is also an apparent correctness defect in batching moves over ten UIDs: the loop computes a batch-specific `indexSet` but repeatedly passes the original full `imapSet` ([source](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/Postal/IMAPSession%2BMove.swift#L34-L54)).
+
+Postal is MIT licensed ([license](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/LICENCE.md)), but its last commit was in May 2019, its last release was in 2017, and SwiftPM remains an unchecked roadmap item ([commit](https://github.com/snipsco/Postal/commit/1e107ef8d497432b24c2e105f87ec556beea0f20), [release](https://github.com/snipsco/Postal/releases/tag/v0.5.0), [roadmap](https://github.com/snipsco/Postal/blob/1e107ef8d497432b24c2e105f87ec556beea0f20/Documentation/Roadmap.md#L6-L12)).
+
+## Recommended next decision
+
+1. Keep SwiftMail as the preferred candidate while [SwiftMail #194](https://github.com/Cocoanetics/SwiftMail/issues/194) and [SwiftMail #195](https://github.com/Cocoanetics/SwiftMail/issues/195) are evaluated upstream.
+2. Track swift-nio-imap 0.4.x because its new `COPYUID` representation removes one important technical objection, but do not treat that as removing the high-level-engine objection.
+3. When product issue #177 completes, recheck both upstream issues and SwiftMail's latest exact tag. If either capability is absent, spike direct libEtPan—not MailCore2 or Postal—against the deterministic COPY/MOVE and SMTP disconnect fixtures first.
+4. Adopt libEtPan only after its adapter proves mapping cardinality and destination `UIDVALIDITY`, uses phase-specific SMTP calls, treats stream loss after accepted `DATA` as ambiguous, and passes the complete ADR-0027 gates.
