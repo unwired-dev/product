@@ -2,7 +2,7 @@ packages:
   - 'packages/*'
 
 overrides:
-  baseline-browser-mapping: 2.11.4
+  baseline-browser-mapping: 2.11.3
   electron-to-chromium: 1.5.396
 
 catalog:
