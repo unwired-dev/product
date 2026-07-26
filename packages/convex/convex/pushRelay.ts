@@ -706,6 +706,41 @@ async function legacyGmailConnection(
   return null;
 }
 
+async function hasRemainingLegacyGmailConnection(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    opaqueConnectionId: string;
+    productAccountId: Id<'productAccounts'>;
+  }>,
+): Promise<boolean> {
+  const connections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail'),
+    )
+    .take(gmailLegacyRouteFallbackLimit + 1);
+  for (const candidate of connections.slice(0, gmailLegacyRouteFallbackLimit)) {
+    if (
+      candidate.opaqueConnectionId === undefined &&
+      candidate.providerAccountIdentifier !== undefined
+    ) {
+      const opaqueConnectionId = await opaqueGmailConnectionId(
+        request.productAccountId,
+        candidate.providerAccountIdentifier,
+      );
+      if (opaqueConnectionId === request.opaqueConnectionId) {
+        return true;
+      }
+    }
+  }
+  // Retaining the binding is safer than deleting it when the bounded proof
+  // cannot establish that the removed route was the last legacy copy.
+  return connections.length > gmailLegacyRouteFallbackLimit;
+}
+
 function hasMatchingVerificationSignal(
   signals: ReadonlyArray<Doc<'gmailPushVerificationSignals'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   request: Readonly<{ historyId: string; invalidatedAt: number; now: number }>,
@@ -1495,14 +1530,12 @@ export const removeGmailConnection = mutation({
               .eq('opaqueConnectionId', args.opaqueConnectionId),
         )
         .first();
-      const remainingLegacyConnection = await legacyGmailConnection(ctx, {
-        opaqueConnectionId: args.opaqueConnectionId,
-        productAccountId: account.productAccountId,
-      });
-      if (
-        remainingOpaqueConnection === null &&
-        remainingLegacyConnection === null
-      ) {
+      const hasRemainingLegacyConnection =
+        await hasRemainingLegacyGmailConnection(ctx, {
+          opaqueConnectionId: args.opaqueConnectionId,
+          productAccountId: account.productAccountId,
+        });
+      if (remainingOpaqueConnection === null && !hasRemainingLegacyConnection) {
         const identityBinding = await ctx.db
           .query('gmailOpaqueIdentityBindings')
           .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>

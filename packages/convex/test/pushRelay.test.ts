@@ -1291,6 +1291,72 @@ describe('gmail push relay', () => {
     ).resolves.not.toBeNull();
   });
 
+  it('retains an identity binding when legacy cleanup reaches its inspection limit', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-bounded-legacy-binding',
+      platform: 'ios',
+    });
+    const opaqueConnection = await opaqueGmailConnectionId(
+      device.productAccountId,
+      'removed-user',
+    );
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        gmailRoutingDigest: routingDigest('removed@example.com'),
+        gmailRoutingKeyVersion: 1,
+        lastVerifiedAt: now,
+        opaqueConnectionId: opaqueConnection,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+      for (let index = 0; index <= 100; index += 1) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          emailAddress: `legacy-${String(index)}@example.com`,
+          lastVerifiedAt: now,
+          productAccountId: device.productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `legacy-user-${String(index)}`,
+          trustedDeviceId: device.trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: 'identity:removed-user',
+        opaqueConnectionId: opaqueConnection,
+        productAccountId: device.productAccountId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.removeGmailConnection, {
+        opaqueConnectionId: opaqueConnection,
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({ removed: true });
+    await expect(
+      t.run((ctx) =>
+        ctx.db
+          .query('gmailOpaqueIdentityBindings')
+          .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('opaqueConnectionId', opaqueConnection),
+          )
+          .unique(),
+      ),
+    ).resolves.not.toBeNull();
+  });
+
   it('keeps the cleanup generation for a same-route registration heartbeat', async () => {
     expect.assertions(1);
 

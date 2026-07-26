@@ -3399,6 +3399,7 @@ struct MailShellMessageBody: View {
   @State private var errorMessage: String?
   @State private var isCleared = false
   @State private var isLoading = false
+  @State private var loadGeneration = UUID()
 
   init(
     clearSignal: UUID? = nil,
@@ -3432,19 +3433,28 @@ struct MailShellMessageBody: View {
       }
     }
     .task {
+      let generation = loadGeneration
       isLoading = true
-      defer { isLoading = false }
+      defer {
+        if generation == loadGeneration {
+          isLoading = false
+        }
+      }
       do {
-        messageBody = try await load()
+        let loadedMessageBody = try await load()
+        guard generation == loadGeneration else { return }
+        messageBody = loadedMessageBody
         errorMessage = nil
         isCleared = false
         onLoaded()
       } catch is CancellationError {
       } catch {
+        guard generation == loadGeneration else { return }
         errorMessage = error.localizedDescription
       }
     }
     .onChange(of: clearSignal) {
+      loadGeneration = UUID()
       messageBody = nil
       errorMessage = nil
       isCleared = true

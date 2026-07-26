@@ -1237,6 +1237,30 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async {
+    let loadStarted = expectation(description: "Message body load started")
+    let loader = GatedMessageBodyLoader(started: loadStarted)
+    let clearSignal = MessageBodyClearSignal()
+    var didPublishLoadedBody = false
+    let host = UIHostingController(
+      rootView: ClearableMessageBodyHarness(
+        clearSignal: clearSignal,
+        onLoaded: { didPublishLoadedBody = true },
+        load: { await loader.load() }
+      )
+    )
+    let window = releaseFixtureWindow(hosting: host)
+
+    await fulfillment(of: [loadStarted], timeout: 1)
+    clearSignal.value = UUID()
+    await releaseRenderFrame(host.view)
+    loader.resume()
+    await releaseRenderFrame(host.view)
+
+    XCTAssertFalse(didPublishLoadedBody)
+    withExtendedLifetime(window) {}
+  }
+
   // swiftlint:disable function_body_length
   @MainActor
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
@@ -2834,6 +2858,47 @@ private func releaseRenderFrame(_ view: UIView) async {
   try? await Task.sleep(nanoseconds: 17_000_000)
   view.layoutIfNeeded()
   CATransaction.flush()
+}
+
+@MainActor
+private final class MessageBodyClearSignal: ObservableObject {
+  @Published var value = UUID()
+}
+
+private struct ClearableMessageBodyHarness: View {
+  @ObservedObject var clearSignal: MessageBodyClearSignal
+  let onLoaded: () -> Void
+  let load: () async throws -> MailboxMessageBody
+
+  var body: some View {
+    MailShellMessageBody(
+      clearSignal: clearSignal.value,
+      onLoaded: onLoaded,
+      load: load
+    )
+  }
+}
+
+@MainActor
+private final class GatedMessageBodyLoader {
+  private var continuation: CheckedContinuation<MailboxMessageBody, Never>?
+  private let started: XCTestExpectation
+
+  init(started: XCTestExpectation) {
+    self.started = started
+  }
+
+  func load() async -> MailboxMessageBody {
+    started.fulfill()
+    return await withCheckedContinuation { continuation in
+      self.continuation = continuation
+    }
+  }
+
+  func resume() {
+    continuation?.resume(returning: MailboxMessageBody(text: "Private body"))
+    continuation = nil
+  }
 }
 
 @MainActor
