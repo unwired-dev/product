@@ -464,6 +464,44 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
   }
 
+  func testLoadConnectionsMigratesLegacyTokensForExistingPushConnection() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailConnectionTransport()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let verifiedAccount = VerifiedGmailAccount(
+      emailAddress: transport.status.emailAddress,
+      providerAccountIdentifier: transport.status.providerAccountIdentifier,
+      tokens: GmailProviderTokens(
+        accessToken: "refreshed-access",
+        refreshToken: "legacy-refresh",
+        idToken: "gmail-identity-token"
+      )
+    )
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(account: verifiedAccount)
+    )
+
+    let statuses = try await service.loadConnections(session: session)
+
+    XCTAssertEqual(statuses, [transport.status])
+    XCTAssertEqual(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: transport.status.providerAccountIdentifier
+      ),
+      GmailProviderTokens(accessToken: "refreshed-access", refreshToken: "legacy-refresh")
+    )
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+    XCTAssertNil(transport.connectCall)
+  }
+
   func testLoadConnectionsRequiresLocalTokens() async throws {
     let service = GmailProviderConnectionService(
       tokenStore: InMemoryGmailProviderTokenStore(),
@@ -943,6 +981,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func testVerifierReturnsVerifiedAccountAfterAccessRefreshAndGmailChecksPass() async throws {
     var profileAuthorizations: [String] = []
     let session = ConvexClientTesting.makeSession { request in
@@ -960,7 +999,9 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       if path == "/token" {
         return (
           Self.httpResponse(for: request, statusCode: 200),
-          Data(#"{"access_token":"refreshed-access-token"}"#.utf8)
+          Data(
+            #"{"access_token":"refreshed-access-token","id_token":"refreshed-id-token"}"#.utf8
+          )
         )
       }
 
@@ -994,7 +1035,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
     XCTAssertEqual(
       account.tokens,
-      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+      GmailProviderTokens(
+        accessToken: "access-token",
+        refreshToken: "refresh-token",
+        idToken: "refreshed-id-token"
+      )
     )
   }
 

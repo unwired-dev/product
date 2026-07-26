@@ -591,25 +591,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
-    if statuses.isEmpty,
-      let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-    {
-      let verifiedAccount = try await credentialVerifier.verify(
-        accessToken: legacyTokens.accessToken,
-        refreshToken: legacyTokens.refreshToken
-      )
-      statuses = [
-        try await completeConnection(
-          verifiedAccount: verifiedAccount,
-          session: session
-        )
-      ]
-      try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-    }
     var tokensByIdentifier: [String: GmailProviderTokens] = [:]
     for status in statuses {
       if let tokensForStatus = try tokenStore.load(
@@ -617,6 +603,44 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         providerAccountIdentifier: status.providerAccountIdentifier
       ) {
         tokensByIdentifier[status.providerAccountIdentifier] = tokensForStatus
+      }
+    }
+    if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
+      statuses.isEmpty
+        || statuses.contains(where: {
+          tokensByIdentifier[$0.providerAccountIdentifier] == nil
+        })
+    {
+      let verifiedAccount = try await credentialVerifier.verify(
+        accessToken: legacyTokens.accessToken,
+        refreshToken: legacyTokens.refreshToken
+      )
+      var didMigrateLegacyTokens = false
+      if statuses.contains(where: {
+        $0.providerAccountIdentifier == verifiedAccount.providerAccountIdentifier
+      }) {
+        let migratedTokens = GmailProviderTokens(
+          accessToken: verifiedAccount.tokens.accessToken,
+          refreshToken: verifiedAccount.tokens.refreshToken
+        )
+        try tokenStore.save(
+          migratedTokens,
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier
+        )
+        tokensByIdentifier[verifiedAccount.providerAccountIdentifier] = migratedTokens
+        didMigrateLegacyTokens = true
+      } else if statuses.isEmpty {
+        let status = try await completeConnection(
+          verifiedAccount: verifiedAccount,
+          session: session
+        )
+        statuses = [status]
+        tokensByIdentifier[status.providerAccountIdentifier] = verifiedAccount.tokens
+        didMigrateLegacyTokens = true
+      }
+      if didMigrateLegacyTokens {
+        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
       }
     }
     return statuses.filter { status in
@@ -720,7 +744,8 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
       providerAccountIdentifier: subject,
       tokens: GmailProviderTokens(
         accessToken: accessToken,
-        refreshToken: refreshToken
+        refreshToken: refreshToken,
+        idToken: refreshedProfileAndTokenInfo.idToken
       )
     )
   }
@@ -789,6 +814,7 @@ struct GoogleGmailProviderCredentialVerifier: GmailProviderCredentialVerifying {
     let tokenInfo = try JSONDecoder().decode(GoogleTokenInfoResponse.self, from: tokenInfoData)
     let subject = try await loadGoogleAccountIdentifier(accessToken: tokenResponse.accessToken)
     return RefreshedGmailVerification(
+      idToken: tokenResponse.idToken,
       profile: profile,
       subject: subject,
       tokenInfo: tokenInfo
@@ -866,6 +892,7 @@ private struct GoogleOpenIDUserInfoResponse: Decodable {
 }
 
 private struct RefreshedGmailVerification {
+  let idToken: String?
   let profile: GoogleGmailProfileResponse
   let subject: String
   let tokenInfo: GoogleTokenInfoResponse
@@ -877,9 +904,11 @@ private struct GoogleGmailProfileResponse: Decodable {
 
 private struct GoogleRefreshTokenResponse: Decodable {
   let accessToken: String
+  let idToken: String?
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
+    case idToken = "id_token"
   }
 }
 
