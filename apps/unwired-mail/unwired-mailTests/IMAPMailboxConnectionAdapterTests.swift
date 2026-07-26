@@ -1502,7 +1502,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testSystemClientCompletesUIDPLUSRetryAfterCopySucceeded() async throws {
+  func testSystemClientStopsUIDPLUSRetryWhenDestinationIdentityIsAmbiguous() async throws {
     let firstTask = TranscriptIMAPStreamTask(
       responses: [
         .success("* OK ready\r\n"),
@@ -1549,16 +1549,21 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected the first deletion attempt to disconnect")
     } catch is URLError {
     }
-    try await client.perform(
-      .archive,
-      message: message,
-      targetMailbox: "Archive",
-      authorization: authorization
-    )
+    do {
+      try await client.perform(
+        .archive,
+        message: message,
+        targetMailbox: "Archive",
+        authorization: authorization
+      )
+      XCTFail("Expected ambiguous destination identity to block expunge")
+    } catch {
+      XCTAssertEqual(error as? IMAPMailboxError, .unsafeExpunge)
+    }
 
     XCTAssertTrue(firstTask.writes.contains("A7 UID COPY 7 \"Archive\"\r\n"))
     XCTAssertFalse(retryTask.writes.contains { $0.contains("UID COPY") })
-    XCTAssertTrue(retryTask.writes.contains("A8 UID EXPUNGE 7\r\n"))
+    XCTAssertFalse(retryTask.writes.contains { $0.contains("EXPUNGE") })
   }
 
   func testSystemClientDoesNotExpungeWhenCopyUIDDoesNotMatchSource() async throws {
