@@ -180,17 +180,39 @@ struct KeychainBackgroundContextCacheStore:
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> BackgroundCategorizationContextCache? {
+    if let rawValue = try KeychainStore.readString(
+      service: Self.serviceName,
+      account: accountName(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    ) {
+      return try decode(rawValue, productAccountId: productAccountId)
+    }
     guard
-      let rawValue = try KeychainStore.readString(
+      let legacyRawValue = try KeychainStore.readString(
         service: Self.serviceName,
-        account: accountName(
-          productAccountId: productAccountId,
-          providerAccountIdentifier: providerAccountIdentifier
-        )
-      ),
-      let data = rawValue.data(using: .utf8)
+        account: productAccountId
+      )
     else {
       return nil
+    }
+    let cache = try decode(legacyRawValue, productAccountId: productAccountId)
+    try save(
+      cache,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    try KeychainStore.delete(service: Self.serviceName, account: productAccountId)
+    return cache
+  }
+
+  private func decode(
+    _ rawValue: String,
+    productAccountId: String
+  ) throws -> BackgroundCategorizationContextCache {
+    guard let data = rawValue.data(using: .utf8) else {
+      throw KeychainStoreError.unexpectedData
     }
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw MessageCategoryAssignmentSyncError.missingProductSyncKeyMaterial

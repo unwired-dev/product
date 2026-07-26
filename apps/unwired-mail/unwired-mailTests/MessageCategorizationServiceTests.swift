@@ -1910,6 +1910,64 @@ extension MessageCategorizationServiceTests {
     )
   }
 
+  // swiftlint:disable:next function_body_length
+  func testBackgroundCategorizationMigratesLegacyAccountCacheToConnectionScope() throws {
+    let productAccountId = "background-categorization-legacy-\(UUID().uuidString)"
+    let providerAccountIdentifier = "gmail-user-001"
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: productAccountId,
+      allowCreation: true
+    )
+    let store = KeychainBackgroundContextCacheStore(
+      keyMaterialStore: keyMaterialStore
+    )
+    let cache = BackgroundCategorizationContextCache(
+      customCategory: CustomCategory(name: "Legacy", description: "Migrated category"),
+      customCategoryCachedAtMilliseconds: 1_781_400_000_000,
+      learningSignalsBySender: [:]
+    )
+    let encryptedPayload = try material.encryptPayload(
+      JSONEncoder().encode(cache),
+      associatedData: Data(
+        "dev.unwired.mail.background-categorization-context.v1".utf8
+      )
+    )
+    let rawValue = try XCTUnwrap(
+      String(data: JSONEncoder().encode(encryptedPayload), encoding: .utf8)
+    )
+    defer {
+      try? store.clear(productAccountId: productAccountId)
+    }
+    try KeychainStore.writeString(
+      rawValue,
+      service: KeychainBackgroundContextCacheStore.serviceName,
+      account: productAccountId,
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      cache
+    )
+    XCTAssertNil(
+      try KeychainStore.readString(
+        service: KeychainBackgroundContextCacheStore.serviceName,
+        account: productAccountId
+      )
+    )
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      cache
+    )
+  }
+
   func testAssignmentSyncKeepsValidAssignmentsWhenAnotherPayloadIsCorrupt() async throws {
     let keyStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)

@@ -235,6 +235,60 @@ describe('productAccount.connect', () => {
 });
 
 describe('gmail operational connection registration', () => {
+  it('keeps legacy Gmail handlers available during the opaque rollout', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        emailAddress: 'user@example.com',
+        lastVerifiedAt: now,
+        productAccountId: connect.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+
+    await expect(
+      asUser.query(api.productAccount.listGmailProviderConnections, {
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject([
+      {
+        emailAddress: 'user@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+      },
+    ]);
+    await expect(
+      asUser.mutation(api.productAccount.connectGmailProvider, {
+        emailAddress: 'updated@example.com',
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({
+      emailAddress: 'updated@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+    });
+    await expect(
+      asUser.mutation(api.productAccount.removeGmailProviderConnection, {
+        providerAccountIdentifier: 'gmail-user-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({
+      hasRemainingGmailConnections: false,
+      removed: true,
+    });
+  });
+
   it('stores only opaque operational data for two Gmail connections', async () => {
     expect.assertions(5);
 
