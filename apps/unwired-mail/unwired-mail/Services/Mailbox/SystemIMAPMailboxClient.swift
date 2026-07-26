@@ -105,6 +105,7 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
   func loadMetadataMessage(
     rfcMessageId: String,
     mailbox: IMAPMailboxDescriptor,
+    requiresUniqueMatch: Bool,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPProviderMessage? {
     try await withSession(authorization: authorization) { session in
@@ -118,7 +119,12 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       let searchResponse = try await session.command(
         "UID SEARCH HEADER Message-ID \(try Self.quoted(rfcMessageId))"
       )
-      guard let uid = IMAPResponseParser.uids(searchResponse).max() else { return nil }
+      let matchingUIDs = IMAPResponseParser.uids(searchResponse)
+      guard
+        !matchingUIDs.isEmpty,
+        !requiresUniqueMatch || matchingUIDs.count == 1,
+        let uid = matchingUIDs.max()
+      else { return nil }
       let objectIdFields = supportsObjectId ? " EMAILID THREADID" : ""
       let fetchResponse = try await session.command(
         "UID FETCH \(uid) (UID FLAGS INTERNALDATE\(objectIdFields) "

@@ -272,6 +272,46 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(encodedWords.allSatisfy { $0.count <= 75 })
   }
 
+  func testLongRecipientHeaderFoldsAtMailboxBoundariesAndEncodedWords() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let recipients =
+      [
+        "\(String(repeating: "Long display name ", count: 80)) <long@example.com>"
+      ] + (1...80).map { "reader\($0)@example.com" }
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Body",
+        recipient: recipients.joined(separator: ", "),
+        subject: "Fold recipients"
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let submitted = try XCTUnwrap(
+      String(data: smtpClient.sentMessages[0], encoding: .utf8)
+    )
+    let lines = submitted.components(separatedBy: "\r\n")
+    let toStart = try XCTUnwrap(lines.firstIndex(where: { $0.hasPrefix("To: ") }))
+    let toLines = lines[toStart...].prefix {
+      $0.hasPrefix("To: ") || $0.hasPrefix(" ")
+    }
+    XCTAssertGreaterThan(toLines.count, 2)
+    XCTAssertTrue(toLines.allSatisfy { $0.utf8.count < 998 })
+    XCTAssertTrue(toLines.first?.contains("=?UTF-8?B?") == true)
+    XCTAssertEqual(smtpClient.envelopeRecipients.first?.count, recipients.count)
+  }
+
   func testSentCopyFailureIsReportedAfterSMTPAcceptance() async throws {
     let definition = imapDefinition(username: "sender")
     let client = RecordingIMAPClient()
@@ -944,6 +984,69 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       persisted.messages.first { $0.rfcMessageId == "<moved@example.com>" }?.providerMessageId,
       movedMessage.providerMessageId
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testTargetedRefreshRejectsAmbiguousMovedMessageIdentity() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    let movedMessage = imapMessage(
+      uid: 1,
+      rfcMessageId: "<ambiguous-move@example.com>"
+    )
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [movedMessage],
+      "Archive": (100...159).map {
+        imapMessage(
+          mailbox: "Archive",
+          uid: Int64($0),
+          rfcMessageId: "<archive-\($0)@example.com>"
+        )
+      },
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(
+      initial.messages.first { $0.providerMessageId == movedMessage.providerMessageId }
+    )
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    var serverMessages = client.messagesByUsernameAndMailbox[definition.username] ?? [:]
+    serverMessages["INBOX"] = []
+    serverMessages["Archive", default: []].append(contentsOf: [
+      imapMessage(
+        mailbox: "Archive",
+        uid: 50,
+        rfcMessageId: "<ambiguous-move@example.com>"
+      ),
+      imapMessage(
+        mailbox: "Archive",
+        uid: 51,
+        rfcMessageId: "<ambiguous-move@example.com>"
+      ),
+    ])
+    client.messagesByUsernameAndMailbox[definition.username] = serverMessages
+
+    let refreshed = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertFalse(
+      refreshed.messages.contains { $0.providerMessageId == movedMessage.providerMessageId }
     )
   }
 
@@ -2218,18 +2321,22 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
   func loadMetadataMessage(
     rfcMessageId: String,
     mailbox: IMAPMailboxDescriptor,
+    requiresUniqueMatch: Bool,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPProviderMessage? {
     let username = authorization.definition.username
     let normalizedMessageId = rfcMessageId.trimmingCharacters(
       in: .whitespacesAndNewlines
     ).lowercased()
-    return messagesByUsernameAndMailbox[username]?[mailbox.name]?
+    let matches =
+      messagesByUsernameAndMailbox[username]?[mailbox.name]?
       .filter {
         $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
           == normalizedMessageId
       }
-      .max(by: { $0.uid < $1.uid })
+      ?? []
+    guard !requiresUniqueMatch || matches.count == 1 else { return nil }
+    return matches.max(by: { $0.uid < $1.uid })
   }
 
   func loadTextBody(

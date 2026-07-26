@@ -249,6 +249,7 @@ protocol IMAPMailboxClient {
   func loadMetadataMessage(
     rfcMessageId: String,
     mailbox: IMAPMailboxDescriptor,
+    requiresUniqueMatch: Bool,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPProviderMessage?
 
@@ -289,6 +290,7 @@ extension IMAPMailboxClient {
   func loadMetadataMessage(
     rfcMessageId _: String,
     mailbox _: IMAPMailboxDescriptor,
+    requiresUniqueMatch _: Bool,
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPProviderMessage? {
     nil
@@ -1302,6 +1304,7 @@ struct IMAPMessageMetadataService {
           var movedAppearance = try await client.loadMetadataMessage(
             rfcMessageId: rfcMessageId,
             mailbox: descriptor,
+            requiresUniqueMatch: true,
             authorization: authorization
           )
         else { continue }
@@ -2525,6 +2528,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     try await client.loadMetadataMessage(
       rfcMessageId: messageId,
       mailbox: IMAPMailboxDescriptor(displayName: mailbox, name: mailbox),
+      requiresUniqueMatch: false,
       authorization: authorization
     ) != nil
   }
@@ -2891,7 +2895,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         let displayName = value[displayNameStart..<index]
           .trimmingCharacters(in: .whitespacesAndNewlines)
           .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
-        if !displayName.unicodeScalars.allSatisfy(\.isASCII) {
+        if !displayName.unicodeScalars.allSatisfy(\.isASCII)
+          || displayName.utf8.count > 60
+        {
           output += value[segmentStart..<displayNameStart]
           output += try encodedHeaderValue(displayName)
           output += " "
@@ -2901,6 +2907,37 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       index = value.index(after: index)
     }
     output += value[segmentStart...]
+    return foldRecipientHeaderValue(output)
+  }
+
+  private static func foldRecipientHeaderValue(_ value: String) -> String {
+    var output = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        isEscaped = false
+      } else if character == "\\" && isQuoted {
+        isEscaped = true
+      } else {
+        switch character {
+        case "\"":
+          isQuoted.toggle()
+        case "<" where !isQuoted:
+          angleBracketDepth += 1
+        case ">" where !isQuoted:
+          angleBracketDepth = max(0, angleBracketDepth - 1)
+        default:
+          break
+        }
+      }
+      output.append(character)
+      if character == ",", !isQuoted, angleBracketDepth == 0 {
+        output += "\r\n "
+      }
+    }
     return output
   }
 
