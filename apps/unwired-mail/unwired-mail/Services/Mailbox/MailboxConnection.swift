@@ -568,6 +568,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
   let messages: [MailboxMessageMetadata]
   let newMessageIds: Set<String>?
   let providerCursorIsExpired: Bool
+  let refreshedMessageIds: Set<String>?
   let threads: [MailboxThread]
 
   init(
@@ -577,7 +578,8 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
     providerCursorIsExpired: Bool,
     threads: [MailboxThread],
     hasInitialMailboxAvailability: Bool = true,
-    historicalMetadataBackfillIsComplete: Bool = true
+    historicalMetadataBackfillIsComplete: Bool = true,
+    refreshedMessageIds: Set<String>? = nil
   ) {
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
@@ -585,6 +587,7 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
     self.messages = messages
     self.newMessageIds = newMessageIds
     self.providerCursorIsExpired = providerCursorIsExpired
+    self.refreshedMessageIds = refreshedMessageIds
     self.threads = threads
   }
 }

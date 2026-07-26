@@ -278,8 +278,14 @@ actor PendingProviderActionService {
       (result.threads.flatMap(\.messages) + result.messages).map { ($0.id, $0) },
       uniquingKeysWith: { first, _ in first }
     ).values
-    let projectedMessages = observedMessages.map { message in
-      pendingActions.reduce(message) { current, pendingAction in
+    let projectedMessages: [MailboxMessageMetadata] = observedMessages.compactMap { message in
+      if pendingActions.contains(where: {
+        $0.action == .delete && $0.applies(to: message)
+          && Set(message.providerStateIds ?? []).contains("TRASH")
+      }) {
+        return nil
+      }
+      return pendingActions.reduce(message) { current, pendingAction in
         guard pendingAction.applies(to: current) else { return current }
         return current.applying(
           pendingAction.action,
@@ -294,7 +300,8 @@ actor PendingProviderActionService {
       providerCursorIsExpired: result.providerCursorIsExpired,
       threads: MailboxThread.group(projectedMessages),
       hasInitialMailboxAvailability: result.hasInitialMailboxAvailability,
-      historicalMetadataBackfillIsComplete: result.historicalMetadataBackfillIsComplete
+      historicalMetadataBackfillIsComplete: result.historicalMetadataBackfillIsComplete,
+      refreshedMessageIds: result.refreshedMessageIds
     )
     .projected(to: collection)
   }
@@ -420,15 +427,23 @@ actor PendingProviderActionService {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
+    refreshedMessageIds: Set<String>? = nil,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
+    let isFreshlyObserved: (PendingProviderAction) -> Bool = { action in
+      refreshedMessageIds.map { refreshedIds in
+        action.messageIds.allSatisfy(refreshedIds.contains)
+      } ?? true
+    }
     let confirmedActionIds = Set(
       actions.filter {
         $0.connectionId == connection.id.rawValue
+          && isFreshlyObserved($0)
           && ($0.state == .providerConfirmed || $0.state == .userActionRequired)
           && $0.isConfirmed(in: messages)
       }.map(\.id)
@@ -436,6 +451,7 @@ actor PendingProviderActionService {
     let supersededActionIds = Set(
       actions.filter { action in
         action.connectionId == connection.id.rawValue
+          && isFreshlyObserved(action)
           && action.state == .providerConfirmed
           && actions.contains { confirmedAction in
             confirmedActionIds.contains(confirmedAction.id)
@@ -448,6 +464,7 @@ actor PendingProviderActionService {
     let contradictedActionIds = Set(
       actions.filter { action in
         action.connectionId == connection.id.rawValue
+          && isFreshlyObserved(action)
           && action.state == .providerConfirmed
           && action.messageIds.allSatisfy { messageId in
             messages.contains { $0.providerMessageId == messageId }
@@ -458,6 +475,7 @@ actor PendingProviderActionService {
     let disappearedActionIds = Set(
       actions.filter { action in
         action.connectionId == connection.id.rawValue
+          && isFreshlyObserved(action)
           && action.state == .providerConfirmed
           && action.action.confirmsWhenProviderMessageDisappears
           && action.messageIds.allSatisfy { messageId in

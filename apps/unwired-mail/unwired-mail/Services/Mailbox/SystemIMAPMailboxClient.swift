@@ -269,16 +269,22 @@ private final class IMAPWireSession {
       let payload = Data(
         "user=\(username)\u{1}auth=Bearer \(credential)\u{1}\u{1}".utf8
       ).base64EncodedString()
-      _ = try await command("AUTHENTICATE XOAUTH2 \(payload)", respondsToContinuation: true)
+      _ = try await command(
+        "AUTHENTICATE XOAUTH2 \(payload)",
+        mapsRejectionToAuthorizationError: true,
+        respondsToContinuation: true
+      )
     } else {
       _ = try await command(
-        "LOGIN \(Self.quoted(username)) \(Self.quoted(credential))"
+        "LOGIN \(Self.quoted(username)) \(Self.quoted(credential))",
+        mapsRejectionToAuthorizationError: true
       )
     }
   }
 
   func command(
     _ command: String,
+    mapsRejectionToAuthorizationError: Bool = false,
     respondsToContinuation: Bool = false
   ) async throws -> String {
     try Task.checkCancellation()
@@ -290,6 +296,11 @@ private final class IMAPWireSession {
       respondsToContinuation: respondsToContinuation
     )
     guard IMAPResponseParser.taggedResponseIsOK(response, tag: tag) else {
+      if mapsRejectionToAuthorizationError,
+        response.uppercased().contains("\(tag) NO")
+      {
+        throw IMAPMailboxError.authorizationRejected
+      }
       throw IMAPMailboxError.invalidProviderResponse
     }
     return response

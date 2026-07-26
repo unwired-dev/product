@@ -56,6 +56,7 @@ struct OutgoingDeliveryAttempt: Codable, Equatable, Identifiable, Sendable {
 
   var canEditOrCancel: Bool {
     state.canEditOrCancel && reconciliationPausedForAuthorization != true
+      && message.sentCopyOnly != true
   }
 }
 
@@ -227,6 +228,8 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
     }
     if let smtpError = error as? SMTPMailError {
       switch smtpError {
+      case .connectionFailedBeforeSubmission:
+        return .transient
       case .deliveryUncertainAfterSubmission:
         return .ambiguous
       case .sentCopyFailedAfterAcceptance:
@@ -467,8 +470,7 @@ actor OutboxDeliveryService {
     try validate(connection: connection, session: session)
     var attempts = try store.load(productAccountId: session.productAccountId)
     guard let index = attempts.firstIndex(where: { $0.id == attemptId }),
-      attempts[index].state.canEditOrCancel,
-      attempts[index].reconciliationPausedForAuthorization != true
+      attempts[index].canEditOrCancel
     else {
       throw OutboxDeliveryError.attemptCannotBeChanged
     }

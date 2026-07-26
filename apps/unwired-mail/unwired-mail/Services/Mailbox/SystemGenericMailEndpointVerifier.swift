@@ -440,29 +440,35 @@ private final class SMTPDeliveryConversation {
     else {
       throw SMTPMailError.invalidMessage
     }
-    if endpoint.security == .implicitTLS {
-      task.startSecureConnection()
-    }
-    try await expect(220)
-    if endpoint.security == .startTLS {
+    do {
+      if endpoint.security == .implicitTLS {
+        task.startSecureConnection()
+      }
+      try await expect(220)
+      if endpoint.security == .startTLS {
+        try await write("EHLO unwired.local\r\n")
+        try await expect(250)
+        try await write("STARTTLS\r\n")
+        try await expect(220)
+        unreadResponse = ""
+        task.startSecureConnection()
+      }
       try await write("EHLO unwired.local\r\n")
       try await expect(250)
-      try await write("STARTTLS\r\n")
-      try await expect(220)
-      unreadResponse = ""
-      task.startSecureConnection()
+      try await authenticate()
+      try await write("MAIL FROM:<\(envelopeFrom)>\r\n")
+      try await expect(250)
+      for recipient in envelopeRecipients {
+        try await write("RCPT TO:<\(recipient)>\r\n")
+        try await expectOne(of: [250, 251])
+      }
+      try await write("DATA\r\n")
+      try await expect(354)
+    } catch let error as SMTPMailError {
+      throw error
+    } catch {
+      throw SMTPMailError.connectionFailedBeforeSubmission
     }
-    try await write("EHLO unwired.local\r\n")
-    try await expect(250)
-    try await authenticate()
-    try await write("MAIL FROM:<\(envelopeFrom)>\r\n")
-    try await expect(250)
-    for recipient in envelopeRecipients {
-      try await write("RCPT TO:<\(recipient)>\r\n")
-      try await expectOne(of: [250, 251])
-    }
-    try await write("DATA\r\n")
-    try await expect(354)
     do {
       try await write("\(Self.dotStuffed(message))\r\n.\r\n")
       try await expect(250)

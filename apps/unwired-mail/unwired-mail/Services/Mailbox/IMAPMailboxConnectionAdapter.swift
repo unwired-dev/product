@@ -5,6 +5,7 @@ import SwiftData
 
 enum IMAPMailboxError: LocalizedError, Equatable {
   case appendOutcomeUnknown
+  case authorizationRejected
   case idleUnsupported
   case invalidProviderResponse
   case missingLocalAuthorization
@@ -17,6 +18,8 @@ enum IMAPMailboxError: LocalizedError, Equatable {
     switch self {
     case .appendOutcomeUnknown:
       return "The IMAP server did not confirm whether it saved the message."
+    case .authorizationRejected:
+      return "The IMAP server rejected this mailbox authorization."
     case .idleUnsupported:
       return "This IMAP server does not support IDLE; mail will refresh periodically."
     case .invalidProviderResponse:
@@ -36,6 +39,7 @@ enum IMAPMailboxError: LocalizedError, Equatable {
 }
 
 enum SMTPMailError: LocalizedError, Equatable {
+  case connectionFailedBeforeSubmission
   case deliveryUncertainAfterSubmission
   case invalidMessage
   case responseCode(Int)
@@ -44,6 +48,8 @@ enum SMTPMailError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .connectionFailedBeforeSubmission:
+      return "The SMTP connection failed before the message was submitted."
     case .deliveryUncertainAfterSubmission:
       return "The SMTP connection closed before the server confirmed the submitted message."
     case .invalidMessage:
@@ -871,7 +877,8 @@ struct IMAPMessageMetadataService {
   func load(
     definition: GenericMailConnectionDefinition,
     connectedAt: Int64,
-    productAccountId: String
+    productAccountId: String,
+    refreshedMessageIds: Set<String>? = nil
   ) throws -> MailboxMetadataSyncResult {
     let connectionId = definition.connectionId
     let state = try store.loadState(
@@ -896,7 +903,8 @@ struct IMAPMessageMetadataService {
       threads: MailboxThread.group(allMessages),
       hasInitialMailboxAvailability: state?.hasInitialMailboxAvailability ?? false,
       historicalMetadataBackfillIsComplete:
-        state?.historicalMetadataBackfillIsComplete ?? false
+        state?.historicalMetadataBackfillIsComplete ?? false,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 
@@ -947,6 +955,7 @@ struct IMAPMessageMetadataService {
       mailboxes: [],
       scanId: UUID().uuidString
     )
+    var refreshedMessageIds: Set<String> = []
     try store.beginScan(
       activeMailboxes: Set(descriptors.map(\.name)),
       state: state,
@@ -963,6 +972,7 @@ struct IMAPMessageMetadataService {
         limit: Self.initialPageSize,
         authorization: authorization
       )
+      refreshedMessageIds.formUnion(page.messages.map(\.providerMessageId))
       state.mailboxes.append(
         IMAPMailboxBackfillState(
           descriptor: descriptor,
@@ -997,7 +1007,8 @@ struct IMAPMessageMetadataService {
     return try load(
       definition: definition,
       connectedAt: connectedAt,
-      productAccountId: productAccountId
+      productAccountId: productAccountId,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 
@@ -1022,6 +1033,7 @@ struct IMAPMessageMetadataService {
       )
     }
 
+    var refreshedMessageIds: Set<String> = []
     for index in state.mailboxes.indices where !state.mailboxes[index].isComplete {
       while let beforeUID = state.mailboxes[index].nextOlderUID {
         try Task.checkCancellation()
@@ -1042,6 +1054,7 @@ struct IMAPMessageMetadataService {
           )
           restartedFromNewest = true
         }
+        refreshedMessageIds.formUnion(page.messages.map(\.providerMessageId))
         state.mailboxes[index].uidValidity = page.uidValidity
         state.mailboxes[index].nextOlderUID = page.nextOlderUID
         try store.savePage(
@@ -1064,7 +1077,8 @@ struct IMAPMessageMetadataService {
     return try load(
       definition: definition,
       connectedAt: connectedAt,
-      productAccountId: productAccountId
+      productAccountId: productAccountId,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 
@@ -1080,6 +1094,7 @@ struct IMAPMessageMetadataService {
       .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
     let activeNames = Set(descriptors.map(\.name))
     var state = existingState
+    var refreshedMessageIds: Set<String> = []
     try store.beginScan(
       activeMailboxes: activeNames,
       state: state,
@@ -1101,6 +1116,7 @@ struct IMAPMessageMetadataService {
         limit: Self.initialPageSize,
         authorization: authorization
       )
+      refreshedMessageIds.formUnion(page.messages.map(\.providerMessageId))
       let existingIndex = state.mailboxes.firstIndex(where: {
         IMAPProviderMessage.mailboxNamesEqual($0.descriptor.name, descriptor.name)
       })
@@ -1155,7 +1171,8 @@ struct IMAPMessageMetadataService {
     return try load(
       definition: definition,
       connectedAt: connectedAt,
-      productAccountId: productAccountId
+      productAccountId: productAccountId,
+      refreshedMessageIds: refreshedMessageIds
     )
   }
 
@@ -1828,6 +1845,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       )
       try await reconcileAndResumePendingActions(
         messages: result.messages,
+        refreshedMessageIds: result.refreshedMessageIds,
         connection: connection,
         session: session
       )
@@ -1858,6 +1876,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       )
       try await reconcileAndResumePendingActions(
         messages: result.messages,
+        refreshedMessageIds: result.refreshedMessageIds,
         connection: connection,
         session: session
       )
@@ -2277,11 +2296,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
 
   private func reconcileAndResumePendingActions(
     messages: [MailboxMessageMetadata],
+    refreshedMessageIds: Set<String>?,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await pendingActionService.reconcileProviderSync(
       messages: messages,
+      refreshedMessageIds: refreshedMessageIds,
       connection: connection,
       session: session
     )

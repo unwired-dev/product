@@ -540,6 +540,11 @@ final class MailboxFreshnessViewModel {
         return
       } catch IMAPMailboxError.idleUnsupported {
         return
+      } catch IMAPMailboxError.authorizationRejected {
+        statuses[connection.id] = .authorizationRequired(
+          lastSuccessfulSyncAt: statuses[connection.id]?.lastSuccessfulSyncAt
+        )
+        return
       } catch {
         do {
           try await sleep(.seconds(5))
