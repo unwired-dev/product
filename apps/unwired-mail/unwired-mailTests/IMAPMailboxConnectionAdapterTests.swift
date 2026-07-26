@@ -69,13 +69,13 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(capabilities.supports(.delete))
   }
 
-  func testUIDPLUSOnlyServerDoesNotAdvertiseActionsThatMayRequireUnsafeMove() {
+  func testUIDPLUSOnlyServerAdvertisesMoveActionsWithPerMessageSafetyChecks() {
     let capabilities = MailboxConnectionCapabilities.imapFull(
       serverCapabilities: ["IMAP4REV1", "UIDPLUS"]
     )
 
-    XCTAssertFalse(capabilities.supports(.archive))
-    XCTAssertFalse(capabilities.supports(.move))
+    XCTAssertTrue(capabilities.supports(.archive))
+    XCTAssertTrue(capabilities.supports(.move))
     XCTAssertFalse(capabilities.supports(.delete))
   }
 
@@ -87,6 +87,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(capabilities.supports(.delete))
   }
 
+  // swiftlint:disable:next function_body_length
   func testSMTPDeliveryAndDraftAppendUseMappedMailboxes() async throws {
     let definition = imapDefinition(
       username: "sender",
@@ -133,6 +134,16 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.appendedMessages.map(\.flags), [["\\Seen"], ["\\Draft"]])
     let submitted = try XCTUnwrap(String(data: smtpClient.sentMessages[0], encoding: .utf8))
     XCTAssertTrue(submitted.contains("Message-ID: <delivery-1@outbox.unwired.mail>"))
+    let dateHeader = submitted.components(separatedBy: "\r\n").first {
+      $0.hasPrefix("Date: ")
+    }
+    XCTAssertNotNil(
+      dateHeader?.range(
+        of:
+          #"^Date: [A-Z][a-z]{2}, [0-9]{2} [A-Z][a-z]{2} [0-9]{4} [0-9]{2}:[0-9]{2}:[0-9]{2} [+-][0-9]{4}$"#,
+        options: .regularExpression
+      )
+    )
     XCTAssertTrue(submitted.contains("In-Reply-To: <parent@example.com>"))
     XCTAssertTrue(submitted.contains("Content-Transfer-Encoding: base64"))
     XCTAssertTrue(submitted.contains(Data("Héllo from IMAP".utf8).base64EncodedString()))
@@ -687,6 +698,72 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       Set(result.messages.first?.providerStateIds ?? []), ["INBOX", "ARCHIVE", "UNREAD"])
   }
 
+  // swiftlint:disable:next function_body_length
+  func testTargetedRefreshFindsMovedMessageOutsideNewestDestinationPage() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    let movedMessage = imapMessage(
+      uid: 1,
+      rfcMessageId: "<moved@example.com>",
+      providerEmailId: "moved-email"
+    )
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [movedMessage],
+      "Archive": (100...159).map {
+        imapMessage(
+          mailbox: "Archive",
+          uid: Int64($0),
+          rfcMessageId: "<archive-\($0)@example.com>"
+        )
+      },
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(
+      initial.messages.first { $0.providerMessageId == movedMessage.providerMessageId }
+    )
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    var serverMessages = client.messagesByUsernameAndMailbox[definition.username] ?? [:]
+    serverMessages["INBOX"] = []
+    serverMessages["Archive", default: []].append(
+      imapMessage(
+        mailbox: "Archive",
+        uid: 50,
+        rfcMessageId: "<moved@example.com>",
+        providerEmailId: "moved-email"
+      )
+    )
+    client.messagesByUsernameAndMailbox[definition.username] = serverMessages
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let refreshed = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
+    let refreshedMessage = try XCTUnwrap(
+      refreshed.messages.first { $0.providerMessageId == movedMessage.providerMessageId }
+    )
+
+    XCTAssertEqual(Set(refreshedMessage.providerStateIds ?? []), ["ARCHIVE", "UNREAD"])
+  }
+
   func testProviderActionUsesInboxAppearanceForMessageObservedInMultipleMailboxes() async throws {
     let definition = imapDefinition(username: "reader")
     let client = RecordingIMAPClient()
@@ -721,6 +798,82 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     _ = await adapter.resumePendingActions(connection: connection, session: session)
 
     XCTAssertEqual(client.performedActions.map(\.uid), [1])
+  }
+
+  func testProviderActionUsesSelectedTrashAppearance() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Trash", name: "Trash"),
+    ]
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [imapMessage(uid: 1, providerEmailId: "shared-email")],
+      "Trash": [
+        imapMessage(mailbox: "Trash", uid: 8, providerEmailId: "shared-email")
+      ],
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+
+    try await adapter.perform(
+      .delete,
+      targetProviderMailboxId: nil,
+      sourceProviderMailboxId: "TRASH",
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(client.performedActions.map(\.uid), [8])
+    XCTAssertEqual(client.performedActions.map(\.targetMailbox), [nil])
+  }
+
+  func testProviderActionUsesSelectedCustomMailboxAppearance() async throws {
+    let definition = imapDefinition(username: "reader")
+    let client = RecordingIMAPClient()
+    client.mailboxesByUsername[definition.username] = [
+      IMAPMailboxDescriptor(displayName: "Inbox", name: "INBOX"),
+      IMAPMailboxDescriptor(displayName: "Projects", name: "Projects"),
+      IMAPMailboxDescriptor(displayName: "Archive", name: "Archive"),
+    ]
+    client.messagesByUsernameAndMailbox[definition.username] = [
+      "INBOX": [imapMessage(uid: 1, providerEmailId: "shared-email")],
+      "Projects": [
+        imapMessage(mailbox: "Projects", uid: 8, providerEmailId: "shared-email")
+      ],
+      "Archive": [],
+    ]
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: client,
+      definitions: [definition]
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let syncResult = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(syncResult.messages.first)
+
+    try await adapter.perform(
+      .move,
+      targetProviderMailboxId: IMAPProviderMessage.customMailboxStateId("Archive"),
+      sourceProviderMailboxId: IMAPProviderMessage.customMailboxStateId("Projects"),
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(client.performedActions.map(\.uid), [8])
+    XCTAssertEqual(client.performedActions.map(\.targetMailbox), ["Archive"])
   }
 
   // swiftlint:disable:next function_body_length
@@ -1734,6 +1887,23 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
       nextOlderUID: next,
       uidValidity: uidValidityByUsername[username] ?? pageMessages.first?.uidValidity ?? 1
     )
+  }
+
+  func loadMetadataMessage(
+    rfcMessageId: String,
+    mailbox: IMAPMailboxDescriptor,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> IMAPProviderMessage? {
+    let username = authorization.definition.username
+    let normalizedMessageId = rfcMessageId.trimmingCharacters(
+      in: .whitespacesAndNewlines
+    ).lowercased()
+    return messagesByUsernameAndMailbox[username]?[mailbox.name]?
+      .filter {
+        $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+          == normalizedMessageId
+      }
+      .max(by: { $0.uid < $1.uid })
   }
 
   func loadTextBody(

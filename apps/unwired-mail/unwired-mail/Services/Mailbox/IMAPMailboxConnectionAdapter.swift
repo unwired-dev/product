@@ -244,6 +244,12 @@ protocol IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> IMAPMetadataPage
 
+  func loadMetadataMessage(
+    rfcMessageId: String,
+    mailbox: IMAPMailboxDescriptor,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> IMAPProviderMessage?
+
   func loadTextBody(
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization
@@ -274,6 +280,14 @@ protocol IMAPMailboxClient {
 }
 
 extension IMAPMailboxClient {
+  func loadMetadataMessage(
+    rfcMessageId _: String,
+    mailbox _: IMAPMailboxDescriptor,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> IMAPProviderMessage? {
+    nil
+  }
+
   func appendMessage(
     _: Data,
     to _: String,
@@ -1242,6 +1256,37 @@ struct IMAPMessageMetadataService {
           )
         }
       }
+      let existingProviderMessageIds = Set(
+        previouslyStoredMessages.filter {
+          IMAPProviderMessage.mailboxNamesEqual($0.mailbox, descriptor.name)
+        }.map(\.providerMessageId)
+      )
+      let pagedProviderMessageIds = Set(page.messages.map(\.providerMessageId))
+      for providerMessageId in targetedProviderMessageIds
+      where !existingProviderMessageIds.contains(providerMessageId)
+        && !pagedProviderMessageIds.contains(providerMessageId)
+      {
+        guard
+          let rfcMessageId = previouslyStoredMessages.first(where: {
+            $0.providerMessageId == providerMessageId
+          })?.rfcMessageId,
+          let movedAppearance = try await client.loadMetadataMessage(
+            rfcMessageId: rfcMessageId,
+            mailbox: descriptor,
+            authorization: authorization
+          )
+        else { continue }
+        refreshedMessageIds.insert(providerMessageId)
+        try store.savePage(
+          [movedAppearance],
+          mailbox: descriptor.name,
+          reconciliation: .backfill,
+          state: state,
+          uidValidity: movedAppearance.uidValidity,
+          productAccountId: productAccountId,
+          connectionId: definition.connectionId
+        )
+      }
     }
 
     if state.historicalMetadataBackfillIsComplete {
@@ -2132,6 +2177,24 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: nil,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    sourceProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     _ = try await authorizationForProviderAccess(
       connection: connection,
       session: session
@@ -2139,6 +2202,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     try await pendingActionService.enqueue(
       action,
       targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       messages: messages,
       connection: connection,
       session: session
@@ -2416,9 +2480,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     session: ProductAccountSessionSnapshot
   ) -> PendingProviderActionPerformer {
     { action, targetProviderMailboxId, messageIds in
+      let sourceProviderMailboxId = try await pendingActionService.sourceProviderMailboxId(
+        action: action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messageIds: messageIds,
+        connection: connection,
+        session: session
+      )
       try await performProviderAction(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        sourceProviderMailboxId: sourceProviderMailboxId,
         messageIds: messageIds,
         connection: connection,
         session: session
@@ -2444,6 +2516,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   private func performProviderAction(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
+    sourceProviderMailboxId: String?,
     messageIds: [String],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2464,6 +2537,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       let actionAppearances = providerActionAppearances(
         for: action,
         appearances: appearances,
+        sourceProviderMailboxId: sourceProviderMailboxId,
         definition: authorization.definition
       )
       guard !actionAppearances.isEmpty else {
@@ -2488,10 +2562,21 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   private func providerActionAppearances(
     for action: ProviderMailAction,
     appearances: [IMAPProviderMessage],
+    sourceProviderMailboxId: String?,
     definition: GenericMailConnectionDefinition
   ) -> [IMAPProviderMessage] {
     if [.markRead, .markUnread, .star, .unstar].contains(action) {
       return appearances
+    }
+    if let sourceMailbox = providerMailboxName(
+      from: sourceProviderMailboxId,
+      definition: definition
+    ),
+      let selected = appearances.first(where: {
+        IMAPProviderMessage.mailboxNamesEqual($0.mailbox, sourceMailbox)
+      })
+    {
+      return [selected]
     }
     let preferredMailbox =
       switch action {
@@ -2511,6 +2596,34 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
         return $0.mailbox.localizedCaseInsensitiveCompare($1.mailbox) == .orderedAscending
       }.first
     return selected.map { [$0] } ?? []
+  }
+
+  private func providerMailboxName(
+    from providerMailboxId: String?,
+    definition: GenericMailConnectionDefinition
+  ) -> String? {
+    guard let providerMailboxId else { return nil }
+    if let customMailbox = IMAPProviderMessage.mailboxName(
+      fromProviderStateId: providerMailboxId
+    ) {
+      return customMailbox
+    }
+    switch providerMailboxId.uppercased() {
+    case "INBOX":
+      return "INBOX"
+    case "ARCHIVE":
+      return definition.roleMappings[.archive]
+    case "DRAFT":
+      return definition.roleMappings[.drafts]
+    case "SENT":
+      return definition.roleMappings[.sent]
+    case "SPAM":
+      return definition.roleMappings[.spam]
+    case "TRASH":
+      return definition.roleMappings[.trash]
+    default:
+      return nil
+    }
   }
 
   private func targetMailbox(
@@ -2588,6 +2701,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       throw SMTPMailError.invalidMessage
     }
     var headers = [
+      "Date: \(rfc5322Date(Date()))",
       "From: \(sender)",
       "Subject: \(try encodedHeaderValue(message.subject))",
       "MIME-Version: 1.0",
@@ -2609,6 +2723,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
       options: [.lineLength76Characters, .endLineWithCarriageReturn, .endLineWithLineFeed]
     )
     return Data((headers + ["", encodedBody]).joined(separator: "\r\n").utf8)
+  }
+
+  private static func rfc5322Date(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.calendar = Calendar(identifier: .gregorian)
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.timeZone = .current
+    formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+    return formatter.string(from: date)
   }
 
   private static func encodedHeaderValue(_ value: String) throws -> String {

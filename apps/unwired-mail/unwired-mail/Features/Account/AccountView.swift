@@ -3059,6 +3059,8 @@ struct MailShellConversationReader: View {
       let didPerform = await mailActionViewModel.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        sourceProviderMailboxId: selection.selectedMailbox?.collection?
+          .providerActionSourceMailboxId,
         for: selection.selectedMailboxMessages(
           in: thread,
           pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
@@ -3089,6 +3091,8 @@ struct MailShellConversationReader: View {
         let result = await mailActionViewModel.performBulk(
           action,
           batches: batches,
+          sourceProviderMailboxId: selection.selectedMailbox?.collection?
+            .providerActionSourceMailboxId,
           onEnqueued: { connection in
             _ = await inboxViewModel.reloadLocal(connection: connection)
           }
@@ -3765,6 +3769,7 @@ final class GmailMailActionViewModel {
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    sourceProviderMailboxId: String? = nil,
     for messages: [MailboxMessageMetadata],
     connection: MailboxConnection
   ) async -> Bool {
@@ -3777,6 +3782,7 @@ final class GmailMailActionViewModel {
       try await service.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        sourceProviderMailboxId: sourceProviderMailboxId,
         messages: messages,
         connection: connection,
         session: session
@@ -4111,6 +4117,7 @@ extension GmailMailActionViewModel {
   func performBulk(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
+    sourceProviderMailboxId: String? = nil,
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
   ) async -> MailboxBulkActionResult? {
     guard !batches.isEmpty,
@@ -4137,6 +4144,7 @@ extension GmailMailActionViewModel {
     let outcomes = await performBulkBatches(
       action,
       batches: batches,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       onEnqueued: onEnqueued
     )
     await refreshFailureConnections(knownConnections)
@@ -4151,6 +4159,7 @@ extension GmailMailActionViewModel {
   private func performBulkBatches(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
+    sourceProviderMailboxId: String?,
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
@@ -4167,6 +4176,7 @@ extension GmailMailActionViewModel {
             batchIndex: batchIndex,
             service: service,
             session: session,
+            sourceProviderMailboxId: sourceProviderMailboxId,
             onEnqueued: onEnqueued
           )
         }
@@ -4191,12 +4201,14 @@ extension GmailMailActionViewModel {
     batchIndex: Int,
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
+    sourceProviderMailboxId: String?,
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
   ) async -> MailboxBulkActionBatchOutcome {
     do {
       try await service.perform(
         action,
         targetProviderMailboxId: batch.targetProviderMailboxId,
+        sourceProviderMailboxId: sourceProviderMailboxId,
         messages: batch.messages,
         connection: batch.connection,
         session: session
@@ -6706,6 +6718,7 @@ private struct GmailInboxThreadRow: View {
     Task {
       let didPerformAction = await mailActionViewModel.perform(
         action,
+        sourceProviderMailboxId: "INBOX",
         for: thread.inboxMessages,
         connection: connection
       )

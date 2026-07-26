@@ -805,6 +805,45 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testRestartRetriesInterruptedSentCopyWithoutReconcilingSMTP() async throws {
+    let store = InMemoryOutboxDeliveryStore()
+    let seedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    _ = try await seedService.enqueue(
+      message.requiringSentCopyOnly(),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .unknown }
+    )
+    var persisted = try store.load(productAccountId: session.productAccountId)
+    persisted[0].state = .handingOff
+    try store.save(persisted, productAccountId: session.productAccountId)
+    let deliveries = SentCopyDeliveryRecorder()
+    let restartedService = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: store
+    )
+
+    try await restartedService.resume(
+      connections: [connection],
+      session: session,
+      provider: { message, _, _ in
+        XCTAssertTrue(message.sentCopyOnly == true)
+        try? await deliveries.deliver(message)
+      },
+      reconcile: { _, _ in
+        XCTFail("An interrupted copy-only handoff must not reconcile SMTP delivery.")
+        return .unknown
+      }
+    )
+
+    let attempts = try await restartedService.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
   func testRestartReconcilesProviderSuccessWhenPersistingSentStateFails() async throws {
     let store = FailingOutboxDeliveryStore(failingSaveNumber: 3)
     let service = OutboxDeliveryService(

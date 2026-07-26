@@ -20,6 +20,7 @@ struct PendingProviderAction: Codable, Equatable, Identifiable, Sendable {
   let providerId: String
   let providerMailboxIdentity: String
   let sequence: UInt64
+  let sourceProviderMailboxId: String?
   var state: PendingProviderActionState
   let targetProviderMailboxId: String?
 
@@ -205,6 +206,7 @@ actor PendingProviderActionService {
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    sourceProviderMailboxId: String? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -213,6 +215,7 @@ actor PendingProviderActionService {
     try enqueue(
       action,
       targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       messages: messages,
       connection: connection,
       session: session
@@ -227,6 +230,7 @@ actor PendingProviderActionService {
   func enqueue(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    sourceProviderMailboxId: String? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -253,6 +257,7 @@ actor PendingProviderActionService {
           providerId: connection.providerId.rawValue,
           providerMailboxIdentity: connection.providerMailboxIdentity.value,
           sequence: nextSequence,
+          sourceProviderMailboxId: sourceProviderMailboxId,
           state: .pending,
           targetProviderMailboxId: targetProviderMailboxId
         )
@@ -260,6 +265,25 @@ actor PendingProviderActionService {
       nextSequence += 1
     }
     try store.save(actions, productAccountId: session.productAccountId)
+  }
+
+  func sourceProviderMailboxId(
+    action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messageIds: [String],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> String? {
+    try store.load(productAccountId: session.productAccountId)
+      .filter {
+        $0.connectionId == connection.id.rawValue
+          && $0.state == .pending
+          && $0.action == action
+          && $0.targetProviderMailboxId == targetProviderMailboxId
+          && $0.messageIds == messageIds
+      }
+      .min(by: { $0.sequence < $1.sequence })?
+      .sourceProviderMailboxId
   }
 
   func project(

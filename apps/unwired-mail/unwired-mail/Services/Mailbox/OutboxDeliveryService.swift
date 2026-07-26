@@ -386,9 +386,15 @@ actor OutboxDeliveryService {
     var recoveredInterruptedHandoff = false
     for index in attempts.indices
     where attempts[index].state == .handingOff && inFlightRetryTasks[attempts[index].id] == nil {
-      attempts[index].state = .reconciling
-      attempts[index].lastErrorDescription =
-        "Confirming delivery after the app stopped during provider handoff."
+      if attempts[index].message.sentCopyOnly == true {
+        attempts[index].state = .retrying
+        attempts[index].lastErrorDescription =
+          "Retrying the Sent copy after the app stopped during provider handoff."
+      } else {
+        attempts[index].state = .reconciling
+        attempts[index].lastErrorDescription =
+          "Confirming delivery after the app stopped during provider handoff."
+      }
       attempts[index].nextRetryAtMilliseconds = nil
       recoveredInterruptedHandoff = true
     }
@@ -1109,9 +1115,15 @@ actor OutboxDeliveryService {
     guard attempts.contains(where: { $0.state == .handingOff }) else { return true }
     var recoveredAttempts = attempts
     for index in recoveredAttempts.indices where recoveredAttempts[index].state == .handingOff {
-      recoveredAttempts[index].state = .reconciling
-      recoveredAttempts[index].lastErrorDescription =
-        "Confirming delivery after provider handoff persistence failed."
+      if recoveredAttempts[index].message.sentCopyOnly == true {
+        recoveredAttempts[index].state = .retrying
+        recoveredAttempts[index].lastErrorDescription =
+          "Retrying the Sent copy after provider handoff persistence failed."
+      } else {
+        recoveredAttempts[index].state = .reconciling
+        recoveredAttempts[index].lastErrorDescription =
+          "Confirming delivery after provider handoff persistence failed."
+      }
       recoveredAttempts[index].nextRetryAtMilliseconds = nil
     }
     do {

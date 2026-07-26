@@ -70,6 +70,35 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     }
   }
 
+  func loadMetadataMessage(
+    rfcMessageId: String,
+    mailbox: IMAPMailboxDescriptor,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> IMAPProviderMessage? {
+    try await withSession(authorization: authorization) { session in
+      let capabilityResponse = try await session.command("CAPABILITY")
+      let supportsObjectId = IMAPResponseParser.capabilities(capabilityResponse)
+        .contains("OBJECTID")
+      let selectResponse = try await session.command("SELECT \(Self.quoted(mailbox.name))")
+      let uidValidity = try IMAPResponseParser.uidValidity(selectResponse)
+      let searchResponse = try await session.command(
+        "UID SEARCH HEADER Message-ID \(Self.quoted(rfcMessageId))"
+      )
+      guard let uid = IMAPResponseParser.uids(searchResponse).max() else { return nil }
+      let objectIdFields = supportsObjectId ? " EMAILID THREADID" : ""
+      let fetchResponse = try await session.command(
+        "UID FETCH \(uid) (UID FLAGS INTERNALDATE\(objectIdFields) "
+          + "BODY.PEEK[HEADER.FIELDS (CC FROM IN-REPLY-TO MESSAGE-ID REFERENCES "
+          + "REPLY-TO SUBJECT TO)])"
+      )
+      return try IMAPResponseParser.messages(
+        fetchResponse,
+        mailbox: mailbox.name,
+        uidValidity: uidValidity
+      ).first
+    }
+  }
+
   func loadTextBody(
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization

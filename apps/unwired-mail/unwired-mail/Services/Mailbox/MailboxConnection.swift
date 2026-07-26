@@ -175,7 +175,7 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     var providerActions: Set<ProviderMailAction> = [
       .markRead, .markUnread, .star, .unstar,
     ]
-    if normalized.contains("MOVE") {
+    if !normalized.isDisjoint(with: ["MOVE", "UIDPLUS"]) {
       providerActions.formUnion([.archive, .move, .notSpam, .restore, .spam])
     }
     if normalized.contains("MOVE") && normalized.contains("UIDPLUS") {
@@ -318,6 +318,27 @@ enum MailboxMessageCollection: Hashable, Sendable {
 
   static func isProviderMailboxId(_ providerStateId: String) -> Bool {
     !gmailSystemStateIds.contains(providerStateId)
+  }
+
+  var providerActionSourceMailboxId: String? {
+    switch self {
+    case .role(.inbox):
+      return "INBOX"
+    case .role(.drafts):
+      return "DRAFT"
+    case .role(.sent):
+      return "SENT"
+    case .role(.archive):
+      return "ARCHIVE"
+    case .role(.spam):
+      return "SPAM"
+    case .role(.trash):
+      return "TRASH"
+    case .providerMailbox(let providerStateId):
+      return providerStateId
+    case .pins, .allMail, .allObserved:
+      return nil
+    }
   }
 }
 
@@ -1031,6 +1052,16 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    sourceProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -1111,6 +1142,24 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    sourceProviderMailboxId _: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
   }
 
   func perform(
@@ -1864,6 +1913,25 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: nil,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    sourceProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     _ = try await gmailConnectionForProviderAccess(
       connection,
       session: session,
@@ -1872,6 +1940,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await pendingActionService.enqueue(
       action,
       targetProviderMailboxId: targetProviderMailboxId,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       messages: messages,
       connection: connection,
       session: session
