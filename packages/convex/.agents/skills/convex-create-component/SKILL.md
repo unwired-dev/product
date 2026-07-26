@@ -209,8 +209,9 @@ Note the reference path shape: a function in
 - If the component needs pagination, use `paginator` from `convex-helpers`
   instead of built-in `.paginate()`, because `.paginate()` does not work across
   the component boundary.
-- Define indexes for queried fields instead of using Convex `.filter()` after a
-  database query.
+- Define indexes for every equality or range predicate they can express. Use
+  Convex `.filter()` only for additional predicates that cannot be expressed by
+  the selected index.
 - Add `args` and `returns` validators to all public component functions, because
   the component boundary requires explicit type contracts.
 
