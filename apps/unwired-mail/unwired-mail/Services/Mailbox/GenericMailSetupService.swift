@@ -88,6 +88,7 @@ struct GenericMailSetupDraft: Equatable, Sendable {
 struct GenericMailConnectionDefinition: Codable, Equatable, Sendable {
   let authorizationMethod: MailAuthorizationMethod
   let emailAddress: String
+  var imapCapabilities: Set<String>?
   let incomingEndpoint: GenericMailEndpoint
   let outgoingEndpoint: GenericMailEndpoint
   let roleMappings: [CanonicalMailboxRole: String]
@@ -134,15 +135,18 @@ enum MailTransportVersion: Int, Equatable, Sendable {
 
 struct GenericMailEndpointVerification: Equatable, Sendable {
   let authenticated: Bool
+  let discoveredIMAPCapabilities: Set<String>
   let discoveredRoleMappings: [CanonicalMailboxRole: String]
   let transportVersion: MailTransportVersion
 
   init(
     authenticated: Bool,
+    discoveredIMAPCapabilities: Set<String> = [],
     discoveredRoleMappings: [CanonicalMailboxRole: String] = [:],
     transportVersion: MailTransportVersion
   ) {
     self.authenticated = authenticated
+    self.discoveredIMAPCapabilities = discoveredIMAPCapabilities
     self.discoveredRoleMappings = discoveredRoleMappings
     self.transportVersion = transportVersion
   }
@@ -340,13 +344,14 @@ struct GenericMailSetupService {
     let definition = try validatedDefinition(draft)
     guard !credential.isEmpty else { throw GenericMailSetupError.missingCredential }
 
-    let discoveredRoleMappings = try await verifyEndpoints(
+    let verification = try await verifyEndpoints(
       definition: definition,
       credential: credential,
       isSessionCurrent: isSessionCurrent
     )
     let verifiedDefinition = try applyingRoleMappings(
-      discoveredRoleMappings,
+      verification.roleMappings,
+      imapCapabilities: verification.imapCapabilities,
       to: definition
     )
 
@@ -369,8 +374,12 @@ struct GenericMailSetupService {
     definition: GenericMailConnectionDefinition,
     credential: String,
     isSessionCurrent: () -> Bool
-  ) async throws -> [CanonicalMailboxRole: String] {
+  ) async throws -> (
+    roleMappings: [CanonicalMailboxRole: String],
+    imapCapabilities: Set<String>
+  ) {
     var discoveredRoleMappings: [CanonicalMailboxRole: String] = [:]
+    var discoveredIMAPCapabilities: Set<String> = []
     for endpoint in [definition.incomingEndpoint, definition.outgoingEndpoint] {
       try Task.checkCancellation()
       guard isSessionCurrent() else { throw CancellationError() }
@@ -388,13 +397,15 @@ struct GenericMailSetupService {
       }
       if endpoint.mailProtocol == .imap {
         discoveredRoleMappings = verification.discoveredRoleMappings
+        discoveredIMAPCapabilities = verification.discoveredIMAPCapabilities
       }
     }
-    return discoveredRoleMappings
+    return (discoveredRoleMappings, discoveredIMAPCapabilities)
   }
 
   private func applyingRoleMappings(
     _ discovered: [CanonicalMailboxRole: String],
+    imapCapabilities: Set<String>,
     to definition: GenericMailConnectionDefinition
   ) throws -> GenericMailConnectionDefinition {
     guard definition.incomingEndpoint.mailProtocol == .imap else { return definition }
@@ -410,6 +421,7 @@ struct GenericMailSetupService {
     return GenericMailConnectionDefinition(
       authorizationMethod: definition.authorizationMethod,
       emailAddress: definition.emailAddress,
+      imapCapabilities: imapCapabilities.isEmpty ? nil : imapCapabilities,
       incomingEndpoint: definition.incomingEndpoint,
       outgoingEndpoint: definition.outgoingEndpoint,
       roleMappings: roleMappings,

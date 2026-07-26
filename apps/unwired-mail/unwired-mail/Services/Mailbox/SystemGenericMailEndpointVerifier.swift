@@ -6,6 +6,7 @@ protocol GenericMailStreamTasking: AnyObject {
   func close()
   func read() async throws -> String
   func readData() async throws -> Data
+  func readData(timeout: TimeInterval) async throws -> Data
   func resume()
   func startSecureConnection()
   func write(_ value: String) async throws
@@ -14,6 +15,10 @@ protocol GenericMailStreamTasking: AnyObject {
 extension GenericMailStreamTasking {
   func readData() async throws -> Data {
     Data(try await read().utf8)
+  }
+
+  func readData(timeout _: TimeInterval) async throws -> Data {
+    try await readData()
   }
 }
 
@@ -53,7 +58,7 @@ final class SystemGenericMailEndpointVerifier: NSObject, GenericMailEndpointVeri
     task.resume()
     defer { task.close() }
 
-    let discoveredRoleMappings = try await withTaskCancellationHandler {
+    let result = try await withTaskCancellationHandler {
       let conversation = MailEndpointConversation(
         authorizationMethod: authorizationMethod,
         credential: credential,
@@ -67,10 +72,16 @@ final class SystemGenericMailEndpointVerifier: NSObject, GenericMailEndpointVeri
     }
     return GenericMailEndpointVerification(
       authenticated: true,
-      discoveredRoleMappings: discoveredRoleMappings,
+      discoveredIMAPCapabilities: result.imapCapabilities,
+      discoveredRoleMappings: result.roleMappings,
       transportVersion: .tls12OrNewer
     )
   }
+}
+
+private struct MailEndpointVerificationResult {
+  let imapCapabilities: Set<String>
+  let roleMappings: [CanonicalMailboxRole: String]
 }
 
 private final class MailEndpointConversation {
@@ -95,7 +106,7 @@ private final class MailEndpointConversation {
     self.username = username
   }
 
-  func verify() async throws -> [CanonicalMailboxRole: String] {
+  func verify() async throws -> MailEndpointVerificationResult {
     if endpoint.security == .implicitTLS {
       task.startSecureConnection()
     }
@@ -113,9 +124,23 @@ private final class MailEndpointConversation {
 
     try await authenticate()
     if endpoint.mailProtocol == .imap {
-      return try await discoverIMAPRoleMappings()
+      let capabilities = try await discoverIMAPCapabilities()
+      return MailEndpointVerificationResult(
+        imapCapabilities: capabilities,
+        roleMappings: try await discoverIMAPRoleMappings()
+      )
     }
-    return [:]
+    return MailEndpointVerificationResult(imapCapabilities: [], roleMappings: [:])
+  }
+
+  private func discoverIMAPCapabilities() async throws -> Set<String> {
+    try await write("a3 CAPABILITY\r\n")
+    let response = try await readIMAPResponse(tag: "A3")
+    return Set(
+      response.components(separatedBy: "\r\n")
+        .filter { $0.uppercased().hasPrefix("* CAPABILITY ") }
+        .flatMap { $0.split(separator: " ").dropFirst(2).map { $0.uppercased() } }
+    )
   }
 
   private func negotiateStartTLS() async throws {
@@ -172,8 +197,8 @@ private final class MailEndpointConversation {
   }
 
   private func discoverIMAPRoleMappings() async throws -> [CanonicalMailboxRole: String] {
-    try await write("a3 LIST \"\" \"*\" RETURN (SPECIAL-USE)\r\n")
-    let response = try await readIMAPResponse(tag: "A3")
+    try await write("a4 LIST \"\" \"*\" RETURN (SPECIAL-USE)\r\n")
+    let response = try await readIMAPResponse(tag: "A4")
     var candidates: [CanonicalMailboxRole: Set<String>] = [:]
     for line in response.components(separatedBy: "\r\n") where line.hasPrefix("* LIST (") {
       guard let mailbox = listedMailbox(in: line) else { continue }
@@ -326,6 +351,201 @@ private final class MailEndpointConversation {
   }
 }
 
+struct SystemSMTPMailClient: SMTPMailClient {
+  private let streamTaskFactory: GenericMailStreamTaskCreating
+
+  init(
+    streamTaskFactory: GenericMailStreamTaskCreating = URLSessionGenericMailStreamTaskFactory()
+  ) {
+    self.streamTaskFactory = streamTaskFactory
+  }
+
+  func send(
+    _ message: Data,
+    envelopeFrom: String,
+    envelopeRecipients: [String],
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    let definition = authorization.definition
+    let endpoint = definition.outgoingEndpoint
+    guard
+      endpoint.mailProtocol == .smtp,
+      !envelopeFrom.isEmpty,
+      !envelopeRecipients.isEmpty,
+      ([envelopeFrom] + envelopeRecipients).allSatisfy({
+        !$0.contains("\r") && !$0.contains("\n")
+      })
+    else {
+      throw SMTPMailError.invalidMessage
+    }
+    let task = streamTaskFactory.makeStreamTask(
+      hostname: endpoint.hostname,
+      port: endpoint.port,
+      minimumTransportVersion: .tls12OrNewer
+    )
+    task.resume()
+    let conversation = SMTPDeliveryConversation(
+      authorizationMethod: definition.authorizationMethod,
+      credential: authorization.credential,
+      endpoint: endpoint,
+      task: task,
+      username: definition.username
+    )
+    try await withTaskCancellationHandler {
+      defer { task.close() }
+      try await conversation.send(
+        message,
+        envelopeFrom: envelopeFrom,
+        envelopeRecipients: envelopeRecipients
+      )
+    } onCancel: {
+      task.close()
+    }
+  }
+}
+
+private final class SMTPDeliveryConversation {
+  private let authorizationMethod: MailAuthorizationMethod
+  private let credential: String
+  private let endpoint: GenericMailEndpoint
+  private let task: GenericMailStreamTasking
+  private let username: String
+  private var unreadResponse = ""
+
+  init(
+    authorizationMethod: MailAuthorizationMethod,
+    credential: String,
+    endpoint: GenericMailEndpoint,
+    task: GenericMailStreamTasking,
+    username: String
+  ) {
+    self.authorizationMethod = authorizationMethod
+    self.credential = credential
+    self.endpoint = endpoint
+    self.task = task
+    self.username = username
+  }
+
+  func send(
+    _ message: Data,
+    envelopeFrom: String,
+    envelopeRecipients: [String]
+  ) async throws {
+    guard
+      let message = String(data: message, encoding: .utf8),
+      !username.contains("\r"),
+      !username.contains("\n"),
+      !credential.contains("\r"),
+      !credential.contains("\n")
+    else {
+      throw SMTPMailError.invalidMessage
+    }
+    if endpoint.security == .implicitTLS {
+      task.startSecureConnection()
+    }
+    try await expect(220)
+    if endpoint.security == .startTLS {
+      try await write("EHLO unwired.local\r\n")
+      try await expect(250)
+      try await write("STARTTLS\r\n")
+      try await expect(220)
+      unreadResponse = ""
+      task.startSecureConnection()
+    }
+    try await write("EHLO unwired.local\r\n")
+    try await expect(250)
+    try await authenticate()
+    try await write("MAIL FROM:<\(envelopeFrom)>\r\n")
+    try await expect(250)
+    for recipient in envelopeRecipients {
+      try await write("RCPT TO:<\(recipient)>\r\n")
+      try await expectOne(of: [250, 251])
+    }
+    try await write("DATA\r\n")
+    try await expect(354)
+    do {
+      try await write("\(Self.dotStuffed(message))\r\n.\r\n")
+      try await expect(250)
+    } catch let error as SMTPMailError {
+      if case .responseCode = error { throw error }
+      throw SMTPMailError.deliveryUncertainAfterSubmission
+    } catch {
+      throw SMTPMailError.deliveryUncertainAfterSubmission
+    }
+    try? await write("QUIT\r\n")
+  }
+
+  private func authenticate() async throws {
+    if authorizationMethod == .oauth {
+      let payload = Data(
+        "user=\(username)\u{1}auth=Bearer \(credential)\u{1}\u{1}".utf8
+      ).base64EncodedString()
+      try await write("AUTH XOAUTH2 \(payload)\r\n")
+    } else {
+      let payload = Data("\u{0}\(username)\u{0}\(credential)".utf8).base64EncodedString()
+      try await write("AUTH PLAIN \(payload)\r\n")
+    }
+    try await expect(235)
+  }
+
+  private func expect(_ code: Int) async throws {
+    try await expectOne(of: [code])
+  }
+
+  private func expectOne(of expectedCodes: Set<Int>) async throws {
+    let code = try await readResponseCode()
+    guard expectedCodes.contains(code) else {
+      throw SMTPMailError.responseCode(code)
+    }
+  }
+
+  private func readResponseCode() async throws -> Int {
+    while true {
+      let line = try await readLine()
+      guard
+        line.count >= 3,
+        let code = Int(line.prefix(3))
+      else {
+        throw SMTPMailError.invalidMessage
+      }
+      let separator = line.dropFirst(3).first
+      if separator == " " { return code }
+      guard separator == "-" else {
+        throw SMTPMailError.responseCode(code)
+      }
+    }
+  }
+
+  private func readLine() async throws -> String {
+    while !unreadResponse.contains("\r\n") {
+      unreadResponse += try await task.read()
+    }
+    let range = unreadResponse.range(of: "\r\n")!
+    let line = String(unreadResponse[..<range.upperBound])
+    unreadResponse.removeSubrange(..<range.upperBound)
+    return line
+  }
+
+  private func write(_ value: String) async throws {
+    try Task.checkCancellation()
+    try await task.write(value)
+  }
+
+  private static func dotStuffed(_ message: String) -> String {
+    var normalized =
+      message
+      .replacingOccurrences(of: "\r\n", with: "\n")
+      .replacingOccurrences(of: "\r", with: "\n")
+      .split(separator: "\n", omittingEmptySubsequences: false)
+      .map { line in line.hasPrefix(".") ? ".\(line)" : String(line) }
+      .joined(separator: "\r\n")
+    while normalized.hasSuffix("\r\n") {
+      normalized.removeLast(2)
+    }
+    return normalized
+  }
+}
+
 struct URLSessionGenericMailStreamTaskFactory: GenericMailStreamTaskCreating {
   func makeStreamTask(
     hostname: String,
@@ -368,8 +588,12 @@ private final class URLSessionGenericMailStreamTask: GenericMailStreamTasking {
   }
 
   func readData() async throws -> Data {
+    try await readData(timeout: 15)
+  }
+
+  func readData(timeout: TimeInterval) async throws -> Data {
     try await withCheckedThrowingContinuation { continuation in
-      task.readData(ofMinLength: 1, maxLength: 65_536, timeout: 15) { data, _, error in
+      task.readData(ofMinLength: 1, maxLength: 65_536, timeout: timeout) { data, _, error in
         if let error {
           continuation.resume(throwing: error)
           return

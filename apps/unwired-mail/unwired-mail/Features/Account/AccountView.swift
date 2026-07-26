@@ -192,6 +192,7 @@ final class MailboxFreshnessViewModel {
   private static let activePollInterval = Duration.seconds(300)
 
   private var inFlightSyncs: [MailboxConnectionId: InFlightSync] = [:]
+  private let changeObserver: MailboxChangeObserving?
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
@@ -206,12 +207,14 @@ final class MailboxFreshnessViewModel {
     service: MailboxMetadataSyncing,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
+    changeObserver: MailboxChangeObserving? = nil,
     now: @escaping () -> Date = Date.init,
     successStore: MailboxSyncSuccessPersisting? = nil,
     sleep: @escaping (Duration) async throws -> Void = { duration in
       try await Task.sleep(for: duration)
     }
   ) {
+    self.changeObserver = changeObserver
     self.isSessionCurrent = isSessionCurrent
     self.now = now
     self.service = service
@@ -482,6 +485,30 @@ final class MailboxFreshnessViewModel {
     connections: @escaping () -> [MailboxConnection],
     didSynchronize: @escaping () async -> Void
   ) async {
+    let idleTasks: [Task<Void, Never>] =
+      if let changeObserver {
+        connections()
+          .filter {
+            $0.authorizationState == .authorized
+              && $0.providerId == .imapSMTP
+              && $0.capabilities.canRegisterPush
+          }
+          .map { connection in
+            Task { [weak self] in
+              guard let self else { return }
+              await observeIMAPChanges(
+                connection: connection,
+                observer: changeObserver,
+                didSynchronize: didSynchronize
+              )
+            }
+          }
+      } else {
+        []
+      }
+    defer {
+      for task in idleTasks { task.cancel() }
+    }
     while isSessionCurrent(session) {
       do {
         try await sleep(Self.activePollInterval)
@@ -492,6 +519,34 @@ final class MailboxFreshnessViewModel {
       await synchronize(connections: connections())
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       await didSynchronize()
+    }
+  }
+
+  private func observeIMAPChanges(
+    connection: MailboxConnection,
+    observer: MailboxChangeObserving,
+    didSynchronize: @escaping () async -> Void
+  ) async {
+    while !Task.isCancelled, isSessionCurrent(session) {
+      do {
+        try await observer.waitForMailboxChange(
+          connection: connection,
+          session: session
+        )
+        guard !Task.isCancelled, knownConnections[connection.id] != nil else { return }
+        _ = try await syncInbox(connection: connection, session: session)
+        await didSynchronize()
+      } catch is CancellationError {
+        return
+      } catch IMAPMailboxError.idleUnsupported {
+        return
+      } catch {
+        do {
+          try await sleep(.seconds(5))
+        } catch {
+          return
+        }
+      }
     }
   }
 
@@ -709,7 +764,8 @@ struct AccountView: View {
     let mailboxFreshnessViewModel = MailboxFreshnessViewModel(
       service: mailboxConnection,
       session: snapshot,
-      isSessionCurrent: { session.isCurrent($0) }
+      isSessionCurrent: { session.isCurrent($0) },
+      changeObserver: mailboxConnection as? MailboxChangeObserving
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -745,6 +801,20 @@ struct AccountView: View {
 
   private var genericMailReloadKey: [String] {
     genericMailSetupViewModel.connectionReloadKey
+  }
+
+  private var mailboxActivePollingTaskId: MailboxActivePollingTaskId {
+    MailboxActivePollingTaskId(
+      idleConnectionIds: gmailViewModel.connections
+        .filter {
+          $0.authorizationState == .authorized
+            && $0.providerId == .imapSMTP
+            && $0.capabilities.canRegisterPush
+        }
+        .map(\.id)
+        .sorted { $0.rawValue < $1.rawValue },
+      scenePhase: scenePhase
+    )
   }
 
   private var mailShell: some View {
@@ -914,7 +984,8 @@ struct AccountView: View {
         connections: gmailViewModel.connections,
         draft: draft,
         isSending: mailActionViewModel.isPerformingAction,
-        send: sendNewMessage
+        send: sendNewMessage,
+        saveDraft: saveNewDraft
       )
     }
     .alert(
@@ -971,7 +1042,7 @@ struct AccountView: View {
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
     }
-    .task(id: scenePhase) {
+    .task(id: mailboxActivePollingTaskId) {
       guard scenePhase == .active else { return }
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
@@ -1037,6 +1108,11 @@ struct AccountView: View {
     await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await genericMailSetupViewModel.loadSyncedDefinitions()
   }
+}
+
+private struct MailboxActivePollingTaskId: Equatable {
+  let idleConnectionIds: [MailboxConnectionId]
+  let scenePhase: ScenePhase
 }
 
 extension AccountView {
@@ -1162,6 +1238,22 @@ extension AccountView {
       return false
     }
     return await mailActionViewModel.send(
+      recipient: draft.recipient,
+      subject: draft.subject,
+      body: draft.body,
+      replyTo: nil,
+      connection: connection
+    )
+  }
+
+  private func saveNewDraft(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard
+      let connectionId = draft.connectionId,
+      let connection = gmailViewModel.connections.first(where: { $0.id == connectionId })
+    else {
+      return false
+    }
+    return await mailActionViewModel.saveDraft(
       recipient: draft.recipient,
       subject: draft.subject,
       body: draft.body,
@@ -2370,6 +2462,7 @@ private struct MailShellThreadList: View {
         connections: connections,
         draft: .editing(attempt),
         isSending: mailActionViewModel.isPerformingAction,
+        allowsDraftSaving: false,
         send: { draft in
           guard
             let connectionId = draft.connectionId,
@@ -2382,7 +2475,8 @@ private struct MailShellThreadList: View {
             body: draft.body,
             connection: connection
           )
-        }
+        },
+        saveDraft: { _ in false }
       )
     }
   }
@@ -2764,7 +2858,8 @@ struct MailShellConversationReader: View {
         connections: connections,
         draft: draft,
         isSending: mailActionViewModel.isPerformingAction,
-        send: send
+        send: send,
+        saveDraft: saveDraft
       )
     }
     .alert("Message action failed", isPresented: readerErrorBinding) {
@@ -3055,6 +3150,28 @@ struct MailShellConversationReader: View {
     }
     return didSend
   }
+
+  private func saveDraft(_ draft: MailShellCompositionDraft) async -> Bool {
+    guard
+      let connectionId = draft.connectionId,
+      let connection = connections.first(where: { $0.id == connectionId }),
+      connection.authorizationState == .authorized
+    else {
+      readerErrorMessage = "Authorize the source Mailbox Connection before saving."
+      return false
+    }
+    let didSave = await mailActionViewModel.saveDraft(
+      recipient: draft.recipient,
+      subject: draft.subject,
+      body: draft.body,
+      replyTo: draft.replyToMessage,
+      connection: connection
+    )
+    if !didSave {
+      readerErrorMessage = mailActionViewModel.errorMessage
+    }
+    return didSave
+  }
 }
 
 private struct MailShellConversationMessage: View {
@@ -3180,22 +3297,28 @@ private struct MailShellMessageBody: View {
 }
 
 private struct MailShellComposer: View {
+  let allowsDraftSaving: Bool
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
   let isSending: Bool
   let send: (MailShellCompositionDraft) async -> Bool
+  let saveDraft: (MailShellCompositionDraft) async -> Bool
   @Environment(\.dismiss) private var dismiss
 
   init(
     connections: [MailboxConnection],
     draft: MailShellCompositionDraft,
     isSending: Bool,
-    send: @escaping (MailShellCompositionDraft) async -> Bool
+    allowsDraftSaving: Bool = true,
+    send: @escaping (MailShellCompositionDraft) async -> Bool,
+    saveDraft: @escaping (MailShellCompositionDraft) async -> Bool
   ) {
+    self.allowsDraftSaving = allowsDraftSaving
     self.connections = connections
     _draft = State(initialValue: draft)
     self.isSending = isSending
     self.send = send
+    self.saveDraft = saveDraft
   }
 
   var body: some View {
@@ -3232,6 +3355,22 @@ private struct MailShellComposer: View {
       .toolbar {
         ToolbarItem(placement: .cancellationAction) {
           Button("Cancel") { dismiss() }
+        }
+        if allowsDraftSaving, selectedConnection?.providerId == .imapSMTP {
+          ToolbarItem {
+            Button("Save Draft") {
+              Task {
+                if await saveDraft(draft) {
+                  dismiss()
+                }
+              }
+            }
+            .disabled(
+              isSending
+                || (draft.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                  && draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            )
+          }
         }
         ToolbarItem(placement: .confirmationAction) {
           Button("Send") {
@@ -3754,6 +3893,43 @@ final class GmailMailActionViewModel {
       remember(connection)
       await refreshOutbox()
       observeOutboxRetries()
+      errorMessage = nil
+      return true
+    } catch is CancellationError {
+      return false
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
+    }
+  }
+
+  func saveDraft(
+    recipient: String,
+    subject: String,
+    body: String,
+    replyTo: MailboxMessageMetadata?,
+    connection: MailboxConnection
+  ) async -> Bool {
+    guard
+      connection.providerId == .imapSMTP,
+      connection.authorizationState == .authorized,
+      connection.capabilities.canSend,
+      !isPerformingAction
+    else { return false }
+    isPerformingAction = true
+    defer { isPerformingAction = false }
+    do {
+      try await service.saveDraft(
+        OutgoingMessage(
+          body: body,
+          recipient: recipient,
+          subject: subject,
+          inReplyTo: replyTo?.rfcMessageId,
+          providerThreadId: replyTo?.providerThreadId
+        ),
+        connection: connection,
+        session: session
+      )
       errorMessage = nil
       return true
     } catch is CancellationError {

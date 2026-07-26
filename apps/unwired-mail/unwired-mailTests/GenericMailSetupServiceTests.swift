@@ -1081,13 +1081,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("* OK ready\r\n"),
       .success("a2 OK authenticated\r\n"),
+      .success("* CAPABILITY IMAP4rev1 IDLE MOVE\r\na3 OK capable\r\n"),
       .success(
         "* LIST (\\Drafts) \"/\" \"Drafts\"\r\n"
           + "* LIST (\\Sent) \"/\" \"Sent Items\"\r\n"
           + "* LIST (\\Archive) \"/\" \"Archive\"\r\n"
           + "* LIST (\\Junk) \"/\" \"Junk\"\r\n"
           + "* LIST (\\Trash) \"/\" \"Deleted\"\r\n"
-          + "a3 OK listed\r\n"
+          + "a4 OK listed\r\n"
       ),
     ])
     let verifier = SystemGenericMailEndpointVerifier(
@@ -1108,13 +1109,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     XCTAssertEqual(verification.discoveredRoleMappings[.sent], "Sent Items")
     XCTAssertEqual(verification.discoveredRoleMappings[.trash], "Deleted")
+    XCTAssertEqual(verification.discoveredIMAPCapabilities, ["IMAP4REV1", "IDLE", "MOVE"])
   }
 
   func testSystemVerifierReadsUnquotedIMAPSpecialUseRole() async throws {
     let stream = ScriptedGenericMailStreamTask(responses: [
       .success("* OK ready\r\n"),
       .success("a2 OK authenticated\r\n"),
-      .success("* LIST (\\Sent) \"/\" Sent\r\na3 OK listed\r\n"),
+      .success("* CAPABILITY IMAP4rev1 UIDPLUS\r\na3 OK capable\r\n"),
+      .success("* LIST (\\Sent) \"/\" Sent\r\na4 OK listed\r\n"),
     ])
     let verifier = SystemGenericMailEndpointVerifier(
       streamTaskFactory: RecordingGenericMailStreamTaskFactory(stream: stream)

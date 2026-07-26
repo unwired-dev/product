@@ -101,6 +101,93 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     }
   }
 
+  func appendMessage(
+    _ message: Data,
+    to mailbox: String,
+    flags: [String],
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    try await withSession(authorization: authorization) { session in
+      try await session.append(message, to: mailbox, flags: flags)
+    }
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    message: IMAPProviderMessage,
+    targetMailbox: String?,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    try await withSession(authorization: authorization) { session in
+      let capabilityResponse = try await session.command("CAPABILITY")
+      let capabilities = IMAPResponseParser.capabilities(capabilityResponse)
+      let selected = try await session.command("SELECT \(Self.quoted(message.mailbox))")
+      guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
+        throw IMAPMailboxError.missingMessage
+      }
+      switch action {
+      case .markRead:
+        _ = try await session.command(
+          "UID STORE \(message.uid) +FLAGS.SILENT (\\Seen)"
+        )
+      case .markUnread:
+        _ = try await session.command(
+          "UID STORE \(message.uid) -FLAGS.SILENT (\\Seen)"
+        )
+      case .star:
+        _ = try await session.command(
+          "UID STORE \(message.uid) +FLAGS.SILENT (\\Flagged)"
+        )
+      case .unstar:
+        _ = try await session.command(
+          "UID STORE \(message.uid) -FLAGS.SILENT (\\Flagged)"
+        )
+      case .delete:
+        if let targetMailbox, !targetMailbox.isEmpty {
+          try await session.move(
+            uid: message.uid,
+            to: targetMailbox,
+            capabilities: capabilities
+          )
+        } else {
+          try await session.delete(uid: message.uid, capabilities: capabilities)
+        }
+      case .archive, .move, .notSpam, .restore, .spam:
+        guard let targetMailbox, !targetMailbox.isEmpty else {
+          throw IMAPMailboxError.unsupportedAction
+        }
+        try await session.move(
+          uid: message.uid,
+          to: targetMailbox,
+          capabilities: capabilities
+        )
+      }
+    }
+  }
+
+  func waitForChange(
+    in mailbox: String,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    try await withSession(authorization: authorization) { session in
+      let capabilityResponse = try await session.command("CAPABILITY")
+      guard IMAPResponseParser.capabilities(capabilityResponse).contains("IDLE") else {
+        throw IMAPMailboxError.idleUnsupported
+      }
+      _ = try await session.command("SELECT \(Self.quoted(mailbox))")
+      try await session.waitForIdleChange()
+    }
+  }
+
+  func supportsIdle(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Bool {
+    try await withSession(authorization: authorization) { session in
+      let capabilityResponse = try await session.command("CAPABILITY")
+      return IMAPResponseParser.capabilities(capabilityResponse).contains("IDLE")
+    }
+  }
+
   private func withSession<T>(
     authorization: DeviceLocalGenericMailAuthorization,
     operation: (IMAPWireSession) async throws -> T
@@ -138,6 +225,8 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
 }
 
 private final class IMAPWireSession {
+  private static let idleWaitTimeout: TimeInterval = 29 * 60
+
   private let authorizationMethod: MailAuthorizationMethod
   private let credential: String
   private let endpoint: GenericMailEndpoint
@@ -221,6 +310,82 @@ private final class IMAPWireSession {
     return response
   }
 
+  func append(
+    _ message: Data,
+    to mailbox: String,
+    flags: [String]
+  ) async throws {
+    guard let message = String(data: message, encoding: .utf8) else {
+      throw SMTPMailError.invalidMessage
+    }
+    try Task.checkCancellation()
+    let tag = "A\(nextTagNumber)"
+    nextTagNumber += 1
+    let flagList = flags.isEmpty ? "" : " (\(flags.joined(separator: " ")))"
+    try await task.write(
+      "\(tag) APPEND \(Self.quoted(mailbox))\(flagList) {\(message.utf8.count)}\r\n"
+    )
+    guard try await readLine().hasPrefix("+") else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    try await task.write("\(message)\r\n")
+    let response: String
+    do {
+      response = try await readTaggedResponse(tag: tag, respondsToContinuation: false)
+    } catch {
+      throw IMAPMailboxError.appendOutcomeUnknown
+    }
+    guard IMAPResponseParser.taggedResponseIsOK(response, tag: tag) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+  }
+
+  func delete(
+    uid: Int64,
+    capabilities: Set<String>
+  ) async throws {
+    guard capabilities.contains("UIDPLUS") else {
+      throw IMAPMailboxError.unsafeExpunge
+    }
+    _ = try await command("UID STORE \(uid) +FLAGS.SILENT (\\Deleted)")
+    _ = try await command("UID EXPUNGE \(uid)")
+  }
+
+  func move(
+    uid: Int64,
+    to mailbox: String,
+    capabilities: Set<String>
+  ) async throws {
+    if capabilities.contains("MOVE") {
+      _ = try await command("UID MOVE \(uid) \(Self.quoted(mailbox))")
+      return
+    }
+    guard capabilities.contains("UIDPLUS") else {
+      throw IMAPMailboxError.unsafeExpunge
+    }
+    _ = try await command("UID COPY \(uid) \(Self.quoted(mailbox))")
+    try await delete(uid: uid, capabilities: capabilities)
+  }
+
+  func waitForIdleChange() async throws {
+    try Task.checkCancellation()
+    let tag = "A\(nextTagNumber)"
+    nextTagNumber += 1
+    try await task.write("\(tag) IDLE\r\n")
+    guard try await readLine().hasPrefix("+") else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    let change = try await readLine(timeout: Self.idleWaitTimeout).uppercased()
+    guard change.hasPrefix("* ") else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    try await task.write("DONE\r\n")
+    let response = try await readTaggedResponse(tag: tag, respondsToContinuation: false)
+    guard IMAPResponseParser.taggedResponseIsOK(response, tag: tag) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+  }
+
   private func readTaggedResponse(
     tag: String,
     respondsToContinuation: Bool
@@ -279,18 +444,22 @@ private final class IMAPWireSession {
     }
   }
 
-  private func readLine() async throws -> String {
-    let data = try await readLineData()
+  private func readLine(timeout: TimeInterval? = nil) async throws -> String {
+    let data = try await readLineData(timeout: timeout)
     guard let line = String(data: data, encoding: .utf8) else {
       throw IMAPMailboxError.invalidProviderResponse
     }
     return line
   }
 
-  private func readLineData() async throws -> Data {
+  private func readLineData(timeout: TimeInterval? = nil) async throws -> Data {
     let delimiter = Data([13, 10])
     while unreadResponse.range(of: delimiter) == nil {
-      unreadResponse.append(try await task.readData())
+      if let timeout {
+        unreadResponse.append(try await task.readData(timeout: timeout))
+      } else {
+        unreadResponse.append(try await task.readData())
+      }
     }
     guard let range = unreadResponse.range(of: delimiter) else {
       throw IMAPMailboxError.invalidProviderResponse

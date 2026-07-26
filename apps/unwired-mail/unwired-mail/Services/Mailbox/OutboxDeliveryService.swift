@@ -225,6 +225,26 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
+    if let smtpError = error as? SMTPMailError {
+      switch smtpError {
+      case .deliveryUncertainAfterSubmission:
+        return .ambiguous
+      case .sentCopyFailedAfterAcceptance:
+        return .transient
+      case .sentCopyOutcomeUnknownAfterAcceptance:
+        return .ambiguous
+      case .responseCode(let code):
+        if code == 421 || (450...499).contains(code) {
+          return .transient
+        }
+        if code == 530 || code == 534 || code == 535 {
+          return .userActionRequired
+        }
+        return .permanent
+      case .invalidMessage:
+        return .permanent
+      }
+    }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
       return .transient
     }
@@ -807,6 +827,12 @@ actor OutboxDeliveryService {
         )
         throw CancellationError()
       } catch {
+        if let smtpError = error as? SMTPMailError,
+          smtpError == .sentCopyFailedAfterAcceptance
+            || smtpError == .sentCopyOutcomeUnknownAfterAcceptance
+        {
+          try markSentCopyOnly(attemptId, productAccountId: productAccountId)
+        }
         switch failureDisposition(error) {
         case .ambiguous:
           let status: MailboxDeliveryStatus
@@ -909,6 +935,16 @@ actor OutboxDeliveryService {
     try store.save(attempts, productAccountId: productAccountId)
     notifyRetryWaiters()
     scheduleRetry(attempts[index], delay: delay, provider: provider, reconcile: reconcile)
+  }
+
+  private func markSentCopyOnly(
+    _ attemptId: UUID,
+    productAccountId: String
+  ) throws {
+    var attempts = try store.load(productAccountId: productAccountId)
+    guard let index = attempts.firstIndex(where: { $0.id == attemptId }) else { return }
+    attempts[index].message = attempts[index].message.requiringSentCopyOnly()
+    try store.save(attempts, productAccountId: productAccountId)
   }
 
   private func handleReconciliationFailure(

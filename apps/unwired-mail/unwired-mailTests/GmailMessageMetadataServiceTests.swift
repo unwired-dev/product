@@ -1146,6 +1146,62 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessReconnectsIDLEAfterInterruption() async {
+    let reconnected = expectation(description: "IMAP IDLE reconnected")
+    let synchronized = expectation(description: "mail synchronized after IDLE reconnect")
+    let observer = ReconnectingMailboxChangeObserver(reconnected: reconnected)
+    let fixture = makeMailboxFreshnessFixture(
+      sleep: { duration in
+        if duration == .seconds(5) { return }
+        try await Task.sleep(for: .seconds(60))
+      }
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .imapFull(serverCapabilities: ["IDLE", "MOVE"]),
+      connectedAt: 1,
+      displayName: "reader@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .imapSMTP,
+          value: "reader@example.com"
+        )
+      ),
+      lastVerifiedAt: 1,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+    let viewModel = MailboxFreshnessViewModel(
+      service: fixture.service,
+      session: session,
+      isSessionCurrent: { _ in true },
+      changeObserver: observer,
+      successStore: fixture.successStore,
+      sleep: { duration in
+        if duration == .seconds(5) { return }
+        try await Task.sleep(for: .seconds(60))
+      }
+    )
+    viewModel.updateConnections([connection])
+    let poll = Task { @MainActor in
+      await viewModel.pollWhileActive(
+        connections: { [connection] },
+        didSynchronize: { synchronized.fulfill() }
+      )
+    }
+
+    await fulfillment(of: [reconnected, synchronized], timeout: 1)
+    poll.cancel()
+    await poll.value
+
+    let idleRequestCount = await observer.requestCount()
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertGreaterThanOrEqual(idleRequestCount, 2)
+    XCTAssertEqual(syncCallCount, 1)
+  }
+
+  @MainActor
   func testMailboxFreshnessCancelAllCancelsInFlightSync() async {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -3597,6 +3653,34 @@ private struct MailboxFreshnessFixture {
 @MainActor
 private final class MailboxFreshnessSessionState {
   var isCurrent = true
+}
+
+private actor ReconnectingMailboxChangeObserver: MailboxChangeObserving {
+  private var requests = 0
+  private let reconnected: XCTestExpectation
+
+  init(reconnected: XCTestExpectation) {
+    self.reconnected = reconnected
+  }
+
+  func waitForMailboxChange(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    requests += 1
+    if requests == 1 {
+      throw URLError(.networkConnectionLost)
+    }
+    if requests == 2 {
+      reconnected.fulfill()
+      return
+    }
+    try await Task.sleep(for: .seconds(60))
+  }
+
+  func requestCount() -> Int {
+    requests
+  }
 }
 
 @MainActor

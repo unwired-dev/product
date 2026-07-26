@@ -571,6 +571,31 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .sent)
   }
 
+  func testSentCopyRetryDoesNotResubmitSMTPDelivery() async throws {
+    let deliveries = SentCopyDeliveryRecorder()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { message, _, _ in
+        try await deliveries.deliver(message)
+      },
+      reconcile: { _, _ in .unknown }
+    )
+    _ = await service.waitForScheduledRetries()
+
+    let sentCopyModes = await deliveries.sentCopyModes
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(sentCopyModes, [false, true])
+    XCTAssertEqual(attempts.first?.state, .sent)
+  }
+
   func testPermanentFailureCanBeEditedIntoANewImmutableAttempt() async throws {
     let service = OutboxDeliveryService(
       failureDisposition: { _ in .permanent },
@@ -1200,6 +1225,17 @@ private final class InMemoryOutboxDeliveryStore:
 private enum TestOutboxError: Error {
   case deliveryRejected
   case persistenceFailed
+}
+
+private actor SentCopyDeliveryRecorder {
+  private(set) var sentCopyModes: [Bool] = []
+
+  func deliver(_ message: OutgoingMessage) throws {
+    sentCopyModes.append(message.sentCopyOnly == true)
+    if sentCopyModes.count == 1 {
+      throw SMTPMailError.sentCopyFailedAfterAcceptance
+    }
+  }
 }
 
 private final class FailingOutboxDeliveryStore: OutboxDeliveryPersisting, @unchecked Sendable {

@@ -168,6 +168,32 @@ struct MailboxConnectionCapabilities: Equatable, Sendable {
     providerActions: []
   )
 
+  static func imapFull(
+    serverCapabilities: Set<String>
+  ) -> MailboxConnectionCapabilities {
+    let normalized = Set(serverCapabilities.map { $0.uppercased() })
+    var providerActions: Set<ProviderMailAction> = [
+      .markRead, .markUnread, .star, .unstar,
+    ]
+    if !normalized.isDisjoint(with: ["MOVE", "UIDPLUS"]) {
+      providerActions.formUnion([.archive, .move, .notSpam, .restore, .spam])
+    }
+    if normalized.contains("UIDPLUS") {
+      providerActions.insert(.delete)
+    }
+    return MailboxConnectionCapabilities(
+      canCategorizeHistorical: false,
+      canForward: true,
+      canReadMessages: true,
+      canRegisterPush: normalized.contains("IDLE"),
+      canReply: true,
+      canSearchProvider: false,
+      canSend: true,
+      canSynchronizeMetadata: true,
+      providerActions: providerActions
+    )
+  }
+
   static let none = MailboxConnectionCapabilities(
     canCategorizeHistorical: false,
     canForward: false,
@@ -703,6 +729,7 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
   let body: String
   let idempotencyKey: String?
   let recipient: String
+  let sentCopyOnly: Bool?
   let subject: String
   let inReplyTo: String?
   let providerThreadId: String?
@@ -713,11 +740,13 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     subject: String,
     inReplyTo: String? = nil,
     providerThreadId: String? = nil,
-    idempotencyKey: String? = nil
+    idempotencyKey: String? = nil,
+    sentCopyOnly: Bool? = nil
   ) {
     self.body = body
     self.idempotencyKey = idempotencyKey
     self.recipient = recipient
+    self.sentCopyOnly = sentCopyOnly
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.providerThreadId = providerThreadId
@@ -738,7 +767,20 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       subject: subject,
       inReplyTo: inReplyTo,
       providerThreadId: providerThreadId,
-      idempotencyKey: idempotencyKey
+      idempotencyKey: idempotencyKey,
+      sentCopyOnly: sentCopyOnly
+    )
+  }
+
+  func requiringSentCopyOnly() -> OutgoingMessage {
+    OutgoingMessage(
+      body: body,
+      recipient: recipient,
+      subject: subject,
+      inReplyTo: inReplyTo,
+      providerThreadId: providerThreadId,
+      idempotencyKey: idempotencyKey,
+      sentCopyOnly: true
     )
   }
 }
@@ -955,6 +997,13 @@ protocol MailboxPushRegistering {
   ) async throws
 }
 
+protocol MailboxChangeObserving {
+  func waitForMailboxChange(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
 protocol MailboxProviderMailActing {
   func deliveryStatus(
     idempotencyKey: String,
@@ -1034,6 +1083,12 @@ protocol MailboxProviderMailActing {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws
+
+  func saveDraft(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
 }
 
 extension MailboxProviderMailActing {
@@ -1043,6 +1098,14 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
     .unknown
+  }
+
+  func saveDraft(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
   func perform(

@@ -4,21 +4,58 @@ import SwiftData
 // swiftlint:disable file_length function_parameter_count identifier_name type_body_length
 
 enum IMAPMailboxError: LocalizedError, Equatable {
+  case appendOutcomeUnknown
+  case idleUnsupported
   case invalidProviderResponse
   case missingLocalAuthorization
   case missingMessage
+  case unsafeExpunge
+  case unsupportedAction
   case unsupportedBody
 
   var errorDescription: String? {
     switch self {
+    case .appendOutcomeUnknown:
+      return "The IMAP server did not confirm whether it saved the message."
+    case .idleUnsupported:
+      return "This IMAP server does not support IDLE; mail will refresh periodically."
     case .invalidProviderResponse:
       return "The IMAP server returned an invalid response."
     case .missingLocalAuthorization:
       return "Authorize this IMAP mailbox on this device before accessing mail."
     case .missingMessage:
       return "The selected IMAP message is no longer available."
+    case .unsafeExpunge:
+      return "The IMAP server cannot safely remove only the selected message."
+    case .unsupportedAction:
+      return "The IMAP server does not support this mail action."
     case .unsupportedBody:
       return "The IMAP server did not return a readable message body."
+    }
+  }
+}
+
+enum SMTPMailError: LocalizedError, Equatable {
+  case deliveryUncertainAfterSubmission
+  case invalidMessage
+  case responseCode(Int)
+  case sentCopyFailedAfterAcceptance
+  case sentCopyOutcomeUnknownAfterAcceptance
+
+  var errorDescription: String? {
+    switch self {
+    case .deliveryUncertainAfterSubmission:
+      return "The SMTP connection closed before the server confirmed the submitted message."
+    case .invalidMessage:
+      return "The outgoing message contains an invalid address or header."
+    case .responseCode(let code):
+      return "The SMTP server rejected the outgoing message with status \(code)."
+    case .sentCopyFailedAfterAcceptance:
+      return
+        "SMTP accepted the message, but the server did not confirm its Sent mailbox copy."
+    case .sentCopyOutcomeUnknownAfterAcceptance:
+      return
+        "SMTP accepted the message, but the Sent mailbox copy outcome is unknown."
     }
   }
 }
@@ -140,6 +177,21 @@ struct IMAPProviderMessage: Codable, Equatable, Sendable {
     return "imap-mailbox:\(encodedMailbox)"
   }
 
+  static func mailboxName(fromProviderStateId providerStateId: String) -> String? {
+    let prefix = "imap-mailbox:"
+    guard providerStateId.hasPrefix(prefix) else { return nil }
+    var encoded = String(providerStateId.dropFirst(prefix.count))
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+    guard
+      let data = Data(base64Encoded: encoded),
+      let mailbox = String(data: data, encoding: .utf8),
+      !mailbox.isEmpty
+    else { return nil }
+    return mailbox
+  }
+
   static func mailboxNamesEqual(_ lhs: String, _ rhs: String) -> Bool {
     lhs == rhs
       || (lhs.caseInsensitiveCompare("INBOX") == .orderedSame
@@ -186,6 +238,71 @@ protocol IMAPMailboxClient {
     message: IMAPProviderMessage,
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String
+
+  func appendMessage(
+    _ message: Data,
+    to mailbox: String,
+    flags: [String],
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws
+
+  func perform(
+    _ action: ProviderMailAction,
+    message: IMAPProviderMessage,
+    targetMailbox: String?,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws
+
+  func waitForChange(
+    in mailbox: String,
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws
+
+  func supportsIdle(
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws -> Bool
+}
+
+extension IMAPMailboxClient {
+  func appendMessage(
+    _: Data,
+    to _: String,
+    flags _: [String],
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    throw IMAPMailboxError.unsupportedAction
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    message _: IMAPProviderMessage,
+    targetMailbox _: String?,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    throw IMAPMailboxError.unsupportedAction
+  }
+
+  func waitForChange(
+    in _: String,
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws {
+    throw IMAPMailboxError.idleUnsupported
+  }
+
+  func supportsIdle(
+    authorization _: DeviceLocalGenericMailAuthorization
+  ) async throws -> Bool {
+    false
+  }
+}
+
+protocol SMTPMailClient {
+  func send(
+    _ message: Data,
+    envelopeFrom: String,
+    envelopeRecipients: [String],
+    authorization: DeviceLocalGenericMailAuthorization
+  ) async throws
 }
 
 struct IMAPMailboxBackfillState: Codable, Equatable, Sendable {
@@ -238,6 +355,12 @@ protocol IMAPMessageMetadataPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> IMAPProviderMessage?
+
+  func loadProviderMessages(
+    stableProviderMessageId: String,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [IMAPProviderMessage]
 
   func loadState(
     productAccountId: String,
@@ -470,6 +593,23 @@ struct SwiftDataIMAPMessageMetadataStore: IMAPMessageMetadataPersisting {
     )
     descriptor.fetchLimit = 1
     return try context.fetch(descriptor).first.map { try $0.message() }
+  }
+
+  func loadProviderMessages(
+    stableProviderMessageId: String,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws -> [IMAPProviderMessage] {
+    let context = try makeContext()
+    let connectionIdRawValue = connectionId.rawValue
+    let descriptor = FetchDescriptor<DurableIMAPMessageMetadataRecord>(
+      predicate: #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.connectionIdRawValue == connectionIdRawValue
+          && $0.stableProviderMessageId == stableProviderMessageId
+      }
+    )
+    return try context.fetch(descriptor).map { try $0.message() }
   }
 
   func loadState(
@@ -1432,13 +1572,17 @@ private struct IMAPBodyPrefetchPlan {
 
 extension IMAPBodyPrefetchPlan: Sequence {}
 
-struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
+struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObserving {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let bodyReader: IMAPMessageBodyService
   private let cache: GmailMessageBodyCaching
+  private let client: IMAPMailboxClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let metadataService: IMAPMessageMetadataService
   private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
+  private let smtpClient: SMTPMailClient
   private let syncGate: MailboxConnectionSyncGate
 
   init(
@@ -1451,12 +1595,19 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared,
+    smtpClient: SMTPMailClient = SystemSMTPMailClient(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
     self.cache = cache
+    self.client = client
     self.definitionSyncService = definitionSyncService
     self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
+    self.smtpClient = smtpClient
     self.syncGate = syncGate
     bodyReader = IMAPMessageBodyService(
       authorizationStore: authorizationStore,
@@ -1469,6 +1620,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    try await pendingActionService.clear(session: session)
+    try await outboxService.clear(session: session)
     try authorizationStore.clearAll(productAccountId: ProductAccountId(session.productAccountId))
     try metadataStore.clear(productAccountId: session.productAccountId)
     try cache.clearMessageBodies(productAccountId: session.productAccountId)
@@ -1479,6 +1632,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
+    try await pendingActionService.clear(connection: connection, session: session)
+    try await outboxService.clear(connection: connection, session: session)
     try await syncGate.withLock(connection.id) {
       try clearLocalConnectionWithoutLock(connection, session: session)
     }
@@ -1547,9 +1702,15 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization.map {
           hasMatchingCredentials($0.definition, genericDefinition)
         } ?? false
+      let capabilities =
+        if let serverCapabilities = genericDefinition.imapCapabilities {
+          MailboxConnectionCapabilities.imapFull(serverCapabilities: serverCapabilities)
+        } else {
+          MailboxConnectionCapabilities.imapFull(serverCapabilities: [])
+        }
       return MailboxConnection(
         authorizationState: isAuthorized ? .authorized : .required,
-        capabilities: isAuthorized ? .imapRead : .none,
+        capabilities: isAuthorized ? capabilities : .none,
         connectedAt: definition.connectedAt,
         displayName: definition.displayName,
         id: definition.id,
@@ -1605,12 +1766,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     let definition = try await localDefinition(connection: connection, session: session)
-    return try metadataService.load(
+    let result = try metadataService.load(
       definition: definition,
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
     )
-    .projected(to: .role(.inbox))
+    return try await pendingActionService.project(
+      result,
+      collection: .role(.inbox),
+      connection: connection,
+      session: session
+    )
     .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
@@ -1625,9 +1791,14 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       connectedAt: connection.connectedAt,
       productAccountId: session.productAccountId
     )
-    .projected(to: collection)
-    guard collection != .allObserved else { return result }
-    return result.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
+    let projected = try await pendingActionService.project(
+      result,
+      collection: collection,
+      connection: connection,
+      session: session
+    )
+    guard collection != .allObserved else { return projected }
+    return projected.limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
   }
 
   func loadProviderMailboxes(
@@ -1650,12 +1821,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      return try await metadataService.continueBackfill(
+      let result = try await metadataService.continueBackfill(
         authorization: authorization,
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
-      .projected(to: .role(.inbox))
+      try await reconcileAndResumePendingActions(
+        messages: result.messages,
+        connection: connection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        result,
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
       .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
@@ -1670,12 +1851,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         isWithinSyncGate: true
       )
-      return try await metadataService.sync(
+      let result = try await metadataService.sync(
         authorization: authorization,
         connectedAt: connection.connectedAt,
         productAccountId: session.productAccountId
       )
-      .projected(to: .role(.inbox))
+      try await reconcileAndResumePendingActions(
+        messages: result.messages,
+        connection: connection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        result,
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
       .limitedInitialPage(to: IMAPMessageMetadataService.initialPageSize)
     }
   }
@@ -1780,10 +1971,30 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func registerOrRenewPush(
-    connection _: MailboxConnection,
-    session _: ProductAccountSessionSnapshot
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    guard try await client.supportsIdle(authorization: authorization) else {
+      throw IMAPMailboxError.idleUnsupported
+    }
+  }
+
+  func waitForMailboxChange(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    try await client.waitForChange(
+      in: "INBOX",
+      authorization: authorization
+    )
   }
 
   func perform(
@@ -1792,7 +2003,160 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await perform(
+      action,
+      targetProviderMailboxId: nil,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    _ = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    try await pendingActionService.enqueue(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    var errors: [String] = []
+    for connection in connections {
+      if let error = await resumePendingActions(connection: connection, session: session) {
+        errors.append("\(connection.displayName): \(error)")
+      }
+    }
+    return errors.isEmpty ? nil : errors.joined(separator: "\n")
+  }
+
+  func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    do {
+      try await pendingActionService.resume(
+        connection: connection,
+        session: session,
+        provider: pendingActionPerformer(connection: connection, session: session)
+      )
+      return try await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(
+      connection: connection,
+      session: session,
+      discards: false
+    )
+  }
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(
+      connection: connection,
+      session: session,
+      discards: true
+    )
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var ids: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasBlockedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      ids.append(connection.id)
+    }
+    return ids
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var ids: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasFailedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      ids.append(connection.id)
+    }
+    return ids
+  }
+
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    try? await pendingActionService.failureDetails(
+      action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    for connection in connections {
+      await pendingActionService.waitForScheduledRetries(
+        connection: connection,
+        session: session
+      )
+    }
+    return await resumePendingActions(connections: connections, session: session)
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    try? await pendingActionService.acknowledgeFailures(
+      connection: connection,
+      session: session
+    )
   }
 
   func send(
@@ -1800,7 +2164,367 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    let rfc822Message = try Self.rfc822Message(
+      message,
+      sender: authorization.definition.emailAddress
+    )
+    guard let sentMailbox = authorization.definition.roleMappings[.sent] else {
+      throw IMAPMailboxError.unsupportedAction
+    }
+    if message.sentCopyOnly != true {
+      try await smtpClient.send(
+        rfc822Message,
+        envelopeFrom: authorization.definition.emailAddress,
+        envelopeRecipients: try Self.envelopeRecipients(in: message.recipient),
+        authorization: authorization
+      )
+    }
+    do {
+      try await client.appendMessage(
+        rfc822Message,
+        to: sentMailbox,
+        flags: ["\\Seen"],
+        authorization: authorization
+      )
+    } catch IMAPMailboxError.appendOutcomeUnknown {
+      throw SMTPMailError.sentCopyOutcomeUnknownAfterAcceptance
+    } catch {
+      throw SMTPMailError.sentCopyFailedAfterAcceptance
+    }
+  }
+
+  func saveDraft(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    guard let draftsMailbox = authorization.definition.roleMappings[.drafts] else {
+      throw IMAPMailboxError.unsupportedAction
+    }
+    try await client.appendMessage(
+      try Self.rfc822Message(
+        message,
+        sender: authorization.definition.emailAddress,
+        requiresRecipient: false
+      ),
+      to: draftsMailbox,
+      flags: ["\\Draft"],
+      authorization: authorization
+    )
+  }
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    guard let sentMailbox = authorization.definition.roleMappings[.sent] else {
+      return .unknown
+    }
+    let messageId = OutgoingMessage.rfcMessageId(for: idempotencyKey).lowercased()
+    let storedMessages = try metadataStore.loadMessages(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    if storedMessages.contains(where: {
+      $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        == messageId
+        && IMAPProviderMessage.mailboxNamesEqual(
+          $0.mailbox,
+          sentMailbox
+        )
+    }) {
+      return .sent
+    }
+    let page = try await client.loadMetadataPage(
+      mailbox: IMAPMailboxDescriptor(displayName: sentMailbox, name: sentMailbox),
+      beforeUID: nil,
+      limit: 50,
+      authorization: authorization
+    )
+    return page.messages.contains {
+      $0.rfcMessageId?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        == messageId
+    } ? .sent : .notSent
+  }
+
+  private func pendingActionPerformer(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) -> PendingProviderActionPerformer {
+    { action, targetProviderMailboxId, messageIds in
+      try await performProviderAction(
+        action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messageIds: messageIds,
+        connection: connection,
+        session: session
+      )
+    }
+  }
+
+  private func reconcileAndResumePendingActions(
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await pendingActionService.reconcileProviderSync(
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    _ = await resumePendingActions(connection: connection, session: session)
+  }
+
+  private func performProviderAction(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messageIds: [String],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let authorization = try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    )
+    for messageId in messageIds {
+      let appearances = try metadataStore.loadProviderMessages(
+        stableProviderMessageId: StableProviderMessageIdentity(
+          connectionId: connection.id,
+          providerMessageId: messageId
+        ).rawValue,
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+      guard
+        let message = providerActionAppearance(
+          for: action,
+          appearances: appearances,
+          definition: authorization.definition
+        )
+      else {
+        throw IMAPMailboxError.missingMessage
+      }
+      try await client.perform(
+        action,
+        message: message,
+        targetMailbox: try targetMailbox(
+          for: action,
+          requestedProviderMailboxId: targetProviderMailboxId,
+          message: message,
+          definition: authorization.definition
+        ),
+        authorization: authorization
+      )
+    }
+  }
+
+  private func providerActionAppearance(
+    for action: ProviderMailAction,
+    appearances: [IMAPProviderMessage],
+    definition: GenericMailConnectionDefinition
+  ) -> IMAPProviderMessage? {
+    let preferredMailbox =
+      switch action {
+      case .notSpam:
+        definition.roleMappings[.spam]
+      case .restore:
+        definition.roleMappings[.trash] ?? definition.roleMappings[.spam]
+      default:
+        "INBOX"
+      }
+    return appearances.first {
+      IMAPProviderMessage.mailboxNamesEqual($0.mailbox, preferredMailbox ?? "")
+    }
+      ?? appearances.sorted {
+        if $0.mailbox == $1.mailbox { return $0.uid < $1.uid }
+        return $0.mailbox.localizedCaseInsensitiveCompare($1.mailbox) == .orderedAscending
+      }.first
+  }
+
+  private func targetMailbox(
+    for action: ProviderMailAction,
+    requestedProviderMailboxId: String?,
+    message: IMAPProviderMessage,
+    definition: GenericMailConnectionDefinition
+  ) throws -> String? {
+    switch action {
+    case .archive:
+      return definition.roleMappings[.archive]
+    case .delete:
+      guard let trash = definition.roleMappings[.trash] else {
+        throw IMAPMailboxError.unsupportedAction
+      }
+      return IMAPProviderMessage.mailboxNamesEqual(message.mailbox, trash) ? nil : trash
+    case .move:
+      guard
+        let requestedProviderMailboxId,
+        let mailbox = IMAPProviderMessage.mailboxName(
+          fromProviderStateId: requestedProviderMailboxId
+        )
+      else {
+        throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+      }
+      return mailbox
+    case .notSpam, .restore:
+      return "INBOX"
+    case .spam:
+      return definition.roleMappings[.spam]
+    case .markRead, .markUnread, .star, .unstar:
+      return nil
+    }
+  }
+
+  private func resolveBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    discards: Bool
+  ) async -> String? {
+    do {
+      let provider = pendingActionPerformer(connection: connection, session: session)
+      if discards {
+        try await pendingActionService.discardBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      } else {
+        try await pendingActionService.retryBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      }
+      return try await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private static func rfc822Message(
+    _ message: OutgoingMessage,
+    sender: String,
+    requiresRecipient: Bool = true
+  ) throws -> Data {
+    let sender = try safeHeaderValue(sender)
+    let recipient = try safeHeaderValue(message.recipient)
+    guard !sender.isEmpty, !requiresRecipient || !recipient.isEmpty else {
+      throw SMTPMailError.invalidMessage
+    }
+    var headers = [
+      "From: \(sender)",
+      "Subject: \(try encodedHeaderValue(message.subject))",
+      "MIME-Version: 1.0",
+      "Content-Type: text/plain; charset=utf-8",
+      "Content-Transfer-Encoding: 8bit",
+    ]
+    if !recipient.isEmpty {
+      headers.insert("To: \(recipient)", at: 0)
+    }
+    if let inReplyTo = message.inReplyTo {
+      let replyHeader = try safeHeaderValue(inReplyTo)
+      headers.append("In-Reply-To: \(replyHeader)")
+      headers.append("References: \(replyHeader)")
+    }
+    if let rfcMessageId = message.rfcMessageId {
+      headers.append("Message-ID: \(try safeHeaderValue(rfcMessageId))")
+    }
+    return Data((headers + ["", message.body]).joined(separator: "\r\n").utf8)
+  }
+
+  private static func encodedHeaderValue(_ value: String) throws -> String {
+    let value = try safeHeaderValue(value)
+    guard !value.unicodeScalars.allSatisfy(\.isASCII) else { return value }
+    return "=?UTF-8?B?\(Data(value.utf8).base64EncodedString())?="
+  }
+
+  private static func envelopeRecipients(in value: String) throws -> [String] {
+    let value = try safeHeaderValue(value)
+    let recipients = splitMailboxValues(value).map(mailboxAddress)
+    guard
+      !recipients.isEmpty,
+      recipients.allSatisfy({
+        !$0.isEmpty
+          && $0.contains("@")
+          && !$0.contains(where: { $0.isWhitespace || $0 == "<" || $0 == ">" || $0 == "," })
+      })
+    else {
+      throw SMTPMailError.invalidMessage
+    }
+    return recipients
+  }
+
+  private static func splitMailboxValues(_ value: String) -> [String] {
+    var values: [String] = []
+    var valueBuffer = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        valueBuffer.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        valueBuffer.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<":
+        angleBracketDepth += 1
+      case ">":
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0:
+        values.append(valueBuffer)
+        valueBuffer = ""
+        continue
+      default:
+        break
+      }
+      valueBuffer.append(character)
+    }
+    values.append(valueBuffer)
+    return values
+  }
+
+  private static func mailboxAddress(_ value: String) -> String {
+    let value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard
+      let opening = value.lastIndex(of: "<"),
+      let closing = value.lastIndex(of: ">"),
+      opening < closing
+    else { return value }
+    return String(value[value.index(after: opening)..<closing])
+      .trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+
+  private static func safeHeaderValue(_ value: String) throws -> String {
+    guard !value.contains("\r"), !value.contains("\n") else {
+      throw SMTPMailError.invalidMessage
+    }
+    return value.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 
   private func authorizationForProviderAccess(
@@ -1906,7 +2630,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 }
 
-struct MailboxConnectionRouter: MailboxConnectionAdapter {
+struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxChangeObserving {
   private let gmail: MailboxConnectionAdapter
   private let imap: MailboxConnectionAdapter
   private let microsoftGraph: MailboxConnectionAdapter
@@ -2154,6 +2878,16 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
       .registerOrRenewPush(connection: connection, session: session)
   }
 
+  func waitForMailboxChange(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    guard let observer = try adapter(for: connection.id) as? MailboxChangeObserving else {
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+    try await observer.waitForMailboxChange(connection: connection, session: session)
+  }
+
   func perform(
     _ action: ProviderMailAction,
     messages: [MailboxMessageMetadata],
@@ -2287,6 +3021,15 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await adapter(for: connection.id).send(message, connection: connection, session: session)
+  }
+
+  func saveDraft(
+    _ message: OutgoingMessage,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await adapter(for: connection.id)
+      .saveDraft(message, connection: connection, session: session)
   }
 
   func deliveryStatus(
