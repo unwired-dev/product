@@ -3127,9 +3127,18 @@ private struct MailShellConversationMessage: View {
 
 struct MailShellMessageBody: View {
   let load: () async throws -> MailboxMessageBody
+  let onLoaded: () -> Void
   @State private var messageBody: MailboxMessageBody?
   @State private var errorMessage: String?
   @State private var isLoading = false
+
+  init(
+    onLoaded: @escaping () -> Void = {},
+    load: @escaping () async throws -> MailboxMessageBody
+  ) {
+    self.load = load
+    self.onLoaded = onLoaded
+  }
 
   var body: some View {
     Group {
@@ -3155,6 +3164,7 @@ struct MailShellMessageBody: View {
       do {
         messageBody = try await load()
         errorMessage = nil
+        onLoaded()
       } catch is CancellationError {
       } catch {
         errorMessage = error.localizedDescription

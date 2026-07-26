@@ -118,6 +118,11 @@ export default defineSchema({
       'trustedDeviceId',
       'opaqueConnectionId',
     ])
+    .index('by_product_provider_opaqueConnectionId', [
+      'productAccountId',
+      'provider',
+      'opaqueConnectionId',
+    ])
     .index('by_gmailRoutingDigest_and_pushVerifiedAt', [
       'gmailRoutingDigest',
       'pushVerifiedAt',
@@ -126,6 +131,16 @@ export default defineSchema({
       'gmailRoutingDigest',
       'pushVerificationRequestedAt',
     ]),
+
+  gmailOpaqueIdentityBindings: defineTable({
+    identityBindingDigest: v.string(),
+    opaqueConnectionId: v.string(),
+    productAccountId: v.id('productAccounts'),
+    updatedAt: v.number(),
+  }).index('by_productAccountId_and_opaqueConnectionId', [
+    'productAccountId',
+    'opaqueConnectionId',
+  ]),
 
   gmailPushVerificationSignals: defineTable({
     emailAddress: v.optional(v.string()),

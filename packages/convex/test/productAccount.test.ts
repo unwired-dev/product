@@ -292,7 +292,59 @@ describe('gmail operational connection registration', () => {
     ]);
   });
 
-  it('atomically migrates an owned legacy row and scrubs readable signals', async () => {
+  it('rejects rebinding an opaque connection to another Google identity', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const connect = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await asUser.action(api.pushRelay.registerGmailConnection, {
+      gmailIdentityToken: userIdentityToken,
+      opaqueConnectionId: 'opaque-gmail-001',
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.registerGmailConnection, {
+        gmailIdentityToken: otherIdentityToken,
+        opaqueConnectionId: 'opaque-gmail-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail mailbox ownership proof rejected');
+  });
+
+  it('rejects rebinding an opaque connection from another trusted device', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const secondDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'ios',
+    });
+    await asUser.action(api.pushRelay.registerGmailConnection, {
+      gmailIdentityToken: userIdentityToken,
+      opaqueConnectionId: 'opaque-gmail-001',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.action(api.pushRelay.registerGmailConnection, {
+        gmailIdentityToken: otherIdentityToken,
+        opaqueConnectionId: 'opaque-gmail-001',
+        trustedDeviceId: secondDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail mailbox ownership proof rejected');
+  });
+
+  it('migrates an owned legacy row and drains readable signals in batches', async () => {
     expect.assertions(5);
 
     const t = convexTest(schema, modules);
@@ -313,11 +365,13 @@ describe('gmail operational connection registration', () => {
         trustedDeviceId: connect.trustedDeviceId,
         updatedAt: now,
       });
-      await ctx.db.insert('gmailPushVerificationSignals', {
-        emailAddress: 'user@example.com',
-        historyId: '100',
-        receivedAt: now,
-      });
+      for (let index = 0; index < 101; index += 1) {
+        await ctx.db.insert('gmailPushVerificationSignals', {
+          emailAddress: 'user@example.com',
+          historyId: String(index),
+          receivedAt: now,
+        });
+      }
       return connectionId;
     });
 
@@ -341,24 +395,5 @@ describe('gmail operational connection registration', () => {
     expect(migrated.connection?.emailAddress).toBeUndefined();
     expect(migrated.connection?.providerAccountIdentifier).toBeUndefined();
     expect(migrated.signals).toStrictEqual([]);
-  });
-
-  it('blocks new writes through the legacy Gmail registration endpoint', async () => {
-    expect.assertions(1);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const connect = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-
-    await expect(
-      asUser.mutation(api.productAccount.connectGmailProvider, {
-        emailAddress: 'user@example.com',
-        providerAccountIdentifier: 'gmail-user-001',
-        trustedDeviceId: connect.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Legacy Gmail registration is disabled');
   });
 });

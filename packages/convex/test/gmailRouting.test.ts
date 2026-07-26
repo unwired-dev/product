@@ -1,4 +1,7 @@
-import { gmailRoutingDigest } from '../convex/gmailRouting.js';
+import {
+  gmailRoutingDigest,
+  gmailRoutingDigests,
+} from '../convex/gmailRouting.js';
 
 describe('gmail routing digest', () => {
   it.each([
@@ -27,6 +30,28 @@ describe('gmail routing digest', () => {
     await expect(gmailRoutingDigest('user@example.com')).rejects.toThrow(
       'Gmail routing is not configured',
     );
+    vi.unstubAllEnvs();
+  });
+
+  it('routes current and previous key versions during rotation', async () => {
+    expect.assertions(1);
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '3');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', 'gmail-routing-previous-test-key');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '2');
+
+    await expect(
+      gmailRoutingDigests('user@example.com'),
+    ).resolves.toStrictEqual([
+      {
+        digest: '3:EDbM2CNsMvy-_5uSWFq3vo9lEXHzxTkzCZ80YrJ92GU',
+        keyVersion: 3,
+      },
+      {
+        digest: '2:HBRoR-uKsIDajXPqDwBVsLbfSD9Ss273scQDLTwgZw8',
+        keyVersion: 2,
+      },
+    ]);
     vi.unstubAllEnvs();
   });
 });

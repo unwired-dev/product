@@ -665,6 +665,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let mailActionService = RecordingAdapterMailActionService()
     let metadataService = RecordingAdapterMetadataService()
     let pushService = RecordingAdapterPushService()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: AdapterOutboxStore()
+    )
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
     let adapter = GmailMailboxConnectionAdapter(
       bodyReader: bodyReader,
       connectionService: connectionService,
@@ -674,8 +679,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       metadataService: metadataService,
       oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
       pushWatchService: pushService,
-      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      pendingActionService: pendingActionService,
+      outboxService: outboxService
     )
 
     for _ in 0..<2 {
@@ -707,6 +712,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       )
+      try await pendingActionService.enqueue(
+        .markUnread,
+        messages: [message],
+        connection: connection,
+        session: session
+      )
       try await adapter.send(
         OutgoingMessage(
           body: "Hello from \(connection.displayName)",
@@ -716,15 +727,60 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         connection: connection,
         session: session
       )
+      _ = try await outboxService.enqueue(
+        OutgoingMessage(
+          body: "Queued from \(connection.displayName)",
+          recipient: "offline@example.com",
+          subject: "Connection-scoped Outbox"
+        ),
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in },
+        reconcile: { _, _ in .unknown }
+      )
       try await adapter.registerOrRenewPush(connection: connection, session: session)
     }
     _ = await adapter.resumePendingActions(connections: connections, session: session)
+    let defaultsSuite = "MailboxConnectionAdapterTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsSuite))
+    defer {
+      defaults.removePersistentDomain(forName: defaultsSuite)
+    }
+    let freshness = MailboxFreshnessViewModel(
+      service: adapter,
+      session: session,
+      isSessionCurrent: { $0 == self.session },
+      successStore: UserDefaultsMailboxSyncSuccessStore(defaults: defaults)
+    )
+    await freshness.synchronize(connections: connections)
+    bodyReader.isOffline = true
+    var offlineBodies: [MailboxMessageBody] = []
+    for connection in connections {
+      offlineBodies.append(
+        try await adapter.loadMessageBody(
+          message: try XCTUnwrap(messagesByConnection[connection.id]?.first),
+          session: session
+        ))
+    }
+    let outboxItems = try await outboxService.items(session: session)
+    let outboxStates: [MailShellOutboxState] = outboxItems.map {
+      switch $0.state {
+      case .handingOff, .pending:
+        .pending
+      case .reconciling, .retrying:
+        .retrying
+      case .failed, .outcomeUnknown, .userActionRequired:
+        .failed
+      case .cancelled, .sent, .superseded:
+        .sent
+      }
+    }
 
     let pinnedIds = Set(messagesByConnection.values.flatMap { $0 }.map(\.id))
     let navigation = MailboxNavigationSnapshot(
       messagesByConnection: messagesByConnection,
       pinnedMessageIds: pinnedIds,
-      outboxStates: [.pending]
+      outboxStates: outboxStates
     )
     XCTAssertEqual(
       connections.map(\.id.rawValue),
@@ -738,6 +794,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(model.threads.count, 2)
     XCTAssertEqual(navigation.count(for: .pins).itemCount, 2)
     XCTAssertTrue(navigation.showsOutbox)
+    XCTAssertEqual(Set(outboxItems.map(\.connectionId)), Set(connections.map(\.id)))
+    XCTAssertEqual(
+      Set(offlineBodies.map(\.text)),
+      [
+        "Cached body for gmail-user-001",
+        "Cached body for gmail-user-002",
+      ])
     XCTAssertEqual(
       Set(metadataService.syncedProviderAccountIdentifiers),
       [
@@ -763,6 +826,23 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       [
         "gmail-user-001", "gmail-user-002",
       ])
+    XCTAssertEqual(
+      Set(mailActionService.performedProviderAccountIdentifiers),
+      [
+        "gmail-user-001", "gmail-user-002",
+      ])
+    XCTAssertEqual(
+      Set(
+        mailActionService.performedActions
+          .filter { $0.action == .markUnread }
+          .map(\.providerAccountIdentifier)
+      ),
+      Set(connections.map(\.providerMailboxIdentity.value))
+    )
+    XCTAssertTrue(connections.allSatisfy { freshness.status(for: $0).phase == .idle })
+    XCTAssertTrue(
+      connections.allSatisfy { freshness.status(for: $0).lastSuccessfulSyncAt != nil }
+    )
 
     try await adapter.clearLocalConnection(connections[0], session: session)
     try await adapter.removeMailboxConnectionEverywhere(connections[1], session: session)
@@ -773,6 +853,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         "gmail-user-001", "gmail-user-002",
       ])
     XCTAssertEqual(definitionSyncService.removedConnectionIds, [connections[1].id])
+    try await outboxService.clear(session: session)
   }
   // swiftlint:enable function_body_length
 
@@ -1124,6 +1205,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let connections = [firstConnection, secondConnection]
+    let connectionStatuses = connections.map {
+      GmailProviderConnectionStatus(
+        connectedAt: $0.connectedAt,
+        emailAddress: $0.displayName,
+        lastVerifiedAt: $0.lastVerifiedAt,
+        provider: $0.providerId.rawValue,
+        providerAccountIdentifier: $0.providerMailboxIdentity.value,
+        trustedDeviceId: $0.trustedDeviceId,
+        updatedAt: $0.updatedAt
+      )
+    }
     let threadsByConnection = Dictionary(
       uniqueKeysWithValues: connections.map { connection in
         (
@@ -1139,6 +1231,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         )
       }
     )
+    let metadataStore = try SwiftDataGmailMessageMetadataStore.inMemory()
+    for connection in connections {
+      try metadataStore.saveMessages(
+        threadsByConnection[connection.id, default: []].flatMap(\.messages).map(\.gmailMetadata),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    }
+    let cachedMetadataService = GmailMessageMetadataService(store: metadataStore)
     let keyMaterial = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
       recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
@@ -1157,17 +1258,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       )
     }
     let connectionService = RecordingAdapterConnectionService()
-    connectionService.statuses = connections.map {
-      GmailProviderConnectionStatus(
-        connectedAt: $0.connectedAt,
-        emailAddress: $0.displayName,
-        lastVerifiedAt: $0.lastVerifiedAt,
-        provider: $0.providerId.rawValue,
-        providerAccountIdentifier: $0.providerMailboxIdentity.value,
-        trustedDeviceId: $0.trustedDeviceId,
-        updatedAt: $0.updatedAt
-      )
-    }
+    connectionService.statuses = connectionStatuses
     let metadataService = RecordingAdapterMetadataService()
     metadataService.providerDelayNanoseconds = 25_000_000
     let adapter = GmailMailboxConnectionAdapter(
@@ -1186,6 +1277,33 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         )
       ),
       metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let productionSyncTokenStore = ReleaseGmailProviderTokenStore()
+    for status in connectionStatuses {
+      try productionSyncTokenStore.save(
+        GmailProviderTokens(
+          accessToken: "access-\(status.providerAccountIdentifier)",
+          refreshToken: "refresh-\(status.providerAccountIdentifier)"
+        ),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: status.providerAccountIdentifier
+      )
+    }
+    let productionSyncService = GmailMessageMetadataService(
+      gmailBaseURL: URL(string: "https://gmail.release.test/gmail/v1")!,
+      notificationEligibilityStore: ReleaseGmailPushEligibilityStore(),
+      oauthClientId: "gmail-client-id",
+      session: releaseGmailSyncSession(),
+      store: metadataStore,
+      tokenStore: productionSyncTokenStore,
+      tokenInfoURL: URL(string: "https://oauth.release.test/tokeninfo")!,
+      tokenRefreshURL: URL(string: "https://oauth.release.test/token")!
+    )
+    let productionSyncAdapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: productionSyncService,
       pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
     )
@@ -1218,8 +1336,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       let launchStart = clock.now
       let launchModel = MailShellSelectionModel()
       launchModel.selectUnifiedInbox()
-      for connection in connections {
-        launchModel.updateThreads(threadsByConnection[connection.id] ?? [], for: connection.id)
+      for (connection, status) in zip(connections, connectionStatuses) {
+        let cached = try await cachedMetadataService.loadInbox(
+          connection: status,
+          session: session
+        ).mailboxResult(connectionId: connection.id)
+        launchModel.updateThreads(cached.threads, for: connection.id)
       }
       let launchItems = launchModel.threadListItems(connections: connections)
       XCTAssertEqual(launchItems.count, 100)
@@ -1269,16 +1391,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         selectedThreadIds: selectedThreadIdsBinding,
         viewModel: inboxViewModel
       )
+      let bodyLoaded = expectation(description: "Cached message body loaded")
       let bodyHost = UIHostingController(
-        rootView: MailShellMessageBody {
-          try await adapter.loadMessageBody(
-            message: try XCTUnwrap(launchModel.threads.first?.latestMessage),
-            session: self.session
-          )
-        }
+        rootView: MailShellMessageBody(
+          onLoaded: { bodyLoaded.fulfill() },
+          load: {
+            try await adapter.loadMessageBody(
+              message: try XCTUnwrap(launchModel.threads.first?.latestMessage),
+              session: self.session
+            )
+          }
+        )
       )
       let bodyWindow = releaseFixtureWindow(hosting: bodyHost)
-      await releaseRenderFrame(bodyHost.view)
+      await fulfillment(of: [bodyLoaded], timeout: 1)
       await releaseRenderFrame(bodyHost.view)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
       window.isHidden = true
@@ -1290,7 +1416,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     stallProbe.start()
     for connection in connections {
       let providerStart = clock.now
-      _ = try await adapter.syncInbox(connection: connection, session: session)
+      _ = try await productionSyncAdapter.syncInbox(connection: connection, session: session)
       providerLatencySamples.append(releaseElapsedMilliseconds(from: providerStart, clock: clock))
     }
     let syncMainActorStall = await stallProbe.stop()
@@ -1299,7 +1425,13 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200)
     XCTAssertLessThan(releaseP95(bodyOpenSamples), 200)
     XCTAssertLessThan(syncMainActorStall, 100)
-    XCTAssertEqual(metadataService.syncedProviderAccountIdentifiers.count, connections.count)
+    XCTAssertEqual(
+      try metadataStore.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: firstConnection.providerMailboxIdentity.value
+      ).map(\.providerMessageId),
+      ["sync-message"]
+    )
     XCTAssertEqual(threadsByConnection.values.map(\.count).sorted(), [50, 50])
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
@@ -2305,6 +2437,148 @@ private func mailShellConnection(
   )
 }
 
+private struct PerformedAdapterAction {
+  let action: GmailProviderMailAction
+  let providerAccountIdentifier: String
+}
+
+private final class ReleaseGmailProviderTokenStore: GmailProviderTokenPersisting {
+  private var tokensByConnection: [String: GmailProviderTokens] = [:]
+
+  func clear(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    tokensByConnection[key(productAccountId, providerAccountIdentifier)] = nil
+  }
+
+  func clearAll(productAccountId: String) throws {
+    tokensByConnection = tokensByConnection.filter {
+      !$0.key.hasPrefix("\(productAccountId)\u{0}")
+    }
+  }
+
+  func load(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> GmailProviderTokens? {
+    tokensByConnection[key(productAccountId, providerAccountIdentifier)]
+  }
+
+  func save(
+    _ tokens: GmailProviderTokens,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    tokensByConnection[key(productAccountId, providerAccountIdentifier)] = tokens
+  }
+
+  private func key(_ productAccountId: String, _ providerAccountIdentifier: String) -> String {
+    "\(productAccountId)\u{0}\(providerAccountIdentifier)"
+  }
+}
+
+private struct ReleaseGmailPushEligibilityStore: GmailPushEligibilityPersisting {
+  func record(
+    _: [GmailMessageMetadata],
+    throughHistoryId _: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+
+  func eligibleStableMessageIds(
+    after _: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Set<String> { [] }
+
+  func discard(
+    through _: String,
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws {}
+}
+
+// swiftlint:disable:next function_body_length
+private func releaseGmailSyncSession() -> URLSession {
+  ConvexClientTesting.makeSession { request in
+    let response = HTTPURLResponse(
+      url: request.url!,
+      statusCode: 200,
+      httpVersion: nil,
+      headerFields: nil
+    )!
+    switch request.url?.path {
+    case "/token":
+      let body = String(data: releaseRequestBodyData(request), encoding: .utf8) ?? ""
+      let identifier = body.contains("gmail-user-002") ? "gmail-user-002" : "gmail-user-001"
+      return (
+        response,
+        Data(#"{"access_token":"refreshed-\#(identifier)"}"#.utf8)
+      )
+    case "/tokeninfo":
+      let identifier =
+        request.url?.query?.contains("gmail-user-002") == true
+        ? "gmail-user-002" : "gmail-user-001"
+      let email = identifier == "gmail-user-002" ? "second@example.com" : "first@example.com"
+      return (
+        response,
+        Data(
+          """
+          {
+            "sub":"\(identifier)",
+            "email":"\(email)",
+            "scope":"https://www.googleapis.com/auth/gmail.modify"
+          }
+          """.utf8
+        )
+      )
+    case "/gmail/v1/users/me/messages":
+      return (response, Data(#"{"messages":[{"id":"sync-message"}]}"#.utf8))
+    default:
+      return (
+        response,
+        Data(
+          """
+          {
+            "id":"sync-message",
+            "threadId":"sync-thread",
+            "internalDate":"1781200000000",
+            "labelIds":["INBOX","UNREAD"],
+            "snippet":"Release sync fixture",
+            "payload":{"headers":[
+              {"name":"From","value":"Sender <sender@example.com>"},
+              {"name":"To","value":"User <user@example.com>"},
+              {"name":"Subject","value":"Release sync"}
+            ]}
+          }
+          """.utf8
+        )
+      )
+    }
+  }
+}
+
+private func releaseRequestBodyData(_ request: URLRequest) -> Data {
+  if let body = request.httpBody {
+    return body
+  }
+  guard let stream = request.httpBodyStream else {
+    return Data()
+  }
+  stream.open()
+  defer { stream.close() }
+  var data = Data()
+  let buffer = UnsafeMutablePointer<UInt8>.allocate(capacity: 1_024)
+  defer { buffer.deallocate() }
+  while stream.hasBytesAvailable {
+    let count = stream.read(buffer, maxLength: 1_024)
+    guard count > 0 else { break }
+    data.append(buffer, count: count)
+  }
+  return data
+}
+
 private final class ReleaseEncryptedMessageBodyCache: GmailMessageBodyCaching {
   private var payloads: [String: ProductSyncEncryptedPayload] = [:]
 
@@ -2802,6 +3076,8 @@ private final class RecordingAdapterSearchService: GmailMessageSearching {
 }
 
 private final class RecordingAdapterMessageReader: GmailMessageReading {
+  private var cachedBodies: [String: GmailMessageBody] = [:]
+  var isOffline = false
   var loadedProviderAccountIdentifiers: [String] = []
   var prefetchedProviderAccountIdentifiers: [String] = []
 
@@ -2817,6 +3093,12 @@ private final class RecordingAdapterMessageReader: GmailMessageReading {
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody {
     loadedProviderAccountIdentifiers.append(message.providerAccountIdentifier)
+    if isOffline {
+      guard let cached = cachedBodies[message.providerAccountIdentifier] else {
+        throw URLError(.notConnectedToInternet)
+      }
+      return cached
+    }
     return GmailMessageBody(text: "Decrypted body")
   }
 
@@ -2827,6 +3109,9 @@ private final class RecordingAdapterMessageReader: GmailMessageReading {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     prefetchedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+    cachedBodies[connection.providerAccountIdentifier] = GmailMessageBody(
+      text: "Cached body for \(connection.providerAccountIdentifier)"
+    )
   }
 
   func removeCachedMessageBody(
@@ -2854,6 +3139,8 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   var action: GmailProviderMailAction?
   var messageIds: [String] = []
   var outgoingMessage: GmailOutgoingMessage?
+  var performedActions: [PerformedAdapterAction] = []
+  var performedProviderAccountIdentifiers: [String] = []
   var sentProviderAccountIdentifiers: [String] = []
 
   init(eventLog: RecordingAdapterEventLog? = nil) {
@@ -2863,11 +3150,17 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   func perform(
     _ action: GmailProviderMailAction,
     messageIds: [String],
-    connection _: GmailProviderConnectionStatus,
+    connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     self.action = action
     self.messageIds = messageIds
+    performedActions.append(
+      PerformedAdapterAction(
+        action: action,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ))
+    performedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
     eventLog?.events.append("resume")
   }
 

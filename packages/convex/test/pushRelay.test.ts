@@ -168,10 +168,18 @@ function opaqueConnectionId(providerAccountIdentifier: string): string {
   return `opaque:${providerAccountIdentifier}`;
 }
 
-function routingDigest(emailAddress: string): string {
-  return `1:${createHmac('sha256', 'gmail-routing-test-key')
-    .update(`1\0${emailAddress}`)
+function versionedRoutingDigest(
+  emailAddress: string,
+  key: string,
+  version: number,
+): string {
+  return `${String(version)}:${createHmac('sha256', key)
+    .update(`${String(version)}\0${emailAddress}`)
     .digest('base64url')}`;
+}
+
+function routingDigest(emailAddress: string): string {
+  return versionedRoutingDigest(emailAddress, 'gmail-routing-test-key', 1);
 }
 
 function opaqueConnectionIdFromIdentityToken(identityToken: string): string {
@@ -238,55 +246,6 @@ describe('gmail push relay', () => {
       }),
     ).rejects.toThrow('Authentication required');
     expect(googleSigningKeyFetch).not.toHaveBeenCalled();
-  });
-
-  it('rejects a watch-stop check without a mailbox when multiple mailboxes exist', async () => {
-    expect.assertions(2);
-
-    const t = convexTest(schema, modules);
-    const asUser = t.withIdentity(appleIdentity);
-    const device = await asUser.mutation(api.productAccount.connect, {
-      deviceIdentifier: 'device-001',
-      platform: 'ios',
-    });
-    await registerGmailConnection(asUser, {
-      emailAddress: 'gmail-user-001@example.com',
-      providerAccountIdentifier: 'gmail-user-001',
-      trustedDeviceId: device.trustedDeviceId,
-    });
-    await t.run(async (ctx) => {
-      const connection = await ctx.db
-        .query('mailProviderConnections')
-        .withIndex(
-          'by_productAccountId_and_provider_and_trustedDeviceId',
-          (q) =>
-            q
-              .eq('productAccountId', device.productAccountId)
-              .eq('provider', 'gmail')
-              .eq('trustedDeviceId', device.trustedDeviceId),
-        )
-        .unique();
-      expect(connection).not.toBeNull();
-      await ctx.db.insert('mailProviderConnections', {
-        connectedAt: connection!.connectedAt,
-        emailAddress: 'gmail-user-002@example.com',
-        gmailRoutingDigest: routingDigest('gmail-user-002@example.com'),
-        gmailRoutingKeyVersion: 1,
-        lastVerifiedAt: connection!.lastVerifiedAt,
-        productAccountId: connection!.productAccountId,
-        provider: 'gmail',
-        providerAccountIdentifier: 'gmail-user-002',
-        opaqueConnectionId: opaqueConnectionId('gmail-user-002'),
-        trustedDeviceId: connection!.trustedDeviceId,
-        updatedAt: connection!.updatedAt,
-      });
-    });
-
-    await expect(
-      asUser.query(api.pushRelay.shouldStopGmailWatch, {
-        trustedDeviceId: device.trustedDeviceId,
-      }),
-    ).rejects.toThrow('Gmail connection selection required');
   });
 
   it('stops a mailbox watch only after its last active device route', async () => {
@@ -840,6 +799,54 @@ describe('gmail push relay', () => {
         apnsToken: 'reused-apns-token',
       }),
     );
+  });
+
+  it('drops a queued wakeup after its Gmail connection is removed', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-queued-removal',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'production',
+      apnsToken: 'queued-removal-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const opaqueConnection = opaqueConnectionId('queued-removal-gmail');
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        gmailRoutingDigest: routingDigest('queued-removal@example.com'),
+        gmailRoutingKeyVersion: 1,
+        lastVerifiedAt: now,
+        opaqueConnectionId: opaqueConnection,
+        productAccountId: device.productAccountId,
+        provider: 'gmail',
+        pushOwnershipVerifiedAt: now,
+        pushVerifiedAt: now,
+        trustedDeviceId: device.trustedDeviceId,
+        updatedAt: now,
+      });
+    });
+    const queued = await t.query(internal.pushRelay.resolveGmailRecipients, {
+      routingDigest: routingDigest('queued-removal@example.com'),
+    });
+    expect(queued).toHaveLength(1);
+
+    await asUser.mutation(api.pushRelay.removeGmailConnection, {
+      opaqueConnectionId: opaqueConnection,
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await expect(
+      t.query(internal.pushRelay.revalidateGmailRecipients, {
+        recipients: queued,
+      }),
+    ).resolves.toStrictEqual([]);
   });
 
   it('keeps the cleanup generation for a same-route registration heartbeat', async () => {
@@ -1451,6 +1458,80 @@ describe('gmail push relay', () => {
       expect(state.staleRoute).not.toHaveProperty('apnsToken');
     } finally {
       vi.useRealTimers();
+    }
+  });
+
+  it('upgrades an already verified route during routing-key rotation', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await registerGmailConnection(asUser, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await t.run(async (ctx) => {
+      const connection = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
+          q
+            .eq('productAccountId', device.productAccountId)
+            .eq('provider', 'gmail')
+            .eq('trustedDeviceId', device.trustedDeviceId)
+            .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+        )
+        .unique();
+      const now = Date.now();
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.patch(connection!._id, {
+        pushOwnershipVerifiedAt: now,
+        pushVerifiedAt: now,
+        pushVerifiedHistoryId: 'verified-history',
+      });
+    });
+
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', 'gmail-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '1');
+    try {
+      await expect(
+        asUser.action(api.pushRelay.verifyGmailWatch, {
+          gmailIdentityToken: matchingIdentityToken,
+          historyId: 'verified-history',
+          opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+          trustedDeviceId: device.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual(expect.objectContaining({ verified: true }));
+      const route = await t.run((ctx) =>
+        ctx.db
+          .query('mailProviderConnections')
+          .withIndex('by_product_provider_device_opaqueConnectionId', (q) =>
+            q
+              .eq('productAccountId', device.productAccountId)
+              .eq('provider', 'gmail')
+              .eq('trustedDeviceId', device.trustedDeviceId)
+              .eq('opaqueConnectionId', opaqueConnectionId('gmail-user-001')),
+          )
+          .unique(),
+      );
+      expect(route?.gmailRoutingDigest).toBe(
+        versionedRoutingDigest(
+          'matching@example.com',
+          'rotated-routing-test-key',
+          2,
+        ),
+      );
+    } finally {
+      vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+      vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY', '');
+      vi.stubEnv('GMAIL_ROUTING_PREVIOUS_KEY_VERSION', '');
     }
   });
 
