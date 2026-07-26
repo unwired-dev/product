@@ -467,6 +467,20 @@ enum MicrosoftGraphClientError: LocalizedError, Equatable {
   }
 }
 
+struct MicrosoftGraphSendError: LocalizedError {
+  enum Stage: Equatable {
+    case preparation
+    case providerHandoff
+  }
+
+  let stage: Stage
+  let underlyingError: Error
+
+  var errorDescription: String? {
+    (underlyingError as? LocalizedError)?.errorDescription
+  }
+}
+
 protocol MicrosoftGraphClient {
   func deliveryStatus(
     rfcMessageId: String,
@@ -715,6 +729,30 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     guard let idempotencyKey = message.idempotencyKey else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
+    let draftResponse = try await preparedDraft(
+      for: message,
+      idempotencyKey: idempotencyKey,
+      accessToken: accessToken
+    )
+    let sendURL = try graphURL(pathComponents: ["me", "messages", draftResponse.id, "send"])
+    do {
+      try await requestNoContent(
+        sendURL,
+        method: "POST",
+        body: Optional<String>.none,
+        accessToken: accessToken,
+        acceptedStatusCodes: 200..<300
+      )
+    } catch {
+      throw MicrosoftGraphSendError(stage: .providerHandoff, underlyingError: error)
+    }
+  }
+
+  private func preparedDraft(
+    for message: OutgoingMessage,
+    idempotencyKey: String,
+    accessToken: String
+  ) async throws -> GraphMessageIdentifierResponse {
     let recipients = Self.recipientAddresses(in: message.recipient)
     guard !recipients.isEmpty else {
       throw MicrosoftGraphClientError.invalidProviderResponse
@@ -734,28 +772,26 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
         )
       }
     )
-    let existingDraft = try await messageIdentifier(
-      folder: "drafts",
-      idempotencyKey: idempotencyKey,
-      accessToken: accessToken
-    )
     let draftResponse: GraphMessageIdentifierResponse
-    if let existingDraft {
-      draftResponse = existingDraft
-    } else {
-      draftResponse = try await createDraft(
-        draft,
-        for: message,
+    do {
+      let existingDraft = try await messageIdentifier(
+        folder: "drafts",
+        idempotencyKey: idempotencyKey,
         accessToken: accessToken
       )
+      if let existingDraft {
+        draftResponse = existingDraft
+      } else {
+        draftResponse = try await createDraft(
+          draft,
+          for: message,
+          accessToken: accessToken
+        )
+      }
+    } catch {
+      throw MicrosoftGraphSendError(stage: .preparation, underlyingError: error)
     }
-    try await requestNoContent(
-      try graphURL(pathComponents: ["me", "messages", draftResponse.id, "send"]),
-      method: "POST",
-      body: Optional<String>.none,
-      accessToken: accessToken,
-      acceptedStatusCodes: 200..<300
-    )
+    return draftResponse
   }
 
   private func createDraft(
@@ -780,15 +816,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     let response: GraphMessageIdentifierResponse = try await request(
       try graphURL(pathComponents: ["me", "messages", sourceMessageId, operation]),
       method: "POST",
-      body: Optional<String>.none,
-      accessToken: accessToken,
-      preferences: [#"IdType="ImmutableId""#],
-      acceptedStatusCodes: 200..<300
-    )
-    try await requestNoContent(
-      try graphURL(pathComponents: ["me", "messages", response.id]),
-      method: "PATCH",
-      body: draft,
+      body: GraphReplyOrForwardDraftRequest(message: draft),
       accessToken: accessToken,
       preferences: [#"IdType="ImmutableId""#],
       acceptedStatusCodes: 200..<300
@@ -1145,6 +1173,10 @@ private struct GraphDraftRequest: Encodable {
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]
   let subject: String
   let toRecipients: [Recipient]
+}
+
+private struct GraphReplyOrForwardDraftRequest: Encodable {
+  let message: GraphDraftRequest
 }
 
 private struct GraphMessagePageResponse: Decodable {
@@ -2165,11 +2197,15 @@ protocol MicrosoftGraphPushRegistering {
   ) async throws
 
   func clear(
+    accessToken: String?,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws
 
-  func clearAll(session: ProductAccountSessionSnapshot) async throws
+  func clearAll(
+    accessTokensByProviderAccountIdentifier: [String: String],
+    session: ProductAccountSessionSnapshot
+  ) async throws
 }
 
 struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
@@ -2257,10 +2293,28 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       try await withLocks(connectionIds.sorted { $0.rawValue < $1.rawValue }) {
         var firstError: Error?
+        var accessTokensByProviderAccountIdentifier: [String: String] = [:]
+        for providerAccountIdentifier in try tokenStore.providerAccountIdentifiers(
+          productAccountId: session.productAccountId)
+        {
+          accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
+            try tokenStore.load(
+              productAccountId: session.productAccountId,
+              providerAccountIdentifier: providerAccountIdentifier
+            )?.accessToken
+        }
+        do {
+          try await pushRegistrar.clearAll(
+            accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
+            session: session
+          )
+        } catch {
+          firstError = error
+        }
         do {
           try tokenStore.clearAll(productAccountId: session.productAccountId)
         } catch {
-          firstError = error
+          firstError = firstError ?? error
         }
         do {
           try metadataStore.clear(productAccountId: session.productAccountId)
@@ -2269,11 +2323,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         }
         do {
           try bodyService.clear(session: session)
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try await pushRegistrar.clearAll(session: session)
         } catch {
           firstError = firstError ?? error
         }
@@ -2326,10 +2375,24 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
+      let accessToken = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )?.accessToken
+      var firstError: Error?
+      do {
+        try await pushRegistrar.clear(
+          accessToken: accessToken,
+          connection: connection,
+          session: session
+        )
+      } catch {
+        firstError = error
+      }
       try clearLocalConnectionWithoutLock(connection, session: session)
-      try await pushRegistrar.clear(connection: connection, session: session)
       try await pendingActionService.clear(connection: connection, session: session)
       try await outboxService.clear(connection: connection, session: session)
+      if let firstError { throw firstError }
     }
   }
 

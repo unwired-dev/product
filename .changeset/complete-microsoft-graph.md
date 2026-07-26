@@ -2,4 +2,5 @@
 '@private-email/convex': patch
 ---
 
-Enable Microsoft Graph actions, sending, delta reconciliation, and privacy-preserving push wake-ups.
+Enable Microsoft Graph actions, idempotent sending, delta reconciliation, and renewable
+mailbox-wide privacy-preserving push wake-ups.

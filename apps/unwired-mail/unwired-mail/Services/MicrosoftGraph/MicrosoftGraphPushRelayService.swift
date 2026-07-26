@@ -162,6 +162,11 @@ protocol MicrosoftGraphSubscriptionRequesting {
     expirationDate: Date,
     subscriptionId: String
   ) async throws -> MicrosoftGraphPushStatusProviderResponse
+
+  func delete(
+    accessToken: String,
+    subscriptionId: String
+  ) async throws
 }
 
 struct MicrosoftGraphPushStatusProviderResponse: Equatable {
@@ -195,7 +200,7 @@ struct URLSessionMicrosoftGraphSubscriptionClient: MicrosoftGraphSubscriptionReq
         clientState: clientState,
         expirationDateTime: Self.dateString(expirationDate),
         notificationUrl: notificationURL.absoluteString,
-        resource: "me/mailFolders('inbox')/messages"
+        resource: "me/messages"
       )
     )
     return try await perform(request, accessToken: accessToken)
@@ -216,6 +221,24 @@ struct URLSessionMicrosoftGraphSubscriptionClient: MicrosoftGraphSubscriptionReq
       )
     )
     return try await perform(request, accessToken: accessToken)
+  }
+
+  func delete(
+    accessToken: String,
+    subscriptionId: String
+  ) async throws {
+    var request = URLRequest(
+      url: graphBaseURL.appending(path: "subscriptions/\(subscriptionId)")
+    )
+    request.httpMethod = "DELETE"
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let (_, response) = try await session.data(for: request)
+    guard let response = response as? HTTPURLResponse else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    guard (200..<300).contains(response.statusCode) else {
+      throw MicrosoftGraphClientError.requestFailed(response.statusCode)
+    }
   }
 
   private func perform(
@@ -381,6 +404,7 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
   }
 
   func clear(
+    accessToken: String?,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -388,6 +412,12 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
     ) {
+      if let accessToken {
+        try await subscriptionClient.delete(
+          accessToken: accessToken,
+          subscriptionId: status.subscriptionId
+        )
+      }
       _ = try await transport.removeMicrosoftGraphPushRoute(
         identityToken: session.identityToken,
         opaqueConnectionId: status.opaqueConnectionId,
@@ -400,8 +430,19 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     )
   }
 
-  func clearAll(session: ProductAccountSessionSnapshot) async throws {
+  func clearAll(
+    accessTokensByProviderAccountIdentifier: [String: String],
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     for status in try statusStore.loadAll(productAccountId: session.productAccountId) {
+      if let accessToken =
+        accessTokensByProviderAccountIdentifier[status.providerAccountIdentifier]
+      {
+        try await subscriptionClient.delete(
+          accessToken: accessToken,
+          subscriptionId: status.subscriptionId
+        )
+      }
       _ = try await transport.removeMicrosoftGraphPushRoute(
         identityToken: session.identityToken,
         opaqueConnectionId: status.opaqueConnectionId,
@@ -451,6 +492,7 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
 @MainActor
 struct MicrosoftGraphPushWakeupHandler {
   private let connectionManager: MailboxConnectionManaging
+  private let pushService: MailboxPushRegistering
   private let sessionStore: ProductAccountSessionPersisting
   private let statusStore: MicrosoftGraphPushStatusPersisting
   private let successStore: MailboxSyncSuccessPersisting
@@ -458,6 +500,7 @@ struct MicrosoftGraphPushWakeupHandler {
 
   init(
     connectionManager: MailboxConnectionManaging? = nil,
+    pushService: MailboxPushRegistering? = nil,
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     statusStore: MicrosoftGraphPushStatusPersisting =
       UserDefaultsMicrosoftGraphPushStatusStore(),
@@ -466,6 +509,7 @@ struct MicrosoftGraphPushWakeupHandler {
   ) {
     let adapter = MicrosoftGraphMailboxConnectionAdapter()
     self.connectionManager = connectionManager ?? adapter
+    self.pushService = pushService ?? adapter
     self.sessionStore = sessionStore
     self.statusStore = statusStore
     self.successStore = successStore ?? UserDefaultsMailboxSyncSuccessStore()
@@ -494,6 +538,7 @@ struct MicrosoftGraphPushWakeupHandler {
     else {
       return false
     }
+    try await pushService.registerOrRenewPush(connection: connection, session: session)
     publish(.syncing, connection: connection, session: session)
     do {
       _ = try await syncService.syncRecentInbox(

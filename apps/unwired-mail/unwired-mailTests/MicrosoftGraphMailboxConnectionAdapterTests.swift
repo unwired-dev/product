@@ -164,27 +164,31 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       accessToken: "provider-access"
     )
 
-    XCTAssertEqual(requests.map(\.httpMethod), ["GET", "POST", "PATCH", "POST"])
+    XCTAssertEqual(requests.map(\.httpMethod), ["GET", "POST", "POST"])
     XCTAssertEqual(
       requests.compactMap(\.url?.path),
       [
         "/v1.0/me/mailFolders/drafts/messages",
         "/v1.0/me/messages/source-message/createReply",
-        "/v1.0/me/messages/reply-draft",
         "/v1.0/me/messages/reply-draft/send",
       ]
     )
-    let updateBody = try XCTUnwrap(requestBodies[2])
-    let updateJSON = try XCTUnwrap(
-      JSONSerialization.jsonObject(with: updateBody) as? [String: Any]
+    let createBody = try XCTUnwrap(requestBodies[1])
+    let createJSON = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: createBody) as? [String: Any]
     )
-    let recipients = try XCTUnwrap(updateJSON["toRecipients"] as? [[String: Any]])
+    let draftJSON = try XCTUnwrap(createJSON["message"] as? [String: Any])
+    let recipients = try XCTUnwrap(draftJSON["toRecipients"] as? [[String: Any]])
     XCTAssertEqual(recipients.count, 2)
     XCTAssertEqual(
       recipients.compactMap { ($0["emailAddress"] as? [String: Any])?["address"] as? String },
       ["jane@example.com", "second@example.com"]
     )
-    XCTAssertNil(updateJSON["internetMessageHeaders"])
+    let extendedProperties = try XCTUnwrap(
+      draftJSON["singleValueExtendedProperties"] as? [[String: Any]]
+    )
+    XCTAssertEqual(extendedProperties.first?["value"] as? String, "reply-attempt")
+    XCTAssertNil(draftJSON["internetMessageHeaders"])
   }
 
   func testGraphSendReusesAnExistingProviderDraft() async throws {
@@ -226,8 +230,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testGraphPushSubscriptionAcceptsFractionalExpiration() async throws {
+    var capturedRequest: URLRequest?
     let session = ConvexClientTesting.makeSession { request in
-      (
+      capturedRequest = request
+      return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
           statusCode: 201,
@@ -250,6 +256,37 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(response.subscriptionId, "subscription-1")
+    let requestBody = try XCTUnwrap(
+      try graphRequestBody(try XCTUnwrap(capturedRequest))
+    )
+    let requestJSON = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
+    )
+    XCTAssertEqual(requestJSON["resource"] as? String, "me/messages")
+  }
+
+  func testGraphSendFailureDispositionDependsOnProviderHandoffStage() {
+    let preparation = outboxFailureDisposition(
+      for:
+        MicrosoftGraphSendError(
+          stage: .preparation,
+          underlyingError: MicrosoftGraphClientError.requestFailed(503)
+        )
+    )
+    let handoff = outboxFailureDisposition(
+      for:
+        MicrosoftGraphSendError(
+          stage: .providerHandoff,
+          underlyingError: MicrosoftGraphClientError.requestFailed(503)
+        )
+    )
+
+    guard case .transient = preparation else {
+      return XCTFail("Expected pre-handoff failure to be transient")
+    }
+    guard case .ambiguous = handoff else {
+      return XCTFail("Expected provider handoff failure to be ambiguous")
+    }
   }
 
   func testProviderActionsUseDurableQueueAndGraphFolderMappings() async throws {
@@ -394,6 +431,31 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(push.registeredConnectionIds, [connection.id])
     XCTAssertEqual(push.accessTokens, ["access-token"])
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
+  }
+
+  func testConnectionCleanupPassesProviderTokenBeforeClearingAuthorization() async throws {
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try authorizedAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      keyMaterialStore: keyStore,
+      pushRegistrar: push
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      try await adapter.clearLocalConnection(connection, session: session)
+    } catch ProductSyncKeyMaterialStoreError.recoveryRequired {
+      // The default encrypted Outbox store has no test key; push cleanup must run first.
+    }
+
+    XCTAssertEqual(push.clearedAccessTokens, ["access-token"])
+    XCTAssertEqual(push.clearedConnectionIds, [connection.id])
   }
 
   func testInitialFiftyMessagesRemainAvailableWhileBackfillResumesAfterRecreation() async throws {
@@ -1182,6 +1244,54 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(routeTransport.confirmed.count, 1)
   }
 
+  func testGraphWakeupRenewsPushBeforeSynchronizingMailbox() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let defaultsName = "MicrosoftGraphPushWakeupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: 4_000_000_000_000,
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    let push = RecordingMailboxPushService()
+    let handler = MicrosoftGraphPushWakeupHandler(
+      connectionManager: adapter,
+      pushService: push,
+      sessionStore: sessionStore,
+      statusStore: statusStore,
+      successStore: UserDefaultsMailboxSyncSuccessStore(defaults: defaults),
+      syncService: adapter
+    )
+
+    let handled = try await handler.handle(
+      userInfo: [
+        "provider": MailProviderId.microsoftGraph.rawValue,
+        "routeId": "route-id",
+      ]
+    )
+
+    XCTAssertTrue(handled)
+    XCTAssertEqual(push.connectionIds, [connection.id])
+  }
+
   func testPushRegistrationRecreatesAnExpiredProviderSubscription() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
@@ -1222,6 +1332,48 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(routeTransport.removedOpaqueConnectionIds, ["old-opaque-id"])
     XCTAssertEqual(subscriptionClient.created.count, 1)
     XCTAssertEqual(routeTransport.confirmed.last?.subscriptionId, "subscription-1")
+  }
+
+  func testPushCleanupDeletesProviderSubscriptionBeforeLocalState() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let defaultsName = "MicrosoftGraphPushCleanupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: 4_000_000_000_000,
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    let service = MicrosoftGraphPushSubscriptionService(
+      statusStore: statusStore,
+      subscriptionClient: subscriptionClient,
+      transport: RecordingMicrosoftGraphPushRouteTransport()
+    )
+
+    try await service.clear(
+      accessToken: "provider-access-token",
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-id"])
+    XCTAssertEqual(subscriptionClient.deleteAccessTokens, ["provider-access-token"])
+    XCTAssertNil(
+      try statusStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    )
   }
 
   private func authorizedAdapter(
@@ -1575,6 +1727,8 @@ private final class InMemoryGraphPendingActionStore:
 
 private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegistering {
   var accessTokens: [String] = []
+  var clearedAccessTokens: [String?] = []
+  var clearedConnectionIds: [MailboxConnectionId] = []
   var registeredConnectionIds: [MailboxConnectionId] = []
 
   func registerOrRenew(
@@ -1587,11 +1741,29 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
   }
 
   func clear(
-    connection _: MailboxConnection,
+    accessToken: String?,
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    clearedAccessTokens.append(accessToken)
+    clearedConnectionIds.append(connection.id)
+  }
+
+  func clearAll(
+    accessTokensByProviderAccountIdentifier _: [String: String],
     session _: ProductAccountSessionSnapshot
   ) async throws {}
+}
 
-  func clearAll(session _: ProductAccountSessionSnapshot) async throws {}
+private final class RecordingMailboxPushService: MailboxPushRegistering {
+  private(set) var connectionIds: [MailboxConnectionId] = []
+
+  func registerOrRenewPush(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+  }
 }
 
 private final class RecordingMicrosoftGraphPushRouteTransport:
@@ -1671,6 +1843,8 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
   }
 
   private(set) var created: [CreateCall] = []
+  private(set) var deleteAccessTokens: [String] = []
+  private(set) var deletedSubscriptionIds: [String] = []
   var renewError: Error?
   private(set) var renewedSubscriptionIds: [String] = []
 
@@ -1707,6 +1881,14 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
       expirationDate: expirationDate,
       subscriptionId: subscriptionId
     )
+  }
+
+  func delete(
+    accessToken: String,
+    subscriptionId: String
+  ) async throws {
+    deleteAccessTokens.append(accessToken)
+    deletedSubscriptionIds.append(subscriptionId)
   }
 }
 
