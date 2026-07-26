@@ -14,12 +14,14 @@ Generic IMAP and SMTP connections will use a qualified third-party protocol engi
 
 ## Acceptance gates
 
-- A vertical spike must pass against both iCloud Mail and Fastmail before the engine becomes a production dependency. It must cover authentication, role discovery without folder-name inference, newest-50 metadata availability, UID/UIDVALIDITY reconciliation, complete-history backfill, selected body-part fetching, IDLE recovery and cancellation, SMTP delivery, and verified Sent append.
+- A vertical spike must pass against both iCloud Mail and Fastmail before the engine becomes a production dependency. It must cover authentication, role discovery without folder-name inference, newest-50 metadata availability, UID/UIDVALIDITY reconciliation, complete-history backfill, selected body-part fetching, IDLE recovery and cancellation, SMTP delivery, and verified Sent append. Secure-transport qualification must also reject invalid certificates and hostnames, reject failed or downgraded STARTTLS upgrades, and prove authentication cannot begin before TLS is established.
+- Deterministic incoming and outgoing MIME fixtures must cover supported transfer encodings, multipart alternatives, attachment metadata, and inline content.
 - The engine must return verified source-to-destination UID mappings for move and copy. Message-ID matching is not an identity-repair substitute.
 - Move, archive, and trash require `MOVE` or targeted `UIDPLUS` removal. The adapter must never invoke an unrestricted expunge fallback that could remove unrelated messages.
 - UID/UIDVALIDITY reconciliation is the correctness baseline. `CONDSTORE` and `QRESYNC` are optional optimizations whose absence is acceptable only when the provider spike meets the synchronization budget.
-- SwiftMail protocol trace and debug output may contain message data, so production logging must discard content-bearing library logs and tests must prove message content cannot reach the production log sink.
+- SwiftMail protocol trace and debug output may contain private data, so production logging must discard all authentication material, mailbox identifiers, and message content. Tests must prove passwords, bearer tokens, authentication exchanges, mailbox identifiers, and message content cannot reach the production log sink.
 - Because SwiftMail's SMTP send API does not expose the failed transaction phase, any error after entering that send call is an ambiguous delivery outcome and is not retried automatically. Connection and authentication failures known to occur before the send call may retain normal retry behavior.
+- Qualification must simulate an IMAP Sent append failure after confirmed SMTP acceptance and prove recovery retries only the sent-copy append without invoking SMTP send again.
 - Pull requests run deterministic local IMAP/SMTP contract tests. Secrets-backed iCloud and Fastmail compatibility tests run only in an opt-in or scheduled environment, supplemented by a documented manual soak checklist.
 
 SwiftMail will handle IMAP and SMTP setup verification as well as runtime operations if it qualifies, avoiding duplicate protocol stacks. The existing stream implementation remains only for POP3, which SwiftMail does not support. iCloud Mail and Fastmail are certified providers; manually configured servers receive compatibility-based support.

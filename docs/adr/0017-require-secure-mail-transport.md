@@ -1,5 +1,5 @@
 ---
-status: superseded by ADR-0026
+status: amended by ADR-0026
 ---
 
 # Require secure mail transport
