@@ -150,6 +150,14 @@ private let defaultFailureDisposition:
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
+    if case .requestFailed(let status) = error as? MicrosoftGraphClientError {
+      if status == 401 || status == 403 {
+        return .userActionRequired
+      }
+      if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
+        return .transient
+      }
+    }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
       return .transient
     }
@@ -182,6 +190,8 @@ actor PendingProviderActionService {
   private let failureDisposition: @Sendable (Error) -> PendingProviderActionFailureDisposition
   private let maximumAttempts: Int
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
+  private var processingWaiters:
+    [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [PendingProviderActionQueueKey: Task<Void, Never>] = [:]
   private let store: PendingProviderActionPersisting
@@ -364,8 +374,14 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) async {
     let key = queueKey(connection: connection, session: session)
-    while !Task.isCancelled, let task = retryTasks[key] {
-      await task.value
+    while !Task.isCancelled {
+      if let task = retryTasks[key] {
+        await task.value
+      } else if processingQueueKeys.contains(key) {
+        await waitUntilProcessingFinishes(key: key)
+      } else {
+        return
+      }
     }
   }
 
@@ -531,7 +547,7 @@ actor PendingProviderActionService {
     )
     guard retryTasks[key] == nil else { return }
     guard processingQueueKeys.insert(key).inserted else { return }
-    defer { processingQueueKeys.remove(key) }
+    defer { finishProcessing(key: key) }
     var firstPermanentFailure: Error?
 
     while true {
@@ -629,8 +645,9 @@ actor PendingProviderActionService {
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
-        await self.finishRetry(key: key)
-        try await self.process(
+        await self.waitUntilProcessingFinishes(key: key)
+        try await self.runScheduledRetry(
+          key: key,
           connectionId: action.mailboxConnectionId,
           productAccountId: action.productAccountId,
           provider: provider
@@ -638,6 +655,56 @@ actor PendingProviderActionService {
       } catch {
         await self?.finishRetry(key: key)
       }
+    }
+  }
+
+  private func runScheduledRetry(
+    key: PendingProviderActionQueueKey,
+    connectionId: MailboxConnectionId,
+    productAccountId: String,
+    provider: @escaping PendingProviderActionPerformer
+  ) async throws {
+    retryTasks[key] = nil
+    try await process(
+      connectionId: connectionId,
+      productAccountId: productAccountId,
+      provider: provider
+    )
+  }
+
+  private func waitUntilProcessingFinishes(key: PendingProviderActionQueueKey) async {
+    guard processingQueueKeys.contains(key) else { return }
+    let waiterId = UUID()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled, processingQueueKeys.contains(key) else {
+          continuation.resume()
+          return
+        }
+        processingWaiters[key, default: [:]][waiterId] = continuation
+      }
+    } onCancel: {
+      Task {
+        await self.cancelProcessingWaiter(key: key, waiterId: waiterId)
+      }
+    }
+  }
+
+  private func cancelProcessingWaiter(
+    key: PendingProviderActionQueueKey,
+    waiterId: UUID
+  ) {
+    processingWaiters[key]?.removeValue(forKey: waiterId)?.resume()
+    if processingWaiters[key]?.isEmpty == true {
+      processingWaiters[key] = nil
+    }
+  }
+
+  private func finishProcessing(key: PendingProviderActionQueueKey) {
+    processingQueueKeys.remove(key)
+    let waiters = processingWaiters.removeValue(forKey: key) ?? [:]
+    for continuation in waiters.values {
+      continuation.resume()
     }
   }
 

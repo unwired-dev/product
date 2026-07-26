@@ -3289,6 +3289,7 @@ struct MailShellConversationReader: View {
       subject: draft.subject,
       body: draft.body,
       replyTo: draft.replyToMessage,
+      sourceMessage: draft.sourceMessage,
       connection: connection
     )
     if !didSend {
@@ -4012,6 +4013,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     replyTo: MailboxMessageMetadata?,
+    sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection
   ) async -> Bool {
     guard connection.capabilities.canSend else { return false }
@@ -4021,14 +4023,19 @@ final class GmailMailActionViewModel {
     defer { isPerformingAction = false }
 
     do {
+      let selectedSourceMessage =
+        sourceMessage?.connectionId == connection.id ? sourceMessage : nil
       _ = try await outboxService.enqueue(
         OutgoingMessage(
           body: body,
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
+          kind: selectedSourceMessage == nil
+            ? .new : (replyTo != nil ? .reply : .forward),
           providerThreadId: replyTo?.connectionId == connection.id && replyTo?.rfcMessageId != nil
-            ? replyTo?.providerThreadId : nil
+            ? replyTo?.providerThreadId : nil,
+          sourceProviderMessageId: selectedSourceMessage?.providerMessageId
         ),
         connection: connection,
         session: session,

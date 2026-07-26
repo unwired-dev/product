@@ -2097,6 +2097,196 @@ export const clearStaleDevice = internalMutation({
   returns: v.null(),
 });
 
+const microsoftGraphRouteResponseValidator = v.object({
+  routeId: v.string(),
+});
+
+export const prepareMicrosoftGraphRoute = mutation({
+  args: {
+    clientStateDigest: v.string(),
+    opaqueConnectionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    if (
+      args.clientStateDigest.length === 0 ||
+      args.opaqueConnectionId.length === 0
+    ) {
+      throw new Error('Microsoft Graph route identifiers required');
+    }
+    const existing = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productId_provider_deviceId_connectionId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'microsoft-graph')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('opaqueConnectionId', args.opaqueConnectionId),
+      )
+      .unique();
+    const now = Date.now();
+    const routeId =
+      existing === null
+        ? await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            microsoftClientStateDigest: args.clientStateDigest,
+            opaqueConnectionId: args.opaqueConnectionId,
+            productAccountId: account.productAccountId,
+            provider: 'microsoft-graph',
+            trustedDeviceId: args.trustedDeviceId,
+            updatedAt: now,
+          })
+        : // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+          existing._id;
+    if (existing !== null) {
+      await ctx.db.patch(routeId, {
+        lastVerifiedAt: now,
+        microsoftClientStateDigest: args.clientStateDigest,
+        microsoftSubscriptionExpiresAt: undefined,
+        microsoftSubscriptionId: undefined,
+        microsoftWakeupScheduledAt: undefined,
+        updatedAt: now,
+      });
+    }
+    await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
+    return { routeId };
+  },
+  returns: microsoftGraphRouteResponseValidator,
+});
+
+export const confirmMicrosoftGraphRoute = mutation({
+  args: {
+    expiresAt: v.number(),
+    routeId: v.id('mailProviderConnections'),
+    subscriptionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const route = await ctx.db.get(args.routeId);
+    if (
+      route === null ||
+      route.productAccountId !== account.productAccountId ||
+      route.provider !== 'microsoft-graph' ||
+      route.trustedDeviceId !== args.trustedDeviceId ||
+      route.microsoftClientStateDigest === undefined ||
+      args.subscriptionId.length === 0 ||
+      args.expiresAt <= Date.now()
+    ) {
+      throw new Error('Microsoft Graph route rejected');
+    }
+    const now = Date.now();
+    await ctx.db.patch(args.routeId, {
+      lastVerifiedAt: now,
+      microsoftSubscriptionExpiresAt: args.expiresAt,
+      microsoftSubscriptionId: args.subscriptionId,
+      updatedAt: now,
+    });
+    return { routeId: args.routeId };
+  },
+  returns: microsoftGraphRouteResponseValidator,
+});
+
+export const removeMicrosoftGraphRoute = mutation({
+  args: {
+    opaqueConnectionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const route = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productId_provider_deviceId_connectionId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'microsoft-graph')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('opaqueConnectionId', args.opaqueConnectionId),
+      )
+      .unique();
+    if (route !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(route._id);
+    }
+    return { removed: route !== null };
+  },
+  returns: v.object({ removed: v.boolean() }),
+});
+
+export const enqueueMicrosoftGraphWakeup = internalMutation({
+  args: {
+    clientStateDigest: v.string(),
+    routeId: v.string(),
+    subscriptionId: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const routeId = ctx.db.normalizeId('mailProviderConnections', args.routeId);
+    if (routeId === null) {
+      return { accepted: false };
+    }
+    const route = await ctx.db.get(routeId);
+    const now = Date.now();
+    if (
+      route === null ||
+      route.provider !== 'microsoft-graph' ||
+      route.microsoftClientStateDigest !== args.clientStateDigest ||
+      route.microsoftSubscriptionId !== args.subscriptionId ||
+      (route.microsoftSubscriptionExpiresAt ?? 0) <= now
+    ) {
+      return { accepted: false };
+    }
+    if (route.microsoftWakeupScheduledAt !== undefined) {
+      return { accepted: true };
+    }
+    await ctx.db.patch(routeId, { microsoftWakeupScheduledAt: now });
+    await ctx.scheduler.runAfter(
+      1000,
+      internal.apns.deliverMicrosoftGraphWakeup,
+      { routeId, scheduledAt: now },
+    );
+    return { accepted: true };
+  },
+  returns: v.object({ accepted: v.boolean() }),
+});
+
+export const claimMicrosoftGraphWakeup = internalMutation({
+  args: {
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const route = await ctx.db.get(args.routeId);
+    if (
+      route === null ||
+      route.provider !== 'microsoft-graph' ||
+      route.microsoftWakeupScheduledAt !== args.scheduledAt ||
+      (route.microsoftSubscriptionExpiresAt ?? 0) <= Date.now()
+    ) {
+      return null;
+    }
+    await ctx.db.patch(args.routeId, {
+      microsoftWakeupScheduledAt: undefined,
+    });
+    const device = await ctx.db.get(route.trustedDeviceId);
+    if (!hasActiveApnsRoute(device)) {
+      return null;
+    }
+    return apnsRecipient(device, args.routeId);
+  },
+  returns: v.union(apnsRecipientValidator, v.null()),
+});
+
 function isCurrentPushRoute(
   device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
   request: Readonly<{

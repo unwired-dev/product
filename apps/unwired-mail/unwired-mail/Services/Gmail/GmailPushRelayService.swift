@@ -1667,7 +1667,10 @@ private struct GmailWatchResponse: Decodable {
     ) {
       Task { @MainActor in
         do {
-          let handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+          var handled = try await GmailPushWakeupHandler().handle(userInfo: userInfo)
+          if !handled {
+            handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
+          }
           completionHandler(handled ? .newData : .noData)
         } catch {
           completionHandler(.failed)

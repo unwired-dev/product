@@ -380,3 +380,45 @@ export const deliverQueuedGmailWakeups = internalAction({
   },
   returns: v.null(),
 });
+
+export const deliverMicrosoftGraphWakeup = internalAction({
+  args: {
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const recipient = await ctx.runMutation(
+      internal.pushRelay.claimMicrosoftGraphWakeup,
+      args,
+    );
+    if (recipient === null) {
+      return null;
+    }
+    const configuration = apnsConfiguration();
+    const client = connect(apnsAuthority(recipient.apnsEnvironment));
+    client.on('error', (error) => {
+      console.error('APNs HTTP/2 session failed', error);
+    });
+    const result = await Promise.allSettled([
+      sendWakeup(
+        {
+          apnsEnvironment: recipient.apnsEnvironment,
+          apnsToken: recipient.apnsToken,
+          authorization: providerToken(configuration),
+          configuration,
+          payload: JSON.stringify({
+            aps: { 'content-available': 1 },
+            provider: 'microsoft-graph',
+            routeId: recipient.routeId,
+          }),
+        },
+        client,
+      ),
+    ]).finally(() => {
+      client.close();
+    });
+    await handleDeliveryResult(ctx, result[0], recipient);
+    return null;
+  },
+  returns: v.null(),
+});

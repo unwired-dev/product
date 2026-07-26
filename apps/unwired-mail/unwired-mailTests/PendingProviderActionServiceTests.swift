@@ -1129,6 +1129,38 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testCancellingRetryWaiterDoesNotWaitForStalledProviderWork() async throws {
+    let service = PendingProviderActionService(
+      store: InMemoryPendingProviderActionStore()
+    )
+    let gate = PendingProviderActionGate()
+    async let providerAction: Void = service.perform(
+      .archive,
+      messages: [
+        pendingActionMessage(providerMessageId: "message-001", providerStateIds: ["INBOX"])
+      ],
+      connection: connection,
+      session: session
+    ) { _, _, _ in
+      await gate.block()
+    }
+    await gate.waitUntilBlocked()
+    let waitCompleted = expectation(description: "Cancelled retry waiter completed")
+    let waiter = Task {
+      await service.waitForScheduledRetries(
+        connection: connection,
+        session: session
+      )
+      waitCompleted.fulfill()
+    }
+
+    waiter.cancel()
+
+    await fulfillment(of: [waitCompleted], timeout: 1)
+    await gate.release()
+    try await providerAction
+  }
+
   private func pendingActionMessage(
     providerMessageId: String,
     providerStateIds: [String]

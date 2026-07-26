@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { createHmac, generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, sign } from 'node:crypto';
 
 import type { TestConvexForDataModel } from 'convex-test';
 
@@ -3484,6 +3484,107 @@ describe('gmail push relay', () => {
       vi.useRealTimers();
       vi.unstubAllEnvs();
       apnsMock.stallResponseBody = false;
+    }
+  });
+
+  it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
+    expect.assertions(7);
+
+    vi.useFakeTimers();
+    apnsMock.connections.length = 0;
+    apnsMock.requests.length = 0;
+    apnsMock.responseBody = '';
+    apnsMock.sessions.length = 0;
+    apnsMock.status = 200;
+    apnsMock.statusByToken = {};
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'graph-device',
+        platform: 'ios',
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'sandbox',
+        apnsToken: 'graph-device-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      const clientState = 'graph-client-state';
+      const route = await asUser.mutation(
+        api.pushRelay.prepareMicrosoftGraphRoute,
+        {
+          clientStateDigest: createHash('sha256')
+            .update(clientState)
+            .digest('hex'),
+          opaqueConnectionId: 'opaque-graph-connection',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        expiresAt: Date.now() + 60_000,
+        routeId: route.routeId,
+        subscriptionId: 'graph-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+
+      const validation = await t.fetch(
+        '/microsoft-graph/push?validationToken=validation-value',
+        { method: 'POST' },
+      );
+      await expect(validation.text()).resolves.toBe('validation-value');
+      const notification = {
+        clientState,
+        resource: 'users/private/messages/provider-message-id',
+        resourceData: {
+          body: 'provider message content must not cross the boundary',
+        },
+        subscriptionId: 'graph-subscription',
+      };
+      const pushURL = `/microsoft-graph/push?routeId=${route.routeId}`;
+      for (let index = 0; index < 2; index += 1) {
+        const response = await t.fetch(pushURL, {
+          body: JSON.stringify({ value: [notification] }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        });
+        expect(response.status).toBe(202);
+      }
+      const isolatedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: [
+            {
+              ...notification,
+              clientState: 'another-route-client-state',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      expect(isolatedResponse.status).toBe(202);
+
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      expect(apnsMock.requests).toHaveLength(1);
+      expect(JSON.parse(apnsMock.requests[0]!.payload)).toStrictEqual({
+        aps: { 'content-available': 1 },
+        provider: 'microsoft-graph',
+        routeId: route.routeId,
+      });
+      expect(apnsMock.requests[0]!.payload).not.toContain(
+        'provider-message-id',
+      );
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
     }
   });
 });

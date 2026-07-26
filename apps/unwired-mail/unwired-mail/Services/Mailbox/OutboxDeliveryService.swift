@@ -225,6 +225,17 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
+    if case .requestFailed(let status) = error as? MicrosoftGraphClientError {
+      if status == 401 || status == 403 {
+        return .userActionRequired
+      }
+      if status == 429 {
+        return .transient
+      }
+      if status == 408 || status == 409 || status == 425 || status >= 500 {
+        return .ambiguous
+      }
+    }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
       return .transient
     }
