@@ -20,12 +20,12 @@
     "@edge-runtime/vm": "^5.0.0",
     "@rajzik/tsconfig": "catalog:",
     "@types/node": "catalog:",
-    "convex-test": "^0.0.41",
+    "convex-test": "^0.0.54",
     "oxfmt": "catalog:",
     "oxlint": "catalog:",
     "oxlint-tsgolint": "catalog:",
     "typescript": "catalog:",
-    "vite": "^7.1.12",
+    "vite": "^8.1.5",
     "vitest": "catalog:"
   }
 }

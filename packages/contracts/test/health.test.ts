@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
 import {
@@ -7,13 +7,13 @@ import {
 } from '../src/health.ts';
 
 describe('health contract', () => {
-  it('fixture matches the committed JSON file Swift tests decode', () => {
+  it('fixture matches the committed JSON file Swift tests decode', async () => {
     expect.assertions(1);
 
     const fixturePath = fileURLToPath(
       new URL('../fixtures/health.response.json', import.meta.url),
     );
-    const fixtureJson = JSON.parse(readFileSync(fixturePath, 'utf8'));
+    const fixtureJson = JSON.parse(await readFile(fixturePath, 'utf8'));
 
     expect(fixtureJson).toStrictEqual(healthResponseFixture);
   });

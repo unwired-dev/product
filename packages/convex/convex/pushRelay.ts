@@ -1091,12 +1091,16 @@ async function clearDevicePushRoute(
     // oxlint-disable-next-line eslint/no-use-before-define -- Helper builds the route-clear patch.
     clearedDevicePushRoutePatch(device, request, cleanupStartedAt),
   );
-  await clearGmailPushProofs(ctx, {
-    cleanupStartedAt,
-    productAccountId: device.productAccountId,
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    trustedDeviceId: device._id,
-  });
+  await ctx.scheduler.runAfter(
+    0,
+    internal.pushRelay.continueGmailPushProofCleanup,
+    {
+      cleanupStartedAt,
+      productAccountId: device.productAccountId,
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      trustedDeviceId: device._id,
+    },
+  );
 }
 
 function clearedDevicePushRoutePatch(
@@ -1968,7 +1972,7 @@ export const expireGmailVerificationSignal = internalMutation({
 export const continueGmailPushProofCleanup = internalMutation({
   args: {
     cleanupStartedAt: v.number(),
-    cursor: v.string(),
+    cursor: v.optional(v.string()),
     productAccountId: v.id('productAccounts'),
     trustedDeviceId: v.id('trustedDevices'),
   },

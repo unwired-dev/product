@@ -24,7 +24,7 @@ jobs:
       apple_projects_changed: ${{ steps.apple-matrix.outputs.has-projects }}
     steps:
       - name: Checkout
-        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       # Keep one filter per Apple project. Shared changes select every project
       # configured in the Apple matrix below.
@@ -84,20 +84,20 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v6
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
           cache-dependency-path: pnpm-lock.yaml
 
       - name: Restore Turbo cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: .turbo/cache
           key: turbo-${{ runner.os }}-${{ github.job }}-${{ github.sha }}
@@ -122,10 +122,10 @@ jobs:
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Analyze
-        uses: fallow-rs/fallow@v2
+        uses: fallow-rs/fallow@v3
         with:
           format: sarif
 
@@ -140,10 +140,10 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       - name: Restore Homebrew cache
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ~/Library/Caches/Homebrew
           key: homebrew-${{ runner.os }}-${{ hashFiles('.github/workflows/ci.yml') }}
