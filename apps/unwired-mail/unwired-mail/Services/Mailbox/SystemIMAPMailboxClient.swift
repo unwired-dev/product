@@ -685,10 +685,11 @@ private enum IMAPResponseParser {
         let (_, afterDelimiter) = token(in: remaining),
         let (mailboxName, _) = token(in: afterDelimiter)
       else { throw IMAPMailboxError.invalidProviderResponse }
+      let decodedMailboxName = decodeModifiedUTF7(mailboxName)
       mailboxes.append(
         IMAPMailboxDescriptor(
-          displayName: decodeModifiedUTF7(mailboxName),
-          name: mailboxName
+          displayName: decodedMailboxName,
+          name: decodedMailboxName
         )
       )
     }

@@ -572,9 +572,20 @@ actor PendingProviderActionService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
-    retryTasks.removeValue(forKey: queueKey(connection: connection, session: session))?.cancel()
+    try clear(connectionId: connection.id, session: session)
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    let key = PendingProviderActionQueueKey(
+      connectionId: connectionId.rawValue,
+      productAccountId: session.productAccountId
+    )
+    retryTasks.removeValue(forKey: key)?.cancel()
     var actions = try store.load(productAccountId: session.productAccountId)
-    actions.removeAll { $0.connectionId == connection.id.rawValue }
+    actions.removeAll { $0.connectionId == connectionId.rawValue }
     try store.save(actions, productAccountId: session.productAccountId)
   }
 

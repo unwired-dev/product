@@ -551,11 +551,7 @@ final class MailboxFreshnessViewModel {
         statuses[connection.id] = .authorizationRequired(
           lastSuccessfulSyncAt: statuses[connection.id]?.lastSuccessfulSyncAt
         )
-        do {
-          try await sleep(.seconds(5))
-        } catch {
-          return
-        }
+        return
       } catch {
         do {
           try await sleep(.seconds(5))

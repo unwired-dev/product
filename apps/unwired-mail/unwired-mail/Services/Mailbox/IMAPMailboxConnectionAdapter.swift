@@ -1835,6 +1835,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
   ) async throws -> [MailboxConnection] {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
+      try await pendingActionService.clear(connectionId: removedId, session: session)
+      try await outboxService.clear(connectionId: removedId, session: session)
       try await syncGate.withLock(removedId) {
         try clearLocalConnectionWithoutLock(removedId, session: session)
       }

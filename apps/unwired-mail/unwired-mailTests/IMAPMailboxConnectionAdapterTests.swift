@@ -76,7 +76,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(capabilities.supports(.archive))
     XCTAssertTrue(capabilities.supports(.move))
-    XCTAssertFalse(capabilities.supports(.delete))
+    XCTAssertTrue(capabilities.supports(.delete))
   }
 
   func testMoveAndUIDPLUSServerAdvertisesSafeDelete() {
@@ -1359,6 +1359,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       )
 
       XCTAssertEqual(mailboxes.map(\.displayName), [expectedName])
+      XCTAssertEqual(mailboxes.map(\.name), [expectedName])
     }
   }
 

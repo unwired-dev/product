@@ -1146,10 +1146,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testMailboxFreshnessReconnectsIDLEAfterAuthorizationRejection() async {
-    let reconnected = expectation(description: "IMAP IDLE reconnected")
-    let synchronized = expectation(description: "mail synchronized after IDLE reconnect")
-    let observer = ReconnectingMailboxChangeObserver(reconnected: reconnected)
+  func testMailboxFreshnessStopsIDLEAfterAuthorizationRejection() async {
+    let rejected = expectation(description: "IMAP IDLE authorization rejected")
+    let observer = ReconnectingMailboxChangeObserver(rejected: rejected)
     let fixture = makeMailboxFreshnessFixture(
       sleep: { duration in
         if duration == .seconds(5) { return }
@@ -1187,18 +1186,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let poll = Task { @MainActor in
       await viewModel.pollWhileActive(
         connections: { [connection] },
-        didSynchronize: { synchronized.fulfill() }
+        didSynchronize: {}
       )
     }
 
-    await fulfillment(of: [reconnected, synchronized], timeout: 1)
+    await fulfillment(of: [rejected], timeout: 1)
+    await Task.yield()
     poll.cancel()
     await poll.value
 
     let idleRequestCount = await observer.requestCount()
     let syncCallCount = await fixture.service.syncCallCount()
-    XCTAssertGreaterThanOrEqual(idleRequestCount, 2)
-    XCTAssertEqual(syncCallCount, 1)
+    XCTAssertEqual(idleRequestCount, 1)
+    XCTAssertEqual(syncCallCount, 0)
   }
 
   @MainActor
@@ -3657,10 +3657,10 @@ private final class MailboxFreshnessSessionState {
 
 private actor ReconnectingMailboxChangeObserver: MailboxChangeObserving {
   private var requests = 0
-  private let reconnected: XCTestExpectation
+  private let rejected: XCTestExpectation
 
-  init(reconnected: XCTestExpectation) {
-    self.reconnected = reconnected
+  init(rejected: XCTestExpectation) {
+    self.rejected = rejected
   }
 
   func waitForMailboxChange(
@@ -3669,11 +3669,8 @@ private actor ReconnectingMailboxChangeObserver: MailboxChangeObserving {
   ) async throws {
     requests += 1
     if requests == 1 {
+      rejected.fulfill()
       throw IMAPMailboxError.authorizationRejected
-    }
-    if requests == 2 {
-      reconnected.fulfill()
-      return
     }
     try await Task.sleep(for: .seconds(60))
   }

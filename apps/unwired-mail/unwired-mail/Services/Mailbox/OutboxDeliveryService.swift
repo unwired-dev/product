@@ -609,17 +609,24 @@ actor OutboxDeliveryService {
     guard connection.productAccountId.rawValue == session.productAccountId else {
       throw OutboxDeliveryError.productAccountMismatch
     }
+    try clear(connectionId: connection.id, session: session)
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws {
     let attempts = try store.load(productAccountId: session.productAccountId)
     let attemptIds = Set(
-      attempts.filter { $0.connectionId == connection.id }.map(\.id)
+      attempts.filter { $0.connectionId == connectionId }.map(\.id)
     )
     try store.save(
-      redactingTerminalAttempts(attempts.filter { $0.connectionId != connection.id }),
+      redactingTerminalAttempts(attempts.filter { $0.connectionId != connectionId }),
       productAccountId: session.productAccountId
     )
     for attemptId in retryTasks.keys.filter({
       attemptIds.contains($0)
-        || (retryTaskConnectionIds[$0] == connection.id
+        || (retryTaskConnectionIds[$0] == connectionId
           && retryTaskProductAccountIds[$0] == session.productAccountId)
     }) {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
@@ -629,7 +636,7 @@ actor OutboxDeliveryService {
     }
     for attemptId in inFlightRetryTasks.keys.filter({
       attemptIds.contains($0)
-        || (inFlightRetryTaskConnectionIds[$0] == connection.id
+        || (inFlightRetryTaskConnectionIds[$0] == connectionId
           && inFlightRetryTaskProductAccountIds[$0] == session.productAccountId)
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
