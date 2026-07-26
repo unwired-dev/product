@@ -1,4 +1,5 @@
 import {
+  gmailIdentityBindingDigest,
   gmailRoutingDigest,
   gmailRoutingDigests,
 } from '../convex/gmailRouting.js';
@@ -52,6 +53,26 @@ describe('gmail routing digest', () => {
         keyVersion: 2,
       },
     ]);
+    vi.unstubAllEnvs();
+  });
+
+  it('keeps identity bindings stable across routing-key rotation', async () => {
+    expect.assertions(2);
+    vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '1');
+
+    const beforeRotation = await gmailIdentityBindingDigest(
+      'product-account-001',
+      'gmail-user-001',
+    );
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
+
+    await expect(
+      gmailIdentityBindingDigest('product-account-001', 'gmail-user-001'),
+    ).resolves.toBe(beforeRotation);
+    expect(beforeRotation).toMatch(/^identity:/u);
     vi.unstubAllEnvs();
   });
 });

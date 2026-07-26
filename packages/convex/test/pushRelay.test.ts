@@ -156,6 +156,7 @@ const matchingVictimSubjectIdentityToken = createGoogleIdentityToken(
 
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
 const googleSigningKeyFetch = vi.fn<() => Promise<Response>>(async () =>
   Response.json(
     { keys: [googleIdentitySigningKey] },
@@ -224,6 +225,54 @@ async function registerGmailConnection(
 }
 
 describe('gmail push relay', () => {
+  it('counts legacy rows toward the per-device Gmail connection cap', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      for (let index = 0; index < 2; index += 1) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: index,
+          emailAddress: `legacy-${String(index)}@example.com`,
+          lastVerifiedAt: index,
+          productAccountId: device.productAccountId,
+          provider: 'gmail',
+          providerAccountIdentifier: `legacy-${String(index)}`,
+          trustedDeviceId: device.trustedDeviceId,
+          updatedAt: index,
+        });
+      }
+      for (let index = 0; index < 18; index += 1) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: index + 2,
+          gmailRoutingDigest: routingDigest(
+            `current-${String(index)}@example.com`,
+          ),
+          gmailRoutingKeyVersion: 1,
+          lastVerifiedAt: index + 2,
+          opaqueConnectionId: `opaque:current-${String(index)}`,
+          productAccountId: device.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId: device.trustedDeviceId,
+          updatedAt: index + 2,
+        });
+      }
+    });
+
+    await expect(
+      registerGmailConnection(asUser, {
+        emailAddress: 'new@example.com',
+        providerAccountIdentifier: 'gmail-user-new',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Gmail connection limit reached');
+  });
+
   it('authenticates the trusted device before fetching Google signing keys', async () => {
     expect.assertions(2);
 
@@ -1633,6 +1682,45 @@ describe('gmail push relay', () => {
     }
   });
 
+  it('keeps a dormant identity binding valid after routing-key rotation', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const firstDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await registerGmailConnection(asUser, {
+      emailAddress: 'matching@example.com',
+      providerAccountIdentifier: 'gmail-user-001',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    });
+
+    vi.stubEnv('GMAIL_ROUTING_KEY', 'rotated-routing-test-key');
+    vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '2');
+    try {
+      const secondDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'ios',
+      });
+      await expect(
+        registerGmailConnection(asUser, {
+          emailAddress: 'matching@example.com',
+          providerAccountIdentifier: 'gmail-user-001',
+          trustedDeviceId: secondDevice.trustedDeviceId,
+        }),
+      ).resolves.toStrictEqual(
+        expect.objectContaining({
+          opaqueConnectionId: opaqueConnectionId('gmail-user-001'),
+        }),
+      );
+    } finally {
+      vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+      vi.stubEnv('GMAIL_ROUTING_KEY_VERSION', '');
+    }
+  });
+
   it('associates minimal Gmail metadata only with matching connected devices', async () => {
     expect.assertions(5);
 
@@ -2655,6 +2743,7 @@ describe('gmail push relay', () => {
     vi.stubEnv('APNS_KEY_ID', 'key-id');
     vi.stubEnv('APNS_TEAM_ID', 'team-id');
     vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
+    vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
     vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
     const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
     vi.stubEnv(

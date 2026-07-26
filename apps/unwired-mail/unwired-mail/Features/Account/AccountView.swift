@@ -892,7 +892,21 @@ struct AccountView: View {
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         selectedThreadIds: selectedThreadsBinding,
-        viewModel: inboxViewModel
+        viewModel: inboxViewModel,
+        categoryChoices: MessageCategoryChoice.available(
+          customCategory: categoryViewModel.category
+        ),
+        clearCachedBodies: {
+          await inboxViewModel.cancelBodyPrefetch()
+          if let selectedConnection {
+            try messageReader.clearCachedMessageBodies(
+              connection: selectedConnection,
+              session: snapshot
+            )
+          } else {
+            try messageReader.clearCachedMessageBodies(session: snapshot)
+          }
+        }
       )
     } detail: {
       MailShellConversationReader(
@@ -902,7 +916,10 @@ struct AccountView: View {
         mailActionViewModel: mailActionViewModel,
         messageReader: messageReader,
         pinViewModel: pinViewModel,
-        selection: mailShellSelection
+        selection: mailShellSelection,
+        categoryChoices: MessageCategoryChoice.available(
+          customCategory: categoryViewModel.category
+        )
       )
     }
     .navigationSplitViewStyle(.balanced)
@@ -2255,6 +2272,7 @@ private struct MailShellMailboxLabel: View {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct MailShellThreadList: View {
   let connection: MailboxConnection?
   let connections: [MailboxConnection]
@@ -2265,7 +2283,10 @@ struct MailShellThreadList: View {
   let navigationSnapshot: MailboxNavigationSnapshot
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   @Bindable var viewModel: GmailInboxViewModel
+  var categoryChoices: [MessageCategoryChoice] = []
+  var clearCachedBodies: () async throws -> Void = {}
   @State private var editingAttempt: OutgoingDeliveryAttempt?
+  @State private var showsMailboxTools = false
 
   var body: some View {
     Group {
@@ -2341,6 +2362,15 @@ struct MailShellThreadList: View {
           .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
         }
       }
+      if mailboxSelection != nil, mailboxSelection != .outbox {
+        ToolbarItem(placement: .secondaryAction) {
+          Button {
+            showsMailboxTools = true
+          } label: {
+            Label("Mailbox Tools", systemImage: "ellipsis.circle")
+          }
+        }
+      }
     }
     .overlay {
       if mailboxSelection != .outbox, viewModel.isLoading || viewModel.isSyncing {
@@ -2367,6 +2397,19 @@ struct MailShellThreadList: View {
             connection: connection
           )
         }
+      )
+    }
+    .sheet(isPresented: $showsMailboxTools) {
+      MailShellMailboxTools(
+        categoryChoices: categoryChoices,
+        clearCachedBodies: clearCachedBodies,
+        connection: connection,
+        isConnectionBusy: isConnectionBusy,
+        selectMessage: { message in
+          selectedThreadIds = [message.threadIdentity]
+          showsMailboxTools = false
+        },
+        viewModel: viewModel
       )
     }
   }
@@ -2503,6 +2546,131 @@ struct MailShellThreadList: View {
   }
 }
 
+private struct MailShellMailboxTools: View {
+  let categoryChoices: [MessageCategoryChoice]
+  let clearCachedBodies: () async throws -> Void
+  let connection: MailboxConnection?
+  let isConnectionBusy: Bool
+  let selectMessage: (MailboxMessageMetadata) -> Void
+  @Bindable var viewModel: GmailInboxViewModel
+  @Environment(\.dismiss) private var dismiss
+  @State private var cacheErrorMessage: String?
+  @State private var searchTask: Task<Void, Never>?
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("Search") {
+          TextField(
+            "Sender, recipient, subject, date, state, or Category",
+            text: $viewModel.searchQuery
+          )
+          Button("Search Local Metadata") {
+            viewModel.searchLocal(
+              categoryNamesById: Dictionary(
+                uniqueKeysWithValues: categoryChoices.map { ($0.id, $0.name) }
+              )
+            )
+          }
+          .disabled(isDisabled || trimmedQuery.isEmpty)
+          if connection?.capabilities.canSearchProvider == true {
+            Button("Search \(providerDisplayName) Full Text") {
+              guard let connection else { return }
+              searchTask?.cancel()
+              searchTask = Task { await viewModel.searchProvider(connection: connection) }
+            }
+            .disabled(isDisabled || trimmedQuery.isEmpty)
+          }
+          if viewModel.searchResult != nil {
+            Button("Clear Search", action: viewModel.clearSearch)
+          }
+          if viewModel.isSearching {
+            ProgressView("Searching \(providerDisplayName)…")
+          }
+          if let result = viewModel.searchResult {
+            Text(
+              "\(result.messages.count) results from "
+                + result.source.title(providerDisplayName: providerDisplayName)
+            )
+            .font(.footnote)
+            ForEach(result.messages) { message in
+              Button {
+                selectMessage(message)
+              } label: {
+                VStack(alignment: .leading, spacing: 4) {
+                  Text(message.subject)
+                  Text(message.from ?? "Unknown sender")
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                }
+              }
+            }
+          }
+          Text(
+            connection?.capabilities.canSearchProvider == true
+              ? "Local search stays on this device. Provider full-text search sends only "
+                + "this query to \(providerDisplayName)."
+              : "Local search stays on this device."
+          )
+          .font(.footnote)
+          .foregroundStyle(.secondary)
+        }
+
+        if let connection, connection.capabilities.canCategorizeHistorical {
+          Section {
+            HistoricalCategorizationPanel(
+              isDisabled: isDisabled,
+              isWorking: viewModel.isCategorizingHistorical,
+              categorize: { scope in
+                Task {
+                  await viewModel.categorizeHistorical(scope: scope, connection: connection)
+                }
+              }
+            )
+          }
+        }
+
+        Section {
+          Button("Remove Cached Bodies", role: .destructive) {
+            Task {
+              do {
+                try await clearCachedBodies()
+                cacheErrorMessage = nil
+              } catch {
+                cacheErrorMessage = error.localizedDescription
+              }
+            }
+          }
+          .disabled(isDisabled)
+          if let cacheErrorMessage {
+            Text(cacheErrorMessage)
+              .foregroundStyle(.red)
+          }
+        }
+      }
+      .navigationTitle("Mailbox Tools")
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { dismiss() }
+        }
+      }
+    }
+    .onDisappear { searchTask?.cancel() }
+  }
+
+  private var isDisabled: Bool {
+    isConnectionBusy || viewModel.isRefreshDisabled || viewModel.isAssigningCategory
+  }
+
+  private var providerDisplayName: String {
+    connection?.providerId.rawValue.capitalized ?? "Provider"
+  }
+
+  private var trimmedQuery: String {
+    viewModel.searchQuery.trimmingCharacters(in: .whitespacesAndNewlines)
+  }
+}
+
 private struct MailShellThreadRow: View {
   let item: MailShellThreadListItem
   let showsSourceConnection: Bool
@@ -2613,6 +2781,7 @@ struct MailShellConversationReader: View {
   let messageReader: MailboxMessageReading
   @Bindable var pinViewModel: PinViewModel
   @Bindable var selection: MailShellSelectionModel
+  var categoryChoices: [MessageCategoryChoice] = []
 
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
@@ -2714,6 +2883,16 @@ struct MailShellConversationReader: View {
                 Label("Forward", systemImage: "arrowshape.turn.up.right")
               }
               .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+            }
+            if connection.providerId == .gmail {
+              MessageCategoryMenu(
+                categoryChoices: categoryChoices,
+                currentCategoryId: thread.latestMessage.categoryId,
+                isDisabled: isConnectionBusy || inboxViewModel.isAssigningCategory,
+                setCategory: { categoryId in
+                  await inboxViewModel.overrideCategory(categoryId, for: thread.latestMessage)
+                }
+              )
             }
             providerActionMenu(thread: thread, connection: connection)
           }
@@ -3173,7 +3352,7 @@ struct MailShellMessageBody: View {
   }
 }
 
-private struct MailShellComposer: View {
+struct MailShellComposer: View {
   let connections: [MailboxConnection]
   @State private var draft: MailShellCompositionDraft
   let isSending: Bool
@@ -5785,7 +5964,7 @@ private struct MailboxProviderConnectionPanel: View {
   }
 }
 
-private struct MessageCategoryChoice: Identifiable {
+struct MessageCategoryChoice: Identifiable {
   let id: String
   let name: String
 
@@ -5800,6 +5979,84 @@ private struct MessageCategoryChoice: Identifiable {
       choices.append(MessageCategoryChoice(id: customCategory.id, name: customCategory.name))
     }
     return choices
+  }
+}
+
+private struct HistoricalCategorizationPanel: View {
+  let isDisabled: Bool
+  let isWorking: Bool
+  let categorize: (HistoricalCategorizationScope) -> Void
+  @State private var endDate = Date()
+  @State private var startDate =
+    Calendar.current.date(byAdding: .month, value: -1, to: Date()) ?? Date()
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text("Categorize old emails")
+        .font(.subheadline.bold())
+      Text(
+        "Old email stays Uncategorized by default. Choose a received-date range to process only "
+          + "those historical messages."
+      )
+      .font(.footnote)
+      .foregroundStyle(.secondary)
+
+      DatePicker("From", selection: $startDate, displayedComponents: .date)
+      DatePicker("Through", selection: $endDate, displayedComponents: .date)
+
+      Button("Categorize Selected Old Emails") {
+        categorize(scope)
+      }
+      .disabled(
+        !HistoricalCategorizationScope.isValidDateRange(
+          startDate: startDate,
+          endDate: endDate,
+          calendar: .current
+        ) || isDisabled
+      )
+
+      if isWorking {
+        ProgressView("Categorizing selected old emails…")
+      }
+    }
+  }
+
+  private var scope: HistoricalCategorizationScope {
+    let calendar = Calendar.current
+    let receivedAtOrAfterDate = calendar.startOfDay(for: startDate)
+    let selectedEndDate = calendar.startOfDay(for: endDate)
+    let receivedBeforeDate =
+      calendar.date(byAdding: .day, value: 1, to: selectedEndDate) ?? selectedEndDate
+    return HistoricalCategorizationScope(
+      receivedAtOrAfterMilliseconds: Int64(receivedAtOrAfterDate.timeIntervalSince1970 * 1_000),
+      receivedBeforeMilliseconds: Int64(receivedBeforeDate.timeIntervalSince1970 * 1_000)
+    )
+  }
+}
+
+private struct MessageCategoryMenu: View {
+  let categoryChoices: [MessageCategoryChoice]
+  let currentCategoryId: String?
+  let isDisabled: Bool
+  let setCategory: (String) async -> Void
+
+  var body: some View {
+    Menu {
+      ForEach(categoryChoices) { choice in
+        Button {
+          Task { await setCategory(choice.id) }
+        } label: {
+          if choice.id == currentCategoryId {
+            Label(choice.name, systemImage: "checkmark")
+          } else {
+            Text(choice.name)
+          }
+        }
+      }
+    } label: {
+      Label("Set Category", systemImage: "tag")
+    }
+    .disabled(isDisabled)
   }
 }
 

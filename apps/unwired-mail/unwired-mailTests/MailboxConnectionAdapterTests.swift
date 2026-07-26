@@ -1325,7 +1325,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     var launchSamples: [Double] = []
     var mailboxSwitchSamples: [Double] = []
+    var mailViewSwitchSamples: [Double] = []
     var bodyOpenSamples: [Double] = []
+    var emptyDraftOpenSamples: [Double] = []
+    var warmDraftOpenSamples: [Double] = []
+    var directInputFeedbackSamples: [Double] = []
+    var formattingFeedbackSamples: [Double] = []
     var selectedThreadIds: Set<MailboxThreadIdentity> = []
     let selectedThreadIdsBinding = Binding(
       get: { selectedThreadIds },
@@ -1379,6 +1384,25 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       await releaseRenderFrame(host.view)
       mailboxSwitchSamples.append(releaseElapsedMilliseconds(from: switchStart, clock: clock))
 
+      let mailViewSwitchStart = clock.now
+      launchModel.selectMailbox(connectionId: secondConnection.id, collection: .role(.sent))
+      host.rootView = MailShellThreadList(
+        connection: secondConnection,
+        connections: connections,
+        isConnectionBusy: false,
+        items: launchModel.threadListItems(connections: connections),
+        mailActionViewModel: mailActionViewModel,
+        mailboxSelection: .connection(secondConnection.id, .role(.sent)),
+        navigationSnapshot: navigationSnapshot,
+        selectedThreadIds: selectedThreadIdsBinding,
+        viewModel: inboxViewModel
+      )
+      await releaseRenderFrame(host.view)
+      mailViewSwitchSamples.append(
+        releaseElapsedMilliseconds(from: mailViewSwitchStart, clock: clock)
+      )
+      launchModel.selectMailbox(connectionId: secondConnection.id)
+
       let bodyStart = clock.now
       host.rootView = MailShellThreadList(
         connection: secondConnection,
@@ -1407,8 +1431,73 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       await fulfillment(of: [bodyLoaded], timeout: 1)
       await releaseRenderFrame(bodyHost.view)
       bodyOpenSamples.append(releaseElapsedMilliseconds(from: bodyStart, clock: clock))
+
+      let emptyDraftStart = clock.now
+      let emptyDraft = MailShellCompositionDraft.new(
+        defaultSendingConnectionId: firstConnection.id
+      )
+      let draftHost = UIHostingController(
+        rootView: MailShellComposer(
+          connections: connections,
+          draft: emptyDraft,
+          isSending: false,
+          send: { _ in true }
+        )
+      )
+      let draftWindow = releaseFixtureWindow(hosting: draftHost)
+      await releaseRenderFrame(draftHost.view)
+      emptyDraftOpenSamples.append(
+        releaseElapsedMilliseconds(from: emptyDraftStart, clock: clock)
+      )
+
+      var warmDraft = MailShellCompositionDraft(
+        body: String(repeating: "Warm draft body. ", count: 20),
+        connectionId: firstConnection.id,
+        recipient: "recipient@example.com",
+        replyToMessage: nil,
+        sourceMessage: nil,
+        subject: "Warm draft"
+      )
+      let warmDraftStart = clock.now
+      draftHost.rootView = MailShellComposer(
+        connections: connections,
+        draft: warmDraft,
+        isSending: false,
+        send: { _ in true }
+      )
+      await releaseRenderFrame(draftHost.view)
+      warmDraftOpenSamples.append(
+        releaseElapsedMilliseconds(from: warmDraftStart, clock: clock)
+      )
+
+      let directInputStart = clock.now
+      warmDraft.body.append("a")
+      draftHost.rootView = MailShellComposer(
+        connections: connections,
+        draft: warmDraft,
+        isSending: false,
+        send: { _ in true }
+      )
+      await releaseRenderFrame(draftHost.view)
+      directInputFeedbackSamples.append(
+        releaseElapsedMilliseconds(from: directInputStart, clock: clock)
+      )
+
+      let formattingStart = clock.now
+      warmDraft.body = warmDraft.body.replacingOccurrences(of: "Warm", with: "WARM")
+      draftHost.rootView = MailShellComposer(
+        connections: connections,
+        draft: warmDraft,
+        isSending: false,
+        send: { _ in true }
+      )
+      await releaseRenderFrame(draftHost.view)
+      formattingFeedbackSamples.append(
+        releaseElapsedMilliseconds(from: formattingStart, clock: clock)
+      )
       window.isHidden = true
       bodyWindow.isHidden = true
+      draftWindow.isHidden = true
     }
 
     var providerLatencySamples: [Double] = []
@@ -1420,11 +1509,56 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       providerLatencySamples.append(releaseElapsedMilliseconds(from: providerStart, clock: clock))
     }
     let syncMainActorStall = await stallProbe.stop()
+    let categorizationMainActorStall = try await releaseMainThreadStall {
+      for connection in connections {
+        guard let message = threadsByConnection[connection.id]?.first?.latestMessage else {
+          XCTFail("Missing categorization fixture message")
+          continue
+        }
+        _ = try await adapter.overrideCategory(
+          "system:promotions",
+          for: message,
+          session: session
+        )
+      }
+    }
+    let unreadCountingMainActorStall = await releaseMainThreadStall {
+      for _ in 0..<20 {
+        _ = navigationSnapshot.count(for: .inbox)
+        await Task.yield()
+      }
+    }
+    let formattingMainActorStall = await releaseMainThreadStall {
+      _ = await Task.detached {
+        String(repeating: "Draft formatting ", count: 100)
+          .replacingOccurrences(of: "formatting", with: "FORMAT")
+      }.value
+    }
+    let autosaveURL = FileManager.default.temporaryDirectory
+      .appendingPathComponent("release-draft-\(UUID().uuidString).json")
+    defer { try? FileManager.default.removeItem(at: autosaveURL) }
+    let draftAutosaveMainActorStall = try await releaseMainThreadStall {
+      let payload = Data(
+        #"{"recipient":"recipient@example.com","subject":"Warm draft","body":"Cached body"}"#.utf8
+      )
+      try await Task.detached {
+        try payload.write(to: autosaveURL, options: .atomic)
+      }.value
+    }
 
     XCTAssertLessThan(releaseP95(launchSamples), 1_000)
     XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200)
+    XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200)
     XCTAssertLessThan(releaseP95(bodyOpenSamples), 200)
+    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 200)
+    XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200)
+    XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34)
+    XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34)
     XCTAssertLessThan(syncMainActorStall, 100)
+    XCTAssertLessThan(categorizationMainActorStall, 100)
+    XCTAssertLessThan(unreadCountingMainActorStall, 100)
+    XCTAssertLessThan(formattingMainActorStall, 100)
+    XCTAssertLessThan(draftAutosaveMainActorStall, 100)
     XCTAssertEqual(
       try metadataStore.loadMessages(
         productAccountId: session.productAccountId,
@@ -1435,9 +1569,18 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(threadsByConnection.values.map(\.count).sorted(), [50, 50])
     print(
       "Gmail-first release ms: launch p95=\(releaseP95(launchSamples)), "
-        + "switch p95=\(releaseP95(mailboxSwitchSamples)), "
+        + "mailbox switch p95=\(releaseP95(mailboxSwitchSamples)), "
+        + "Mail View switch p95=\(releaseP95(mailViewSwitchSamples)), "
         + "body p95=\(releaseP95(bodyOpenSamples)), "
+        + "empty Draft p95=\(releaseP95(emptyDraftOpenSamples)), "
+        + "warm Draft p95=\(releaseP95(warmDraftOpenSamples)), "
+        + "input frame p95=\(releaseP95(directInputFeedbackSamples)), "
+        + "format frame p95=\(releaseP95(formattingFeedbackSamples)), "
         + "sync main max=\(syncMainActorStall), "
+        + "categorization main max=\(categorizationMainActorStall), "
+        + "unread main max=\(unreadCountingMainActorStall), "
+        + "format main max=\(formattingMainActorStall), "
+        + "Draft autosave main max=\(draftAutosaveMainActorStall), "
         + "provider seam p95=\(releaseP95(providerLatencySamples)) (reported separately)"
     )
   }
@@ -2676,6 +2819,16 @@ private final class ReleaseMainThreadStallProbe {
     task = nil
     return maximumDelayMilliseconds
   }
+}
+
+@MainActor
+private func releaseMainThreadStall(
+  _ operation: () async throws -> Void
+) async rethrows -> Double {
+  let probe = ReleaseMainThreadStallProbe()
+  probe.start()
+  try await operation()
+  return await probe.stop()
 }
 
 private func releaseP95(_ samples: [Double]) -> Double {

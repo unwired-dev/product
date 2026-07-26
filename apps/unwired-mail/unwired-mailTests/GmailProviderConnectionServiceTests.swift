@@ -566,6 +566,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     let pushConnectionStore = RecordingPushConnectionStore(connection: first)
     let pushWatchStore = RecordingPushWatchStore()
     let transport = RecordingGmailConnectionTransport()
+    transport.hasRemainingGmailConnections = true
     let service = GmailProviderConnectionService(
       backgroundContextCacheStore: cacheStore,
       bodyReader: bodyReader,
@@ -614,6 +615,39 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         )
       ]
     )
+  }
+
+  func testClearLastLocalConnectionDeletesLegacyCredential() async throws {
+    let productAccountId = "legacy-cleanup-\(UUID().uuidString)"
+    let legacyAccount = "gmail-\(productAccountId)"
+    let serviceName = "private-email.gmail-provider-tokens"
+    let tokenStore = KeychainGmailProviderTokenStore()
+    defer { try? tokenStore.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString(
+      #"{"accessToken":"legacy-access","refreshToken":"legacy-refresh"}"#,
+      service: serviceName,
+      account: legacyAccount
+    )
+    let legacySession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      bodyReader: RecordingGmailMessageReader(),
+      pushConnectionStore: RecordingPushConnectionStore(connection: transport.status),
+      pushWatchStore: RecordingPushWatchStore(),
+      metadataStore: RecordingGmailProviderMetadataStore(),
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    try await service.clearLocalConnection(transport.status, session: legacySession)
+
+    XCTAssertNil(try KeychainStore.readString(service: serviceName, account: legacyAccount))
   }
 
   func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
@@ -1256,6 +1290,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   )
   var shouldStopError: Error?
   var shouldStopWatch = true
+  var hasRemainingGmailConnections = false
   var removedOpaqueConnectionIds: [String] = []
 
   func registerGmailConnection(
@@ -1304,7 +1339,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     trustedDeviceId _: String
   ) async throws -> Bool {
     removedOpaqueConnectionIds.append(opaqueConnectionId)
-    return false
+    return hasRemainingGmailConnections
   }
 }
 

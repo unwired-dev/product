@@ -67,6 +67,7 @@ const userIdentityToken = createGoogleIdentityToken(
 
 vi.stubEnv('GMAIL_OAUTH_CLIENT_ID', 'gmail-client-id');
 vi.stubEnv('GMAIL_ROUTING_KEY', 'gmail-routing-test-key');
+vi.stubEnv('GMAIL_IDENTITY_BINDING_KEY', 'gmail-identity-binding-test-key');
 vi.stubGlobal(
   'fetch',
   vi.fn<() => Promise<Response>>(async () =>

@@ -19,7 +19,7 @@ import {
   query,
 } from './_generated/server.js';
 import {
-  gmailIdentityBindingDigests,
+  gmailIdentityBindingDigest,
   gmailRoutingDigests,
 } from './gmailRouting.js';
 import { requireAuthenticatedTrustedDevice } from './productAccountAuth.js';
@@ -1184,14 +1184,10 @@ export const registerGmailConnectionForIdentity = internalMutation({
       ctx,
       args.trustedDeviceId,
     );
-    const identityBindingDigests = await gmailIdentityBindingDigests(
+    const identityBindingDigest = await gmailIdentityBindingDigest(
       account.productAccountId,
       args.providerAccountIdentifier,
     );
-    const [currentIdentityBindingDigest] = identityBindingDigests;
-    if (currentIdentityBindingDigest === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
     const currentConnection = await gmailConnection(ctx, {
       opaqueConnectionId: args.opaqueConnectionId,
       productAccountId: account.productAccountId,
@@ -1225,23 +1221,15 @@ export const registerGmailConnectionForIdentity = internalMutation({
       .unique();
     if (
       identityBinding !== null &&
-      !identityBindingDigests.includes(identityBinding.identityBindingDigest)
+      identityBinding.identityBindingDigest !== identityBindingDigest
     ) {
       throw new Error('Gmail mailbox ownership proof rejected');
     }
     if (identityBinding === null) {
       await ctx.db.insert('gmailOpaqueIdentityBindings', {
-        identityBindingDigest: currentIdentityBindingDigest,
+        identityBindingDigest,
         opaqueConnectionId: args.opaqueConnectionId,
         productAccountId: account.productAccountId,
-        updatedAt: now,
-      });
-    } else if (
-      identityBinding.identityBindingDigest !== currentIdentityBindingDigest
-    ) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(identityBinding._id, {
-        identityBindingDigest: currentIdentityBindingDigest,
         updatedAt: now,
       });
     }
@@ -1273,10 +1261,7 @@ export const registerGmailConnectionForIdentity = internalMutation({
         account.productAccountId,
         args.trustedDeviceId,
       ).take(gmailConnectionLimitPerTrustedDevice + 1);
-      const currentConnections = deviceConnections.filter(
-        (connection) => connection.opaqueConnectionId !== undefined,
-      );
-      if (currentConnections.length >= gmailConnectionLimitPerTrustedDevice) {
+      if (deviceConnections.length >= gmailConnectionLimitPerTrustedDevice) {
         throw new Error('Gmail connection limit reached');
       }
       await ctx.db.insert('mailProviderConnections', {
@@ -1488,14 +1473,10 @@ export const verifyGmailWatchForIdentity = internalMutation({
     ) {
       throw new Error('Gmail mailbox ownership proof rejected');
     }
-    const identityBindingDigests = await gmailIdentityBindingDigests(
+    const identityBindingDigest = await gmailIdentityBindingDigest(
       account.productAccountId,
       args.providerAccountIdentifier,
     );
-    const [currentIdentityBindingDigest] = identityBindingDigests;
-    if (currentIdentityBindingDigest === undefined) {
-      throw new Error('Gmail mailbox ownership proof rejected');
-    }
     const identityBinding = await ctx.db
       .query('gmailOpaqueIdentityBindings')
       .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
@@ -1506,24 +1487,16 @@ export const verifyGmailWatchForIdentity = internalMutation({
       .unique();
     if (
       identityBinding !== null &&
-      !identityBindingDigests.includes(identityBinding.identityBindingDigest)
+      identityBinding.identityBindingDigest !== identityBindingDigest
     ) {
       throw new Error('Gmail mailbox ownership proof rejected');
     }
     const bindingUpdatedAt = Date.now();
     if (identityBinding === null) {
       await ctx.db.insert('gmailOpaqueIdentityBindings', {
-        identityBindingDigest: currentIdentityBindingDigest,
+        identityBindingDigest,
         opaqueConnectionId: args.opaqueConnectionId,
         productAccountId: account.productAccountId,
-        updatedAt: bindingUpdatedAt,
-      });
-    } else if (
-      identityBinding.identityBindingDigest !== currentIdentityBindingDigest
-    ) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(identityBinding._id, {
-        identityBindingDigest: currentIdentityBindingDigest,
         updatedAt: bindingUpdatedAt,
       });
     }

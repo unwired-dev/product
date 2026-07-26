@@ -312,6 +312,23 @@ struct KeychainGmailProviderTokenStore: GmailProviderTokenPersisting {
   }
 }
 
+private func clearGmailProviderTokens(
+  _ tokenStore: GmailProviderTokenPersisting,
+  productAccountId: String,
+  providerAccountIdentifier: String,
+  hasRemainingGmailConnections: Bool
+) throws {
+  if hasRemainingGmailConnections {
+    try tokenStore.clear(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  } else {
+    try tokenStore.clearAll(productAccountId: productAccountId)
+  }
+}
+
+// swiftlint:disable:next type_body_length
 struct GmailProviderConnectionService: GmailProviderConnecting {
   private let backgroundContextCacheStore: BackgroundContextCachePersisting
   private let bodyReader: GmailMessageReading
@@ -456,9 +473,11 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     do {
-      try tokenStore.clear(
+      try clearGmailProviderTokens(
+        tokenStore,
         productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
+        providerAccountIdentifier: connection.providerAccountIdentifier,
+        hasRemainingGmailConnections: hasRemainingGmailConnections
       )
     } catch {
       cleanupError = cleanupError ?? error

@@ -53,14 +53,21 @@ function base64Url(data: ArrayBuffer): string {
     .replaceAll('=', '');
 }
 
-async function identityBindingDigest(
+function identityBindingKey(): string {
+  const key = environmentValue('GMAIL_IDENTITY_BINDING_KEY');
+  if (key === undefined) {
+    throw new Error('Gmail identity binding is not configured');
+  }
+  return key;
+}
+
+export async function gmailIdentityBindingDigest(
   productAccountId: string,
   providerAccountIdentifier: string,
-  routingKey: GmailRoutingKey,
 ): Promise<string> {
   const key = await crypto.subtle.importKey(
     'raw',
-    new TextEncoder().encode(routingKey.key),
+    new TextEncoder().encode(identityBindingKey()),
     { hash: 'SHA-256', name: 'HMAC' },
     false,
     ['sign'],
@@ -69,23 +76,10 @@ async function identityBindingDigest(
     'HMAC',
     key,
     new TextEncoder().encode(
-      `${String(routingKey.version)}\0identity-binding\0${productAccountId}\0${providerAccountIdentifier}`,
+      `identity-binding\0${productAccountId}\0${providerAccountIdentifier}`,
     ),
   );
-  return `${String(routingKey.version)}:${base64Url(digest)}`;
-}
-
-export async function gmailIdentityBindingDigests(
-  productAccountId: string,
-  providerAccountIdentifier: string,
-): Promise<readonly string[]> {
-  const current = currentRoutingKey();
-  const previous = previousRoutingKey();
-  return Promise.all(
-    [current, ...(previous === null ? [] : [previous])].map((key) =>
-      identityBindingDigest(productAccountId, providerAccountIdentifier, key),
-    ),
-  );
+  return `identity:${base64Url(digest)}`;
 }
 
 async function routingDigest(
