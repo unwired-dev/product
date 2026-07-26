@@ -551,7 +551,11 @@ final class MailboxFreshnessViewModel {
         statuses[connection.id] = .authorizationRequired(
           lastSuccessfulSyncAt: statuses[connection.id]?.lastSuccessfulSyncAt
         )
-        return
+        do {
+          try await sleep(.seconds(5))
+        } catch {
+          return
+        }
       } catch {
         do {
           try await sleep(.seconds(5))
@@ -2036,6 +2040,12 @@ struct MailShellCompositionDraft: Identifiable {
     replyToMessage == nil ? sourceMessage : nil
   }
 
+  var hasDraftContent: Bool {
+    [recipient, subject, body].contains {
+      !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+  }
+
   var title: String {
     if replyToMessage != nil { return "Reply" }
     return sourceMessage == nil ? "New Message" : "Forward"
@@ -3389,11 +3399,7 @@ private struct MailShellComposer: View {
                 }
               }
             }
-            .disabled(
-              isSending
-                || (draft.subject.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                  && draft.body.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            )
+            .disabled(isSending || !draft.hasDraftContent)
           }
         }
         ToolbarItem(placement: .confirmationAction) {

@@ -87,6 +87,19 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(capabilities.supports(.delete))
   }
 
+  func testRecipientOnlyMessageHasDraftContent() {
+    XCTAssertTrue(
+      MailShellCompositionDraft(
+        body: "",
+        connectionId: nil,
+        recipient: "reader@example.com",
+        replyToMessage: nil,
+        sourceMessage: nil,
+        subject: ""
+      ).hasDraftContent
+    )
+  }
+
   // swiftlint:disable:next function_body_length
   func testSMTPDeliveryAndDraftAppendUseMappedMailboxes() async throws {
     let definition = imapDefinition(
@@ -181,6 +194,35 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testSMTPDeliveryEncodesDisplayNameAndLongASCIISubject() async throws {
+    let definition = imapDefinition(username: "sender")
+    let smtpClient = RecordingSMTPMailClient()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      smtpClient: smtpClient
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.send(
+      OutgoingMessage(
+        body: "Body",
+        recipient: "Jöhn <john@example.com>",
+        subject: String(repeating: "Long ASCII subject ", count: 10)
+      ),
+      connection: connection,
+      session: session
+    )
+
+    let submitted = try XCTUnwrap(String(data: smtpClient.sentMessages[0], encoding: .utf8))
+    XCTAssertTrue(submitted.contains("To: =?UTF-8?B?SsO2aG4=?= <john@example.com>"))
+    XCTAssertTrue(submitted.contains("Subject: =?UTF-8?B?"))
+    XCTAssertTrue(submitted.contains("\r\n =?UTF-8?B?"))
+    XCTAssertEqual(smtpClient.envelopeRecipients, [["john@example.com"]])
+  }
+
   func testLongUnicodeSubjectUsesFoldedRFC2047EncodedWords() async throws {
     let definition = imapDefinition(username: "sender")
     let smtpClient = RecordingSMTPMailClient()
@@ -225,34 +267,35 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
+    let message = OutgoingMessage(
+      body: "Accepted once",
+      recipient: "reader@example.com",
+      subject: "Partial failure",
+      originationDateMilliseconds: 1_234_567_000
+    )
 
     do {
-      try await adapter.send(
-        OutgoingMessage(
-          body: "Accepted once",
-          recipient: "reader@example.com",
-          subject: "Partial failure"
-        ),
-        connection: connection,
-        session: session
-      )
+      try await adapter.send(message, connection: connection, session: session)
       XCTFail("Expected the missing Sent copy to be reported")
     } catch {
       XCTAssertEqual(error as? SMTPMailError, .sentCopyFailedAfterAcceptance)
     }
     client.failsAppend = false
     try await adapter.send(
-      OutgoingMessage(
-        body: "Accepted once",
-        recipient: "reader@example.com",
-        subject: "Partial failure",
-        sentCopyOnly: true
-      ),
+      message.requiringSentCopyOnly(),
       connection: connection,
       session: session
     )
     XCTAssertEqual(smtpClient.sentMessages.count, 1)
     XCTAssertEqual(client.appendedMessages.count, 1)
+    let delivered = try XCTUnwrap(String(data: smtpClient.sentMessages[0], encoding: .utf8))
+    let copied = try XCTUnwrap(
+      String(data: client.appendedMessages[0].message, encoding: .utf8)
+    )
+    XCTAssertEqual(
+      delivered.components(separatedBy: "\r\n").first { $0.hasPrefix("Date: ") },
+      copied.components(separatedBy: "\r\n").first { $0.hasPrefix("Date: ") }
+    )
   }
 
   func testSentCopyAuthorizationFailureRetainsAcceptanceForReauthorization() async throws {
@@ -1531,6 +1574,32 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     }
 
     XCTAssertEqual(task.writes, [])
+  }
+
+  func testSystemIMAPClientEncodesUnicodeAppendMailboxAsModifiedUTF7() async throws {
+    let task = TranscriptIMAPStreamTask(
+      responses: [
+        "* OK ready\r\n",
+        "A1 OK authenticated\r\n",
+        "+ ready\r\n",
+        "A2 OK appended\r\n",
+      ]
+    )
+    let client = SystemIMAPMailboxClient(
+      streamTaskFactory: TranscriptIMAPStreamTaskFactory(tasks: [task])
+    )
+
+    try await client.appendMessage(
+      Data("Subject: Safe\r\n\r\nbody".utf8),
+      to: "Envoyés",
+      flags: ["\\Seen"],
+      authorization: DeviceLocalGenericMailAuthorization(
+        credential: "secret",
+        definition: imapDefinition(username: "sender")
+      )
+    )
+
+    XCTAssertTrue(task.writes.contains { $0.contains(#"APPEND "Envoy&AOk-s""#) })
   }
 
   func testSystemSMTPClientSubmitsDotStuffedMessage() async throws {

@@ -1146,7 +1146,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testMailboxFreshnessReconnectsIDLEAfterInterruption() async {
+  func testMailboxFreshnessReconnectsIDLEAfterAuthorizationRejection() async {
     let reconnected = expectation(description: "IMAP IDLE reconnected")
     let synchronized = expectation(description: "mail synchronized after IDLE reconnect")
     let observer = ReconnectingMailboxChangeObserver(reconnected: reconnected)
@@ -3669,7 +3669,7 @@ private actor ReconnectingMailboxChangeObserver: MailboxChangeObserving {
   ) async throws {
     requests += 1
     if requests == 1 {
-      throw URLError(.networkConnectionLost)
+      throw IMAPMailboxError.authorizationRejected
     }
     if requests == 2 {
       reconnected.fulfill()

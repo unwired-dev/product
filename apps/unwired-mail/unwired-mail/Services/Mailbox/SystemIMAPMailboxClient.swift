@@ -3,6 +3,36 @@ import Foundation
 
 // swiftlint:disable file_length type_body_length
 
+private enum IMAPMailboxWireName {
+  static func encode(_ value: String) -> String {
+    var output = ""
+    var bufferedUnicode = ""
+    func flushUnicode() {
+      guard !bufferedUnicode.isEmpty else { return }
+      var bytes: [UInt8] = []
+      for codeUnit in bufferedUnicode.utf16 {
+        bytes.append(UInt8(codeUnit >> 8))
+        bytes.append(UInt8(codeUnit & 0xFF))
+      }
+      let encoded = Data(bytes).base64EncodedString()
+        .replacingOccurrences(of: "/", with: ",")
+        .replacingOccurrences(of: "=", with: "")
+      output += "&\(encoded)-"
+      bufferedUnicode = ""
+    }
+    for scalar in value.unicodeScalars {
+      if scalar.value >= 0x20, scalar.value <= 0x7E {
+        flushUnicode()
+        output += scalar.value == 0x26 ? "&-" : String(scalar)
+      } else {
+        bufferedUnicode.unicodeScalars.append(scalar)
+      }
+    }
+    flushUnicode()
+    return output
+  }
+}
+
 struct SystemIMAPMailboxClient: IMAPMailboxClient {
   private let streamTaskFactory: GenericMailStreamTaskCreating
 
@@ -31,7 +61,9 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       let capabilityResponse = try await session.command("CAPABILITY")
       let supportsObjectId = IMAPResponseParser.capabilities(capabilityResponse)
         .contains("OBJECTID")
-      let selectResponse = try await session.command("SELECT \(try Self.quoted(mailbox.name))")
+      let selectResponse = try await session.command(
+        "SELECT \(try Self.quotedMailbox(mailbox.name))"
+      )
       let uidValidity = try IMAPResponseParser.uidValidity(selectResponse)
       guard beforeUID != 1 else {
         return IMAPMetadataPage(messages: [], nextOlderUID: nil, uidValidity: uidValidity)
@@ -79,7 +111,9 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       let capabilityResponse = try await session.command("CAPABILITY")
       let supportsObjectId = IMAPResponseParser.capabilities(capabilityResponse)
         .contains("OBJECTID")
-      let selectResponse = try await session.command("SELECT \(try Self.quoted(mailbox.name))")
+      let selectResponse = try await session.command(
+        "SELECT \(try Self.quotedMailbox(mailbox.name))"
+      )
       let uidValidity = try IMAPResponseParser.uidValidity(selectResponse)
       let searchResponse = try await session.command(
         "UID SEARCH HEADER Message-ID \(try Self.quoted(rfcMessageId))"
@@ -104,7 +138,9 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
     try await withSession(authorization: authorization) { session in
-      let selectResponse = try await session.command("SELECT \(try Self.quoted(message.mailbox))")
+      let selectResponse = try await session.command(
+        "SELECT \(try Self.quotedMailbox(message.mailbox))"
+      )
       guard try IMAPResponseParser.uidValidity(selectResponse) == message.uidValidity else {
         throw IMAPMailboxError.invalidProviderResponse
       }
@@ -153,7 +189,9 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     try await withSession(authorization: authorization) { session in
       let capabilityResponse = try await session.command("CAPABILITY")
       let capabilities = IMAPResponseParser.capabilities(capabilityResponse)
-      let selected = try await session.command("SELECT \(try Self.quoted(message.mailbox))")
+      let selected = try await session.command(
+        "SELECT \(try Self.quotedMailbox(message.mailbox))"
+      )
       guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
         throw IMAPMailboxError.missingMessage
       }
@@ -206,7 +244,7 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
       guard IMAPResponseParser.capabilities(capabilityResponse).contains("IDLE") else {
         throw IMAPMailboxError.idleUnsupported
       }
-      _ = try await session.command("SELECT \(try Self.quoted(mailbox))")
+      _ = try await session.command("SELECT \(try Self.quotedMailbox(mailbox))")
       try await session.waitForIdleChange()
     }
   }
@@ -257,6 +295,13 @@ struct SystemIMAPMailboxClient: IMAPMailboxClient {
     }
     return
       "\"\(value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+  }
+
+  private static func quotedMailbox(_ value: String) throws -> String {
+    guard !value.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    return try quoted(IMAPMailboxWireName.encode(value))
   }
 }
 
@@ -379,7 +424,7 @@ private final class IMAPWireSession {
     nextTagNumber += 1
     let flagList = flags.isEmpty ? "" : " (\(flags.joined(separator: " ")))"
     try await task.write(
-      "\(tag) APPEND \(try Self.quoted(mailbox))\(flagList) {\(message.utf8.count)}\r\n"
+      "\(tag) APPEND \(try Self.quotedMailbox(mailbox))\(flagList) {\(message.utf8.count)}\r\n"
     )
     guard try await readLine().hasPrefix("+") else {
       throw IMAPMailboxError.invalidProviderResponse
@@ -417,7 +462,7 @@ private final class IMAPWireSession {
     capabilities: Set<String>
   ) async throws {
     if capabilities.contains("MOVE") {
-      _ = try await command("UID MOVE \(message.uid) \(try Self.quoted(mailbox))")
+      _ = try await command("UID MOVE \(message.uid) \(try Self.quotedMailbox(mailbox))")
       return
     }
     guard capabilities.contains("UIDPLUS") else {
@@ -426,7 +471,7 @@ private final class IMAPWireSession {
     guard let rfcMessageId = message.rfcMessageId, !rfcMessageId.isEmpty else {
       throw IMAPMailboxError.unsafeExpunge
     }
-    _ = try await command("SELECT \(try Self.quoted(mailbox))")
+    _ = try await command("SELECT \(try Self.quotedMailbox(mailbox))")
     let search = try await command(
       "UID SEARCH HEADER Message-ID \(try Self.quoted(rfcMessageId))"
     )
@@ -439,12 +484,12 @@ private final class IMAPWireSession {
     guard !destinationContainsMessage else {
       throw IMAPMailboxError.unsafeExpunge
     }
-    let selected = try await command("SELECT \(try Self.quoted(message.mailbox))")
+    let selected = try await command("SELECT \(try Self.quotedMailbox(message.mailbox))")
     guard try IMAPResponseParser.uidValidity(selected) == message.uidValidity else {
       throw IMAPMailboxError.missingMessage
     }
     let copyResponse = try await command(
-      "UID COPY \(message.uid) \(try Self.quoted(mailbox))"
+      "UID COPY \(message.uid) \(try Self.quotedMailbox(mailbox))"
     )
     guard IMAPResponseParser.copiedUID(copyResponse, sourceUID: message.uid) != nil else {
       throw IMAPMailboxError.unsafeExpunge
@@ -581,6 +626,13 @@ private final class IMAPWireSession {
     }
     return
       "\"\(value.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\""))\""
+  }
+
+  private static func quotedMailbox(_ value: String) throws -> String {
+    guard !value.unicodeScalars.contains(where: { $0.value == 10 || $0.value == 13 }) else {
+      throw IMAPMailboxError.invalidProviderResponse
+    }
+    return try quoted(IMAPMailboxWireName.encode(value))
   }
 }
 

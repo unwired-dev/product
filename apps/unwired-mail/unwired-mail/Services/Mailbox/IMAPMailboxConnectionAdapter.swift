@@ -2755,12 +2755,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     requiresRecipient: Bool = true
   ) throws -> Data {
     let sender = try safeHeaderValue(sender)
-    let recipient = try safeHeaderValue(message.recipient)
+    let recipient = try encodedRecipientHeaderValue(message.recipient)
     guard !sender.isEmpty, !requiresRecipient || !recipient.isEmpty else {
       throw SMTPMailError.invalidMessage
     }
+    let originationDate =
+      message.originationDateMilliseconds.map {
+        Date(timeIntervalSince1970: TimeInterval($0) / 1_000)
+      } ?? Date()
     var headers = [
-      "Date: \(rfc5322Date(Date()))",
+      "Date: \(rfc5322Date(originationDate))",
       "From: \(sender)",
       "Subject: \(try encodedHeaderValue(message.subject))",
       "MIME-Version: 1.0",
@@ -2795,7 +2799,9 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
 
   private static func encodedHeaderValue(_ value: String) throws -> String {
     let value = try safeHeaderValue(value)
-    guard !value.unicodeScalars.allSatisfy(\.isASCII) else { return value }
+    guard !value.unicodeScalars.allSatisfy(\.isASCII) || value.utf8.count > 60 else {
+      return value
+    }
     var chunks: [String] = []
     var chunk = ""
     var byteCount = 0
@@ -2816,6 +2822,41 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter, MailboxChangeObse
     return chunks.map {
       "=?UTF-8?B?\(Data($0.utf8).base64EncodedString())?="
     }.joined(separator: "\r\n ")
+  }
+
+  private static func encodedRecipientHeaderValue(_ value: String) throws -> String {
+    let value = try safeHeaderValue(value)
+    var output = ""
+    var segmentStart = value.startIndex
+    var displayNameStart = value.startIndex
+    var isEscaped = false
+    var isQuoted = false
+    var index = value.startIndex
+    while index < value.endIndex {
+      let character = value[index]
+      if isEscaped {
+        isEscaped = false
+      } else if character == "\\" && isQuoted {
+        isEscaped = true
+      } else if character == "\"" {
+        isQuoted.toggle()
+      } else if !isQuoted, character == "," || character == ":" || character == ";" {
+        displayNameStart = value.index(after: index)
+      } else if !isQuoted, character == "<" {
+        let displayName = value[displayNameStart..<index]
+          .trimmingCharacters(in: .whitespacesAndNewlines)
+          .trimmingCharacters(in: CharacterSet(charactersIn: "\""))
+        if !displayName.unicodeScalars.allSatisfy(\.isASCII) {
+          output += value[segmentStart..<displayNameStart]
+          output += try encodedHeaderValue(displayName)
+          output += " "
+          segmentStart = index
+        }
+      }
+      index = value.index(after: index)
+    }
+    output += value[segmentStart...]
+    return output
   }
 
   private static func envelopeRecipients(in value: String) throws -> [String] {

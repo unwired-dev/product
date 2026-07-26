@@ -754,6 +754,7 @@ extension HistoricalCategorizationScope {
 struct OutgoingMessage: Codable, Equatable, Sendable {
   let body: String
   let idempotencyKey: String?
+  let originationDateMilliseconds: Int64?
   let recipient: String
   let sentCopyOnly: Bool?
   let subject: String
@@ -767,10 +768,12 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     inReplyTo: String? = nil,
     providerThreadId: String? = nil,
     idempotencyKey: String? = nil,
-    sentCopyOnly: Bool? = nil
+    sentCopyOnly: Bool? = nil,
+    originationDateMilliseconds: Int64? = Int64(Date().timeIntervalSince1970 * 1_000)
   ) {
     self.body = body
     self.idempotencyKey = idempotencyKey
+    self.originationDateMilliseconds = originationDateMilliseconds
     self.recipient = recipient
     self.sentCopyOnly = sentCopyOnly
     self.subject = subject
@@ -794,7 +797,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       inReplyTo: inReplyTo,
       providerThreadId: providerThreadId,
       idempotencyKey: idempotencyKey,
-      sentCopyOnly: sentCopyOnly
+      sentCopyOnly: sentCopyOnly,
+      originationDateMilliseconds: originationDateMilliseconds
     )
   }
 
@@ -806,7 +810,8 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       inReplyTo: inReplyTo,
       providerThreadId: providerThreadId,
       idempotencyKey: idempotencyKey,
-      sentCopyOnly: true
+      sentCopyOnly: true,
+      originationDateMilliseconds: originationDateMilliseconds
     )
   }
 }
