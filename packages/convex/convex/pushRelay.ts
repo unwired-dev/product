@@ -722,23 +722,27 @@ async function hasRemainingLegacyGmailConnection(
         .eq('provider', 'gmail'),
     )
     .take(gmailLegacyRouteFallbackLimit + 1);
-  for (const candidate of connections.slice(0, gmailLegacyRouteFallbackLimit)) {
-    if (
-      candidate.opaqueConnectionId === undefined &&
-      candidate.providerAccountIdentifier !== undefined
-    ) {
-      const opaqueConnectionId = await opaqueGmailConnectionId(
-        request.productAccountId,
-        candidate.providerAccountIdentifier,
-      );
-      if (opaqueConnectionId === request.opaqueConnectionId) {
-        return true;
-      }
-    }
-  }
+  const legacyOpaqueConnectionIds = await Promise.all(
+    connections
+      .slice(0, gmailLegacyRouteFallbackLimit)
+      .flatMap((candidate) =>
+        candidate.opaqueConnectionId === undefined &&
+        candidate.providerAccountIdentifier !== undefined
+          ? [
+              opaqueGmailConnectionId(
+                request.productAccountId,
+                candidate.providerAccountIdentifier,
+              ),
+            ]
+          : [],
+      ),
+  );
   // Retaining the binding is safer than deleting it when the bounded proof
   // cannot establish that the removed route was the last legacy copy.
-  return connections.length > gmailLegacyRouteFallbackLimit;
+  return (
+    connections.length > gmailLegacyRouteFallbackLimit ||
+    legacyOpaqueConnectionIds.includes(request.opaqueConnectionId)
+  );
 }
 
 function hasMatchingVerificationSignal(
