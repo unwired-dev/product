@@ -609,7 +609,14 @@ actor PendingProviderActionService {
         }
         actions[updatedIndex].attemptCount += 1
         actions[updatedIndex].lastErrorDescription = error.localizedDescription
-        switch failureDisposition(error) {
+        var disposition = failureDisposition(error)
+        if pendingAction.action == .markRead || pendingAction.action == .markUnread,
+          case .requestFailed(let status) = error as? MicrosoftGraphClientError,
+          status == 408 || status == 409 || status == 425 || status >= 500
+        {
+          disposition = .transient
+        }
+        switch disposition {
         case .transient where actions[updatedIndex].attemptCount < maximumAttempts:
           try store.save(actions, productAccountId: productAccountId)
           scheduleRetry(action: actions[updatedIndex], provider: provider)

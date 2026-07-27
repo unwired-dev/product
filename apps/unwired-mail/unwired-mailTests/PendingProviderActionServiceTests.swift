@@ -633,6 +633,40 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
   }
 
+  func testGraphReadStateServerFailureRetriesAutomatically() async throws {
+    let recorder = PendingProviderActionRecorder()
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      maximumAttempts: 2,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-read-retry",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { action, _, messageIds in
+      let count = await recorder.recordAndCount(action: action, messageIds: messageIds)
+      if count == 1 {
+        throw MicrosoftGraphClientError.requestFailed(500)
+      }
+    }
+    await service.waitForScheduledRetries(connection: connection, session: session)
+
+    let calls = await recorder.calls
+    XCTAssertEqual(calls.map(\.action), [.markRead, .markRead])
+    XCTAssertEqual(
+      try store.load(productAccountId: session.productAccountId).first?.state,
+      .providerConfirmed
+    )
+  }
+
   func testPermanentFailureRemainsDurableUntilAcknowledged() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(

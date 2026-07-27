@@ -13,6 +13,12 @@ import SwiftData
 
 // swiftlint:disable file_length function_parameter_count type_body_length
 
+#if canImport(UIKit)
+  private let microsoftGraphCanRegisterPush = true
+#else
+  private let microsoftGraphCanRegisterPush = false
+#endif
+
 extension MailProviderId {
   static let microsoftGraph = MailProviderId(rawValue: "microsoft-graph")
 }
@@ -22,7 +28,7 @@ extension MailboxConnectionCapabilities {
     canCategorizeHistorical: false,
     canForward: true,
     canReadMessages: true,
-    canRegisterPush: true,
+    canRegisterPush: microsoftGraphCanRegisterPush,
     canReply: true,
     canSearchProvider: false,
     canSend: true,
@@ -48,7 +54,7 @@ extension MailboxConnectionCapabilities {
       canCategorizeHistorical: false,
       canForward: true,
       canReadMessages: true,
-      canRegisterPush: true,
+      canRegisterPush: microsoftGraphCanRegisterPush,
       canReply: true,
       canSearchProvider: false,
       canSend: true,
@@ -2323,11 +2329,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         for providerAccountIdentifier in try tokenStore.providerAccountIdentifiers(
           productAccountId: session.productAccountId)
         {
-          accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
-            try tokenStore.load(
-              productAccountId: session.productAccountId,
-              providerAccountIdentifier: providerAccountIdentifier
-            )?.accessToken
+          do {
+            accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
+              try tokenStore.load(
+                productAccountId: session.productAccountId,
+                providerAccountIdentifier: providerAccountIdentifier
+              )?.accessToken
+          } catch {
+            firstError = firstError ?? error
+          }
         }
         do {
           try await pushRegistrar.clearAll(
@@ -2335,7 +2345,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
             session: session
           )
         } catch {
-          firstError = error
+          firstError = firstError ?? error
         }
         do {
           try tokenStore.clearAll(productAccountId: session.productAccountId)

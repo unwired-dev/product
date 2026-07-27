@@ -100,7 +100,11 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(MailboxConnectionCapabilities.microsoftGraph.canSend)
     XCTAssertTrue(MailboxConnectionCapabilities.microsoftGraph.canReply)
     XCTAssertTrue(MailboxConnectionCapabilities.microsoftGraph.canForward)
-    XCTAssertTrue(MailboxConnectionCapabilities.microsoftGraph.canRegisterPush)
+    #if canImport(UIKit)
+      XCTAssertTrue(MailboxConnectionCapabilities.microsoftGraph.canRegisterPush)
+    #else
+      XCTAssertFalse(MailboxConnectionCapabilities.microsoftGraph.canRegisterPush)
+    #endif
     XCTAssertFalse(MailboxConnectionCapabilities.microsoftGraph.supports(.archive))
     XCTAssertFalse(MailboxConnectionCapabilities.microsoftGraph.supports(.spam))
     XCTAssertFalse(MailboxConnectionCapabilities.microsoftGraph.supports(.star))
@@ -677,6 +681,29 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(push.clearedAccessTokens, [nil])
     XCTAssertEqual(tokenStore.clearedProviderAccountIdentifiers, [graphAccount.id])
+  }
+
+  func testAccountCleanupContinuesWhenStoredTokenCannotBeDecoded() async throws {
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    let tokenStore = FailingLoadMicrosoftGraphAuthorizationStore(
+      providerAccountIdentifiers: [graphAccount.id]
+    )
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      pushRegistrar: push,
+      tokenStore: tokenStore
+    )
+
+    do {
+      try await adapter.clearLocalConnection(session: session)
+      XCTFail("Expected the token decoding error to be reported after cleanup")
+    } catch GraphTokenStoreTestError.cannotDecode {}
+
+    XCTAssertEqual(push.clearedAllAccessTokens, [[:]])
+    XCTAssertEqual(tokenStore.clearAllCallCount, 1)
   }
 
   func testConnectionRemovalContinuesWhenPushCleanupFails() async throws {
@@ -2279,7 +2306,13 @@ private enum GraphTokenStoreTestError: Error {
 private final class FailingLoadMicrosoftGraphAuthorizationStore:
   MicrosoftGraphAuthorizationPersisting
 {
+  private(set) var clearAllCallCount = 0
   private(set) var clearedProviderAccountIdentifiers: [String] = []
+  private let storedProviderAccountIdentifiers: Set<String>
+
+  init(providerAccountIdentifiers: Set<String> = []) {
+    storedProviderAccountIdentifiers = providerAccountIdentifiers
+  }
 
   func clear(
     productAccountId _: String,
@@ -2288,10 +2321,12 @@ private final class FailingLoadMicrosoftGraphAuthorizationStore:
     clearedProviderAccountIdentifiers.append(providerAccountIdentifier)
   }
 
-  func clearAll(productAccountId _: String) throws {}
+  func clearAll(productAccountId _: String) throws {
+    clearAllCallCount += 1
+  }
 
   func providerAccountIdentifiers(productAccountId _: String) throws -> Set<String> {
-    []
+    storedProviderAccountIdentifiers
   }
 
   func load(
@@ -2311,6 +2346,7 @@ private final class FailingLoadMicrosoftGraphAuthorizationStore:
 private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegistering {
   var accessTokens: [String] = []
   var clearError: Error?
+  var clearedAllAccessTokens: [[String: String]] = []
   var clearedAccessTokens: [String?] = []
   var clearedConnectionIds: [MailboxConnectionId] = []
   var registeredConnectionIds: [MailboxConnectionId] = []
@@ -2335,9 +2371,11 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
   }
 
   func clearAll(
-    accessTokensByProviderAccountIdentifier _: [String: String],
+    accessTokensByProviderAccountIdentifier: [String: String],
     session _: ProductAccountSessionSnapshot
-  ) async throws {}
+  ) async throws {
+    clearedAllAccessTokens.append(accessTokensByProviderAccountIdentifier)
+  }
 }
 
 private final class RecordingMailboxPushService: MailboxPushRegistering {
