@@ -73,6 +73,14 @@ struct SystemEWSClient: EWSClient {
   func loadFolders(
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
+    try await loadFolders(authorization: authorization, knownFolders: [])
+  }
+
+  // swiftlint:disable:next function_body_length
+  func loadFolders(
+    authorization: DeviceLocalEWSAuthorization,
+    knownFolders: [EWSFolder]
+  ) async throws -> [EWSFolder] {
     let pageSize = 100
     var offset = 0
     var folders: [EWSFolder] = []
@@ -94,6 +102,18 @@ struct SystemEWSClient: EWSClient {
       offset = nextOffset
     }
     for role in EWSFolderRole.allCases {
+      if let known = knownFolders.first(where: { $0.role == role }),
+        let index = folders.firstIndex(where: { $0.id == known.id })
+      {
+        folders[index] = EWSFolder(
+          changeKey: folders[index].changeKey,
+          displayName: folders[index].displayName,
+          id: folders[index].id,
+          isSearchFolder: folders[index].isSearchFolder,
+          role: role
+        )
+        continue
+      }
       guard let distinguished = Self.distinguishedFolderId(role) else { continue }
       let resolved: EWSFolder?
       do {
@@ -403,8 +423,8 @@ struct SystemEWSClient: EWSClient {
             <t:Subject>\(xml(message.subject))</t:Subject>
             <t:Body BodyType="Text">\(xml(message.body))</t:Body>
             \(headers)
-            <t:From>\(mailboxXML(authorization))</t:From>
             <t:ToRecipients>\(recipients)</t:ToRecipients>
+            <t:From>\(mailboxXML(authorization))</t:From>
           </t:Message>
         </m:Items>
       </m:CreateItem>
@@ -485,7 +505,7 @@ struct SystemEWSClient: EWSClient {
     guard 200..<300 ~= httpResponse.statusCode else {
       throw EWSServiceError.response(
         code: "HTTP \(httpResponse.statusCode)",
-        message: String(bytes: data, encoding: .utf8) ?? ""
+        message: "The Exchange server returned HTTP \(httpResponse.statusCode)."
       )
     }
     let document: EWSXMLNode
@@ -906,9 +926,10 @@ private final class EWSXMLNode {
   init(name: String, attributes: [String: String]) {
     localName = name.split(separator: ":").last.map(String.init) ?? name
     self.attributes = Dictionary(
-      uniqueKeysWithValues: attributes.map {
+      attributes.map {
         ($0.key.split(separator: ":").last.map(String.init) ?? $0.key, $0.value)
-      }
+      },
+      uniquingKeysWith: { first, _ in first }
     )
   }
 

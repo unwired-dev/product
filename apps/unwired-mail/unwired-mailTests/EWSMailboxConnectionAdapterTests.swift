@@ -1812,7 +1812,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
-    var validityChecks = 0
+    var didLoadMessagePage = false
+    client.didLoadMessagePage = {
+      didLoadMessagePage = true
+    }
 
     do {
       _ = try await adapter.syncRecentInbox(
@@ -1822,8 +1825,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         sinceHistoryId: nil,
         throughHistoryId: nil,
         shouldPersist: {
-          validityChecks += 1
-          return validityChecks == 1
+          !didLoadMessagePage
         }
       )
       XCTFail("Expected stale session cancellation")
@@ -2184,6 +2186,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     serverVersion: .exchange2019
   )
   var body = ""
+  var didLoadMessagePage: (() -> Void)?
   private var storedBodyRequestCount = 0
   var bodyRequestCount: Int { lock.withLock { storedBodyRequestCount } }
   private let lock = NSLock()
@@ -2240,7 +2243,9 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   ) async throws -> EWSMessagePage {
     let key = "\(folder.id)|\(offset)"
     lock.withLock { storedRequestedPages.append(key) }
-    return pages[key] ?? EWSMessagePage(messages: [], nextOffset: nil)
+    let page = pages[key] ?? EWSMessagePage(messages: [], nextOffset: nil)
+    didLoadMessagePage?()
+    return page
   }
 
   func loadMessageBody(

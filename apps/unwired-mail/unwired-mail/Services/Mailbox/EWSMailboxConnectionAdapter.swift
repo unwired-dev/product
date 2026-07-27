@@ -181,6 +181,11 @@ protocol EWSClient: Sendable {
   func loadFolders(
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder]
+  /// Reuses persisted distinguished-role mappings when resolving provider folders.
+  func loadFolders(
+    authorization: DeviceLocalEWSAuthorization,
+    knownFolders: [EWSFolder]
+  ) async throws -> [EWSFolder]
   /// Loads one resumable metadata page without fetching message bodies.
   func loadMessagePage(
     folder: EWSFolder,
@@ -218,6 +223,13 @@ protocol EWSClient: Sendable {
 }
 
 extension EWSClient {
+  func loadFolders(
+    authorization: DeviceLocalEWSAuthorization,
+    knownFolders _: [EWSFolder]
+  ) async throws -> [EWSFolder] {
+    try await loadFolders(authorization: authorization)
+  }
+
   func loadFolders(
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
@@ -312,6 +324,10 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     )
     let previousIds = try rawConnectionIds(productAccountId: productAccountId)
     try KeychainStore.delete(service: service, account: account(productAccountId, connectionId))
+    try KeychainStore.delete(
+      service: service,
+      account: legacyAccount(productAccountId, connectionId)
+    )
     var ids = previousIds
     ids.remove(connectionId.rawValue)
     do {
@@ -328,9 +344,17 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
 
   func clearAll(productAccountId: String) throws {
     for rawValue in try rawConnectionIds(productAccountId: productAccountId) {
-      try KeychainStore.delete(service: service, account: "\(productAccountId)-\(rawValue)")
+      try KeychainStore.delete(
+        service: service,
+        account: account(productAccountId, rawConnectionId: rawValue)
+      )
+      try KeychainStore.delete(
+        service: service,
+        account: legacyAccount(productAccountId, rawConnectionId: rawValue)
+      )
     }
     try KeychainStore.delete(service: service, account: manifestAccount(productAccountId))
+    try KeychainStore.delete(service: service, account: legacyManifestAccount(productAccountId))
   }
 
   func connectionIds(productAccountId: String) throws -> [MailboxConnectionId] {
@@ -352,14 +376,23 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> DeviceLocalEWSAuthorization? {
-    guard
-      let json = try KeychainStore.readString(
+    let currentAccount = account(productAccountId, connectionId)
+    let legacy = legacyAccount(productAccountId, connectionId)
+    let json =
+      try KeychainStore.readString(service: service, account: currentAccount)
+      ?? KeychainStore.readString(service: service, account: legacy)
+    guard let json, let data = json.data(using: .utf8) else { return nil }
+    let authorization = try JSONDecoder().decode(DeviceLocalEWSAuthorization.self, from: data)
+    if try KeychainStore.readString(service: service, account: currentAccount) == nil {
+      try KeychainStore.writeString(
+        json,
         service: service,
-        account: account(productAccountId, connectionId)
-      ),
-      let data = json.data(using: .utf8)
-    else { return nil }
-    return try JSONDecoder().decode(DeviceLocalEWSAuthorization.self, from: data)
+        account: currentAccount,
+        accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+      )
+      try KeychainStore.delete(service: service, account: legacy)
+    }
+    return authorization
   }
 
   func save(
@@ -388,14 +421,18 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
   }
 
   private func rawConnectionIds(productAccountId: String) throws -> Set<String> {
-    guard
-      let json = try KeychainStore.readString(
-        service: service,
-        account: manifestAccount(productAccountId)
-      ),
-      let data = json.data(using: .utf8)
-    else { return [] }
-    return Set(try JSONDecoder().decode([String].self, from: data))
+    let currentAccount = manifestAccount(productAccountId)
+    let legacyAccount = legacyManifestAccount(productAccountId)
+    let json =
+      try KeychainStore.readString(service: service, account: currentAccount)
+      ?? KeychainStore.readString(service: service, account: legacyAccount)
+    guard let json, let data = json.data(using: .utf8) else { return [] }
+    let ids = Set(try JSONDecoder().decode([String].self, from: data))
+    if try KeychainStore.readString(service: service, account: currentAccount) == nil {
+      try saveConnectionIds(ids, productAccountId: productAccountId)
+      try KeychainStore.delete(service: service, account: legacyAccount)
+    }
+    return ids
   }
 
   private func saveConnectionIds(
@@ -422,10 +459,35 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     _ productAccountId: String,
     _ connectionId: MailboxConnectionId
   ) -> String {
-    "\(productAccountId)-\(connectionId.rawValue)"
+    account(productAccountId, rawConnectionId: connectionId.rawValue)
+  }
+
+  private func account(
+    _ productAccountId: String,
+    rawConnectionId: String
+  ) -> String {
+    "credential\0\(productAccountId)\0\(rawConnectionId)"
   }
 
   private func manifestAccount(_ productAccountId: String) -> String {
+    "manifest\0\(productAccountId)"
+  }
+
+  private func legacyAccount(
+    _ productAccountId: String,
+    _ connectionId: MailboxConnectionId
+  ) -> String {
+    legacyAccount(productAccountId, rawConnectionId: connectionId.rawValue)
+  }
+
+  private func legacyAccount(
+    _ productAccountId: String,
+    rawConnectionId: String
+  ) -> String {
+    "\(productAccountId)-\(rawConnectionId)"
+  }
+
+  private func legacyManifestAccount(_ productAccountId: String) -> String {
     "connections-\(productAccountId)"
   }
 }
@@ -776,7 +838,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     )
   }
 
-  private static func providerStateId(_ role: MailboxRole) -> String {
+  static func providerStateId(_ role: MailboxRole) -> String {
     switch role {
     case .inbox: return "INBOX"
     case .drafts: return "DRAFT"
@@ -2030,7 +2092,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
             action,
             targetFolderId: targetFolderId.flatMap {
               EWSProviderMessage.folderId(fromProviderStateId: $0)
-            } ?? targetFolderId,
+            },
             messages: currentMessages,
             authorization: authorization
           )
@@ -2089,8 +2151,15 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       case .markUnread: return states.contains("UNREAD")
       case .move:
         guard let targetFolderId else { return false }
-        return states.contains(targetFolderId)
-          && (targetFolderId == "INBOX" || !states.contains("INBOX"))
+        let providerFolderId = EWSProviderMessage.folderId(
+          fromProviderStateId: targetFolderId
+        )
+        let destinationState =
+          providerFolderId.flatMap { foldersById[$0]?.role }
+          .map { EWSProviderMessage.providerStateId($0.mailboxRole) }
+          ?? targetFolderId
+        return states.contains(destinationState)
+          && (destinationState == "INBOX" || !states.contains("INBOX"))
       case .notSpam: return !states.contains("SPAM") && states.contains("INBOX")
       case .restore: return !states.contains("TRASH") && states.contains("INBOX")
       case .spam: return !states.contains("INBOX") && states.contains("SPAM")
@@ -2161,7 +2230,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     shouldPersist: () -> Bool = { true }
   ) async throws -> EWSMetadataSnapshot {
     var snapshot = try requiredSnapshot(connection, session: session)
-    let folders = try await client.loadFolders(authorization: authorization)
+    let folders = try await client.loadFolders(
+      authorization: authorization,
+      knownFolders: snapshot.folders
+    )
     var recentPagesByFolderId: [String: EWSMessagePage] = [:]
     var recentObservedIdsByFolderId: [String: Set<String>] = [:]
     for folder in folders {
