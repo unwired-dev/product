@@ -67,18 +67,26 @@ struct SystemEWSClient: EWSClient {
   func loadFolders(
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
-    let document = try await request(
-      """
-      <m:FindFolder Traversal="Deep">
-        <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
-        <m:ParentFolderIds><t:DistinguishedFolderId Id="msgfolderroot">
-          \(mailboxXML(authorization))
-        </t:DistinguishedFolderId></m:ParentFolderIds>
-      </m:FindFolder>
-      """,
-      authorization: authorization
-    )
-    var folders = document.descendants.filter(Self.isFolderNode).compactMap(folder)
+    let pageSize = 100
+    var offset = 0
+    var folders: [EWSFolder] = []
+    while true {
+      let document = try await loadFolderPage(
+        offset: offset,
+        pageSize: pageSize,
+        authorization: authorization
+      )
+      folders += document.descendants.filter(Self.isFolderNode).compactMap(folder)
+      guard let rootFolder = document.firstDescendant(named: "RootFolder") else {
+        throw EWSServiceError.invalidResponse
+      }
+      if rootFolder.attributes["IncludesLastItemInRange"] == "true" { break }
+      guard
+        let nextOffset = rootFolder.attributes["IndexedPagingOffset"].flatMap(Int.init),
+        nextOffset > offset
+      else { throw EWSServiceError.invalidResponse }
+      offset = nextOffset
+    }
     for role in EWSFolderRole.allCases {
       guard let distinguished = Self.distinguishedFolderId(role) else { continue }
       let resolved: EWSFolder?
@@ -110,6 +118,26 @@ struct SystemEWSClient: EWSClient {
     }
   }
 
+  private func loadFolderPage(
+    offset: Int,
+    pageSize: Int,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSXMLNode {
+    try await request(
+      """
+      <m:FindFolder Traversal="Deep">
+        <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
+        <m:IndexedPageFolderView MaxEntriesReturned="\(pageSize)" Offset="\(offset)"
+          BasePoint="Beginning"/>
+        <m:ParentFolderIds><t:DistinguishedFolderId Id="msgfolderroot">
+          \(mailboxXML(authorization))
+        </t:DistinguishedFolderId></m:ParentFolderIds>
+      </m:FindFolder>
+      """,
+      authorization: authorization
+    )
+  }
+
   /// Loads one offset-based metadata page without downloading message bodies.
   func loadMessagePage(
     folder: EWSFolder,
@@ -123,19 +151,19 @@ struct SystemEWSClient: EWSClient {
         <m:ItemShape>
           <t:BaseShape>Default</t:BaseShape>
           <t:AdditionalProperties>
-            <t:FieldURI FieldURI="item:InternetMessageId"/>
+            <t:FieldURI FieldURI="message:InternetMessageId"/>
             <t:FieldURI FieldURI="item:ParentFolderId"/>
             <t:FieldURI FieldURI="item:ConversationId"/>
             <t:FieldURI FieldURI="item:DateTimeReceived"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
-            <t:FieldURI FieldURI="item:From"/>
+            <t:FieldURI FieldURI="message:From"/>
             <t:FieldURI FieldURI="item:IsDraft"/>
             <t:FieldURI FieldURI="message:IsRead"/>
-            <t:FieldURI FieldURI="item:ReplyTo"/>
-            <t:FieldURI FieldURI="item:ToRecipients"/>
-            <t:FieldURI FieldURI="item:CcRecipients"/>
-            <t:FieldURI FieldURI="item:BccRecipients"/>
-            <t:FieldURI FieldURI="item:BodyPreview"/>
+            <t:FieldURI FieldURI="message:ReplyTo"/>
+            <t:FieldURI FieldURI="message:ToRecipients"/>
+            <t:FieldURI FieldURI="message:CcRecipients"/>
+            <t:FieldURI FieldURI="message:BccRecipients"/>
+            <t:FieldURI FieldURI="item:Preview"/>
             <t:FieldURI FieldURI="item:Flag"/>
             <t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>
           </t:AdditionalProperties>
@@ -196,7 +224,7 @@ struct SystemEWSClient: EWSClient {
     case .markRead, .markUnread:
       try await updateBoolean(
         fieldURI: "message:IsRead",
-        element: "m:IsRead",
+        element: "t:IsRead",
         value: action == .markRead,
         messages: messages,
         authorization: authorization
@@ -284,7 +312,7 @@ struct SystemEWSClient: EWSClient {
       <m:FindItem Traversal="Shallow">
         <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
         <m:Restriction><t:IsEqualTo>
-          <t:FieldURI FieldURI="item:InternetMessageId"/>
+          <t:FieldURI FieldURI="message:InternetMessageId"/>
           <t:FieldURIOrConstant><t:Constant Value="\(xmlAttribute(rfcMessageId))"/>
           </t:FieldURIOrConstant>
         </t:IsEqualTo></m:Restriction>
@@ -435,7 +463,7 @@ struct SystemEWSClient: EWSClient {
       replyTo: addresses(node.child(named: "ReplyTo")),
       stableProviderId: searchKey ?? internetMessageId ?? itemId,
       subject: node.child(named: "Subject")?.text ?? "",
-      summary: node.child(named: "BodyPreview")?.text ?? "",
+      summary: node.child(named: "Preview")?.text ?? "",
       toRecipients: addresses(node.child(named: "ToRecipients"))
     )
   }
@@ -617,8 +645,10 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
   @unchecked Sendable
 {
   private let credential: URLCredential?
+  private let endpoint: URL
 
   init(authorization: DeviceLocalEWSAuthorization) {
+    endpoint = authorization.definition.endpoint
     switch authorization.definition.authorizationMethod {
     case .appPassword, .password:
       credential = URLCredential(
@@ -645,7 +675,16 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
       NSURLAuthenticationMethodNegotiate,
       NSURLAuthenticationMethodNTLM,
     ]
-    if passwordMethods.contains(method), let credential {
+    let protectionSpace = challenge.protectionSpace
+    let challengeOrigin =
+      "\(protectionSpace.protocol ?? "https")://\(protectionSpace.host):\(protectionSpace.port)"
+    let challengeURL = URL(string: challengeOrigin)
+    if passwordMethods.contains(method),
+      challengeURL.map({
+        EWSConnectionDefinition.hasSameOrigin($0, as: endpoint)
+      }) == true,
+      let credential
+    {
       completionHandler(.useCredential, credential)
     } else {
       completionHandler(.performDefaultHandling, nil)
@@ -661,7 +700,7 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
   ) {
     guard
       let redirectURL = request.url,
-      (try? EWSConnectionDefinition.validatedEndpoint(redirectURL.absoluteString)) != nil
+      EWSConnectionDefinition.hasSameOrigin(redirectURL, as: endpoint)
     else {
       completionHandler(nil)
       return

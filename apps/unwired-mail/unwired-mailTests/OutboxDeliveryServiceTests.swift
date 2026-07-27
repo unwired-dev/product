@@ -539,6 +539,48 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .retrying)
   }
 
+  func testEWSAuthenticationFailureRequiresUserAction() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw EWSServiceError.authenticationRejected },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .userActionRequired)
+  }
+
+  func testEWSTemporaryFailuresRetryWithoutReconciliation() async throws {
+    for error in [
+      EWSServiceError.response(code: "HTTP 503", message: "Unavailable"),
+      EWSServiceError.response(code: "ErrorServerBusy", message: "Busy"),
+    ] {
+      let service = OutboxDeliveryService(
+        handoffDelayNanoseconds: immediateHandoffDelay,
+        retryDelayNanoseconds: { _ in 60_000_000_000 },
+        store: InMemoryOutboxDeliveryStore()
+      )
+
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in throw error },
+        reconcile: { _, _ in .unknown }
+      )
+
+      let attempts = try await service.items(session: session)
+      XCTAssertEqual(attempts.first?.state, .retrying)
+    }
+  }
+
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let deliveries = DeliveryCounter()

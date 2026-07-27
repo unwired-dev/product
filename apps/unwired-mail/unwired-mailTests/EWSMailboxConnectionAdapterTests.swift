@@ -33,6 +33,34 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
+    let endpoint = URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!
+
+    XCTAssertTrue(
+      EWSConnectionDefinition.hasSameOrigin(
+        URL(string: "https://MAIL.corp.example:443/EWS/redirected")!,
+        as: endpoint
+      )
+    )
+    XCTAssertFalse(
+      EWSConnectionDefinition.hasSameOrigin(
+        URL(string: "https://login.corp.example/EWS/Exchange.asmx")!,
+        as: endpoint
+      )
+    )
+    XCTAssertFalse(
+      EWSConnectionDefinition.hasSameOrigin(
+        URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")!,
+        as: endpoint
+      )
+    )
+  }
+
+  func testEWSCapabilitiesDoNotAdvertiseUnimplementedProviderOperations() {
+    XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canCategorizeHistorical)
+    XCTAssertFalse(MailboxConnectionCapabilities.exchangeWebServices.canSearchProvider)
+  }
+
   func testSetupKeepsAuthorizationDeviceLocalAndSynchronizesOnlyDefinition() async throws {
     let client = RecordingEWSClient()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -201,8 +229,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
   func testSystemClientBuildsOAuthAppPasswordActionAndSendRequests() async throws {
     var requests: [URLRequest] = []
+    var requestBodies: [String] = []
     EWSURLProtocol.requestHandler = { request in
       requests.append(request)
+      requestBodies.append(try Self.requestBody(request))
       return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
@@ -260,6 +290,109 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/UpdateItem") == true)
     XCTAssertTrue(
       requests[1].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/CreateItem") == true)
+    let updateBody = requestBodies[0]
+    XCTAssertTrue(updateBody.contains("<t:IsRead>true</t:IsRead>"))
+    XCTAssertFalse(updateBody.contains("<m:IsRead>"))
+  }
+
+  func testSystemClientUsesValidMessageFieldURIs() async throws {
+    var requests: [URLRequest] = []
+    var requestBodies: [String] = []
+    EWSURLProtocol.requestHandler = { request in
+      requests.append(request)
+      requestBodies.append(try Self.requestBody(request))
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(Self.successResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let client = SystemEWSClient(session: makeEWSURLSession())
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let folder = EWSFolder(
+      changeKey: nil,
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+
+    _ = try await client.loadMessagePage(
+      folder: folder,
+      offset: 0,
+      pageSize: 50,
+      authorization: authorization
+    )
+    _ = try await client.deliveryStatus(
+      rfcMessageId: "<delivery@example.com>",
+      authorization: authorization
+    )
+
+    let metadataBody = requestBodies[0]
+    for field in [
+      "message:InternetMessageId",
+      "message:From",
+      "message:ReplyTo",
+      "message:ToRecipients",
+      "message:CcRecipients",
+      "message:BccRecipients",
+      "item:Preview",
+    ] {
+      XCTAssertTrue(metadataBody.contains(#"FieldURI="\#(field)""#))
+    }
+    XCTAssertFalse(metadataBody.contains(#"FieldURI="item:InternetMessageId""#))
+    let deliveryBody = requestBodies[1]
+    XCTAssertTrue(
+      deliveryBody.contains(#"FieldURI="message:InternetMessageId""#)
+    )
+  }
+
+  func testSystemClientPaginatesDeepFolderDiscovery() async throws {
+    var findFolderOffsets: [Int] = []
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      if body.contains("<m:FindFolder") {
+        let offset = body.contains(#"Offset="0""#) ? 0 : 100
+        findFolderOffsets.append(offset)
+        return (
+          HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(Self.findFolderResponse(offset: offset).utf8)
+        )
+      }
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(Self.folderNotFoundResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    let folders = try await SystemEWSClient(session: makeEWSURLSession()).loadFolders(
+      authorization: authorization
+    )
+
+    XCTAssertEqual(findFolderOffsets, [0, 100])
+    XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
   }
 
   func testInitialAvailabilityAndBackfillPreserveRolesAndConversationIdentity() async throws {
@@ -587,6 +720,60 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(afterDeletion.messages.isEmpty)
   }
 
+  func testRecentInitialSyncDoesNotPersistAfterSessionBecomesStale() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    var validityChecks = 0
+
+    do {
+      _ = try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: false,
+        session: session,
+        sinceHistoryId: nil,
+        throughHistoryId: nil,
+        shouldPersist: {
+          validityChecks += 1
+          return validityChecks == 1
+        }
+      )
+      XCTFail("Expected stale session cancellation")
+    } catch is CancellationError {}
+
+    XCTAssertNil(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+  }
+
   func testCompletedRefreshBackfillReconcilesHistoricalDeletion() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -705,6 +892,60 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       <s:Body><m:Response><m:ResponseCode>NoError</m:ResponseCode></m:Response></s:Body>
     </s:Envelope>
     """
+
+  private static func findFolderResponse(offset: Int) -> String {
+    let includesLast = offset == 100
+    return """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:FindFolderResponse><m:ResponseMessages>
+          <m:FindFolderResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:RootFolder IncludesLastItemInRange="\(includesLast)"
+              IndexedPagingOffset="\(offset + 100)">
+              <t:Folders><t:Folder>
+                <t:FolderId Id="custom-\(offset)" ChangeKey="key-\(offset)"/>
+                <t:DisplayName>Custom \(offset)</t:DisplayName>
+              </t:Folder></t:Folders>
+            </m:RootFolder>
+          </m:FindFolderResponseMessage>
+        </m:ResponseMessages></m:FindFolderResponse></s:Body>
+      </s:Envelope>
+      """
+  }
+
+  private static let folderNotFoundResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+      <s:Body><m:GetFolderResponse><m:ResponseMessages>
+        <m:GetFolderResponseMessage ResponseClass="Error">
+          <m:MessageText>Folder not found</m:MessageText>
+          <m:ResponseCode>ErrorFolderNotFound</m:ResponseCode>
+        </m:GetFolderResponseMessage>
+      </m:ResponseMessages></m:GetFolderResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static func requestBody(_ request: URLRequest) throws -> String {
+    if let body = request.httpBody {
+      return String(data: body, encoding: .utf8) ?? ""
+    }
+    guard let stream = request.httpBodyStream else { return "" }
+    stream.open()
+    defer { stream.close() }
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4_096)
+    while stream.hasBytesAvailable {
+      let count = stream.read(&buffer, maxLength: buffer.count)
+      guard count >= 0 else { throw stream.streamError ?? EWSClientTestError.offline }
+      if count == 0 { break }
+      data.append(buffer, count: count)
+    }
+    return String(data: data, encoding: .utf8) ?? ""
+  }
 
   private func makeEWSDefinition() -> EWSConnectionDefinition {
     EWSConnectionDefinition(

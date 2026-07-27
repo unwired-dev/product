@@ -119,6 +119,16 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
       .replacingOccurrences(of: "=", with: "")
   }
 
+  static func hasSameOrigin(_ candidate: URL, as endpoint: URL) -> Bool {
+    candidate.scheme?.lowercased() == endpoint.scheme?.lowercased()
+      && candidate.host?.lowercased() == endpoint.host?.lowercased()
+      && effectivePort(candidate) == effectivePort(endpoint)
+  }
+
+  private static func effectivePort(_ url: URL) -> Int? {
+    url.port ?? (url.scheme?.lowercased() == "https" ? 443 : nil)
+  }
+
   private static let exchangeOnlineHosts: Set<String> = [
     "outlook.office.de",
     "outlook.office.com",
@@ -413,12 +423,12 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
 
 extension MailboxConnectionCapabilities {
   static let exchangeWebServices = MailboxConnectionCapabilities(
-    canCategorizeHistorical: true,
+    canCategorizeHistorical: false,
     canForward: true,
     canReadMessages: true,
     canRegisterPush: false,
     canReply: true,
-    canSearchProvider: true,
+    canSearchProvider: false,
     canSend: true,
     canSynchronizeMetadata: true,
     providerActions: Set(ProviderMailAction.allCases)
@@ -1333,6 +1343,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    try await syncInbox(
+      connection: connection,
+      session: session,
+      shouldPersist: { true }
+    )
+  }
+
+  private func syncInbox(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
     let authorization = try activeAuthorization(connection, session: session)
     if let snapshot = try metadataStore.load(
       productAccountId: session.productAccountId,
@@ -1369,6 +1391,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
     }
     snapshot.hasInitialMailboxAvailability = true
+    guard shouldPersist() else { throw CancellationError() }
     try metadataStore.save(
       snapshot,
       productAccountId: session.productAccountId,
@@ -1398,14 +1421,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectionId: connection.id
       ) != nil
     else {
-      return try await syncInbox(connection: connection, session: session)
+      return try await syncInbox(
+        connection: connection,
+        session: session,
+        shouldPersist: shouldPersist
+      )
     }
     let snapshot = try await refreshRecentSnapshot(
       connection,
       authorization: authorization,
-      session: session
+      session: session,
+      shouldPersist: shouldPersist
     )
-    guard shouldPersist() else { throw CancellationError() }
     let rawResult = try result(snapshot, .allObserved, connection: connection)
     try await pendingActionService.reconcileProviderSync(
       messages: rawResult.messages,
@@ -1881,7 +1908,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func refreshRecentSnapshot(
     _ connection: MailboxConnection,
     authorization: DeviceLocalEWSAuthorization,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    shouldPersist: () -> Bool = { true }
   ) async throws -> EWSMetadataSnapshot {
     var snapshot = try requiredSnapshot(connection, session: session)
     let folders = try await client.loadFolders(authorization: authorization)
@@ -1928,6 +1956,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       snapshot.reconciliationMessageIdsByFolderId.filter {
         activeFolderIds.contains($0.key)
       }
+    guard shouldPersist() else { throw CancellationError() }
     try metadataStore.save(
       snapshot,
       productAccountId: session.productAccountId,

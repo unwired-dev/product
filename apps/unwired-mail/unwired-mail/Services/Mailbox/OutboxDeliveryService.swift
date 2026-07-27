@@ -222,6 +222,27 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
         break
       }
     }
+    if let ewsError = error as? EWSServiceError {
+      switch ewsError {
+      case .authenticationRejected:
+        return .userActionRequired
+      case .invalidResponse:
+        return .ambiguous
+      case .response(let code, _):
+        let status = code.split(separator: " ").last.flatMap { Int($0) }
+        if status == 408 || status == 409 || status == 425 || status == 429
+          || status.map({ $0 >= 500 }) == true
+          || [
+            "ErrorExceededConnectionCount",
+            "ErrorMailboxStoreUnavailable",
+            "ErrorServerBusy",
+            "ErrorTimeoutExpired",
+          ].contains(code)
+        {
+          return .transient
+        }
+      }
+    }
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
