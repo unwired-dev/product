@@ -3128,7 +3128,9 @@ struct MailShellConversationReader: View {
       Menu {
         let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
           for: connection.id
-        ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+        ).filter {
+          $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+        }
         ProviderMailActionButtons(
           actions: actions,
           moveDestinations: providerMailboxes
@@ -3186,7 +3188,9 @@ struct MailShellConversationReader: View {
         (
           connectionId,
           inboxViewModel.navigationSnapshot.providerMailboxes(for: connectionId)
-            .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+            .filter {
+              $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+            }
         )
       }
     )

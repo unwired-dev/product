@@ -1557,6 +1557,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard $0.role == nil, $0.isSearchFolder != true else { return nil }
       return ProviderMailbox(
         id: EWSProviderMessage.customFolderStateId($0.id),
+        isMoveDestination: $0.isArchiveHierarchy != true,
         title: $0.displayName
       )
     } ?? []

@@ -752,6 +752,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       "message:CcRecipients",
       "message:BccRecipients",
       "item:DateTimeCreated",
+      "item:DateTimeSent",
       "item:Preview",
     ] {
       XCTAssertTrue(metadataBody.contains(#"FieldURI="\#(field)""#))
@@ -764,6 +765,60 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let pagingRange = try XCTUnwrap(deliveryBody.range(of: "<m:IndexedPageItemView"))
     let restrictionRange = try XCTUnwrap(deliveryBody.range(of: "<m:Restriction>"))
     XCTAssertLessThan(pagingRange.lowerBound, restrictionRange.lowerBound)
+  }
+
+  func testSystemClientSortsAndDatesSentItemsBySentTimestamp() async throws {
+    var requestBody = ""
+    let response = Self.findItemResponse.replacingOccurrences(
+      of: "<t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>",
+      with: """
+        <t:DateTimeReceived>2025-01-01T00:00:00Z</t:DateTimeReceived>
+        <t:DateTimeSent>2026-07-27T12:34:56.123Z</t:DateTimeSent>
+        """
+    )
+    EWSURLProtocol.requestHandler = { request in
+      requestBody = try Self.requestBody(request)
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Sent Items",
+        id: "sent-id",
+        role: .sent
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: authorization
+    )
+
+    let sortStart = try XCTUnwrap(requestBody.range(of: "<m:SortOrder>"))
+    let sortEnd = try XCTUnwrap(requestBody.range(of: "</m:SortOrder>"))
+    XCTAssertTrue(
+      requestBody[sortStart.lowerBound..<sortEnd.upperBound]
+        .contains(#"FieldURI="item:DateTimeSent""#)
+    )
+    let dateFormatter = ISO8601DateFormatter()
+    dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+    let sentDate = try XCTUnwrap(dateFormatter.date(from: "2026-07-27T12:34:56.123Z"))
+    XCTAssertEqual(
+      page.messages.first?.receivedAtMilliseconds,
+      Int64(sentDate.timeIntervalSince1970 * 1_000)
+    )
   }
 
   func testPasswordCredentialIsOnlyUsedForInitialMatchingChallenge() {
@@ -787,6 +842,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         challengeMatchesEndpoint: false,
         previousFailureCount: 0
       )
+    )
+    XCTAssertEqual(
+      mappedEWSRequestError(
+        URLError(.userAuthenticationRequired),
+        authenticationWasRejected: true
+      ) as? EWSServiceError,
+      .authenticationRejected
     )
   }
 
@@ -1324,7 +1386,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testSearchFoldersAreExcludedFromMoveDestinations() async throws {
+  func testSearchAndArchiveFoldersAreExcludedFromMoveDestinations() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.folders = [
@@ -1340,6 +1402,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         displayName: "Unread Mail",
         id: "unread-id",
         isSearchFolder: true,
+        role: nil
+      ),
+      EWSFolder(
+        changeKey: "archive-key",
+        displayName: "Archived Projects",
+        id: "archive-projects-id",
+        isArchiveHierarchy: true,
+        isSearchFolder: false,
         role: nil
       ),
     ]
@@ -1368,8 +1438,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(mailboxes.map(\.title), ["Projects"])
-    XCTAssertEqual(client.requestedPages, ["projects-id|0"])
+    XCTAssertEqual(mailboxes.map(\.title), ["Projects", "Archived Projects"])
+    XCTAssertEqual(
+      mailboxes.filter(\.isMoveDestination).map(\.title),
+      ["Projects"]
+    )
+    XCTAssertEqual(client.requestedPages, ["projects-id|0", "archive-projects-id|0"])
   }
 
   func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {

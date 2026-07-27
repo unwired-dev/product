@@ -232,7 +232,12 @@ struct SystemEWSClient: EWSClient {
     pageSize: Int,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSMessagePage {
-    let sortField = folder.role == .drafts ? "item:LastModifiedTime" : "item:DateTimeReceived"
+    let sortField =
+      switch folder.role {
+      case .drafts: "item:LastModifiedTime"
+      case .sent: "item:DateTimeSent"
+      default: "item:DateTimeReceived"
+      }
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
@@ -244,6 +249,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:ConversationId"/>
             <t:FieldURI FieldURI="item:DateTimeCreated"/>
             <t:FieldURI FieldURI="item:DateTimeReceived"/>
+            <t:FieldURI FieldURI="item:DateTimeSent"/>
             <t:FieldURI FieldURI="item:LastModifiedTime"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
             <t:FieldURI FieldURI="message:From"/>
@@ -268,13 +274,19 @@ struct SystemEWSClient: EWSClient {
       """,
       authorization: authorization
     )
-    return try messagePage(document, folderId: folder.id, offset: offset)
+    return try messagePage(
+      document,
+      folderId: folder.id,
+      offset: offset,
+      prefersSentDate: folder.role == .sent
+    )
   }
 
   private func messagePage(
     _ document: EWSXMLNode,
     folderId: String,
-    offset: Int
+    offset: Int,
+    prefersSentDate: Bool
   ) throws -> EWSMessagePage {
     guard
       let rootFolder = document.firstDescendant(named: "RootFolder"),
@@ -298,7 +310,13 @@ struct SystemEWSClient: EWSClient {
     }
     let itemNodes = document.descendants.filter(Self.isItemNode)
     let items = try itemNodes.map { node in
-      guard let message = providerMessage(node, defaultFolderId: folderId) else {
+      guard
+        let message = providerMessage(
+          node,
+          defaultFolderId: folderId,
+          prefersSentDate: prefersSentDate
+        )
+      else {
         throw EWSServiceError.invalidResponse
       }
       return message
@@ -553,7 +571,7 @@ struct SystemEWSClient: EWSClient {
       """.utf8
     )
     let delegate = EWSRequestAuthenticationDelegate(authorization: authorization)
-    let (data, response) = try await session.data(for: request, delegate: delegate)
+    let (data, response) = try await data(for: request, delegate: delegate)
     guard let httpResponse = response as? HTTPURLResponse else {
       throw EWSServiceError.invalidResponse
     }
@@ -589,6 +607,20 @@ struct SystemEWSClient: EWSClient {
       throw EWSServiceError.response(code: failure.text, message: message)
     }
     return document
+  }
+
+  private func data(
+    for request: URLRequest,
+    delegate: EWSRequestAuthenticationDelegate
+  ) async throws -> (Data, URLResponse) {
+    do {
+      return try await session.data(for: request, delegate: delegate)
+    } catch {
+      throw mappedEWSRequestError(
+        error,
+        authenticationWasRejected: delegate.authenticationWasRejected
+      )
+    }
   }
 
   private func loadFolder(
@@ -635,7 +667,8 @@ struct SystemEWSClient: EWSClient {
 
   private func providerMessage(
     _ node: EWSXMLNode,
-    defaultFolderId: String
+    defaultFolderId: String,
+    prefersSentDate: Bool
   ) -> EWSProviderMessage? {
     guard let idNode = node.child(named: "ItemId"),
       let itemId = idNode.attributes["Id"]
@@ -646,7 +679,9 @@ struct SystemEWSClient: EWSClient {
     let isDraft = node.child(named: "IsDraft")?.text == "true"
     let dateText: String? =
       (isDraft ? node.child(named: "LastModifiedTime")?.text : nil)
+      ?? (prefersSentDate ? node.child(named: "DateTimeSent")?.text : nil)
       ?? node.child(named: "DateTimeReceived")?.text
+      ?? node.child(named: "DateTimeSent")?.text
       ?? node.child(named: "DateTimeCreated")?.text
     let date = dateText.flatMap(Self.date)
     let parentFolderId =
@@ -1061,11 +1096,24 @@ func shouldUseEWSPasswordCredential(
     && previousFailureCount == 0
 }
 
+func mappedEWSRequestError(
+  _ error: Error,
+  authenticationWasRejected: Bool
+) -> Error {
+  authenticationWasRejected ? EWSServiceError.authenticationRejected : error
+}
+
 private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDelegate,
   @unchecked Sendable
 {
   private let credential: URLCredential?
   private let endpoint: URL
+  private let lock = NSLock()
+  private var rejectedAuthentication = false
+
+  var authenticationWasRejected: Bool {
+    lock.withLock { rejectedAuthentication }
+  }
 
   init(authorization: DeviceLocalEWSAuthorization) {
     endpoint = authorization.definition.endpoint
@@ -1108,6 +1156,9 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
       ),
       credential != nil
     {
+      lock.withLock {
+        rejectedAuthentication = true
+      }
       completionHandler(.cancelAuthenticationChallenge, nil)
     } else {
       completionHandler(.performDefaultHandling, nil)

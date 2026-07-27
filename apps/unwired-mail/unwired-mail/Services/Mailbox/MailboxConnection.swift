@@ -305,7 +305,14 @@ struct MailboxItemCount: Equatable, Sendable {
 
 struct ProviderMailbox: Equatable, Hashable, Sendable {
   let id: String
+  let isMoveDestination: Bool
   let title: String
+
+  init(id: String, isMoveDestination: Bool = true, title: String) {
+    self.id = id
+    self.isMoveDestination = isMoveDestination
+    self.title = title
+  }
 }
 
 struct MailboxConnection: Equatable, Identifiable, Sendable {
