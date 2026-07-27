@@ -230,8 +230,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     await viewModel.load()
     let connection = try XCTUnwrap(viewModel.connections.first)
+    viewModel.credential = "credential-for-another-connection"
+    await viewModel.select(connection)
     let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
 
+    XCTAssertEqual(viewModel.credential, "")
     XCTAssertTrue(didSetDefault)
     XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
@@ -331,6 +334,42 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testSystemClientRejectsExchange2013BeforeSP1() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let payload =
+        request.value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/ResolveNames") == true
+        ? Self.resolveNamesResponse
+          .replacingOccurrences(
+            of: "MinorVersion=\"2\"",
+            with: "MinorVersion=\"0\" MajorBuildNumber=\"800\" MinorBuildNumber=\"0\""
+          )
+          .replacingOccurrences(of: "Exchange2019", with: "Exchange2013")
+        : Self.getFolderResponse
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(payload.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).verify(
+        DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected pre-SP1 Exchange 2013 to be rejected")
+    } catch {
+      XCTAssertEqual(error as? EWSSetupError, .unsupportedServerVersion)
+    }
+  }
+
   func testSystemClientBuildsOAuthAppPasswordActionAndSendRequests() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -408,6 +447,58 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(sendBody.contains("Recipient, One"))
   }
 
+  func testSystemClientTreatsMixedBatchOutcomesAsAmbiguous() async throws {
+    let mixedResponse = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+        xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+        <s:Body><m:UpdateItemResponse><m:ResponseMessages>
+          <m:UpdateItemResponseMessage ResponseClass="Success">
+            <m:ResponseCode>NoError</m:ResponseCode>
+            <m:Items><t:Message>
+              <t:ItemId Id="updated-item-id" ChangeKey="updated-change-key"/>
+            </t:Message></m:Items>
+          </m:UpdateItemResponseMessage>
+          <m:UpdateItemResponseMessage ResponseClass="Error">
+            <m:MessageText>Conflict</m:MessageText>
+            <m:ResponseCode>ErrorIrresolvableConflict</m:ResponseCode>
+          </m:UpdateItemResponseMessage>
+        </m:ResponseMessages></m:UpdateItemResponse></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(mixedResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).perform(
+        .markRead,
+        targetFolderId: nil,
+        messages: [
+          ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+          ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2"),
+        ],
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected a mixed batch response to require reconciliation")
+    } catch {
+      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+    }
+  }
+
   func testSystemClientUsesValidMessageFieldURIs() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -470,6 +561,51 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(
       deliveryBody.contains(#"FieldURI="message:InternetMessageId""#)
     )
+  }
+
+  func testSystemClientDoesNotUseInternetMessageIdAsStableIdentity() async throws {
+    let response = Self.findItemResponse.replacingOccurrences(
+      of: """
+          </t:Message></t:Items>
+        """,
+      with: """
+          <t:InternetMessageId>&lt;duplicate@example.com&gt;</t:InternetMessageId>
+          </t:Message><t:Message>
+            <t:ItemId Id="second-item-id" ChangeKey="second-change-key"/>
+            <t:InternetMessageId>&lt;duplicate@example.com&gt;</t:InternetMessageId>
+            <t:DateTimeReceived>2026-07-27T12:34:55.123Z</t:DateTimeReceived>
+          </t:Message></t:Items>
+        """
+    )
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Inbox",
+        id: "inbox-id",
+        role: .inbox
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    XCTAssertEqual(Set(page.messages.map(\.stableProviderId)), ["item-id", "second-item-id"])
   }
 
   func testSystemClientUsesCreatedTimestampWhenReceivedTimestampIsMissing() async throws {
@@ -551,6 +687,47 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
     XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
     XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
+  }
+
+  func testSystemClientPropagatesMailboxStoreUnavailableForDistinguishedFolder() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response =
+        body.contains("<m:FindFolder")
+        ? Self.findFolderResponse(offset: 100)
+        : Self.folderNotFoundResponse.replacingOccurrences(
+          of: "ErrorFolderNotFound",
+          with: "ErrorMailboxStoreUnavailable"
+        )
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).loadFolders(
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected the temporary mailbox-store outage to propagate")
+    } catch {
+      guard
+        let serviceError = error as? EWSServiceError,
+        case .response(let code, _) = serviceError
+      else {
+        return XCTFail("Expected an EWS response error")
+      }
+      XCTAssertEqual(code, "ErrorMailboxStoreUnavailable")
+    }
   }
 
   func testSystemClientParsesItemBodyFractionalTimestampAndMovedIdentity() async throws {
@@ -1362,7 +1539,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testOffsetBackfillDoesNotDestructivelyReconcileHistoricalDeletion() async throws {
+  func testOffsetBackfillReconcilesHistoricalDeletionAfterTheFinalPage() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.folders = [
@@ -1417,7 +1594,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(
       Set(reconciled.messages.map(\.providerMessageId)),
-      ["ews-stable-1", "ews-stable-2"]
+      ["ews-stable-2"]
     )
   }
 

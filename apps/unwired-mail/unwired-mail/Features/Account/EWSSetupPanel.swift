@@ -81,6 +81,7 @@ final class EWSSetupViewModel {
   }
 
   func select(_ connection: MailboxConnection) async {
+    credential = ""
     let authorization = try? KeychainEWSAuthorizationStore().load(
       productAccountId: session.productAccountId,
       connectionId: connection.id

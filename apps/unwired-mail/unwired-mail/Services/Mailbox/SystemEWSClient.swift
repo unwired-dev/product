@@ -97,7 +97,7 @@ struct SystemEWSClient: EWSClient {
           authorization: authorization
         )
       } catch EWSServiceError.response(let code, _)
-        where ["ErrorFolderNotFound", "ErrorMailboxStoreUnavailable"].contains(code)
+        where code == "ErrorFolderNotFound"
       {
         continue
       }
@@ -442,9 +442,13 @@ struct SystemEWSClient: EWSClient {
     } catch {
       throw EWSServiceError.invalidResponse
     }
-    if let failure = document.descendants.first(where: {
-      $0.localName == "ResponseCode" && $0.text != "NoError"
-    }) {
+    let responseCodes = document.descendants.filter { $0.localName == "ResponseCode" }
+    if responseCodes.contains(where: { $0.text == "NoError" }),
+      responseCodes.contains(where: { $0.text != "NoError" })
+    {
+      throw EWSServiceError.invalidResponse
+    }
+    if let failure = responseCodes.first(where: { $0.text != "NoError" }) {
       let message = failure.parent?.child(named: "MessageText")?.text ?? ""
       throw EWSServiceError.response(code: failure.text, message: message)
     }
@@ -521,7 +525,7 @@ struct SystemEWSClient: EWSClient {
       parentFolderId: parentFolderId,
       receivedAtMilliseconds: Int64((date ?? .distantPast).timeIntervalSince1970 * 1_000),
       replyTo: addresses(node.child(named: "ReplyTo")),
-      stableProviderId: searchKey ?? internetMessageId ?? itemId,
+      stableProviderId: searchKey ?? itemId,
       subject: node.child(named: "Subject")?.text ?? "",
       summary: node.child(named: "Preview")?.text ?? "",
       toRecipients: addresses(node.child(named: "ToRecipients"))
@@ -539,10 +543,13 @@ struct SystemEWSClient: EWSClient {
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSMovedItemIdentity {
     let property: String
-    if message.stableProviderId == message.internetMessageId {
-      property = #"<t:FieldURI FieldURI="message:InternetMessageId"/>"#
-    } else if message.stableProviderId != message.itemId {
+    let value: String
+    if message.stableProviderId != message.itemId {
       property = #"<t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>"#
+      value = message.stableProviderId
+    } else if let internetMessageId = message.internetMessageId {
+      property = #"<t:FieldURI FieldURI="message:InternetMessageId"/>"#
+      value = internetMessageId
     } else {
       throw EWSServiceError.invalidResponse
     }
@@ -553,7 +560,7 @@ struct SystemEWSClient: EWSClient {
         <m:Restriction><t:IsEqualTo>
           \(property)
           <t:FieldURIOrConstant><t:Constant
-            Value="\(xmlAttribute(message.stableProviderId))"/>
+            Value="\(xmlAttribute(value))"/>
           </t:FieldURIOrConstant>
         </t:IsEqualTo></m:Restriction>
         <m:ParentFolderIds><t:DistinguishedFolderId Id="archiveinbox">
@@ -705,6 +712,15 @@ struct SystemEWSClient: EWSClient {
     let minor = info.attributes["MinorVersion"].flatMap(Int.init) ?? 0
     guard minor < 20 else {
       throw EWSSetupError.onPremisesEndpointRequired
+    }
+    if minor == 0 {
+      guard
+        let majorBuild = info.attributes["MajorBuildNumber"].flatMap(Int.init),
+        let minorBuild = info.attributes["MinorBuildNumber"].flatMap(Int.init),
+        majorBuild > 847 || (majorBuild == 847 && minorBuild >= 32)
+      else {
+        throw EWSSetupError.unsupportedServerVersion
+      }
     }
     if version.localizedCaseInsensitiveContains("2019") { return .exchange2019 }
     if version.localizedCaseInsensitiveContains("2016") { return .exchange2016 }

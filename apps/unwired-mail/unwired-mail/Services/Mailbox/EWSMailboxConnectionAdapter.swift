@@ -1424,7 +1424,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
-          snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
+          finishReconciliation(for: folder.id, snapshot: &snapshot)
         }
         try metadataStore.save(
           snapshot,
