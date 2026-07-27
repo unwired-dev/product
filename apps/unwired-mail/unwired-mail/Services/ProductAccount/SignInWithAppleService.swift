@@ -124,6 +124,15 @@ protocol AppleSignInPerforming {
 @MainActor
 final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private var continuation: CheckedContinuation<AppleSignInCredential, Error>?
+  private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
+
+  init(
+    authorizationStateChecker: ProductAccountAuthorizationStateChecking =
+      AppleAuthorizationStateChecker()
+  ) {
+    self.authorizationStateChecker = authorizationStateChecker
+    super.init()
+  }
 
   func signIn() async throws -> AppleSignInCredential {
     try await performAuthorization()
@@ -132,10 +141,9 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   func restoreSession(
     snapshot: ProductAccountSessionSnapshot
   ) async throws -> AppleSignInCredential {
-    let authorizationState = await AppleAuthorizationStateChecker()
-      .authorizationState(
-        forAppleUserIdentifier: snapshot.appleUserIdentifier
-      )
+    let authorizationState = await authorizationStateChecker.authorizationState(
+      forAppleUserIdentifier: snapshot.appleUserIdentifier
+    )
 
     switch authorizationState {
     case .authorized:
