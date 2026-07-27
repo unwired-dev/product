@@ -789,6 +789,73 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connectionService.statuses.isEmpty)
   }
 
+  func testGmailForegroundBodyLoadDoesNotWaitForInFlightPrefetch() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let bodyReader = DelayedAdapterPrefetchReader(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: bodyReader,
+      connectionService: RecordingAdapterConnectionService(),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let prefetchTask = Task {
+      try await adapter.prefetchMessageBodies(
+        connection: connection,
+        pinnedMessageIds: [],
+        referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
+        session: session
+      )
+    }
+    await bodyReader.waitUntilPrefetchStarted()
+    let bodyLoaded = expectation(description: "foreground body load finishes")
+    let bodyTask = Task {
+      let body = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      bodyLoaded.fulfill()
+      return body
+    }
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+    await bodyReader.releasePrefetch()
+
+    let body = try await bodyTask.value
+    try await prefetchTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
+    XCTAssertEqual(events, ["foreground-body-loaded", "prefetch-finished"])
+  }
+
+  func testGmailAccountCleanupWaitsForInFlightMessageBodyLoad() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let bodyReader = DelayedAdapterMessageReader(eventLog: eventLog)
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: bodyReader,
+      connectionService: connectionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let bodyTask = Task {
+      try await adapter.loadMessageBody(message: adapterMessage, session: session)
+    }
+    await bodyReader.waitUntilStarted()
+    let cleanupTask = Task {
+      try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
+    }
+    await Task.yield()
+    await bodyReader.release()
+
+    let body = try await bodyTask.value
+    try await cleanupTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
+    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
   func testGmailRemoteRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3422,7 +3489,10 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     self.lifecycleEventLog = lifecycleEventLog
   }
 
-  func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {}
+  func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {
+    await lifecycleEventLog?.record("local-state-cleared")
+    statuses.removeAll()
+  }
 
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
@@ -3811,6 +3881,53 @@ private final class DelayedAdapterMessageReader: GmailMessageReading {
 
   func release() async {
     await gate.release()
+  }
+}
+
+private final class DelayedAdapterPrefetchReader: GmailMessageReading {
+  private let eventLog: AdapterLifecycleEventLog
+  private let prefetchGate = AdapterLifecycleOperationGate()
+
+  init(eventLog: AdapterLifecycleEventLog) {
+    self.eventLog = eventLog
+  }
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    await eventLog.record("foreground-body-loaded")
+    return GmailMessageBody(text: "Decrypted body")
+  }
+
+  func prefetchMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    pinnedMessageIds _: Set<String>,
+    referenceDate _: Date,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    await prefetchGate.waitForRelease()
+    await eventLog.record("prefetch-finished")
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func waitUntilPrefetchStarted() async {
+    await prefetchGate.waitUntilStarted()
+  }
+
+  func releasePrefetch() async {
+    await prefetchGate.release()
   }
 }
 

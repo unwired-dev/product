@@ -55,14 +55,35 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
 actor MailboxConnectionSyncGate {
   static let shared = MailboxConnectionSyncGate()
 
-  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Bool, Never>)
+  private enum LockMode: Equatable {
+    case exclusive
+    case shared
+  }
 
-  private var lockedConnectionIds: Set<MailboxConnectionId> = []
+  private struct Waiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    let id: UUID
+    let mode: LockMode
+  }
+
+  private var exclusivelyLockedConnectionIds: Set<MailboxConnectionId> = []
+  private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
   func acquire(_ connectionId: MailboxConnectionId) async -> Bool {
-    guard lockedConnectionIds.contains(connectionId) else {
-      lockedConnectionIds.insert(connectionId)
+    await acquire(connectionId, mode: .exclusive)
+  }
+
+  private func acquire(_ connectionId: MailboxConnectionId, mode: LockMode) async -> Bool {
+    let hasExclusiveLock = exclusivelyLockedConnectionIds.contains(connectionId)
+    let hasSharedLocks = sharedLockCounts[connectionId, default: 0] > 0
+    let hasQueuedWaiters = waiters[connectionId]?.isEmpty == false
+    if !hasExclusiveLock && !hasSharedLocks && !hasQueuedWaiters {
+      grant(mode, for: connectionId)
+      return true
+    }
+    if mode == .shared && !hasExclusiveLock && !hasQueuedWaiters {
+      grant(mode, for: connectionId)
       return true
     }
     let waiterId = UUID()
@@ -72,10 +93,21 @@ actor MailboxConnectionSyncGate {
           continuation.resume(returning: false)
           return
         }
-        waiters[connectionId, default: []].append((waiterId, continuation))
+        waiters[connectionId, default: []].append(
+          Waiter(continuation: continuation, id: waiterId, mode: mode)
+        )
       }
     } onCancel: {
       Task { await self.cancelWaiter(waiterId, for: connectionId) }
+    }
+  }
+
+  private func grant(_ mode: LockMode, for connectionId: MailboxConnectionId) {
+    switch mode {
+    case .exclusive:
+      exclusivelyLockedConnectionIds.insert(connectionId)
+    case .shared:
+      sharedLockCounts[connectionId, default: 0] += 1
     }
   }
 
@@ -89,24 +121,83 @@ actor MailboxConnectionSyncGate {
   }
 
   func release(_ connectionId: MailboxConnectionId) {
-    guard var connectionWaiters = waiters[connectionId], !connectionWaiters.isEmpty else {
-      lockedConnectionIds.remove(connectionId)
-      waiters[connectionId] = nil
+    release(connectionId, mode: .exclusive)
+  }
+
+  private func release(_ connectionId: MailboxConnectionId, mode: LockMode) {
+    switch mode {
+    case .exclusive:
+      exclusivelyLockedConnectionIds.remove(connectionId)
+    case .shared:
+      let remainingCount = sharedLockCounts[connectionId, default: 0] - 1
+      sharedLockCounts[connectionId] = remainingCount > 0 ? remainingCount : nil
+    }
+    guard !exclusivelyLockedConnectionIds.contains(connectionId),
+      sharedLockCounts[connectionId] == nil,
+      var connectionWaiters = waiters[connectionId],
+      !connectionWaiters.isEmpty
+    else {
       return
     }
-    let next = connectionWaiters.removeFirst().continuation
+
+    let first = connectionWaiters.removeFirst()
+    grant(first.mode, for: connectionId)
+    first.continuation.resume(returning: true)
+    if first.mode == .shared {
+      while connectionWaiters.first?.mode == .shared {
+        let next = connectionWaiters.removeFirst()
+        grant(.shared, for: connectionId)
+        next.continuation.resume(returning: true)
+      }
+    }
     waiters[connectionId] = connectionWaiters.isEmpty ? nil : connectionWaiters
-    next.resume(returning: true)
   }
 
   func withLock<T>(
     _ connectionId: MailboxConnectionId,
     operation: () async throws -> T
   ) async throws -> T {
-    guard await acquire(connectionId) else {
+    guard await acquire(connectionId, mode: .exclusive) else {
       throw CancellationError()
     }
-    defer { release(connectionId) }
+    defer { release(connectionId, mode: .exclusive) }
+    return try await operation()
+  }
+
+  func withLocks<T>(
+    _ connectionIds: [MailboxConnectionId],
+    operation: () async throws -> T
+  ) async throws -> T {
+    let sortedConnectionIds = Array(Set(connectionIds)).sorted { $0.rawValue < $1.rawValue }
+    var acquiredConnectionIds: [MailboxConnectionId] = []
+    do {
+      for connectionId in sortedConnectionIds {
+        guard await acquire(connectionId, mode: .exclusive) else {
+          throw CancellationError()
+        }
+        acquiredConnectionIds.append(connectionId)
+      }
+      let result = try await operation()
+      for connectionId in acquiredConnectionIds.reversed() {
+        release(connectionId, mode: .exclusive)
+      }
+      return result
+    } catch {
+      for connectionId in acquiredConnectionIds.reversed() {
+        release(connectionId, mode: .exclusive)
+      }
+      throw error
+    }
+  }
+
+  func withSharedLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: () async throws -> T
+  ) async throws -> T {
+    guard await acquire(connectionId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .shared) }
     return try await operation()
   }
 }
@@ -1208,30 +1299,36 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isStillCurrent: @escaping @MainActor () -> Bool
   ) async throws {
-    var firstError: Error?
-    do {
-      try await connectionService.clearLocalConnection(session: session)
-    } catch {
-      firstError = error
-    }
-    guard await isStillCurrent() else {
+    let connectionIds = try await connectionService.loadConnections(session: session)
+      .map {
+        $0.mailboxConnection(productAccountId: session.productAccountId).id
+      }
+    try await syncGate.withLocks(connectionIds) {
+      var firstError: Error?
+      do {
+        try await connectionService.clearLocalConnection(session: session)
+      } catch {
+        firstError = error
+      }
+      guard await isStillCurrent() else {
+        if let firstError {
+          throw firstError
+        }
+        return
+      }
+      do {
+        try await pendingActionService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await outboxService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
       if let firstError {
         throw firstError
       }
-      return
-    }
-    do {
-      try await pendingActionService.clear(session: session)
-    } catch {
-      firstError = firstError ?? error
-    }
-    do {
-      try await outboxService.clear(session: session)
-    } catch {
-      firstError = firstError ?? error
-    }
-    if let firstError {
-      throw firstError
     }
   }
 
@@ -1726,7 +1823,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    try await syncGate.withLock(message.connectionId) {
+    try await syncGate.withSharedLock(message.connectionId) {
       try await ensureConnectionIsActive(message.connectionId, session: session)
       let body = try await bodyReader.loadMessageBody(
         message: message.gmailMetadata,
@@ -1742,7 +1839,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withSharedLock(connection.id) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
         session: session
