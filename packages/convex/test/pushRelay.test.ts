@@ -4007,13 +4007,26 @@ describe('gmail push relay', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
     const confirmed = await t.run((ctx) => ctx.db.get(route.routeId));
+    const retainedWakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
     expect({
       clientStateDigest: confirmed?.microsoftClientStateDigest,
       pendingClientStateDigest: confirmed?.microsoftPendingClientStateDigest,
+      retainedWakeup: {
+        clientStateDigest: retainedWakeup?.clientStateDigest,
+        routeId: retainedWakeup?.routeId,
+        subscriptionId: retainedWakeup?.subscriptionId,
+      },
       subscriptionId: confirmed?.microsoftSubscriptionId,
     }).toStrictEqual({
       clientStateDigest: replacementDigest,
       pendingClientStateDigest: undefined,
+      retainedWakeup: {
+        clientStateDigest: replacementDigest,
+        routeId: route.routeId,
+        subscriptionId: 'replacement-subscription',
+      },
       subscriptionId: 'replacement-subscription',
     });
   });

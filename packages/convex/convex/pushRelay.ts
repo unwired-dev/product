@@ -2386,8 +2386,8 @@ function confirmedMicrosoftGraphClientState(
 }
 
 type ConfirmedMicrosoftGraphWakeupArgs = Readonly<{
+  activateMismatchedWakeup: boolean;
   clientStateDigest: string | undefined;
-  deleteMismatchedWakeup: boolean;
   now: number;
   routeId: Id<'mailProviderConnections'>;
   subscriptionId: string;
@@ -2411,21 +2411,21 @@ async function activateConfirmedMicrosoftGraphWakeup(
   if (stagedWakeup === null) {
     return;
   }
-  if (isConfirmedMicrosoftGraphWakeup(stagedWakeup, args)) {
+  if (
+    isConfirmedMicrosoftGraphWakeup(stagedWakeup, args) ||
+    args.activateMismatchedWakeup
+  ) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(stagedWakeup._id, {
+      clientStateDigest: args.clientStateDigest,
       pendingAt: args.now,
       scheduledAt: args.now,
+      subscriptionId: args.subscriptionId,
     });
     await ctx.scheduler.runAfter(0, internal.apns.deliverMicrosoftGraphWakeup, {
       routeId: args.routeId,
       scheduledAt: args.now,
     });
-    return;
-  }
-  if (args.deleteMismatchedWakeup) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(stagedWakeup._id);
   }
 }
 
@@ -2450,8 +2450,8 @@ async function confirmMicrosoftGraphRouteForDevice(
     updatedAt: now,
   });
   await activateConfirmedMicrosoftGraphWakeup(ctx, {
+    activateMismatchedWakeup: confirmedState.confirmsPendingReplacement,
     clientStateDigest: confirmedState.clientStateDigest,
-    deleteMismatchedWakeup: confirmedState.confirmsPendingReplacement,
     now,
     routeId: args.routeId,
     subscriptionId: args.subscriptionId,
