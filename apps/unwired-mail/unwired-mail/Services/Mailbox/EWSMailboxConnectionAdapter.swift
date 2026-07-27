@@ -2502,6 +2502,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     snapshot.reconciliationAtByFolderId = completedAt
     snapshot.deletionCandidatesByFolderId?[folderId] = nil
     snapshot.reconciliationMessageIdsByFolderId[folderId] = nil
+    snapshot.pendingVerificationFolderIds?.remove(folderId)
   }
 
   private func resolveBlockedAction(

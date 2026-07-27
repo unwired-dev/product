@@ -2132,6 +2132,45 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailShellArchiveActionGatingOnlyUsesSelectedMailboxMessages() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-inbox",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX"]
+    )
+    let archiveMessage = mailShellMessage(
+      providerMessageId: "message-archive",
+      providerThreadId: "thread-001",
+      receivedAt: 50,
+      providerStateIds: [
+        "ARCHIVE",
+        EWSProviderMessage.archiveHierarchyStateId,
+      ]
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [archiveMessage, inboxMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedMailbox(.inbox)
+
+    let selectedMessages = viewModel.selectedMailboxMessages(
+      in: thread,
+      pinnedMessageIds: []
+    )
+    let actions = MailShellConversationReader.contextualProviderActions(
+      supported: [.move, .spam],
+      messages: selectedMessages,
+      collection: .role(.inbox),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(selectedMessages, [inboxMessage])
+    XCTAssertEqual(actions, [.move, .spam])
+  }
+
   func testMailShellScopesThreadsToSelectedMailbox() {
     let selectedThread = mailShellThread(
       providerThreadId: "thread-selected",

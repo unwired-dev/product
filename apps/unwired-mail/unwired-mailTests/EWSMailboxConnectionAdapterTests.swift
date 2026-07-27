@@ -2991,6 +2991,67 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testSinglePageReconciliationClearsPendingVerificationMarker() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    let recent = ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-1")
+    let historical = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-2")
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [recent], nextOffset: 1)
+    client.pages["inbox-id|1"] = EWSMessagePage(messages: [historical], nextOffset: nil)
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    let awaitingVerification = try XCTUnwrap(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    XCTAssertEqual(awaitingVerification.pendingVerificationFolderIds, ["inbox-id"])
+
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [recent], nextOffset: nil)
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    let reconciled = try XCTUnwrap(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    XCTAssertTrue(reconciled.pendingVerificationFolderIds?.isEmpty == true)
+  }
+
   private func snapshot(message: EWSProviderMessage) -> EWSMetadataSnapshot {
     EWSMetadataSnapshot(
       folders: [

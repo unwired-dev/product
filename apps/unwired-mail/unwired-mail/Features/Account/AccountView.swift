@@ -3132,9 +3132,13 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
+    let messages = selection.selectedMailboxMessages(
+      in: thread,
+      pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+    )
     let actions = Self.contextualProviderActions(
       supported: connection.capabilities.providerActions,
-      messages: thread.messages,
+      messages: messages,
       collection: selection.selectedMailbox?.collection,
       allowsMove: true,
       allowsProviderMailboxMove: Self.allowsMoveFromProviderMailbox(connection.providerId)
