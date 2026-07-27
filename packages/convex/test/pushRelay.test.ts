@@ -3620,7 +3620,36 @@ describe('gmail push relay', () => {
       apnsMock.status = 200;
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-      const remainingWakeups = await t.run((ctx) =>
+      const remainingAfterSuccessfulRetry = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest,
+        expiresAt: Date.now() + 10 * 60_000,
+        routeId: route.routeId,
+        subscriptionId: 'graph-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await t.fetch(pushURL, {
+        body: JSON.stringify({ value: [notification] }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const permanentWakeup = await t.run(async (ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+      apnsMock.status = 400;
+      const permanentDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: permanentWakeup!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await permanentDelivery;
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const remainingAfterPermanentFailure = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
@@ -3628,7 +3657,8 @@ describe('gmail push relay', () => {
         payloadContainsProviderData: apnsMock.requests[0]!.payload.includes(
           'provider-message-id',
         ),
-        remainingWakeups,
+        remainingAfterPermanentFailure,
+        remainingAfterSuccessfulRetry,
         requestCount: apnsMock.requests.length,
       }).toStrictEqual({
         payload: {
@@ -3637,8 +3667,9 @@ describe('gmail push relay', () => {
           routeId: route.routeId,
         },
         payloadContainsProviderData: false,
-        remainingWakeups: [],
-        requestCount: 2,
+        remainingAfterPermanentFailure: [],
+        remainingAfterSuccessfulRetry: [],
+        requestCount: 3,
       });
     } finally {
       vi.useRealTimers();

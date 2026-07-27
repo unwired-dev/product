@@ -2523,7 +2523,7 @@ export const claimMicrosoftGraphWakeup = internalMutation({
 });
 
 type CompleteMicrosoftGraphWakeupArgs = MicrosoftGraphWakeupScheduleArgs &
-  Readonly<{ delivered: boolean }>;
+  Readonly<{ delivered: boolean; terminalFailure?: boolean }>;
 
 async function microsoftGraphRouteDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
@@ -2566,6 +2566,9 @@ function shouldDiscardMicrosoftGraphWakeup(
   context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
   args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): boolean {
+  if (args.terminalFailure === true) {
+    return true;
+  }
   if (!hasUsableMicrosoftGraphWakeupRoute(context)) {
     return true;
   }
@@ -2646,6 +2649,7 @@ export const completeMicrosoftGraphWakeup = internalMutation({
     delivered: v.boolean(),
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
+    terminalFailure: v.optional(v.boolean()),
   },
   handler: completeMicrosoftGraphWakeupForRoute,
   returns: v.null(),

@@ -21,6 +21,7 @@ const apnsEnvironmentValidator = v.union(
 );
 
 const apnsRequestTimeoutMs = 10_000;
+const permanentApnsFailureStatuses = new Set([400, 403, 404, 405, 410, 413]);
 
 type ApnsConfiguration = Readonly<{
   keyId: string;
@@ -231,6 +232,16 @@ function isStaleTokenFailure(
   );
 }
 
+function isPermanentApnsFailure(
+  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+): boolean {
+  return (
+    result.status === 'rejected' &&
+    result.reason instanceof ApnsRequestError &&
+    permanentApnsFailureStatuses.has(result.reason.status)
+  );
+}
+
 async function handleDeliveryResult(
   ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
   result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
@@ -395,6 +406,7 @@ export const deliverMicrosoftGraphWakeup = internalAction({
       return null;
     }
     let delivered = false;
+    let terminalFailure = false;
     try {
       const configuration = apnsConfiguration();
       const client = connect(apnsAuthority(recipient.apnsEnvironment));
@@ -421,6 +433,7 @@ export const deliverMicrosoftGraphWakeup = internalAction({
       });
       await handleDeliveryResult(ctx, result[0], recipient);
       delivered = result[0].status === 'fulfilled';
+      terminalFailure = isPermanentApnsFailure(result[0]);
     } catch (error) {
       console.error('APNs wakeup delivery failed', error);
     }
@@ -428,6 +441,7 @@ export const deliverMicrosoftGraphWakeup = internalAction({
       delivered,
       routeId: args.routeId,
       scheduledAt: args.scheduledAt,
+      terminalFailure,
     });
     return null;
   },
