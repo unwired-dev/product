@@ -495,6 +495,35 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
+  func testPushConnectionStoreMigratesLegacyConnectionWithStaleManifestEntry() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let safeProductAccountId = gmailSafeFileComponent(productAccountId)
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let manifestAccount = "gmail-push-connections.\(safeProductAccountId)"
+    let scopedAccount =
+      "gmail-push-connection.\(safeProductAccountId)."
+      + gmailSafeFileComponent(connection.providerAccountIdentifier)
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let manifestJSON = try XCTUnwrap(
+      String(
+        data: JSONEncoder().encode([connection.providerAccountIdentifier]),
+        encoding: .utf8
+      )
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer { try? store.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+    try KeychainStore.writeString(manifestJSON, service: service, account: manifestAccount)
+
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [connection])
+    XCTAssertNotNil(try KeychainStore.readString(service: service, account: scopedAccount))
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
   func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
     let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))

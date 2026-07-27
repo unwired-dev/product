@@ -679,7 +679,9 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       providerAccountIdentifier: legacyConnection.providerAccountIdentifier,
       productAccountId: productAccountId
     )
-    if identifiers.contains(legacyConnection.providerAccountIdentifier) {
+    if connections.contains(where: {
+      $0.providerAccountIdentifier == legacyConnection.providerAccountIdentifier
+    }) {
       for account in legacyKeys(productAccountId) {
         try? KeychainStore.delete(service: service, account: account)
       }
