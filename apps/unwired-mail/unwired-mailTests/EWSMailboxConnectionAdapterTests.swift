@@ -1248,21 +1248,29 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
             of: "<t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>",
             with: "<t:DateTimeSent>2026-07-27T12:34:56.123Z</t:DateTimeSent>"
           )
-        } else if body.contains(#"Id="archivemsgfolderroot""#) {
+        } else if body.contains("<m:FindFolder"),
+          body.contains(#"Id="archivemsgfolderroot""#)
+        {
           Self.findFolderResponse(offset: 100)
-            .replacingOccurrences(of: "custom-100", with: "archive-deleted-id")
-            .replacingOccurrences(of: "Custom 100", with: "Deleted Items")
+            .replacingOccurrences(of: "custom-100", with: "nested-custom-id")
+            .replacingOccurrences(of: "parent-100", with: "archive-sent-id")
+            .replacingOccurrences(of: "Custom 100", with: "Sent Items")
             .replacingOccurrences(
               of: "</t:Folders>",
               with: """
                 <t:Folder>
                   <t:FolderId Id="archive-sent-id" ChangeKey="archive-sent-key"/>
+                  <t:ParentFolderId Id="archive-root-id"/>
                   <t:DisplayName>Sent Items</t:DisplayName>
                   <t:FolderClass>IPF.Note</t:FolderClass>
                 </t:Folder>
                 </t:Folders>
                 """
             )
+        } else if body.contains(#"Id="archivemsgfolderroot""#) {
+          Self.getFolderResponse
+            .replacingOccurrences(of: "inbox-id", with: "archive-root-id")
+            .replacingOccurrences(of: "Inbox", with: "Archive Root")
         } else if body.contains(#"Id="archivedeleteditems""#) {
           Self.getFolderResponse
             .replacingOccurrences(of: "inbox-id", with: "archive-deleted-id")
@@ -1309,6 +1317,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(archiveSent.isArchiveHierarchy, true)
     XCTAssertEqual(archiveSent.isSentHierarchy, true)
     XCTAssertNil(archiveSent.role)
+    XCTAssertNil(folders.first(where: { $0.id == "nested-custom-id" })?.isSentHierarchy)
 
     _ = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
       folder: archiveSent,

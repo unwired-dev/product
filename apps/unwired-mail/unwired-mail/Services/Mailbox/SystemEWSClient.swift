@@ -102,7 +102,10 @@ struct SystemEWSClient: EWSClient {
       resolvedFolders,
       authorization: authorization
     )
-    return markArchiveSentHierarchy(foldersWithArchiveTrash).filter(\.isMailFolder)
+    return try await markArchiveSentHierarchy(
+      foldersWithArchiveTrash,
+      authorization: authorization
+    ).filter(\.isMailFolder)
   }
 
   private func loadFolderHierarchy(
@@ -252,16 +255,38 @@ struct SystemEWSClient: EWSClient {
     return folders
   }
 
-  private func markArchiveSentHierarchy(_ discoveredFolders: [EWSFolder]) -> [EWSFolder] {
+  private func markArchiveSentHierarchy(
+    _ discoveredFolders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSFolder] {
     guard let sentFolder = discoveredFolders.first(where: { $0.role == .sent }) else {
       return discoveredFolders
     }
+    let archiveRoot: EWSFolder?
+    do {
+      archiveRoot = try await loadFolder(
+        distinguishedId: "archivemsgfolderroot",
+        role: nil,
+        isArchiveHierarchy: true,
+        authorization: authorization
+      )
+    } catch EWSServiceError.response(let code, _)
+      where code == "ErrorFolderNotFound"
+    {
+      return discoveredFolders
+    }
+    guard let archiveRoot else { return discoveredFolders }
+    let candidates = discoveredFolders.filter {
+      $0.isArchiveHierarchy == true
+        && $0.role == nil
+        && $0.parentFolderId == archiveRoot.id
+        && $0.displayName.localizedCaseInsensitiveCompare(sentFolder.displayName) == .orderedSame
+    }
+    guard candidates.count == 1, let archiveSentId = candidates.first?.id else {
+      return discoveredFolders
+    }
     return discoveredFolders.map { folder in
-      guard
-        folder.isArchiveHierarchy == true,
-        folder.role == nil,
-        folder.displayName.localizedCaseInsensitiveCompare(sentFolder.displayName) == .orderedSame
-      else { return folder }
+      guard folder.id == archiveSentId else { return folder }
       return EWSFolder(
         changeKey: folder.changeKey,
         displayName: folder.displayName,
