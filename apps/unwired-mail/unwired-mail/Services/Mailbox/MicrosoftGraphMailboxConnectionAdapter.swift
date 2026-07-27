@@ -1312,6 +1312,20 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
+  var initialCrawlMessageIdsByFolderId: [String: Set<String>]?
+  var seededMessageIdsByFolderId: [String: Set<String>]?
+
+  init(
+    folders: [MicrosoftGraphFolderSyncState],
+    hasInitialMailboxAvailability: Bool,
+    initialCrawlMessageIdsByFolderId: [String: Set<String>]? = nil,
+    seededMessageIdsByFolderId: [String: Set<String>]? = nil
+  ) {
+    self.folders = folders
+    self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
+    self.initialCrawlMessageIdsByFolderId = initialCrawlMessageIdsByFolderId
+    self.seededMessageIdsByFolderId = seededMessageIdsByFolderId
+  }
 
   var historicalMetadataBackfillIsComplete: Bool {
     hasInitialMailboxAvailability && folders.allSatisfy { $0.deltaLink != nil }
@@ -1341,7 +1355,8 @@ protocol MicrosoftGraphMetadataPersisting {
     folderId: String,
     state: MicrosoftGraphMetadataSyncState,
     productAccountId: String,
-    connectionId: MailboxConnectionId
+    connectionId: MailboxConnectionId,
+    removingMessageIds: Set<String>
   ) throws
   func updateCategory(
     _ categoryId: String,
@@ -1349,6 +1364,25 @@ protocol MicrosoftGraphMetadataPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> MicrosoftGraphProviderMessage
+}
+
+extension MicrosoftGraphMetadataPersisting {
+  func savePage(
+    _ messages: [MicrosoftGraphProviderMessage],
+    folderId: String,
+    state: MicrosoftGraphMetadataSyncState,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    try savePage(
+      messages,
+      folderId: folderId,
+      state: state,
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      removingMessageIds: []
+    )
+  }
 }
 
 @Model
@@ -1496,18 +1530,24 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     folderId: String,
     state: MicrosoftGraphMetadataSyncState,
     productAccountId: String,
-    connectionId: MailboxConnectionId
+    connectionId: MailboxConnectionId,
+    removingMessageIds: Set<String> = []
   ) throws {
     let context = try makeContext()
     let messageIds = Set(messages.map(\.id))
     let existing = Dictionary(
       uniqueKeysWithValues: try records(
-        matching: messageIds,
+        matching: messageIds.union(removingMessageIds),
         productAccountId: productAccountId,
         connectionId: connectionId,
         context: context
       ).map { ($0.stableProviderMessageId, $0) }
     )
+    for messageId in removingMessageIds.subtracting(messageIds) {
+      if let record = existing[messageId], record.parentFolderId == folderId {
+        context.delete(record)
+      }
+    }
     for var message in messages {
       if message.removed {
         if let record = existing[message.id], record.parentFolderId == folderId {
@@ -1843,6 +1883,7 @@ struct MicrosoftGraphMetadataService {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func continueBackfill(
     connection: MailboxConnection,
     productAccountId: String,
@@ -1875,12 +1916,30 @@ struct MicrosoftGraphMetadataService {
           try Task.checkCancellation()
           state.folders[index].nextLink = page.nextLink
           state.folders[index].deltaLink = page.deltaLink
+          let folderId = state.folders[index].folder.id
+          var observedByFolder = state.initialCrawlMessageIdsByFolderId ?? [:]
+          observedByFolder[folderId, default: []].formUnion(
+            page.messages.compactMap { message in
+              !message.removed && message.parentFolderId == folderId ? message.id : nil
+            }
+          )
+          state.initialCrawlMessageIdsByFolderId = observedByFolder
+          var removingMessageIds: Set<String> = []
+          if page.deltaLink != nil,
+            let seededMessageIds = state.seededMessageIdsByFolderId?[folderId]
+          {
+            removingMessageIds =
+              seededMessageIds.subtracting(observedByFolder[folderId, default: []])
+            state.seededMessageIdsByFolderId?[folderId] = nil
+            state.initialCrawlMessageIdsByFolderId?[folderId] = nil
+          }
           try store.savePage(
             page.messages,
-            folderId: state.folders[index].folder.id,
+            folderId: folderId,
             state: state,
             productAccountId: productAccountId,
-            connectionId: connection.id
+            connectionId: connection.id,
+            removingMessageIds: removingMessageIds
           )
           continuation = page.nextLink
         } while continuation != nil
@@ -1952,6 +2011,9 @@ struct MicrosoftGraphMetadataService {
           accessToken: accessToken
         )
         messages = recentPage.messages
+        var seededByFolder = state.seededMessageIdsByFolderId ?? [:]
+        seededByFolder[state.folders[index].folder.id] = Set(messages.map(\.id))
+        state.seededMessageIdsByFolderId = seededByFolder
       } else {
         repeat {
           let page = try await client.loadMetadataPage(

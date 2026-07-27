@@ -200,7 +200,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
-      (.spam, nil, ["INBOX"], ["SPAM"]),
+      (.spam, nil, ["graph-folder:source", "INBOX"], ["SPAM"]),
       (.notSpam, nil, ["SPAM"], ["INBOX"]),
       (.star, nil, ["INBOX"], ["INBOX", "STARRED"]),
       (.unstar, nil, ["INBOX", "STARRED"], ["INBOX"]),

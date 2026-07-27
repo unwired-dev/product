@@ -336,6 +336,7 @@ enum MicrosoftGraphPushError: LocalizedError {
 
 struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
   static let renewalWindow: TimeInterval = 24 * 60 * 60
+  private static let registrationGate = MailboxConnectionSyncGate()
   private static let subscriptionLifetime: TimeInterval = 2 * 24 * 60 * 60
 
   private let now: () -> Date
@@ -361,6 +362,20 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
   }
 
   func registerOrRenew(
+    connection: MailboxConnection,
+    accessToken: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await Self.registrationGate.withLock(connection.id) {
+      try await registerOrRenewLocked(
+        connection: connection,
+        accessToken: accessToken,
+        session: session
+      )
+    }
+  }
+
+  private func registerOrRenewLocked(
     connection: MailboxConnection,
     accessToken: String,
     session: ProductAccountSessionSnapshot

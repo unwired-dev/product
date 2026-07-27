@@ -150,9 +150,11 @@ export default defineSchema({
 
   microsoftGraphWakeupStates: defineTable({
     attemptCount: v.optional(v.number()),
+    clientStateDigest: v.optional(v.string()),
     pendingAt: v.optional(v.number()),
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
+    subscriptionId: v.optional(v.string()),
   }).index('by_routeId', ['routeId']),
 
   gmailOpaqueIdentityBindings: defineTable({

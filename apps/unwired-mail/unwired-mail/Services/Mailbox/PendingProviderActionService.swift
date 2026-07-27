@@ -840,6 +840,7 @@ extension MailboxMessageMetadata {
       states.insert("INBOX")
     case .spam:
       states.remove("INBOX")
+      states = states.filter { !$0.hasPrefix("graph-folder:") }
       states.insert("SPAM")
     case .star:
       states.insert("STARRED")

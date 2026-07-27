@@ -3702,6 +3702,70 @@ describe('gmail push relay', () => {
     }
   });
 
+  it('retains a Microsoft Graph notification received before route confirmation', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-preconfirmation-device',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'graph-preconfirmation-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const clientStateDigest = createHash('sha256')
+      .update('graph-preconfirmation-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest,
+        opaqueConnectionId: 'opaque-graph-preconfirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+
+    await expect(
+      t.mutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-preconfirmation-subscription',
+      }),
+    ).resolves.toStrictEqual({ accepted: true });
+    const staged = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(staged).toMatchObject({
+      clientStateDigest,
+      routeId: route.routeId,
+      subscriptionId: 'graph-preconfirmation-subscription',
+    });
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-preconfirmation-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const confirmed = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(confirmed?.routeId).toBe(route.routeId);
+    await expect(
+      t.mutation(internal.pushRelay.claimMicrosoftGraphWakeup, {
+        routeId: route.routeId,
+        scheduledAt: confirmed!.scheduledAt,
+      }),
+    ).resolves.toMatchObject({
+      apnsToken: 'graph-preconfirmation-token',
+      routeId: route.routeId,
+    });
+  });
+
   it('caps Microsoft Graph routes per trusted device', async () => {
     expect.assertions(2);
 

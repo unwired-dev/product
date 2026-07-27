@@ -2377,7 +2377,6 @@ async function confirmMicrosoftGraphRouteForDevice(
   let confirmedClientStateDigest = route.microsoftClientStateDigest;
   let pendingClientStateDigest = route.microsoftPendingClientStateDigest;
   if (confirmsPendingReplacement) {
-    await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
     confirmedClientStateDigest = args.clientStateDigest;
     pendingClientStateDigest = undefined;
   }
@@ -2389,6 +2388,25 @@ async function confirmMicrosoftGraphRouteForDevice(
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,
   });
+  const stagedWakeup = await microsoftGraphWakeupState(ctx, args.routeId);
+  if (
+    stagedWakeup !== null &&
+    stagedWakeup.clientStateDigest === confirmedClientStateDigest &&
+    stagedWakeup.subscriptionId === args.subscriptionId
+  ) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(stagedWakeup._id, {
+      pendingAt: now,
+      scheduledAt: now,
+    });
+    await ctx.scheduler.runAfter(0, internal.apns.deliverMicrosoftGraphWakeup, {
+      routeId: args.routeId,
+      scheduledAt: now,
+    });
+  } else if (confirmsPendingReplacement && stagedWakeup !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(stagedWakeup._id);
+  }
   await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
   return { routeId: args.routeId };
 }
@@ -2489,6 +2507,18 @@ function matchesMicrosoftGraphSubscription(
   );
 }
 
+function canStageMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  clientStateDigest: string,
+): route is Doc<'mailProviderConnections'> {
+  return (
+    route?.provider === 'microsoft-graph' &&
+    ((route.microsoftSubscriptionId === undefined &&
+      route.microsoftClientStateDigest === clientStateDigest) ||
+      route.microsoftPendingClientStateDigest === clientStateDigest)
+  );
+}
+
 async function acceptedMicrosoftGraphWakeupRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupArgs,
@@ -2499,10 +2529,13 @@ async function acceptedMicrosoftGraphWakeupRoute(
     return null;
   }
   const route = await ctx.db.get(routeId);
-  if (!isActiveMicrosoftGraphRoute(route, now)) {
-    return null;
-  }
-  if (!matchesMicrosoftGraphSubscription(route, args)) {
+  if (
+    !(
+      (isActiveMicrosoftGraphRoute(route, now) &&
+        matchesMicrosoftGraphSubscription(route, args)) ||
+      canStageMicrosoftGraphSubscription(route, args.clientStateDigest)
+    )
+  ) {
     return null;
   }
   return routeId;
@@ -2523,8 +2556,10 @@ async function enqueueMicrosoftGraphWakeupForRoute(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(existing._id, {
       attemptCount: 0,
+      clientStateDigest: args.clientStateDigest,
       pendingAt: now,
       scheduledAt,
+      subscriptionId: args.subscriptionId,
     });
     await ctx.scheduler.runAfter(
       1000,
@@ -2535,9 +2570,11 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   }
   await ctx.db.insert('microsoftGraphWakeupStates', {
     attemptCount: 0,
+    clientStateDigest: args.clientStateDigest,
     pendingAt: now,
     routeId,
     scheduledAt: now,
+    subscriptionId: args.subscriptionId,
   });
   await ctx.scheduler.runAfter(
     1000,
@@ -2578,23 +2615,34 @@ async function claimMicrosoftGraphWakeupForRoute(
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
     return null;
   }
-  if (!isActiveMicrosoftGraphRoute(route, Date.now())) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
+  if (
+    isActiveMicrosoftGraphRoute(route, Date.now()) &&
+    (state.clientStateDigest === undefined ||
+      (state.clientStateDigest === route.microsoftClientStateDigest &&
+        state.subscriptionId === route.microsoftSubscriptionId))
+  ) {
+    const device = await ctx.db.get(route.trustedDeviceId);
+    if (!hasActiveApnsRoute(device)) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(state._id);
+      return null;
+    }
+    await ctx.scheduler.runAfter(
+      microsoftGraphWakeupClaimLeaseMs,
+      internal.apns.deliverMicrosoftGraphWakeup,
+      args,
+    );
+    return apnsRecipient(device, args.routeId);
+  }
+  if (
+    state.clientStateDigest !== undefined &&
+    canStageMicrosoftGraphSubscription(route, state.clientStateDigest)
+  ) {
     return null;
   }
-  const device = await ctx.db.get(route.trustedDeviceId);
-  if (!hasActiveApnsRoute(device)) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
-    return null;
-  }
-  await ctx.scheduler.runAfter(
-    microsoftGraphWakeupClaimLeaseMs,
-    internal.apns.deliverMicrosoftGraphWakeup,
-    args,
-  );
-  return apnsRecipient(device, args.routeId);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.delete(state._id);
+  return null;
 }
 
 export const claimMicrosoftGraphWakeup = internalMutation({
