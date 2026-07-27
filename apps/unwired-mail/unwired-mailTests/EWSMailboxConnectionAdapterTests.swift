@@ -729,9 +729,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(Set(page.messages.map(\.stableProviderId)), ["item-id", "second-item-id"])
   }
 
-  func testSystemClientUsesCreatedTimestampWhenReceivedTimestampIsMissing() async throws {
+  func testSystemClientSortsDraftsByLastModifiedTimestamp() async throws {
+    var requestBody = ""
     EWSURLProtocol.requestHandler = { request in
-      (
+      requestBody = try Self.requestBody(request)
+      return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
           statusCode: 200,
@@ -740,8 +742,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )!,
         Data(
           Self.findItemResponse.replacingOccurrences(
-            of: "DateTimeReceived",
-            with: "DateTimeCreated"
+            of: "<t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>",
+            with: """
+              <t:IsDraft>true</t:IsDraft>
+              <t:LastModifiedTime>2026-07-27T12:34:57.123Z</t:LastModifiedTime>
+              """
           ).utf8
         )
       )
@@ -764,7 +769,42 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
+    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_697_123)
+    XCTAssertTrue(requestBody.contains(#"FieldURI="item:LastModifiedTime""#))
+    XCTAssertTrue(requestBody.contains(#"Order="Descending""#))
+  }
+
+  func testArchiveHierarchyMessagesKeepArchiveAndCustomFolderMembership() throws {
+    let connection = makeEWSDefinition().synchronizedDefinition(
+      connectedAt: 1_781_200_000_000,
+      displayName: "Archive"
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let message = ewsMessage(
+      1,
+      folderId: "archive-projects",
+      conversationId: "conversation-1"
+    )
+
+    let metadata = message.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "archive-projects": EWSFolder(
+          changeKey: "archive-key",
+          displayName: "Projects",
+          id: "archive-projects",
+          isArchiveHierarchy: true,
+          role: nil
+        )
+      ]
+    )
+
+    XCTAssertEqual(
+      Set(metadata.providerStateIds ?? []),
+      ["ARCHIVE", "UNREAD", EWSProviderMessage.customFolderStateId("archive-projects")]
+    )
   }
 
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
@@ -2285,7 +2325,11 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     get { lock.withLock { storedOfflineFailures } }
     set { lock.withLock { storedOfflineFailures = newValue } }
   }
-  var offlineFailureCode: URLError.Code = .notConnectedToInternet
+  private var storedOfflineFailureCode: URLError.Code = .notConnectedToInternet
+  var offlineFailureCode: URLError.Code {
+    get { lock.withLock { storedOfflineFailureCode } }
+    set { lock.withLock { storedOfflineFailureCode = newValue } }
+  }
   private var storedActionFailures: [MailboxConnectionId: Int] = [:]
   var remainingActionFailuresByConnectionId: [MailboxConnectionId: Int] {
     get { lock.withLock { storedActionFailures } }

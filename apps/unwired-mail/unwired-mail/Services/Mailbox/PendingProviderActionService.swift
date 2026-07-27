@@ -449,14 +449,28 @@ actor PendingProviderActionService {
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    isConfirmed: (
+      (
+        _ action: ProviderMailAction,
+        _ targetProviderMailboxId: String?,
+        _ messageIds: [String]
+      ) -> Bool
+    )? = nil
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
     let confirmedActionIds = Set(
-      actions.filter {
-        $0.connectionId == connection.id.rawValue
-          && ($0.state == .providerConfirmed || $0.state == .userActionRequired)
-          && $0.isConfirmed(in: messages)
+      actions.filter { pendingAction in
+        let actionIsConfirmed =
+          isConfirmed?(
+            pendingAction.action,
+            pendingAction.targetProviderMailboxId,
+            pendingAction.messageIds
+          ) ?? pendingAction.isConfirmed(in: messages)
+        return pendingAction.connectionId == connection.id.rawValue
+          && (pendingAction.state == .providerConfirmed
+            || pendingAction.state == .userActionRequired)
+          && actionIsConfirmed
       }.map(\.id)
     )
     let supersededActionIds = Set(

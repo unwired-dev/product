@@ -718,6 +718,37 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(actions.isEmpty)
   }
 
+  func testProviderSyncKeepsBlockedActionWhenProviderSpecificConfirmationRejectsIt() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-blocked-archive",
+      providerStateIds: ["SENT"]
+    )
+
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: connection,
+        session: session
+      ) { _, _, _ in
+        throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+      }
+      XCTFail("Expected retry-limit failure")
+    } catch {}
+
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in false }
+    )
+
+    let actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
+  }
+
   func testDeleteProjectionRemovesSpam() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(

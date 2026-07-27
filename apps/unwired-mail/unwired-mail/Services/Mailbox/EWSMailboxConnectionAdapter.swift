@@ -726,6 +726,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let changeKey: String?
   let displayName: String
   let id: String
+  let isArchiveHierarchy: Bool?
   let isSearchFolder: Bool?
   let role: EWSFolderRole?
 
@@ -733,12 +734,14 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     changeKey: String?,
     displayName: String,
     id: String,
+    isArchiveHierarchy: Bool? = nil,
     isSearchFolder: Bool? = nil,
     role: EWSFolderRole?
   ) {
     self.changeKey = changeKey
     self.displayName = displayName
     self.id = id
+    self.isArchiveHierarchy = isArchiveHierarchy
     self.isSearchFolder = isSearchFolder
     self.role = role
   }
@@ -816,6 +819,9 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     if let role = folder?.role {
       states.append(Self.providerStateId(role.mailboxRole))
     } else {
+      if folder?.isArchiveHierarchy == true {
+        states.append(Self.providerStateId(.archive))
+      }
       states.append(Self.customFolderStateId(parentFolderId))
     }
     return MailboxMessageMetadata(
@@ -1630,7 +1636,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       try await pendingActionService.reconcileProviderSync(
         messages: rawResult.messages,
         connection: connection,
-        session: session
+        session: session,
+        isConfirmed: { action, targetFolderId, messageIds in
+          actionIsConfirmed(
+            action,
+            targetFolderId: targetFolderId,
+            messageIds: messageIds,
+            snapshot: snapshot,
+            connection: connection
+          )
+        }
       )
       return try await projectedResult(
         snapshot,
@@ -1717,7 +1732,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       try await pendingActionService.reconcileProviderSync(
         messages: rawResult.messages,
         connection: connection,
-        session: session
+        session: session,
+        isConfirmed: { action, targetFolderId, messageIds in
+          actionIsConfirmed(
+            action,
+            targetFolderId: targetFolderId,
+            messageIds: messageIds,
+            snapshot: snapshot,
+            connection: connection
+          )
+        }
       )
       return try await projectedResult(
         snapshot,

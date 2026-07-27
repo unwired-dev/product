@@ -82,11 +82,13 @@ struct SystemEWSClient: EWSClient {
   ) async throws -> [EWSFolder] {
     var folders = try await loadFolderHierarchy(
       rootDistinguishedId: "msgfolderroot",
+      isArchiveHierarchy: false,
       authorization: authorization
     )
     do {
       folders += try await loadFolderHierarchy(
         rootDistinguishedId: "archivemsgfolderroot",
+        isArchiveHierarchy: true,
         authorization: authorization
       )
     } catch EWSServiceError.response(let code, _)
@@ -102,6 +104,7 @@ struct SystemEWSClient: EWSClient {
 
   private func loadFolderHierarchy(
     rootDistinguishedId: String,
+    isArchiveHierarchy: Bool,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
     let pageSize = 100
@@ -119,7 +122,14 @@ struct SystemEWSClient: EWSClient {
         guard let parsed = folder(node) else {
           throw EWSServiceError.invalidResponse
         }
-        return parsed
+        return EWSFolder(
+          changeKey: parsed.changeKey,
+          displayName: parsed.displayName,
+          id: parsed.id,
+          isArchiveHierarchy: isArchiveHierarchy,
+          isSearchFolder: parsed.isSearchFolder,
+          role: parsed.role
+        )
       }
       guard let rootFolder = document.firstDescendant(named: "RootFolder") else {
         throw EWSServiceError.invalidResponse
@@ -148,6 +158,7 @@ struct SystemEWSClient: EWSClient {
           changeKey: folders[index].changeKey,
           displayName: folders[index].displayName,
           id: folders[index].id,
+          isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
           role: role
         )
@@ -172,6 +183,7 @@ struct SystemEWSClient: EWSClient {
           changeKey: folders[index].changeKey,
           displayName: folders[index].displayName,
           id: folders[index].id,
+          isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
           role: role
         )
@@ -212,7 +224,7 @@ struct SystemEWSClient: EWSClient {
     pageSize: Int,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSMessagePage {
-    let sortField = folder.role == .drafts ? "item:DateTimeCreated" : "item:DateTimeReceived"
+    let sortField = folder.role == .drafts ? "item:LastModifiedTime" : "item:DateTimeReceived"
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
@@ -224,6 +236,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="item:ConversationId"/>
             <t:FieldURI FieldURI="item:DateTimeCreated"/>
             <t:FieldURI FieldURI="item:DateTimeReceived"/>
+            <t:FieldURI FieldURI="item:LastModifiedTime"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
             <t:FieldURI FieldURI="message:From"/>
             <t:FieldURI FieldURI="item:IsDraft"/>
@@ -620,8 +633,10 @@ struct SystemEWSClient: EWSClient {
     let internetMessageId = node.child(named: "InternetMessageId")?.text.nonEmpty
     let searchKey = node.children.first(where: { $0.localName == "ExtendedProperty" })?
       .child(named: "Value")?.text.nonEmpty
+    let isDraft = node.child(named: "IsDraft")?.text == "true"
     let dateText: String? =
-      node.child(named: "DateTimeReceived")?.text
+      (isDraft ? node.child(named: "LastModifiedTime")?.text : nil)
+      ?? node.child(named: "DateTimeReceived")?.text
       ?? node.child(named: "DateTimeCreated")?.text
     let date = dateText.flatMap(Self.date)
     let parentFolderId =
@@ -633,7 +648,7 @@ struct SystemEWSClient: EWSClient {
       conversationId: node.child(named: "ConversationId")?.attributes["Id"],
       from: formattedAddress(node.child(named: "From")?.child(named: "Mailbox")),
       internetMessageId: internetMessageId,
-      isDraft: node.child(named: "IsDraft")?.text == "true",
+      isDraft: isDraft,
       isFlagged: node.child(named: "Flag")?.child(named: "FlagStatus")?.text == "Flagged",
       isRead: node.child(named: "IsRead")?.text == "true",
       itemId: itemId,
@@ -1027,13 +1042,13 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
       NSURLAuthenticationMethodNTLM,
     ]
     let protectionSpace = challenge.protectionSpace
-    let challengeOrigin =
-      "\(protectionSpace.protocol ?? "https")://\(protectionSpace.host):\(protectionSpace.port)"
-    let challengeURL = URL(string: challengeOrigin)
+    let endpointPort = endpoint.port ?? (endpoint.scheme?.lowercased() == "https" ? 443 : 0)
+    let challengeMatchesEndpoint =
+      protectionSpace.protocol?.lowercased() == endpoint.scheme?.lowercased()
+      && protectionSpace.host.lowercased() == endpoint.host?.lowercased()
+      && protectionSpace.port == endpointPort
     if passwordMethods.contains(method),
-      challengeURL.map({
-        EWSConnectionDefinition.hasSameOrigin($0, as: endpoint)
-      }) == true,
+      challengeMatchesEndpoint,
       let credential
     {
       completionHandler(.useCredential, credential)
