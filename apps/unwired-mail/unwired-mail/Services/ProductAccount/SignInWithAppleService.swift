@@ -13,6 +13,35 @@ struct AppleSignInCredential: Equatable {
   let identityToken: String
 }
 
+private struct ProductAccountTokenClaims: Decodable {
+  let expiration: TimeInterval
+
+  private enum CodingKeys: String, CodingKey {
+    case expiration = "exp"
+  }
+}
+
+enum AppleIdentityToken {
+  static func expirationDate(from identityToken: String) -> Date? {
+    let segments = identityToken.split(separator: ".", omittingEmptySubsequences: false)
+    guard segments.count == 3 else { return nil }
+
+    var encodedClaims = String(segments[1])
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    encodedClaims.append(String(repeating: "=", count: (4 - encodedClaims.count % 4) % 4))
+    guard
+      let claimsData = Data(base64Encoded: encodedClaims),
+      let claims = try? JSONDecoder().decode(ProductAccountTokenClaims.self, from: claimsData),
+      claims.expiration.isFinite
+    else {
+      return nil
+    }
+
+    return Date(timeIntervalSince1970: claims.expiration)
+  }
+}
+
 enum AppleSignInError: LocalizedError, Equatable {
   case missingIdentityToken
   case missingUserIdentifier
@@ -41,6 +70,52 @@ enum AppleSignInError: LocalizedError, Equatable {
   }
 }
 
+enum ProductAccountAuthorizationState: Equatable {
+  case authorized
+  case revoked
+  case unauthorized
+  case unavailable
+}
+
+protocol ProductAccountAuthorizationStateChecking {
+  func authorizationState(
+    forAppleUserIdentifier appleUserIdentifier: String
+  ) async -> ProductAccountAuthorizationState
+}
+
+struct AppleAuthorizationStateChecker:
+  ProductAccountAuthorizationStateChecking
+{
+  func authorizationState(
+    forAppleUserIdentifier appleUserIdentifier: String
+  ) async -> ProductAccountAuthorizationState {
+    await Task.detached(priority: .userInitiated) {
+      await withCheckedContinuation { continuation in
+        ASAuthorizationAppleIDProvider().getCredentialState(
+          forUserID: appleUserIdentifier
+        ) { state, error in
+          guard error == nil else {
+            continuation.resume(returning: .unavailable)
+            return
+          }
+          switch state {
+          case .authorized:
+            continuation.resume(returning: .authorized)
+          case .revoked:
+            continuation.resume(returning: .revoked)
+          case .notFound:
+            continuation.resume(returning: .unauthorized)
+          case .transferred:
+            continuation.resume(returning: .unavailable)
+          @unknown default:
+            continuation.resume(returning: .unavailable)
+          }
+        }
+      }
+    }.value
+  }
+}
+
 protocol AppleSignInPerforming {
   func signIn() async throws -> AppleSignInCredential
   func restoreSession(snapshot: ProductAccountSessionSnapshot) async throws -> AppleSignInCredential
@@ -49,6 +124,15 @@ protocol AppleSignInPerforming {
 @MainActor
 final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private var continuation: CheckedContinuation<AppleSignInCredential, Error>?
+  private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
+
+  init(
+    authorizationStateChecker: ProductAccountAuthorizationStateChecking =
+      AppleAuthorizationStateChecker()
+  ) {
+    self.authorizationStateChecker = authorizationStateChecker
+    super.init()
+  }
 
   func signIn() async throws -> AppleSignInCredential {
     try await performAuthorization()
@@ -57,35 +141,21 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   func restoreSession(
     snapshot: ProductAccountSessionSnapshot
   ) async throws -> AppleSignInCredential {
-    let credentialState = await Self.fetchCredentialState(
+    let authorizationState = await authorizationStateChecker.authorizationState(
       forAppleUserIdentifier: snapshot.appleUserIdentifier
     )
 
-    switch credentialState {
+    switch authorizationState {
     case .authorized:
       return AppleSignInCredential(
         appleUserIdentifier: snapshot.appleUserIdentifier,
         identityToken: snapshot.identityToken
       )
-    case .revoked, .notFound:
+    case .revoked, .unauthorized:
       throw AppleSignInError.notAuthorized
-    case .transferred:
-      throw AppleSignInError.credentialUnavailable
-    @unknown default:
+    case .unavailable:
       throw AppleSignInError.credentialUnavailable
     }
-  }
-
-  private nonisolated static func fetchCredentialState(
-    forAppleUserIdentifier userIdentifier: String
-  ) async -> ASAuthorizationAppleIDProvider.CredentialState {
-    await Task.detached(priority: .userInitiated) {
-      await withCheckedContinuation { continuation in
-        ASAuthorizationAppleIDProvider().getCredentialState(forUserID: userIdentifier) { state, _ in
-          continuation.resume(returning: state)
-        }
-      }
-    }.value
   }
 
   private func performAuthorization() async throws -> AppleSignInCredential {
