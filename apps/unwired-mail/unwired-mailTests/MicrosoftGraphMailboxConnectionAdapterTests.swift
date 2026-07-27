@@ -355,6 +355,18 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGraphOutboxRetriesTransientTokenRefreshFailures() {
+    for status in [429, 503] {
+      let disposition = outboxFailureDisposition(
+        for: MicrosoftGraphOAuthError.tokenExchangeFailed(status: status)
+      )
+
+      guard case .transient = disposition else {
+        return XCTFail("Expected token endpoint status \(status) to be transient")
+      }
+    }
+  }
+
   func testProviderActionsUseDurableQueueAndGraphFolderMappings() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [
