@@ -897,6 +897,7 @@ struct EWSMetadataSnapshot: Codable, Equatable, Sendable {
   var folders: [EWSFolder]
   var messages: [EWSProviderMessage]
   var nextOffsetsByFolderId: [String: Int]
+  var pendingVerificationFolderIds: Set<String>? = []
   var reconciliationMessageIdsByFolderId: [String: Set<String>] = [:]
   var hasInitialMailboxAvailability: Bool
 
@@ -1182,10 +1183,7 @@ struct EWSMessageBodyService {
       try? cache.saveMessageBody(
         material.encryptPayload(
           Data(text.utf8),
-          associatedData: associatedData(
-            message.stableProviderMessageId,
-            changeKey: providerMessage.changeKey
-          )
+          associatedData: associatedData(message.stableProviderMessageId)
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
@@ -1234,10 +1232,7 @@ struct EWSMessageBodyService {
           isProtected: true,
           payload: material.encryptPayload(
             Data(text.utf8),
-            associatedData: associatedData(
-              message.stableProviderMessageId,
-              changeKey: providerMessage.changeKey
-            )
+            associatedData: associatedData(message.stableProviderMessageId)
           ),
           retention: .prefetched
         ),
@@ -1272,10 +1267,7 @@ struct EWSMessageBodyService {
     do {
       let data = try material.decryptPayload(
         payload,
-        associatedData: associatedData(
-          message.stableProviderMessageId,
-          changeKey: providerMessage.changeKey
-        )
+        associatedData: associatedData(message.stableProviderMessageId)
       )
       guard let text = String(data: data, encoding: .utf8) else { return nil }
       return MailboxMessageBody(text: text)
@@ -1288,11 +1280,8 @@ struct EWSMessageBodyService {
     }
   }
 
-  private func associatedData(
-    _ stableProviderMessageId: String,
-    changeKey: String
-  ) -> Data {
-    Data("exchange-web-services-body-cache:\(stableProviderMessageId):\(changeKey)".utf8)
+  private func associatedData(_ stableProviderMessageId: String) -> Data {
+    Data("exchange-web-services-body-cache:\(stableProviderMessageId)".utf8)
   }
 }
 
@@ -1572,10 +1561,20 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
-          // Offset paging is mutable while messages move or disappear. Keep the
-          // fetched metadata, but require a fresh reconciliation scan before
-          // declaring this folder complete.
-          snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
+          var pendingVerification = snapshot.pendingVerificationFolderIds ?? []
+          if pendingVerification.remove(folder.id) != nil {
+            finishReconciliation(
+              for: folder.id,
+              snapshot: &snapshot,
+              deleteUnobserved: false
+            )
+          } else {
+            // Offset paging is mutable while messages move or disappear. Keep
+            // this pass, then require one bounded verification scan.
+            pendingVerification.insert(folder.id)
+            snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
+          }
+          snapshot.pendingVerificationFolderIds = pendingVerification
         }
         try metadataStore.save(
           snapshot,
@@ -1641,6 +1640,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     }
     let folders = try await client.loadFolders(authorization: authorization)
+      .filter { $0.isSearchFolder != true }
     var snapshot = EWSMetadataSnapshot(
       folders: folders,
       messages: [],
@@ -2233,7 +2233,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     let folders = try await client.loadFolders(
       authorization: authorization,
       knownFolders: snapshot.folders
-    )
+    ).filter { $0.isSearchFolder != true }
     var recentPagesByFolderId: [String: EWSMessagePage] = [:]
     var recentObservedIdsByFolderId: [String: Set<String>] = [:]
     for folder in folders {
@@ -2281,6 +2281,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       snapshot.reconciliationMessageIdsByFolderId.filter {
         activeFolderIds.contains($0.key)
       }
+    snapshot.pendingVerificationFolderIds =
+      snapshot.pendingVerificationFolderIds?.filter {
+        activeFolderIds.contains($0)
+      }
     guard shouldPersist() else { throw CancellationError() }
     try metadataStore.save(
       snapshot,
@@ -2292,7 +2296,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private static func isDefinitePreDeliveryNetworkFailure(_ error: URLError) -> Bool {
     switch error.code {
-    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive,
+      .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
       return true
     default:
       return false

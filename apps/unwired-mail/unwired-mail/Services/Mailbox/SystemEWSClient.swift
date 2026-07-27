@@ -76,10 +76,33 @@ struct SystemEWSClient: EWSClient {
     try await loadFolders(authorization: authorization, knownFolders: [])
   }
 
-  // swiftlint:disable:next function_body_length
   func loadFolders(
     authorization: DeviceLocalEWSAuthorization,
     knownFolders: [EWSFolder]
+  ) async throws -> [EWSFolder] {
+    var folders = try await loadFolderHierarchy(
+      rootDistinguishedId: "msgfolderroot",
+      authorization: authorization
+    )
+    do {
+      folders += try await loadFolderHierarchy(
+        rootDistinguishedId: "archivemsgfolderroot",
+        authorization: authorization
+      )
+    } catch EWSServiceError.response(let code, _)
+      where code == "ErrorFolderNotFound"
+    {}
+    folders = Dictionary(grouping: folders, by: \.id).compactMap { $0.value.first }
+    return try await resolveFolderRoles(
+      folders,
+      knownFolders: knownFolders,
+      authorization: authorization
+    )
+  }
+
+  private func loadFolderHierarchy(
+    rootDistinguishedId: String,
+    authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSFolder] {
     let pageSize = 100
     var offset = 0
@@ -88,9 +111,16 @@ struct SystemEWSClient: EWSClient {
       let document = try await loadFolderPage(
         offset: offset,
         pageSize: pageSize,
+        rootDistinguishedId: rootDistinguishedId,
         authorization: authorization
       )
-      folders += document.descendants.filter(Self.isFolderNode).compactMap(folder)
+      let folderNodes = document.descendants.filter(Self.isFolderNode)
+      folders += try folderNodes.map { node in
+        guard let parsed = folder(node) else {
+          throw EWSServiceError.invalidResponse
+        }
+        return parsed
+      }
       guard let rootFolder = document.firstDescendant(named: "RootFolder") else {
         throw EWSServiceError.invalidResponse
       }
@@ -101,6 +131,15 @@ struct SystemEWSClient: EWSClient {
       else { throw EWSServiceError.invalidResponse }
       offset = nextOffset
     }
+    return folders
+  }
+
+  private func resolveFolderRoles(
+    _ discoveredFolders: [EWSFolder],
+    knownFolders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSFolder] {
+    var folders = discoveredFolders
     for role in EWSFolderRole.allCases {
       if let known = knownFolders.first(where: { $0.role == role }),
         let index = folders.firstIndex(where: { $0.id == known.id })
@@ -148,6 +187,7 @@ struct SystemEWSClient: EWSClient {
   private func loadFolderPage(
     offset: Int,
     pageSize: Int,
+    rootDistinguishedId: String,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSXMLNode {
     try await request(
@@ -156,7 +196,7 @@ struct SystemEWSClient: EWSClient {
         <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
         <m:IndexedPageFolderView MaxEntriesReturned="\(pageSize)" Offset="\(offset)"
           BasePoint="Beginning"/>
-        <m:ParentFolderIds><t:DistinguishedFolderId Id="msgfolderroot">
+        <m:ParentFolderIds><t:DistinguishedFolderId Id="\(rootDistinguishedId)">
           \(mailboxXML(authorization))
         </t:DistinguishedFolderId></m:ParentFolderIds>
       </m:FindFolder>

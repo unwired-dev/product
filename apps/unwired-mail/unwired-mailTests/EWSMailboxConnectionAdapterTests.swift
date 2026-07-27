@@ -769,9 +769,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
     var findFolderOffsets: [Int] = []
+    var requestedArchiveHierarchy = false
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
       if body.contains("<m:FindFolder") {
+        if body.contains(#"Id="archivemsgfolderroot""#) {
+          requestedArchiveHierarchy = true
+          return (
+            HTTPURLResponse(
+              url: try XCTUnwrap(request.url),
+              statusCode: 200,
+              httpVersion: nil,
+              headerFields: nil
+            )!,
+            Data(Self.folderNotFoundResponse.utf8)
+          )
+        }
         let offset = body.contains(#"Offset="0""#) ? 0 : 100
         findFolderOffsets.append(offset)
         return (
@@ -805,9 +818,45 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(findFolderOffsets, [0, 100])
+    XCTAssertTrue(requestedArchiveHierarchy)
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
     XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
     XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
+  }
+
+  func testSystemClientRejectsMalformedDiscoveredFolder() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response =
+        body.contains(#"Id="archivemsgfolderroot""#)
+        ? Self.folderNotFoundResponse
+        : Self.findFolderResponse(offset: 100).replacingOccurrences(
+          of: #"<t:FolderId Id="custom-100" ChangeKey="key-100"/>"#,
+          with: ""
+        )
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).loadFolders(
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected a malformed discovered folder to be rejected")
+    } catch {
+      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+    }
   }
 
   func testSystemClientPropagatesMailboxStoreUnavailableForDistinguishedFolder() async throws {
@@ -1113,6 +1162,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(mailboxes.map(\.title), ["Projects"])
+    XCTAssertEqual(client.requestedPages, ["projects-id|0"])
   }
 
   func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {
@@ -1165,14 +1215,22 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       throughHistoryId: nil,
       shouldPersist: { true }
     )
+    let verified = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
     XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
+    XCTAssertTrue(verified.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       Set(complete.messages.map(\.providerMessageId)),
       ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
     )
     XCTAssertEqual(
       client.requestedPages,
-      ["inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0"]
+      [
+        "inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0", "inbox-id|50",
+        "inbox-id|100",
+      ]
     )
   }
 
@@ -1315,7 +1373,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.sentMessages, [outgoing])
   }
 
-  func testBodyCacheRejectsPayloadAfterChangeKeyChanges() async throws {
+  func testBodyCacheSurvivesMetadataOnlyChangeKeyChanges() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.body = "Original body"
@@ -1369,14 +1427,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let updated = try await adapter.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(original.text, "Original body")
-    XCTAssertEqual(updated.text, "Updated body")
-    XCTAssertEqual(client.bodyRequestCount, 2)
+    XCTAssertEqual(updated.text, "Original body")
+    XCTAssertEqual(client.bodyRequestCount, 1)
   }
 
-  func testTransientEWSActionRetriesThroughSharedQueue() async throws {
+  func testPreDeliveryHostFailureRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.remainingOfflineFailuresByConnectionId[definition.connectionId] = 1
+    client.offlineFailureCode = .cannotFindHost
     client.folders = [
       EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
     ]
@@ -2213,6 +2272,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     get { lock.withLock { storedOfflineFailures } }
     set { lock.withLock { storedOfflineFailures = newValue } }
   }
+  var offlineFailureCode: URLError.Code = .notConnectedToInternet
   private var storedActionFailures: [MailboxConnectionId: Int] = [:]
   var remainingActionFailuresByConnectionId: [MailboxConnectionId: Int] {
     get { lock.withLock { storedActionFailures } }
@@ -2284,7 +2344,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       return true
     }
     if shouldFailOffline {
-      throw URLError(.notConnectedToInternet)
+      throw URLError(offlineFailureCode)
     }
     let shouldFailAction = lock.withLock {
       guard let failures = storedActionFailures[connectionId],
