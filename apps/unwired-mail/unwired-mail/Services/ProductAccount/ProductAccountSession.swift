@@ -63,6 +63,9 @@ final class ProductAccountSession {
       let refreshedSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,
+        identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+          from: credential.identityToken
+        ),
         productAccountId: response.productAccountId,
         trustedDeviceId: response.trustedDeviceId
       )
@@ -109,6 +112,9 @@ final class ProductAccountSession {
       let snapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: credential.appleUserIdentifier,
         identityToken: credential.identityToken,
+        identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+          from: credential.identityToken
+        ),
         productAccountId: response.productAccountId,
         trustedDeviceId: response.trustedDeviceId
       )

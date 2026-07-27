@@ -13,6 +13,15 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     productAccountId: "productAccountFixtureId",
     trustedDeviceId: "trustedDeviceFixtureId"
   )
+  private var expiredSession: ProductAccountSessionSnapshot {
+    ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+  }
 
   func testLoadDecryptsNotificationRulesFromProductSync() async throws {
     let store = InMemoryProductSyncKeyMaterialStore()
@@ -72,31 +81,89 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   }
 
   func testBackgroundLoadUsesCachedEncryptedRulesWhenStoredTokenExpired() async throws {
-    let keyStore = try seededKeyMaterialStore(for: session)
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
       keyMaterialStore: keyStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
       transport: transport
     )
     let rules = NotificationRules(categoryIds: ["system:flights"])
-    _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: session)
+    _ = try await service.saveRules(rules, expectedUpdatedAt: nil, session: expiredSession)
     transport.loadError = ConvexClientError.httpError(statusCode: 401)
 
     do {
-      _ = try await service.loadRules(session: session)
+      _ = try await service.loadRules(session: expiredSession)
       XCTFail("Expected foreground load to surface expired Product Sync auth")
     } catch let error as ConvexClientError {
       XCTAssertEqual(error, .httpError(statusCode: 401))
     }
 
-    let loadedRules = try await service.loadRulesForBackground(session: session)
+    let loadedRules = try await service.loadRulesForBackground(session: expiredSession)
 
     XCTAssertEqual(loadedRules.rules, rules)
-    let cachedPayload = try XCTUnwrap(cacheStore.payloads[session.productAccountId])
+    let cachedPayload = try XCTUnwrap(cacheStore.payloads[expiredSession.productAccountId])
     XCTAssertFalse(
       try JSONEncoder().encode(cachedPayload).contains(Data("system:flights".utf8))
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenAppleAuthorizationIsRevoked() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .revoked,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      loadError: .httpError(statusCode: 401)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenAppleAuthorizationIsMissing() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .unauthorized,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      loadError: .httpError(statusCode: 401)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenAppleAuthorizationCannotBeVerified() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .unavailable,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      loadError: .httpError(statusCode: 401)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenRejectedTokenIsStillActive() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .authorized,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 2_000),
+      loadError: .httpError(statusCode: 401)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenTokenExpiryCannotBeVerified() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .authorized,
+      identityTokenExpiresAt: nil,
+      loadError: .httpError(statusCode: 401)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedWhenTrustedDeviceIsRejected() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .authorized,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      loadError: .httpError(statusCode: 403)
+    )
+  }
+
+  func testBackgroundLoadFailsClosedForUnrelatedRemoteFailure() async throws {
+    try await assertBackgroundLoadFailsClosed(
+      authorizationState: .authorized,
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      loadError: .httpError(statusCode: 500)
     )
   }
 
@@ -267,14 +334,16 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
-      keyMaterialStore: try seededKeyMaterialStore(for: session),
+      keyMaterialStore: try seededKeyMaterialStore(for: expiredSession),
+      now: { Date(timeIntervalSince1970: 1_000) },
       transport: transport
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
       expectedUpdatedAt: nil,
-      session: session
+      session: expiredSession
     )
     cacheStore.clearError = NotificationRuleCacheTestError.writeFailed
 
@@ -282,7 +351,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
       _ = try await service.saveRules(
         NotificationRules(categoryIds: ["system:invoices"]),
         expectedUpdatedAt: initialSnapshot.updatedAt,
-        session: session
+        session: expiredSession
       )
       XCTFail("Expected cache-clear failure to prevent a stale background cache")
     } catch let error as NotificationRuleCacheTestError {
@@ -291,7 +360,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     XCTAssertEqual(transport.writes.count, 1)
 
     transport.loadError = ConvexClientError.httpError(statusCode: 401)
-    let cachedRules = try await service.loadRulesForBackground(session: session)
+    let cachedRules = try await service.loadRulesForBackground(session: expiredSession)
     XCTAssertEqual(cachedRules.rules, NotificationRules(categoryIds: ["system:flights"]))
   }
 
@@ -308,18 +377,20 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
   }
 
   func testSaveConflictCachesAuthoritativeRemoteRules() async throws {
-    let keyStore = try seededKeyMaterialStore(for: session)
+    let keyStore = try seededKeyMaterialStore(for: expiredSession)
     let cacheStore = InMemoryNotificationRuleCacheStore()
     let transport = RecordingRuleSyncTransport()
     let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(state: .authorized),
       cacheStore: cacheStore,
       keyMaterialStore: keyStore,
+      now: { Date(timeIntervalSince1970: 1_000) },
       transport: transport
     )
     let initialSnapshot = try await service.saveRules(
       NotificationRules(categoryIds: ["system:flights"]),
       expectedUpdatedAt: nil,
-      session: session
+      session: expiredSession
     )
     let remoteRules = NotificationRules(categoryIds: ["system:invoices"])
     _ = try await NotificationRuleSyncService(
@@ -329,14 +400,14 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     ).saveRules(
       remoteRules,
       expectedUpdatedAt: initialSnapshot.updatedAt,
-      session: session
+      session: expiredSession
     )
 
     do {
       _ = try await service.saveRules(
         NotificationRules(categoryIds: ["system:promotions"]),
         expectedUpdatedAt: initialSnapshot.updatedAt,
-        session: session
+        session: expiredSession
       )
       XCTFail("Expected concurrent modification")
     } catch let error as NotificationRuleSyncError {
@@ -344,7 +415,7 @@ final class NotificationRuleSyncServiceTests: XCTestCase {
     }
 
     transport.loadError = ConvexClientError.httpError(statusCode: 401)
-    let cachedRules = try await service.loadRulesForBackground(session: session)
+    let cachedRules = try await service.loadRulesForBackground(session: expiredSession)
     XCTAssertEqual(cachedRules.rules, remoteRules)
   }
 
@@ -691,6 +762,43 @@ extension NotificationRuleSyncServiceTests {
     XCTAssertFalse(ciphertext.contains(Data("system:invoices".utf8)))
     XCTAssertFalse(ciphertext.contains(plaintext))
   }
+
+  private func assertBackgroundLoadFailsClosed(
+    authorizationState: ProductAccountAuthorizationState,
+    identityTokenExpiresAt: Date?,
+    loadError: ConvexClientError
+  ) async throws {
+    let testSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      identityTokenExpiresAt: identityTokenExpiresAt,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let transport = RecordingRuleSyncTransport()
+    let service = NotificationRuleSyncService(
+      authorizationStateChecker: StubAuthorizationStateChecker(
+        state: authorizationState
+      ),
+      cacheStore: InMemoryNotificationRuleCacheStore(),
+      keyMaterialStore: try seededKeyMaterialStore(for: testSession),
+      now: { Date(timeIntervalSince1970: 1_000) },
+      transport: transport
+    )
+    _ = try await service.saveRules(
+      NotificationRules(categoryIds: ["system:flights"]),
+      expectedUpdatedAt: nil,
+      session: testSession
+    )
+    transport.loadError = loadError
+
+    do {
+      _ = try await service.loadRulesForBackground(session: testSession)
+      XCTFail("Expected cached rules to remain unavailable")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(error, loadError)
+    }
+  }
 }
 
 private func seededKeyMaterialStore(
@@ -834,4 +942,14 @@ private final class InMemoryNotificationRuleCacheStore: NotificationRuleCachePer
 
 private enum NotificationRuleCacheTestError: Error {
   case writeFailed
+}
+
+private struct StubAuthorizationStateChecker: ProductAccountAuthorizationStateChecking {
+  let state: ProductAccountAuthorizationState
+
+  func authorizationState(forAppleUserIdentifier _: String) async
+    -> ProductAccountAuthorizationState
+  {
+    state
+  }
 }

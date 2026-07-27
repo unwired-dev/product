@@ -121,17 +121,24 @@ struct KeychainNotificationRuleCacheStore: NotificationRuleCachePersisting {
 final class NotificationRuleSyncService: NotificationRuleSyncing {
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
+  private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
   private let cacheStore: NotificationRuleCachePersisting
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let now: () -> Date
   private let transport: ProductSyncPayloadTransport
 
   init(
+    authorizationStateChecker: ProductAccountAuthorizationStateChecking =
+      AppleAuthorizationStateChecker(),
     cacheStore: NotificationRuleCachePersisting = KeychainNotificationRuleCacheStore(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting = KeychainProductSyncKeyMaterialStore(),
+    now: @escaping () -> Date = Date.init,
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
+    self.authorizationStateChecker = authorizationStateChecker
     self.cacheStore = cacheStore
     self.keyMaterialStore = keyMaterialStore
+    self.now = now
     self.transport = transport
   }
 
@@ -155,7 +162,13 @@ final class NotificationRuleSyncService: NotificationRuleSyncing {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      guard let cachedPayload = try cacheStore.load(productAccountId: session.productAccountId)
+      guard
+        error as? ConvexClientError == .httpError(statusCode: 401),
+        session.identityTokenState(at: now()) == .expired,
+        await authorizationStateChecker.authorizationState(
+          forAppleUserIdentifier: session.appleUserIdentifier
+        ) == .authorized,
+        let cachedPayload = try cacheStore.load(productAccountId: session.productAccountId)
       else {
         throw error
       }

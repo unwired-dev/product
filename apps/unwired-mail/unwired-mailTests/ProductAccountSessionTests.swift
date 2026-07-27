@@ -20,7 +20,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
           appleUserIdentifier: "apple-user-001",
-          identityToken: "token-001"
+          identityToken: "e30.eyJleHAiOjEwMDB9.signature"
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
@@ -39,9 +39,97 @@ final class ProductAccountSessionTests: XCTestCase {
       snapshot.productAccountId,
       ProductAccountConnectResponse.preview.productAccountId
     )
+    XCTAssertEqual(
+      snapshot.identityTokenExpiresAt,
+      Date(timeIntervalSince1970: 1_000)
+    )
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
+
+  func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
+    let invalidTokens = [
+      "not-an-identity-token",
+      "e30.!.signature",
+      "e30.e30.signature",
+      "e30.eyJleHAiOiJzb29uIn0.signature",
+    ]
+
+    for token in invalidTokens {
+      XCTAssertNil(AppleIdentityToken.expirationDate(from: token))
+    }
+  }
+
+  func testAppleIdentityTokenExpirationReadsNumericClaim() {
+    XCTAssertEqual(
+      AppleIdentityToken.expirationDate(from: "e30.eyJleHAiOjEwMDB9.signature"),
+      Date(timeIntervalSince1970: 1_000)
+    )
+  }
+
+  func testRestoreSessionReturnsStoredCredentialWhenAppleAuthorizationIsCurrent() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "token-001",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let service = SignInWithAppleService(
+      authorizationStateChecker: StubAuthorizationChecker(
+        state: .authorized
+      )
+    )
+
+    let credential = try await service.restoreSession(snapshot: snapshot)
+
+    XCTAssertEqual(
+      credential,
+      AppleSignInCredential(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        identityToken: snapshot.identityToken
+      )
+    )
+  }
+
+  func testRestoreSessionRejectsRevokedAndMissingAppleAuthorization() async {
+    for state in [
+      ProductAccountAuthorizationState.revoked,
+      ProductAccountAuthorizationState.unauthorized,
+    ] {
+      let service = SignInWithAppleService(
+        authorizationStateChecker: StubAuthorizationChecker(state: state)
+      )
+
+      do {
+        _ = try await service.restoreSession(snapshot: Self.restorableSnapshot)
+        XCTFail("Expected \(state) authorization to be rejected")
+      } catch {
+        XCTAssertEqual(error as? AppleSignInError, .notAuthorized)
+      }
+    }
+  }
+
+  func testRestoreSessionReportsUnavailableAppleCredentialState() async {
+    let service = SignInWithAppleService(
+      authorizationStateChecker: StubAuthorizationChecker(
+        state: .unavailable
+      )
+    )
+
+    do {
+      _ = try await service.restoreSession(snapshot: Self.restorableSnapshot)
+      XCTFail("Expected unavailable authorization state to fail restoration")
+    } catch {
+      XCTAssertEqual(error as? AppleSignInError, .credentialUnavailable)
+    }
+  }
+
+  private static let restorableSnapshot = ProductAccountSessionSnapshot(
+    appleUserIdentifier: "apple-user-001",
+    identityToken: "token-001",
+    productAccountId: "product-account-001",
+    trustedDeviceId: "trusted-device-001"
+  )
 
   func testSignOutClearsStoredSession() async {
     let gmailConnectionService = RecordingGmailProviderConnecting()
@@ -678,6 +766,18 @@ final class ProductAccountSessionTests: XCTestCase {
       ProductSyncKeyMaterialStoreError.recoveryRequired.localizedDescription
     )
     XCTAssertNil(try keyMaterialStore.load(productAccountId: response.productAccountId))
+  }
+}
+
+private struct StubAuthorizationChecker:
+  ProductAccountAuthorizationStateChecking
+{
+  let state: ProductAccountAuthorizationState
+
+  func authorizationState(
+    forAppleUserIdentifier _: String
+  ) async -> ProductAccountAuthorizationState {
+    state
   }
 }
 
