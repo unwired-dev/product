@@ -93,11 +93,15 @@ struct SystemEWSClient: EWSClient {
       where code == "ErrorFolderNotFound"
     {}
     folders = Dictionary(grouping: folders, by: \.id).compactMap { $0.value.first }
-    return try await resolveFolderRoles(
+    let resolvedFolders = try await resolveFolderRoles(
       folders,
       knownFolders: knownFolders,
       authorization: authorization
     )
+    return try await markArchiveTrashHierarchy(
+      resolvedFolders,
+      authorization: authorization
+    ).filter(\.isMailFolder)
   }
 
   private func loadFolderHierarchy(
@@ -123,9 +127,11 @@ struct SystemEWSClient: EWSClient {
         return EWSFolder(
           changeKey: parsed.changeKey,
           displayName: parsed.displayName,
+          folderClass: parsed.folderClass,
           id: parsed.id,
           isArchiveHierarchy: isArchiveHierarchy,
           isSearchFolder: parsed.isSearchFolder,
+          isTrashHierarchy: parsed.isTrashHierarchy,
           parentFolderId: parsed.parentFolderId,
           role: parsed.role
         )
@@ -143,6 +149,7 @@ struct SystemEWSClient: EWSClient {
     return folders
   }
 
+  // swiftlint:disable:next function_body_length
   private func resolveFolderRoles(
     _ discoveredFolders: [EWSFolder],
     knownFolders: [EWSFolder],
@@ -156,9 +163,11 @@ struct SystemEWSClient: EWSClient {
         folders[index] = EWSFolder(
           changeKey: folders[index].changeKey,
           displayName: folders[index].displayName,
+          folderClass: folders[index].folderClass,
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          isTrashHierarchy: folders[index].isTrashHierarchy,
           parentFolderId: folders[index].parentFolderId,
           role: role
         )
@@ -182,9 +191,11 @@ struct SystemEWSClient: EWSClient {
         folders[index] = EWSFolder(
           changeKey: folders[index].changeKey,
           displayName: folders[index].displayName,
+          folderClass: folders[index].folderClass,
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          isTrashHierarchy: folders[index].isTrashHierarchy,
           parentFolderId: folders[index].parentFolderId,
           role: role
         )
@@ -195,6 +206,45 @@ struct SystemEWSClient: EWSClient {
     return folders.sorted {
       $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
     }
+  }
+
+  private func markArchiveTrashHierarchy(
+    _ discoveredFolders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSFolder] {
+    let archiveTrash: EWSFolder?
+    do {
+      archiveTrash = try await loadFolder(
+        distinguishedId: "archivedeleteditems",
+        role: nil,
+        isArchiveHierarchy: true,
+        isTrashHierarchy: true,
+        authorization: authorization
+      )
+    } catch EWSServiceError.response(let code, _)
+      where code == "ErrorFolderNotFound"
+    {
+      return discoveredFolders
+    }
+    guard let archiveTrash else { return discoveredFolders }
+    var folders = discoveredFolders
+    if let index = folders.firstIndex(where: { $0.id == archiveTrash.id }) {
+      let folder = folders[index]
+      folders[index] = EWSFolder(
+        changeKey: folder.changeKey,
+        displayName: folder.displayName,
+        folderClass: folder.folderClass,
+        id: folder.id,
+        isArchiveHierarchy: true,
+        isSearchFolder: folder.isSearchFolder,
+        isTrashHierarchy: true,
+        parentFolderId: folder.parentFolderId,
+        role: folder.role
+      )
+    } else {
+      folders.append(archiveTrash)
+    }
+    return folders
   }
 
   private func loadFolderPage(
@@ -209,6 +259,7 @@ struct SystemEWSClient: EWSClient {
         <m:FolderShape>
           <t:BaseShape>Default</t:BaseShape>
           <t:AdditionalProperties>
+            <t:FieldURI FieldURI="folder:FolderClass"/>
             <t:FieldURI FieldURI="folder:ParentFolderId"/>
           </t:AdditionalProperties>
         </m:FolderShape>
@@ -627,13 +678,20 @@ struct SystemEWSClient: EWSClient {
 
   private func loadFolder(
     distinguishedId: String,
-    role: EWSFolderRole,
+    role: EWSFolderRole?,
+    isArchiveHierarchy: Bool? = nil,
+    isTrashHierarchy: Bool? = nil,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSFolder? {
     let document = try await request(
       """
       <m:GetFolder>
-        <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
+        <m:FolderShape><t:BaseShape>Default</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="folder:FolderClass"/>
+            <t:FieldURI FieldURI="folder:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:FolderShape>
         <m:FolderIds><t:DistinguishedFolderId Id="\(distinguishedId)">
           \(mailboxXML(authorization))
         </t:DistinguishedFolderId></m:FolderIds>
@@ -647,7 +705,11 @@ struct SystemEWSClient: EWSClient {
     return EWSFolder(
       changeKey: value.changeKey,
       displayName: value.displayName,
+      folderClass: value.folderClass,
       id: value.id,
+      isArchiveHierarchy: isArchiveHierarchy,
+      isSearchFolder: value.isSearchFolder,
+      isTrashHierarchy: isTrashHierarchy,
       parentFolderId: value.parentFolderId,
       role: role
     )
@@ -660,6 +722,7 @@ struct SystemEWSClient: EWSClient {
     return EWSFolder(
       changeKey: idNode.attributes["ChangeKey"],
       displayName: node.child(named: "DisplayName")?.text.nonEmpty ?? id,
+      folderClass: node.child(named: "FolderClass")?.text.nonEmpty,
       id: id,
       isSearchFolder: node.localName == "SearchFolder",
       parentFolderId: node.child(named: "ParentFolderId")?.attributes["Id"],

@@ -3096,7 +3096,7 @@ struct MailShellConversationReader: View {
       collection: selection.selectedMailbox?.collection,
       allowsMove: !moveDestinations.isEmpty,
       allowsProviderMailboxMove: batches.allSatisfy {
-        $0.connection.providerId == .microsoftGraph
+        Self.allowsMoveFromProviderMailbox($0.connection.providerId)
       }
     )
     if !actions.isEmpty {
@@ -3137,7 +3137,7 @@ struct MailShellConversationReader: View {
       messages: thread.messages,
       collection: selection.selectedMailbox?.collection,
       allowsMove: true,
-      allowsProviderMailboxMove: connection.providerId == .microsoftGraph
+      allowsProviderMailboxMove: Self.allowsMoveFromProviderMailbox(connection.providerId)
     )
     if !actions.isEmpty {
       Menu {
@@ -3203,6 +3203,10 @@ struct MailShellConversationReader: View {
       actions.remove(.spam)
     }
     return actions
+  }
+
+  static func allowsMoveFromProviderMailbox(_ providerId: MailProviderId) -> Bool {
+    providerId == .microsoftGraph || providerId == .exchangeWebServices
   }
 
   private func bulkMoveDestinations(

@@ -1104,12 +1104,75 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testArchiveDeletedItemsDescendantsKeepTrashMembership() throws {
+    let connection = makeEWSDefinition().synchronizedDefinition(
+      connectedAt: 1_781_200_000_000,
+      displayName: "Archive Deleted Projects"
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let message = ewsMessage(
+      1,
+      folderId: "archive-deleted-projects",
+      conversationId: "conversation-1"
+    )
+
+    let metadata = message.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "archive-deleted-items": EWSFolder(
+          changeKey: "deleted-key",
+          displayName: "Deleted Items",
+          id: "archive-deleted-items",
+          isArchiveHierarchy: true,
+          isTrashHierarchy: true,
+          role: nil
+        ),
+        "archive-deleted-projects": EWSFolder(
+          changeKey: "projects-key",
+          displayName: "Projects",
+          id: "archive-deleted-projects",
+          isArchiveHierarchy: true,
+          parentFolderId: "archive-deleted-items",
+          role: nil
+        ),
+      ]
+    )
+
+    XCTAssertEqual(
+      Set(metadata.providerStateIds ?? []),
+      [
+        "ARCHIVE", "TRASH", "UNREAD",
+        EWSProviderMessage.customFolderStateId("archive-deleted-projects"),
+      ]
+    )
+    XCTAssertTrue(
+      MailboxMessageCollection.role(.trash).contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+    XCTAssertFalse(
+      MailboxMessageCollection.role(.archive).contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+    XCTAssertFalse(
+      MailboxMessageCollection.allMail.contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+  }
+
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
     var findFolderOffsets: [Int] = []
     var requestedArchiveHierarchy = false
+    var requestedFolderClass = false
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
       if body.contains("<m:FindFolder") {
+        requestedFolderClass =
+          requestedFolderClass || body.contains(#"FieldURI="folder:FolderClass""#)
         if body.contains(#"Id="archivemsgfolderroot""#) {
           requestedArchiveHierarchy = true
           return (
@@ -1156,7 +1219,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(findFolderOffsets, [0, 100])
     XCTAssertTrue(requestedArchiveHierarchy)
+    XCTAssertTrue(requestedFolderClass)
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
+    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.folderClass, "IPF.Note")
     XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
     XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
     XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.parentFolderId, "parent-0")
@@ -1164,6 +1229,54 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       folders.first(where: { $0.id == "custom-100" })?.parentFolderId,
       "parent-100"
     )
+  }
+
+  func testSystemClientMarksArchiveDeletedItemsHierarchy() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response =
+        if body.contains(#"Id="archivemsgfolderroot""#) {
+          Self.findFolderResponse(offset: 100)
+            .replacingOccurrences(of: "custom-100", with: "archive-deleted-id")
+            .replacingOccurrences(of: "Custom 100", with: "Deleted Items")
+        } else if body.contains(#"Id="archivedeleteditems""#) {
+          Self.getFolderResponse
+            .replacingOccurrences(of: "inbox-id", with: "archive-deleted-id")
+            .replacingOccurrences(of: "Inbox", with: "Deleted Items")
+            .replacingOccurrences(
+              of: "</t:DisplayName>",
+              with: "</t:DisplayName><t:FolderClass>IPF.Note</t:FolderClass>"
+            )
+        } else if body.contains("<m:FindFolder") {
+          Self.findFolderResponse(offset: 100)
+        } else {
+          Self.folderNotFoundResponse
+        }
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    let folders = try await SystemEWSClient(session: makeEWSURLSession()).loadFolders(
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+    let archiveDeletedItems = try XCTUnwrap(
+      folders.first(where: { $0.id == "archive-deleted-id" })
+    )
+
+    XCTAssertEqual(archiveDeletedItems.isArchiveHierarchy, true)
+    XCTAssertEqual(archiveDeletedItems.isTrashHierarchy, true)
+    XCTAssertEqual(archiveDeletedItems.folderClass, "IPF.Note")
   }
 
   func testSystemClientRejectsMalformedDiscoveredFolder() async throws {
@@ -1492,6 +1605,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         isSearchFolder: false,
         role: nil
       ),
+      EWSFolder(
+        changeKey: "calendar-key",
+        displayName: "Calendar",
+        folderClass: "IPF.Appointment",
+        id: "calendar-id",
+        isSearchFolder: false,
+        role: nil
+      ),
     ]
     let authorizations = InMemoryEWSAuthorizationStore()
     try authorizations.save(
@@ -1524,6 +1645,78 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ["Projects"]
     )
     XCTAssertEqual(client.requestedPages, ["projects-id|0", "archive-projects-id|0"])
+  }
+
+  func testDeletingArchiveMessageTargetsArchiveDeletedItems() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let archiveMessage = ewsMessage(
+      1,
+      folderId: "archive-projects-id",
+      conversationId: "conversation-1"
+    )
+    client.folders += [
+      EWSFolder(
+        changeKey: "archive-projects-key",
+        displayName: "Archive Projects",
+        id: "archive-projects-id",
+        isArchiveHierarchy: true,
+        role: nil
+      ),
+      EWSFolder(
+        changeKey: "archive-deleted-key",
+        displayName: "Archive Deleted Items",
+        id: "archive-deleted-id",
+        isArchiveHierarchy: true,
+        isTrashHierarchy: true,
+        role: nil
+      ),
+    ]
+    client.pages["archive-projects-id|0"] = EWSMessagePage(
+      messages: [archiveMessage],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let archiveProjects = try await adapter.loadMailbox(
+      .providerMailbox(EWSProviderMessage.customFolderStateId("archive-projects-id")),
+      connection: connection,
+      session: session
+    )
+
+    try await adapter.perform(
+      .delete,
+      messages: [try XCTUnwrap(archiveProjects.messages.first)],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    let retryError = await adapter.waitForPendingActionRetries(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(retryError)
+    XCTAssertEqual(client.performedActions.last?.action, .delete)
+    XCTAssertEqual(client.performedActions.last?.targetFolderId, "archive-deleted-id")
   }
 
   func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {
@@ -2895,6 +3088,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
                 <t:FolderId Id="custom-\(offset)" ChangeKey="key-\(offset)"/>
                 <t:ParentFolderId Id="parent-\(offset)"/>
                 <t:DisplayName>Custom \(offset)</t:DisplayName>
+                <t:FolderClass>IPF.Note</t:FolderClass>
               </t:\(folderType)></t:Folders>
             </m:RootFolder>
           </m:FindFolderResponseMessage>
@@ -3029,6 +3223,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   struct PerformedAction: Equatable {
     let action: ProviderMailAction
     let connectionId: MailboxConnectionId
+    let targetFolderId: String?
   }
 
   var actionErrorsByConnectionId: [MailboxConnectionId: Error] = [:]
@@ -3142,7 +3337,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 
   func perform(
     _ action: ProviderMailAction,
-    targetFolderId _: String?,
+    targetFolderId: String?,
     messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSMovedItemIdentity] {
@@ -3175,7 +3370,11 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     }
     lock.withLock {
       storedPerformedActions.append(
-        PerformedAction(action: action, connectionId: authorization.definition.connectionId)
+        PerformedAction(
+          action: action,
+          connectionId: authorization.definition.connectionId,
+          targetFolderId: targetFolderId
+        )
       )
       storedPerformedMessageChangeKeys.append(messages.map(\.changeKey))
     }

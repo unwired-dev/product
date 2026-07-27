@@ -725,28 +725,38 @@ enum EWSFolderRole: String, CaseIterable, Codable, Equatable, Hashable, Sendable
 struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let changeKey: String?
   let displayName: String
+  let folderClass: String?
   let id: String
   let isArchiveHierarchy: Bool?
   let isSearchFolder: Bool?
+  let isTrashHierarchy: Bool?
   let parentFolderId: String?
   let role: EWSFolderRole?
 
   init(
     changeKey: String?,
     displayName: String,
+    folderClass: String? = nil,
     id: String,
     isArchiveHierarchy: Bool? = nil,
     isSearchFolder: Bool? = nil,
+    isTrashHierarchy: Bool? = nil,
     parentFolderId: String? = nil,
     role: EWSFolderRole?
   ) {
     self.changeKey = changeKey
     self.displayName = displayName
+    self.folderClass = folderClass
     self.id = id
     self.isArchiveHierarchy = isArchiveHierarchy
     self.isSearchFolder = isSearchFolder
+    self.isTrashHierarchy = isTrashHierarchy
     self.parentFolderId = parentFolderId
     self.role = role
+  }
+
+  var isMailFolder: Bool {
+    folderClass == nil || folderClass?.caseInsensitiveCompare("IPF.Note") == .orderedSame
   }
 }
 
@@ -825,8 +835,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       if folder?.isArchiveHierarchy == true {
         states.append(Self.providerStateId(.archive))
       }
-      if Self.isDescendant(
-        of: .trash,
+      if Self.isTrashHierarchy(
         folderId: parentFolderId,
         foldersById: foldersById
       ) {
@@ -873,8 +882,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     return "ews-folder:\(encoded)"
   }
 
-  private static func isDescendant(
-    of role: EWSFolderRole,
+  private static func isTrashHierarchy(
     folderId: String,
     foldersById: [String: EWSFolder]
   ) -> Bool {
@@ -884,7 +892,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       visitedFolderIds.insert(candidateId).inserted,
       let folder = foldersById[candidateId]
     {
-      if folder.role == role { return true }
+      if folder.role == .trash || folder.isTrashHierarchy == true { return true }
       currentFolderId = folder.parentFolderId
     }
     return false
@@ -1561,7 +1569,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )?.folders.compactMap {
-      guard $0.role == nil, $0.isSearchFolder != true else { return nil }
+      guard $0.role == nil, $0.isSearchFolder != true, $0.isMailFolder else { return nil }
       return ProviderMailbox(
         id: EWSProviderMessage.customFolderStateId($0.id),
         isMoveDestination: $0.isArchiveHierarchy != true,
@@ -1720,7 +1728,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     }
     let folders = try await client.loadFolders(authorization: authorization)
-      .filter { $0.isSearchFolder != true }
+      .filter { $0.isSearchFolder != true && $0.isMailFolder }
     var snapshot = EWSMetadataSnapshot(
       folders: folders,
       messages: [],
@@ -2186,12 +2194,23 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           throw URLError(.badServerResponse)
         }
         let movedItems: [EWSMovedItemIdentity]
+        let providerTargetFolderId =
+          targetFolderId.flatMap {
+            EWSProviderMessage.folderId(fromProviderStateId: $0)
+          }
+          ?? (action == .delete
+            && currentMessages.allSatisfy { message in
+              snapshot.folders.first(where: { $0.id == message.parentFolderId })?
+                .isArchiveHierarchy == true
+            }
+            ? snapshot.folders.first(where: {
+              $0.isArchiveHierarchy == true && $0.isTrashHierarchy == true
+            })?.id
+            : nil)
         do {
           movedItems = try await client.perform(
             action,
-            targetFolderId: targetFolderId.flatMap {
-              EWSProviderMessage.folderId(fromProviderStateId: $0)
-            },
+            targetFolderId: providerTargetFolderId,
             messages: currentMessages,
             authorization: authorization
           )
@@ -2213,7 +2232,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         }
         try applyConfirmedAction(
           action,
-          targetFolderId: targetFolderId,
+          targetFolderId: targetFolderId
+            ?? providerTargetFolderId.map(EWSProviderMessage.customFolderStateId),
           messageIds: messageIds,
           movedItems: movedItems,
           connection: connection,
@@ -2333,7 +2353,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     let loadedFolders = try await client.loadFolders(
       authorization: authorization,
       knownFolders: snapshot.folders
-    ).filter { $0.isSearchFolder != true }
+    ).filter { $0.isSearchFolder != true && $0.isMailFolder }
     let loadedFolderIds = Set(loadedFolders.map(\.id))
     let previouslyMissingFolderIds = snapshot.missingFolderIds ?? []
     let missingFolders = snapshot.folders.filter {

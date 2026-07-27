@@ -1949,7 +1949,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(result.messages.first?.providerStateIds, ["INBOX", "UNREAD", "Label_projects"])
   }
 
-  func testContextualMoveFromProviderMailboxRequiresGraphConnection() {
+  func testContextualMoveFromProviderMailboxRequiresCompatibleConnection() {
     let gmailActions = MailShellConversationReader.contextualProviderActions(
       supported: [.move],
       messages: [],
@@ -1967,6 +1967,15 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertFalse(gmailActions.contains(.move))
     XCTAssertTrue(graphActions.contains(.move))
+    XCTAssertFalse(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.gmail)
+    )
+    XCTAssertTrue(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.microsoftGraph)
+    )
+    XCTAssertTrue(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.exchangeWebServices)
+    )
   }
 
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
