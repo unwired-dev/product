@@ -2323,15 +2323,13 @@ function hasMatchingMicrosoftGraphConfirmation(
   route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
   args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): boolean {
-  if (route.microsoftPendingClientStateDigest !== undefined) {
-    return args.clientStateDigest === route.microsoftPendingClientStateDigest;
-  }
   if (route.microsoftClientStateDigest === undefined) {
     return false;
   }
   return args.clientStateDigest === undefined
     ? route.microsoftSubscriptionId === args.subscriptionId
-    : route.microsoftClientStateDigest === args.clientStateDigest;
+    : route.microsoftClientStateDigest === args.clientStateDigest ||
+        route.microsoftPendingClientStateDigest === args.clientStateDigest;
 }
 
 function requireValidMicrosoftGraphConfirmation(
@@ -2363,11 +2361,20 @@ async function confirmMicrosoftGraphRouteForDevice(
   );
   requireValidMicrosoftGraphConfirmation(route, args);
   const now = Date.now();
+  const confirmsPendingReplacement =
+    args.clientStateDigest !== undefined &&
+    route.microsoftPendingClientStateDigest === args.clientStateDigest;
+  if (confirmsPendingReplacement) {
+    await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
+  }
   await ctx.db.patch(args.routeId, {
     lastVerifiedAt: now,
-    microsoftClientStateDigest:
-      args.clientStateDigest ?? route.microsoftClientStateDigest,
-    microsoftPendingClientStateDigest: undefined,
+    microsoftClientStateDigest: confirmsPendingReplacement
+      ? args.clientStateDigest
+      : route.microsoftClientStateDigest,
+    microsoftPendingClientStateDigest: confirmsPendingReplacement
+      ? undefined
+      : route.microsoftPendingClientStateDigest,
     microsoftSubscriptionExpiresAt: args.expiresAt,
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,

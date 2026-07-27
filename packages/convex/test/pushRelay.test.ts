@@ -3897,6 +3897,20 @@ describe('gmail push relay', () => {
     expect(pendingWakeup?.routeId).toBe(route.routeId);
 
     await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const renewed = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(renewed).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftPendingClientStateDigest: replacementDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
       clientStateDigest: replacementDigest,
       expiresAt: Date.now() + 120_000,
       routeId: route.routeId,
