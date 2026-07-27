@@ -674,7 +674,6 @@ struct EWSSetupService {
         ),
         session: session
       )
-      guard isSessionCurrent(session) else { throw CancellationError() }
     } catch {
       if let previous {
         try? authorizationStore.save(previous, productAccountId: session.productAccountId)
@@ -2171,7 +2170,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           connection: connection,
           session: session
         )
-        _ = try await refreshRecentSnapshot(
+        _ = try? await refreshRecentSnapshot(
           connection,
           authorization: authorization,
           session: session
@@ -2288,6 +2287,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     var recentPagesByFolderId: [String: EWSMessagePage] = [:]
     var recentObservedIdsByFolderId: [String: Set<String>] = [:]
     for folder in folders {
+      try Task.checkCancellation()
+      guard shouldPersist() else { throw CancellationError() }
       let page = try await client.loadMessagePage(
         folder: folder,
         offset: 0,

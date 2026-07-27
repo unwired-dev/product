@@ -495,13 +495,13 @@ struct SystemEWSClient: EWSClient {
       """
       <m:FindItem Traversal="Shallow">
         <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+        <m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>
         <m:Restriction><t:IsEqualTo>
           <t:ExtendedFieldURI PropertySetId="7a86cc5b-a9c6-47f6-980b-7e684d92c4af"
             PropertyName="UnwiredOutboxId" PropertyType="String"/>
           <t:FieldURIOrConstant><t:Constant Value="\(xmlAttribute(rfcMessageId))"/>
           </t:FieldURIOrConstant>
         </t:IsEqualTo></m:Restriction>
-        <m:IndexedPageItemView MaxEntriesReturned="1" Offset="0" BasePoint="Beginning"/>
         <m:ParentFolderIds><t:DistinguishedFolderId Id="sentitems">
           \(mailboxXML(authorization))
         </t:DistinguishedFolderId></m:ParentFolderIds>
@@ -1014,6 +1014,23 @@ private final class EWSXMLNode {
   }
 }
 
+func shouldUseEWSPasswordCredential(
+  authenticationMethod: String,
+  challengeMatchesEndpoint: Bool,
+  previousFailureCount: Int
+) -> Bool {
+  let passwordMethods = [
+    NSURLAuthenticationMethodDefault,
+    NSURLAuthenticationMethodHTTPBasic,
+    NSURLAuthenticationMethodHTTPDigest,
+    NSURLAuthenticationMethodNegotiate,
+    NSURLAuthenticationMethodNTLM,
+  ]
+  return passwordMethods.contains(authenticationMethod)
+    && challengeMatchesEndpoint
+    && previousFailureCount == 0
+}
+
 private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDelegate,
   @unchecked Sendable
 {
@@ -1041,24 +1058,27 @@ private final class EWSRequestAuthenticationDelegate: NSObject, URLSessionTaskDe
     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void
   ) {
     let method = challenge.protectionSpace.authenticationMethod
-    let passwordMethods = [
-      NSURLAuthenticationMethodDefault,
-      NSURLAuthenticationMethodHTTPBasic,
-      NSURLAuthenticationMethodHTTPDigest,
-      NSURLAuthenticationMethodNegotiate,
-      NSURLAuthenticationMethodNTLM,
-    ]
     let protectionSpace = challenge.protectionSpace
     let endpointPort = endpoint.port ?? (endpoint.scheme?.lowercased() == "https" ? 443 : 0)
     let challengeMatchesEndpoint =
       protectionSpace.protocol?.lowercased() == endpoint.scheme?.lowercased()
       && protectionSpace.host.lowercased() == endpoint.host?.lowercased()
       && protectionSpace.port == endpointPort
-    if passwordMethods.contains(method),
-      challengeMatchesEndpoint,
-      let credential
-    {
+    if shouldUseEWSPasswordCredential(
+      authenticationMethod: method,
+      challengeMatchesEndpoint: challengeMatchesEndpoint,
+      previousFailureCount: challenge.previousFailureCount
+    ), let credential {
       completionHandler(.useCredential, credential)
+    } else if challenge.previousFailureCount > 0,
+      shouldUseEWSPasswordCredential(
+        authenticationMethod: method,
+        challengeMatchesEndpoint: challengeMatchesEndpoint,
+        previousFailureCount: 0
+      ),
+      credential != nil
+    {
+      completionHandler(.cancelAuthenticationChallenge, nil)
     } else {
       completionHandler(.performDefaultHandling, nil)
     }

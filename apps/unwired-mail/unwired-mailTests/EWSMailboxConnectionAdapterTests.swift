@@ -168,6 +168,39 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testSetupTreatsSynchronizedDefinitionAsCommitPoint() async throws {
+    let client = RecordingEWSClient()
+    let definitions = RecordingEWSDefinitionSyncService()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: definitions
+    )
+    var sessionIsCurrent = true
+    definitions.didSaveDefinition = {
+      sessionIsCurrent = false
+    }
+
+    let connection = try await service.connect(
+      authorizationMethod: .password,
+      credential: "password",
+      emailAddress: "reader@corp.example",
+      endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      username: #"CORP\reader"#,
+      session: session,
+      isSessionCurrent: { _ in sessionIsCurrent }
+    )
+
+    XCTAssertEqual(definitions.savedDefinition?.id, connection.id)
+    XCTAssertNotNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+  }
+
   func testSetupAcceptsSupportedVersionsAndAuthorizationMethods() async throws {
     for (versionIndex, version) in EWSServerVersion.allCases.enumerated() {
       for (methodIndex, method) in MailAuthorizationMethod.allCases.enumerated() {
@@ -681,6 +714,33 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let deliveryBody = requestBodies[1]
     XCTAssertTrue(
       deliveryBody.contains(#"PropertyName="UnwiredOutboxId""#)
+    )
+    let pagingRange = try XCTUnwrap(deliveryBody.range(of: "<m:IndexedPageItemView"))
+    let restrictionRange = try XCTUnwrap(deliveryBody.range(of: "<m:Restriction>"))
+    XCTAssertLessThan(pagingRange.lowerBound, restrictionRange.lowerBound)
+  }
+
+  func testPasswordCredentialIsOnlyUsedForInitialMatchingChallenge() {
+    XCTAssertTrue(
+      shouldUseEWSPasswordCredential(
+        authenticationMethod: NSURLAuthenticationMethodNTLM,
+        challengeMatchesEndpoint: true,
+        previousFailureCount: 0
+      )
+    )
+    XCTAssertFalse(
+      shouldUseEWSPasswordCredential(
+        authenticationMethod: NSURLAuthenticationMethodNTLM,
+        challengeMatchesEndpoint: true,
+        previousFailureCount: 1
+      )
+    )
+    XCTAssertFalse(
+      shouldUseEWSPasswordCredential(
+        authenticationMethod: NSURLAuthenticationMethodNTLM,
+        challengeMatchesEndpoint: false,
+        previousFailureCount: 0
+      )
     )
   }
 
@@ -1701,6 +1761,53 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.performedMessageChangeKeys, [["refreshed-change-key"]])
   }
 
+  func testPostCommitRefreshFailureDoesNotRetryConfirmedAction() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    client.failPageLoadsAfterAction = true
+
+    try await adapter.perform(
+      .markRead,
+      messages: [try XCTUnwrap(inbox.messages.first)],
+      connection: connection,
+      session: session
+    )
+    let failure = await adapter.resumePendingActions(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(failure)
+    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+  }
+
   func testAuthenticationRejectedBlocksPendingEWSActionForUserIntervention() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -2000,7 +2107,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.folders = [
-      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox),
+      EWSFolder(changeKey: nil, displayName: "Projects", id: "projects-id", role: nil),
     ]
     client.pages["inbox-id|0"] = EWSMessagePage(
       messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
@@ -2044,6 +2152,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected stale session cancellation")
     } catch is CancellationError {}
 
+    XCTAssertEqual(client.requestedPages, ["inbox-id|0"])
     XCTAssertNil(
       try metadataStore.load(
         productAccountId: session.productAccountId,
@@ -2472,6 +2581,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   )
   var body = ""
   var didLoadMessagePage: (() -> Void)?
+  var failPageLoadsAfterAction = false
   private var storedBodyRequestCount = 0
   var bodyRequestCount: Int { lock.withLock { storedBodyRequestCount } }
   private let lock = NSLock()
@@ -2538,6 +2648,9 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   ) async throws -> EWSMessagePage {
     let key = "\(folder.id)|\(offset)"
     lock.withLock { storedRequestedPages.append(key) }
+    if failPageLoadsAfterAction, !performedActions.isEmpty {
+      throw EWSServiceError.invalidResponse
+    }
     let page = pages[key] ?? EWSMessagePage(messages: [], nextOffset: nil)
     didLoadMessagePage?()
     return page
@@ -2619,6 +2732,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
 {
   var defaultSendingConnectionId: MailboxConnectionId?
   var didLoadSnapshot: (() -> Void)?
+  var didSaveDefinition: (() -> Void)?
   var loadSnapshotError: Error?
   var providerAccessLoads = 0
   var removedConnectionIds: [MailboxConnectionId] = []
@@ -2699,6 +2813,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     } else {
       savedDefinitions.append(definition)
     }
+    didSaveDefinition?()
     return snapshot()
   }
 
