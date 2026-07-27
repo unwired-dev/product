@@ -660,6 +660,177 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
   }
 
+  func testGmailMailboxRemovalWaitsForInFlightPushRenewal() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let pushService = DelayedAdapterPushService(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      pushWatchService: pushService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let renewalTask = Task {
+      try await adapter.registerOrRenewPush(connection: connection, session: session)
+    }
+    await pushService.waitUntilStarted()
+    let removalStarted = expectation(description: "mailbox removal starts")
+    let removalTask = Task {
+      removalStarted.fulfill()
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await fulfillment(of: [removalStarted], timeout: 1)
+    await Task.yield()
+    await pushService.release()
+    try await renewalTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+
+    XCTAssertEqual(events, ["push-state-saved", "local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
+  func testGmailMailboxRemovalWaitsForInFlightMessageBodyLoad() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let bodyReader = DelayedAdapterMessageReader(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: bodyReader,
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let bodyTask = Task {
+      try await adapter.loadMessageBody(message: adapterMessage, session: session)
+    }
+    await bodyReader.waitUntilStarted()
+    let removalStarted = expectation(description: "mailbox removal starts")
+    let removalTask = Task {
+      removalStarted.fulfill()
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await fulfillment(of: [removalStarted], timeout: 1)
+    await Task.yield()
+    await bodyReader.release()
+    let body = try await bodyTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+
+    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
+    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
+  func testGmailMailboxRemovalWaitsForInFlightMessageBodyPrefetch() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let bodyReader = DelayedAdapterMessageReader(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: bodyReader,
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let prefetchTask = Task {
+      try await adapter.prefetchMessageBodies(
+        connection: connection,
+        pinnedMessageIds: [],
+        referenceDate: Date(timeIntervalSince1970: 1_781_200_000),
+        session: session
+      )
+    }
+    await bodyReader.waitUntilStarted()
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    await bodyReader.release()
+    try await prefetchTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+
+    XCTAssertEqual(events, ["body-cache-saved", "local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
+  func testGmailRemoteRemovalWaitsForInFlightPushRenewal() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let pushService = DelayedAdapterPushService(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      pushWatchService: pushService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let renewalTask = Task {
+      try await adapter.registerOrRenewPush(connection: connection, session: session)
+    }
+    await pushService.waitUntilStarted()
+    _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    let reconciliationTask = Task {
+      try await adapter.loadConnections(session: session)
+    }
+    await Task.yield()
+    await pushService.release()
+    try await renewalTask.value
+    let connections = try await reconciliationTask.value
+    let events = await eventLog.snapshot()
+
+    XCTAssertTrue(connections.isEmpty)
+    XCTAssertEqual(events, ["push-state-saved", "local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
   // swiftlint:disable function_body_length
   @MainActor
   func testGmailFirstReleaseMixedConnectionScenario() async throws {
@@ -3245,6 +3416,11 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var clearedConnection: GmailProviderConnectionStatus?
   var clearedProviderAccountIdentifiers: [String] = []
   var statuses = [RecordingAdapterConnectionService.status]
+  private let lifecycleEventLog: AdapterLifecycleEventLog?
+
+  init(lifecycleEventLog: AdapterLifecycleEventLog? = nil) {
+    self.lifecycleEventLog = lifecycleEventLog
+  }
 
   func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {}
 
@@ -3252,6 +3428,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     _ connection: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws {
+    await lifecycleEventLog?.record("local-state-cleared")
     clearedConnection = connection
     clearedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
     statuses.removeAll {
@@ -3538,6 +3715,128 @@ private final class RecordingAdapterPushService: GmailPushWatchRegistering {
     self.connection = connection
     providerAccountIdentifiers.append(connection.providerAccountIdentifier)
     return GmailPushWatchStatus(expirationMilliseconds: 100, historyId: "10")
+  }
+}
+
+private actor AdapterLifecycleEventLog {
+  private var events: [String] = []
+
+  func record(_ event: String) {
+    events.append(event)
+  }
+
+  func snapshot() -> [String] {
+    events
+  }
+}
+
+private actor AdapterLifecycleOperationGate {
+  private var hasReleased = false
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    guard !hasReleased else { return }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    guard let releaseContinuation else {
+      hasReleased = true
+      return
+    }
+    releaseContinuation.resume()
+    self.releaseContinuation = nil
+  }
+}
+
+private final class DelayedAdapterMessageReader: GmailMessageReading {
+  private let eventLog: AdapterLifecycleEventLog
+  private let gate = AdapterLifecycleOperationGate()
+
+  init(eventLog: AdapterLifecycleEventLog) {
+    self.eventLog = eventLog
+  }
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func loadMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageBody {
+    await gate.waitForRelease()
+    await eventLog.record("body-cache-saved")
+    return GmailMessageBody(text: "Decrypted body")
+  }
+
+  func prefetchMessageBodies(
+    connection _: GmailProviderConnectionStatus,
+    pinnedMessageIds _: Set<String>,
+    referenceDate _: Date,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    await gate.waitForRelease()
+    await eventLog.record("body-cache-saved")
+  }
+
+  func removeCachedMessageBody(
+    message _: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func waitUntilStarted() async {
+    await gate.waitUntilStarted()
+  }
+
+  func release() async {
+    await gate.release()
+  }
+}
+
+private final class DelayedAdapterPushService: GmailPushWatchRegistering {
+  private let eventLog: AdapterLifecycleEventLog
+  private let gate = AdapterLifecycleOperationGate()
+
+  init(eventLog: AdapterLifecycleEventLog) {
+    self.eventLog = eventLog
+  }
+
+  func registerOrRenew(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailPushWatchStatus {
+    await gate.waitForRelease()
+    await eventLog.record("push-state-saved")
+    return GmailPushWatchStatus(expirationMilliseconds: 100, historyId: "10")
+  }
+
+  func waitUntilStarted() async {
+    await gate.waitUntilStarted()
+  }
+
+  func release() async {
+    await gate.release()
   }
 }
 

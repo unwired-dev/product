@@ -1239,27 +1239,29 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    var firstError: Error?
-    do {
-      try await connectionService.clearLocalConnection(
-        try gmailConnection(connection, session: session),
-        session: session
-      )
-    } catch {
-      firstError = error
-    }
-    do {
-      try await pendingActionService.clear(connection: connection, session: session)
-    } catch {
-      firstError = firstError ?? error
-    }
-    do {
-      try await outboxService.clear(connection: connection, session: session)
-    } catch {
-      firstError = firstError ?? error
-    }
-    if let firstError {
-      throw firstError
+    try await syncGate.withLock(connection.id) {
+      var firstError: Error?
+      do {
+        try await connectionService.clearLocalConnection(
+          try gmailConnection(connection, session: session),
+          session: session
+        )
+      } catch {
+        firstError = error
+      }
+      do {
+        try await pendingActionService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await outboxService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError {
+        throw firstError
+      }
     }
   }
 
@@ -1339,18 +1341,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     else { return localConnections }
-    for removedConnectionId in snapshot.removedConnectionIds {
-      let localStatus = localStatusesById[removedConnectionId]
-      let removedConnection = removedMailboxConnection(
-        id: removedConnectionId,
-        localStatus: localStatus,
-        session: session
-      )
-      try await clearRemovedConnection(removedConnection, session: session)
-      if let localStatus {
-        try await connectionService.clearLocalConnection(localStatus, session: session)
-      }
-    }
+    try await clearRemovedConnections(
+      snapshot.removedConnectionIds,
+      localStatusesById: localStatusesById,
+      session: session
+    )
     var definitions = snapshot.connections
     if usedCachedSnapshot {
       definitions += localConnections.map(\.definition).filter { definition in
@@ -1370,6 +1365,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func clearRemovedConnections(
+    _ removedConnectionIds: [MailboxConnectionId],
+    localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    for removedConnectionId in removedConnectionIds {
+      try await syncGate.withLock(removedConnectionId) {
+        let localStatus = localStatusesById[removedConnectionId]
+        let removedConnection = removedMailboxConnection(
+          id: removedConnectionId,
+          localStatus: localStatus,
+          session: session
+        )
+        try await clearRemovedConnection(removedConnection, session: session)
+        if let localStatus {
+          try await connectionService.clearLocalConnection(localStatus, session: session)
+        }
+      }
+    }
   }
 
   private func removedMailboxConnection(
@@ -1428,11 +1444,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let gmailStatus = try gmailConnection(
-      connection, session: session, requiresAuthorization: false)
-    try await connectionService.clearLocalConnection(gmailStatus, session: session)
-    _ = try await definitionSyncService.removeConnection(connection.id, session: session)
-    try await clearRemovedConnection(connection, session: session)
+    try await syncGate.withLock(connection.id) {
+      let gmailStatus = try gmailConnection(
+        connection, session: session, requiresAuthorization: false)
+      try await connectionService.clearLocalConnection(gmailStatus, session: session)
+      _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+      try await clearRemovedConnection(connection, session: session)
+    }
   }
 
   private func clearRemovedConnection(
@@ -1708,12 +1726,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    try await ensureConnectionIsActive(message.connectionId, session: session)
-    let body = try await bodyReader.loadMessageBody(
-      message: message.gmailMetadata,
-      session: session
-    )
-    return MailboxMessageBody(text: body.text)
+    try await syncGate.withLock(message.connectionId) {
+      try await ensureConnectionIsActive(message.connectionId, session: session)
+      let body = try await bodyReader.loadMessageBody(
+        message: message.gmailMetadata,
+        session: session
+      )
+      return MailboxMessageBody(text: body.text)
+    }
   }
 
   func prefetchMessageBodies(
@@ -1722,16 +1742,18 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    try await bodyReader.prefetchMessageBodies(
-      connection: gmailConnection,
-      pinnedMessageIds: Set(pinnedMessageIds.map(\.rawValue)),
-      referenceDate: referenceDate,
-      session: session
-    )
+    try await syncGate.withLock(connection.id) {
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session
+      )
+      try await bodyReader.prefetchMessageBodies(
+        connection: gmailConnection,
+        pinnedMessageIds: Set(pinnedMessageIds.map(\.rawValue)),
+        referenceDate: referenceDate,
+        session: session
+      )
+    }
   }
 
   func removeCachedMessageBody(
@@ -1745,14 +1767,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    _ = try await pushWatchService.registerOrRenew(
-      connection: gmailConnection,
-      session: session
-    )
+    try await syncGate.withLock(connection.id) {
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session
+      )
+      _ = try await pushWatchService.registerOrRenew(
+        connection: gmailConnection,
+        session: session
+      )
+    }
   }
 
   func perform(

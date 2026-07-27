@@ -466,11 +466,18 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let legacyJSON = try XCTUnwrap(
       String(data: JSONEncoder().encode(connection), encoding: .utf8)
     )
-    let store = KeychainGmailPushConnectionStore()
+    let ownershipStore = InMemoryLegacyWatchOwnerStore()
+    let store = KeychainGmailPushConnectionStore(
+      legacyWatchOwnershipStore: ownershipStore
+    )
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
     XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [connection])
+    XCTAssertEqual(
+      try ownershipStore.load(productAccountId: productAccountId),
+      connection.providerAccountIdentifier
+    )
     XCTAssertEqual(
       try store.load(
         productAccountId: productAccountId,
@@ -534,7 +541,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNotNil(defaults.object(forKey: eligibilityKey))
   }
 
-  func testPushWatchStoreMigratesLegacyStatusAndKeepsCollidingIdentitiesIsolated() throws {
+  // swiftlint:disable:next function_body_length
+  func testPushWatchStoreLeavesUnownedLegacyStatusUntouchedForCollidingIdentities() throws {
     let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
     defer { defaults.removePersistentDomain(forName: suiteName) }
@@ -553,16 +561,27 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let legacyProductAccount = legacyGmailSafeFileComponent(session.productAccountId)
     let legacyProviderAccount = legacyGmailSafeFileComponent(firstIdentifier)
     let legacyKey = "gmail-push-watch.\(legacyProductAccount).\(legacyProviderAccount)"
-    defaults.set(try JSONEncoder().encode(first), forKey: legacyKey)
-    let store = UserDefaultsGmailPushWatchStore(defaults: defaults)
+    let legacyData = try JSONEncoder().encode(first)
+    defaults.set(legacyData, forKey: legacyKey)
+    let ownershipStore = InMemoryLegacyWatchOwnerStore()
+    let store = UserDefaultsGmailPushWatchStore(
+      defaults: defaults,
+      legacyOwnershipStore: ownershipStore
+    )
 
-    XCTAssertEqual(
+    XCTAssertNil(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: secondIdentifier
+      )
+    )
+    XCTAssertNil(
       try store.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: firstIdentifier
-      ),
-      first
+      )
     )
+    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
     try store.save(
       second,
       productAccountId: session.productAccountId,
@@ -586,6 +605,71 @@ final class GmailPushRelayServiceTests: XCTestCase {
       ),
       second
     )
+    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
+  }
+
+  func testPushWatchStoreMigratesLegacyStatusOnlyForVerifiedOwner() throws {
+    let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let status = GmailPushWatchStatus(
+      expirationMilliseconds: 100,
+      historyId: "10",
+      routeId: "route-001"
+    )
+    let providerAccountIdentifier = "gmail/user"
+    let legacyKey =
+      "gmail-push-watch.\(legacyGmailSafeFileComponent(session.productAccountId))."
+      + legacyGmailSafeFileComponent(providerAccountIdentifier)
+    defaults.set(try JSONEncoder().encode(status), forKey: legacyKey)
+    let ownershipStore = InMemoryLegacyWatchOwnerStore()
+    try ownershipStore.save(
+      providerAccountIdentifier: providerAccountIdentifier,
+      productAccountId: session.productAccountId
+    )
+    let store = UserDefaultsGmailPushWatchStore(
+      defaults: defaults,
+      legacyOwnershipStore: ownershipStore
+    )
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      status
+    )
+    XCTAssertNil(defaults.data(forKey: legacyKey))
+    XCTAssertNil(try ownershipStore.load(productAccountId: session.productAccountId))
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      status
+    )
+  }
+
+  func testPushWatchStoreClearAllPreservesUnverifiedLegacyStatus() throws {
+    let suiteName = "PushWatchStoreTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let providerAccountIdentifier = "gmail/user"
+    let legacyKey =
+      "gmail-push-watch.\(legacyGmailSafeFileComponent(session.productAccountId))."
+      + legacyGmailSafeFileComponent(providerAccountIdentifier)
+    let legacyData = try JSONEncoder().encode(
+      GmailPushWatchStatus(expirationMilliseconds: 100, historyId: "10")
+    )
+    defaults.set(legacyData, forKey: legacyKey)
+    let store = UserDefaultsGmailPushWatchStore(
+      defaults: defaults,
+      legacyOwnershipStore: InMemoryLegacyWatchOwnerStore()
+    )
+
+    try store.clearAll(productAccountId: session.productAccountId)
+
+    XCTAssertEqual(defaults.data(forKey: legacyKey), legacyData)
   }
 
   func testClearingNotificationStateDoesNotDeleteCollidingLegacyState() {
@@ -3186,6 +3270,24 @@ private struct InFlightGmailPushReceiptStore: GmailPushNotificationReceiptPersis
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {}
+}
+
+private final class InMemoryLegacyWatchOwnerStore:
+  GmailLegacyPushWatchOwnershipPersisting
+{
+  private var ownersByProductAccountId: [String: String] = [:]
+
+  func clear(productAccountId: String) throws {
+    ownersByProductAccountId[productAccountId] = nil
+  }
+
+  func load(productAccountId: String) throws -> String? {
+    ownersByProductAccountId[productAccountId]
+  }
+
+  func save(providerAccountIdentifier: String, productAccountId: String) throws {
+    ownersByProductAccountId[productAccountId] = providerAccountIdentifier
+  }
 }
 
 private final class RecordingUserNotificationCenter: UserNotificationCenterClient {
