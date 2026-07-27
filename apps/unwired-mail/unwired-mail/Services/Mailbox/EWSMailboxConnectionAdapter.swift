@@ -83,6 +83,14 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
     )
   }
 
+  func matchesAuthorizationScope(_ other: Self) -> Bool {
+    authorizationMethod == other.authorizationMethod
+      && endpoint == other.endpoint
+      && providerAccountIdentifier == other.providerAccountIdentifier
+      && serverVersion == other.serverVersion
+      && username == other.username
+  }
+
   static func validatedEndpoint(_ value: String) throws -> URL {
     guard
       let endpoint = URL(string: value.trimmingCharacters(in: .whitespacesAndNewlines)),
@@ -1502,7 +1510,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         (try? authorizationStore.load(
           productAccountId: session.productAccountId,
           connectionId: definition.id
-        ))?.definition == ewsDefinition
+        ))?.definition.matchesAuthorizationScope(ewsDefinition) == true
       return MailboxConnection(
         authorizationState: authorized ? .authorized : .required,
         capabilities: authorized ? .exchangeWebServices : .none,
@@ -2569,7 +2577,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let definition = snapshot.connections.first(where: { $0.id == connection.id })?
         .ewsDefinition
     else { throw MailboxConnectionAdapterError.connectionRemoved }
-    guard authorization.definition == definition else {
+    guard authorization.definition.matchesAuthorizationScope(definition) else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return DeviceLocalEWSAuthorization(

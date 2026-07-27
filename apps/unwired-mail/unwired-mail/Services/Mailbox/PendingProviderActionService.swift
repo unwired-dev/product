@@ -873,6 +873,7 @@ extension MailboxMessageMetadata {
     switch action {
     case .archive:
       states.remove("INBOX")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       if providerId == .microsoftGraph {
         states.insert("ARCHIVE")
       }
@@ -890,13 +891,17 @@ extension MailboxMessageMetadata {
       }
     case .notSpam:
       states.remove("SPAM")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       states.insert("INBOX")
     case .restore:
       states.remove("TRASH")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       states.insert("INBOX")
     case .spam:
       states.remove("INBOX")
-      states = states.filter { !$0.hasPrefix("graph-folder:") }
+      states = states.filter {
+        !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
+      }
       states.insert("SPAM")
     case .star:
       states.insert("STARRED")

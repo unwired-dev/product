@@ -187,12 +187,14 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(providerConflict.messages, [message])
   }
 
+  // swiftlint:disable:next function_body_length
   func testFullCapabilityActionsProjectProviderState() async throws {
     // swiftlint:disable:next large_tuple
     let cases: [(ProviderMailAction, String?, [String], Set<String>)] = [
       (.markRead, nil, ["INBOX", "UNREAD"], ["INBOX"]),
       (.markUnread, nil, ["INBOX"], ["INBOX", "UNREAD"]),
       (.archive, nil, ["INBOX"], []),
+      (.archive, nil, ["ews-folder:source"], []),
       (.move, "Label_projects", ["INBOX"], ["Label_projects"]),
       (
         .move, "graph-folder:destination", ["graph-folder:source", "UNREAD"],
@@ -201,8 +203,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
       (.move, "ews-folder:destination", ["ews-folder:source"], ["ews-folder:destination"]),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
+      (.restore, nil, ["ews-folder:source", "TRASH"], ["INBOX"]),
       (.spam, nil, ["graph-folder:source", "INBOX"], ["SPAM"]),
+      (.spam, nil, ["ews-folder:source", "INBOX"], ["SPAM"]),
       (.notSpam, nil, ["SPAM"], ["INBOX"]),
+      (.notSpam, nil, ["ews-folder:source", "SPAM"], ["INBOX"]),
       (.star, nil, ["INBOX"], ["INBOX", "STARRED"]),
       (.unstar, nil, ["INBOX", "STARRED"], ["INBOX"]),
     ]

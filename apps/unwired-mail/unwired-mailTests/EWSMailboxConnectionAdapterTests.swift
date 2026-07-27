@@ -355,6 +355,42 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.credential, "")
   }
 
+  func testSynchronizedMailboxAliasChangePreservesDeviceAuthorization() async throws {
+    let localDefinition = makeEWSDefinition()
+    let synchronizedDefinition = EWSConnectionDefinition(
+      authorizationMethod: localDefinition.authorizationMethod,
+      emailAddress: "canonical@corp.example",
+      endpoint: localDefinition.endpoint,
+      providerAccountIdentifier: localDefinition.providerAccountIdentifier,
+      serverVersion: localDefinition.serverVersion,
+      username: localDefinition.username
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: localDefinition),
+      productAccountId: session.productAccountId
+    )
+    let client = RecordingEWSClient()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: synchronizedDefinition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: synchronizedDefinition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(connection.authorizationState, .authorized)
+    XCTAssertFalse(client.requestedPages.isEmpty)
+  }
+
   func testSetupRequiresEveryFullCapabilityMailboxRole() async throws {
     let client = RecordingEWSClient()
     client.folders.removeAll { $0.role == .drafts }
