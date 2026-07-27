@@ -3918,10 +3918,14 @@ describe('gmail push relay', () => {
       trustedDeviceId: device.trustedDeviceId,
     });
     const confirmed = await t.run((ctx) => ctx.db.get(route.routeId));
-    expect(confirmed).toMatchObject({
-      microsoftClientStateDigest: replacementDigest,
-      microsoftSubscriptionId: 'replacement-subscription',
+    expect({
+      clientStateDigest: confirmed?.microsoftClientStateDigest,
+      pendingClientStateDigest: confirmed?.microsoftPendingClientStateDigest,
+      subscriptionId: confirmed?.microsoftSubscriptionId,
+    }).toStrictEqual({
+      clientStateDigest: replacementDigest,
+      pendingClientStateDigest: undefined,
+      subscriptionId: 'replacement-subscription',
     });
-    expect(confirmed?.microsoftPendingClientStateDigest).toBeUndefined();
   });
 });
