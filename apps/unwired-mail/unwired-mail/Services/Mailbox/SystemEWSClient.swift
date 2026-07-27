@@ -241,6 +241,41 @@ struct SystemEWSClient: EWSClient {
     return body.text
   }
 
+  func refreshMessageIdentities(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage] {
+    guard !messages.isEmpty else { return [] }
+    let itemIds = messages.map {
+      #"<t:ItemId Id="\#(xmlAttribute($0.itemId))"/>"#
+    }.joined()
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+        <m:ItemIds>\(itemIds)</m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    let refreshedIds = document.descendants.filter { $0.localName == "ItemId" }
+    guard refreshedIds.count == messages.count else {
+      throw EWSServiceError.invalidResponse
+    }
+    return try zip(messages, refreshedIds).map { message, refreshedId in
+      guard
+        let itemId = refreshedId.attributes["Id"],
+        let changeKey = refreshedId.attributes["ChangeKey"]
+      else {
+        throw EWSServiceError.invalidResponse
+      }
+      var refreshed = message
+      refreshed.itemId = itemId
+      refreshed.changeKey = changeKey
+      return refreshed
+    }
+  }
+
   // swiftlint:disable function_body_length cyclomatic_complexity
   /// Applies one mailbox mutation after the shared pending-action queue hands it off.
   func perform(
@@ -357,6 +392,7 @@ struct SystemEWSClient: EWSClient {
             <t:Subject>\(xml(message.subject))</t:Subject>
             <t:Body BodyType="Text">\(xml(message.body))</t:Body>
             \(headers)
+            <t:From>\(mailboxXML(authorization))</t:From>
             <t:ToRecipients>\(recipients)</t:ToRecipients>
           </t:Message>
         </m:Items>

@@ -193,6 +193,11 @@ protocol EWSClient: Sendable {
     itemId: String,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> String
+  /// Reloads current item ids and change keys immediately before a mutation.
+  func refreshMessageIdentities(
+    _ messages: [EWSProviderMessage],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage]
   /// Applies one provider mutation for an already persisted pending action.
   func perform(
     _ action: ProviderMailAction,
@@ -233,6 +238,13 @@ extension EWSClient {
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> String {
     throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func refreshMessageIdentities(
+    _ messages: [EWSProviderMessage],
+    authorization _: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSProviderMessage] {
+    messages
   }
 
   func perform(
@@ -1423,7 +1435,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
-          finishReconciliation(for: folder.id, snapshot: &snapshot)
+          finishReconciliation(for: folder.id, snapshot: &snapshot, deleteUnobserved: false)
         }
         try metadataStore.save(
           snapshot,
@@ -1928,6 +1940,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         guard messages.count == messageIds.count else {
           throw MailboxConnectionAdapterError.connectionRemoved
         }
+        let currentMessages = try await client.refreshMessageIdentities(
+          messages,
+          authorization: authorization
+        )
         let movedItems: [EWSMovedItemIdentity]
         do {
           movedItems = try await client.perform(
@@ -1935,7 +1951,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
             targetFolderId: targetFolderId.flatMap {
               EWSProviderMessage.folderId(fromProviderStateId: $0)
             } ?? targetFolderId,
-            messages: messages,
+            messages: currentMessages,
             authorization: authorization
           )
         } catch let error as URLError {
@@ -1982,7 +1998,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     return messages.allSatisfy { message in
       let states = Set(message.providerStateIds ?? [])
       switch action {
-      case .archive: return !states.contains("INBOX")
+      case .archive: return states.contains("ARCHIVE")
       case .delete: return states.contains("TRASH")
       case .markRead: return !states.contains("UNREAD")
       case .markUnread: return states.contains("UNREAD")
@@ -2129,13 +2145,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func finishReconciliation(
     for folderId: String,
-    snapshot: inout EWSMetadataSnapshot
+    snapshot: inout EWSMetadataSnapshot,
+    deleteUnobserved: Bool = true
   ) {
     guard let observedIds = snapshot.reconciliationMessageIdsByFolderId[folderId] else {
       return
     }
-    snapshot.messages.removeAll {
-      $0.parentFolderId == folderId && !observedIds.contains($0.stableProviderId)
+    if deleteUnobserved {
+      snapshot.messages.removeAll {
+        $0.parentFolderId == folderId && !observedIds.contains($0.stableProviderId)
+      }
     }
     snapshot.reconciliationMessageIdsByFolderId[folderId] = nil
   }
