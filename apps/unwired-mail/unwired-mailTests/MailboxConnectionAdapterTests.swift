@@ -307,6 +307,39 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
+  func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    let refreshedStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "refreshed@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-refreshed",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    connectionService.statuses = [refreshedStatus]
+    let refreshedConnectionId = refreshedStatus.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).id
+    XCTAssertFalse(viewModel.connections.contains { $0.id == refreshedConnectionId })
+
+    let refreshed = await viewModel.refreshSnapshot()
+
+    XCTAssertTrue(refreshed)
+    XCTAssertTrue(viewModel.connections.contains { $0.id == refreshedConnectionId })
+  }
+
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(

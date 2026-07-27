@@ -313,7 +313,7 @@ enum MicrosoftGraphPushError: LocalizedError {
 }
 
 struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
-  private static let renewalWindow: TimeInterval = 24 * 60 * 60
+  static let renewalWindow: TimeInterval = 24 * 60 * 60
   private static let subscriptionLifetime: TimeInterval = 2 * 24 * 60 * 60
 
   private let now: () -> Date
@@ -544,6 +544,65 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
 
   private func sha256Hex(_ value: String) -> String {
     SHA256.hash(data: Data(value.utf8)).map { String(format: "%02x", $0) }.joined()
+  }
+}
+
+@MainActor
+struct MicrosoftGraphPushRenewalHandler {
+  private let connectionManager: MailboxConnectionManaging
+  private let now: () -> Date
+  private let pushService: MailboxPushRegistering
+  private let sessionStore: ProductAccountSessionPersisting
+  private let statusStore: MicrosoftGraphPushStatusPersisting
+
+  init(
+    connectionManager: MailboxConnectionManaging? = nil,
+    now: @escaping () -> Date = Date.init,
+    pushService: MailboxPushRegistering? = nil,
+    sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
+    statusStore: MicrosoftGraphPushStatusPersisting =
+      UserDefaultsMicrosoftGraphPushStatusStore()
+  ) {
+    let adapter = MicrosoftGraphMailboxConnectionAdapter()
+    self.connectionManager = connectionManager ?? adapter
+    self.now = now
+    self.pushService = pushService ?? adapter
+    self.sessionStore = sessionStore
+    self.statusStore = statusStore
+  }
+
+  func handle() async throws -> Bool {
+    guard let session = try sessionStore.load() else {
+      return false
+    }
+    let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
+    let renewalBoundary = Int64(
+      now().addingTimeInterval(MicrosoftGraphPushSubscriptionService.renewalWindow)
+        .timeIntervalSince1970 * 1_000
+    )
+    let connections = try await connectionManager.loadConnections(session: session)
+      .filter { connection in
+        connection.providerId == .microsoftGraph
+          && connection.authorizationState == .authorized
+          && connection.trustedDeviceId == session.trustedDeviceId
+          && (statuses.first {
+            $0.providerAccountIdentifier == connection.providerMailboxIdentity.value
+          }?.expiresAtMilliseconds ?? 0) <= renewalBoundary
+      }
+    var completedRenewal = false
+    var firstError: Error?
+    for connection in connections {
+      do {
+        try await pushService.registerOrRenewPush(connection: connection, session: session)
+        completedRenewal = true
+      } catch {
+        firstError = firstError ?? error
+      }
+    }
+    if let firstError {
+      throw firstError
+    }
+    return completedRenewal
   }
 }
 

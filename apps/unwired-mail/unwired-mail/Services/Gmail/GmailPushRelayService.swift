@@ -1634,6 +1634,14 @@ private struct GmailWatchResponse: Decodable {
     }
 
     func application(
+      _ application: UIApplication,
+      didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+      application.setMinimumBackgroundFetchInterval(12 * 60 * 60)
+      return true
+    }
+
+    func application(
       _: UIApplication,
       didRegisterForRemoteNotificationsWithDeviceToken deviceToken: Data
     ) {
@@ -1672,6 +1680,23 @@ private struct GmailWatchResponse: Decodable {
             handled = try await MicrosoftGraphPushWakeupHandler().handle(userInfo: userInfo)
           }
           completionHandler(handled ? .newData : .noData)
+        } catch {
+          completionHandler(.failed)
+        }
+      }
+    }
+
+    func application(
+      _: UIApplication,
+      performFetchWithCompletionHandler completionHandler:
+        @escaping (
+          UIBackgroundFetchResult
+        ) -> Void
+    ) {
+      Task { @MainActor in
+        do {
+          let renewed = try await MicrosoftGraphPushRenewalHandler().handle()
+          completionHandler(renewed ? .newData : .noData)
         } catch {
           completionHandler(.failed)
         }

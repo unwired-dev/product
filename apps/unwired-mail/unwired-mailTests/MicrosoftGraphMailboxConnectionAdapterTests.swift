@@ -1491,6 +1491,82 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(push.connectionIds, [connection.id])
   }
 
+  func testBackgroundFetchRenewsQuietGraphMailboxInsideRenewalWindow() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let defaultsName = "MicrosoftGraphBackgroundRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: Int64(now.addingTimeInterval(60 * 60).timeIntervalSince1970 * 1_000),
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    let push = RecordingMailboxPushService()
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: adapter,
+      now: { now },
+      pushService: push,
+      sessionStore: sessionStore,
+      statusStore: statusStore
+    )
+
+    let renewed = try await handler.handle()
+
+    XCTAssertTrue(renewed)
+    XCTAssertEqual(push.connectionIds, [connection.id])
+  }
+
+  func testBackgroundFetchSkipsFreshGraphSubscription() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let defaultsName = "MicrosoftGraphFreshBackgroundRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    let now = Date(timeIntervalSince1970: 2_000_000_000)
+    try statusStore.save(
+      MicrosoftGraphPushStatus(
+        expiresAtMilliseconds: Int64(
+          now.addingTimeInterval(2 * 24 * 60 * 60).timeIntervalSince1970 * 1_000
+        ),
+        opaqueConnectionId: "opaque-id",
+        providerAccountIdentifier: connection.providerMailboxIdentity.value,
+        routeId: "route-id",
+        subscriptionId: "subscription-id"
+      ),
+      productAccountId: session.productAccountId
+    )
+    let push = RecordingMailboxPushService()
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: adapter,
+      now: { now },
+      pushService: push,
+      sessionStore: sessionStore,
+      statusStore: statusStore
+    )
+
+    let renewed = try await handler.handle()
+
+    XCTAssertFalse(renewed)
+    XCTAssertTrue(push.connectionIds.isEmpty)
+  }
+
   func testPushRegistrationDeletesNewSubscriptionWhenConfirmationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)

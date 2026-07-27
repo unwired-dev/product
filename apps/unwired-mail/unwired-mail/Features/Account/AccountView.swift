@@ -1028,7 +1028,16 @@ struct AccountView: View {
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
         as? Bool == true
       guard successfulSyncAt != nil || reloadObservedMetadata else { return }
-      Task { await reloadObservedMailboxes() }
+      Task {
+        if successfulSyncAt != nil {
+          let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
+          mailboxFreshnessViewModel.updateConnections(
+            gmailViewModel.connections,
+            prunesPersistedState: connectionsAreAuthoritative
+          )
+        }
+        await reloadObservedMailboxes()
+      }
     }
   }
 
@@ -5401,6 +5410,22 @@ final class MailboxProviderConnectionViewModel {
         errorMessage = originalError.localizedDescription
         return false
       }
+    }
+  }
+
+  func refreshSnapshot() async -> Bool {
+    do {
+      try await refreshConnections()
+      if !connections.contains(where: { $0.id == selectedConnectionId }) {
+        selectedConnectionId =
+          connections.first { $0.id == defaultSendingConnectionId }?.id
+          ?? connections.first?.id
+      }
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
   }
 

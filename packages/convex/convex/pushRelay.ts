@@ -72,6 +72,7 @@ const gmailActiveRouteInspectionLimit = 100;
 const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
+const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
 const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
@@ -2101,6 +2102,27 @@ const microsoftGraphRouteResponseValidator = v.object({
   routeId: v.string(),
 });
 
+async function microsoftGraphWakeupState(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeId: Id<'mailProviderConnections'>,
+): Promise<Doc<'microsoftGraphWakeupStates'> | null> {
+  return ctx.db
+    .query('microsoftGraphWakeupStates')
+    .withIndex('by_routeId', (q) => q.eq('routeId', routeId))
+    .unique();
+}
+
+async function deleteMicrosoftGraphWakeupState(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  routeId: Id<'mailProviderConnections'>,
+): Promise<void> {
+  const state = await microsoftGraphWakeupState(ctx, routeId);
+  if (state !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
+  }
+}
+
 export const prepareMicrosoftGraphRoute = mutation({
   args: {
     clientStateDigest: v.string(),
@@ -2129,6 +2151,25 @@ export const prepareMicrosoftGraphRoute = mutation({
       )
       .unique();
     const now = Date.now();
+    if (existing === null) {
+      const deviceConnections = await ctx.db
+        .query('mailProviderConnections')
+        .withIndex(
+          'by_productAccountId_and_provider_and_trustedDeviceId',
+          (q) =>
+            q
+              .eq('productAccountId', account.productAccountId)
+              .eq('provider', 'microsoft-graph')
+              .eq('trustedDeviceId', args.trustedDeviceId),
+        )
+        .take(microsoftGraphConnectionLimitPerTrustedDevice + 1);
+      if (
+        deviceConnections.length >=
+        microsoftGraphConnectionLimitPerTrustedDevice
+      ) {
+        throw new Error('Microsoft Graph connection limit reached');
+      }
+    }
     const routeId =
       existing === null
         ? await ctx.db.insert('mailProviderConnections', {
@@ -2144,12 +2185,12 @@ export const prepareMicrosoftGraphRoute = mutation({
         : // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
           existing._id;
     if (existing !== null) {
+      await deleteMicrosoftGraphWakeupState(ctx, routeId);
       await ctx.db.patch(routeId, {
         lastVerifiedAt: now,
         microsoftClientStateDigest: args.clientStateDigest,
         microsoftSubscriptionExpiresAt: undefined,
         microsoftSubscriptionId: undefined,
-        microsoftWakeupScheduledAt: undefined,
         updatedAt: now,
       });
     }
@@ -2221,6 +2262,8 @@ export const removeMicrosoftGraphRoute = mutation({
       .unique();
     if (route !== null) {
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await deleteMicrosoftGraphWakeupState(ctx, route._id);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.delete(route._id);
     }
     return { removed: route !== null };
@@ -2250,10 +2293,13 @@ export const enqueueMicrosoftGraphWakeup = internalMutation({
     ) {
       return { accepted: false };
     }
-    if (route.microsoftWakeupScheduledAt !== undefined) {
+    if ((await microsoftGraphWakeupState(ctx, routeId)) !== null) {
       return { accepted: true };
     }
-    await ctx.db.patch(routeId, { microsoftWakeupScheduledAt: now });
+    await ctx.db.insert('microsoftGraphWakeupStates', {
+      routeId,
+      scheduledAt: now,
+    });
     await ctx.scheduler.runAfter(
       1000,
       internal.apns.deliverMicrosoftGraphWakeup,
@@ -2271,17 +2317,19 @@ export const claimMicrosoftGraphWakeup = internalMutation({
   },
   handler: async (ctx, args) => {
     const route = await ctx.db.get(args.routeId);
+    const state = await microsoftGraphWakeupState(ctx, args.routeId);
+    if (state?.scheduledAt !== args.scheduledAt) {
+      return null;
+    }
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
     if (
       route === null ||
       route.provider !== 'microsoft-graph' ||
-      route.microsoftWakeupScheduledAt !== args.scheduledAt ||
       (route.microsoftSubscriptionExpiresAt ?? 0) <= Date.now()
     ) {
       return null;
     }
-    await ctx.db.patch(args.routeId, {
-      microsoftWakeupScheduledAt: undefined,
-    });
     const device = await ctx.db.get(route.trustedDeviceId);
     if (!hasActiveApnsRoute(device)) {
       return null;

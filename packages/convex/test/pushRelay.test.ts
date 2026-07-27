@@ -3488,7 +3488,7 @@ describe('gmail push relay', () => {
   });
 
   it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
-    expect.assertions(7);
+    expect.assertions(5);
 
     vi.useFakeTimers();
     apnsMock.connections.length = 0;
@@ -3578,25 +3578,86 @@ describe('gmail push relay', () => {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
-      expect([isolatedResponse.status, oversizedResponse.status]).toStrictEqual(
-        [202, 400],
+      const pendingWakeups = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
+      expect({
+        pendingWakeupCount: pendingWakeups.length,
+        pendingWakeupRouteId: pendingWakeups[0]?.routeId,
+        statuses: [isolatedResponse.status, oversizedResponse.status],
+      }).toStrictEqual({
+        pendingWakeupCount: 1,
+        pendingWakeupRouteId: route.routeId,
+        statuses: [202, 400],
+      });
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
-      expect(apnsMock.requests).toHaveLength(1);
-      expect(JSON.parse(apnsMock.requests[0]!.payload)).toStrictEqual({
-        aps: { 'content-available': 1 },
-        provider: 'microsoft-graph',
-        routeId: route.routeId,
-      });
-      expect(apnsMock.requests[0]!.payload).not.toContain(
-        'provider-message-id',
+      const remainingWakeups = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
+      expect({
+        payload: JSON.parse(apnsMock.requests[0]!.payload),
+        payloadContainsProviderData: apnsMock.requests[0]!.payload.includes(
+          'provider-message-id',
+        ),
+        remainingWakeups,
+        requestCount: apnsMock.requests.length,
+      }).toStrictEqual({
+        payload: {
+          aps: { 'content-available': 1 },
+          provider: 'microsoft-graph',
+          routeId: route.routeId,
+        },
+        payloadContainsProviderData: false,
+        remainingWakeups: [],
+        requestCount: 1,
+      });
     } finally {
       vi.useRealTimers();
       vi.unstubAllEnvs();
     }
+  });
+
+  it('caps Microsoft Graph routes per trusted device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-route-cap-device',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      await Promise.all(
+        Array.from({ length: 20 }, async (_, index) => {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: index,
+            lastVerifiedAt: index,
+            opaqueConnectionId: `opaque-graph-${String(index)}`,
+            productAccountId: device.productAccountId,
+            provider: 'microsoft-graph',
+            trustedDeviceId: device.trustedDeviceId,
+            updatedAt: index,
+          });
+        }),
+      );
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+        clientStateDigest: 'new-client-state-digest',
+        opaqueConnectionId: 'opaque-graph-over-limit',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Microsoft Graph connection limit reached');
+    await expect(
+      asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+        clientStateDigest: 'replacement-client-state-digest',
+        opaqueConnectionId: 'opaque-graph-0',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ routeId: expect.any(String) });
   });
 
   it('rejects a stale Microsoft Graph subscription confirmation', async () => {
