@@ -2833,7 +2833,7 @@ private struct MailShellThreadRow: View {
 private struct ProviderMailActionButtons: View {
   let actions: Set<ProviderMailAction>
   let moveDestinations: [ProviderMailbox]
-  let perform: (ProviderMailAction, String?) -> Void
+  let perform: (ProviderMailAction, ProviderMailbox?) -> Void
 
   @ViewBuilder
   var body: some View {
@@ -2849,7 +2849,7 @@ private struct ProviderMailActionButtons: View {
     if actions.contains(.move), !moveDestinations.isEmpty {
       Menu("Move to") {
         ForEach(moveDestinations, id: \.id) { mailbox in
-          Button(mailbox.title) { perform(.move, mailbox.id) }
+          Button(mailbox.title) { perform(.move, mailbox) }
         }
       }
     }
@@ -3165,10 +3165,11 @@ struct MailShellConversationReader: View {
         ProviderMailActionButtons(
           actions: actions,
           moveDestinations: providerMailboxes
-        ) { action, targetProviderMailboxId in
+        ) { action, targetProviderMailbox in
           perform(
             action,
-            targetProviderMailboxId: targetProviderMailboxId,
+            targetProviderMailboxId: targetProviderMailbox?.id,
+            targetProviderStateIds: targetProviderMailbox?.providerStateIds ?? [],
             thread: thread,
             connection: connection
           )
@@ -3259,6 +3260,7 @@ struct MailShellConversationReader: View {
   private func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = [],
     thread: MailboxThread,
     connection: MailboxConnection
   ) {
@@ -3266,6 +3268,7 @@ struct MailShellConversationReader: View {
       let didPerform = await mailActionViewModel.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
         for: selection.selectedMailboxMessages(
           in: thread,
           pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
@@ -3968,6 +3971,7 @@ final class GmailMailActionViewModel {
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = [],
     for messages: [MailboxMessageMetadata],
     connection: MailboxConnection
   ) async -> Bool {
@@ -3980,6 +3984,7 @@ final class GmailMailActionViewModel {
       try await service.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
         messages: messages,
         connection: connection,
         session: session

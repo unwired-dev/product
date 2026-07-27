@@ -2718,6 +2718,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let service = RecordingBulkMailActionService(
+      failingConnectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "other-account"
+        )
+      )
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let message = mailShellMessage(
+      connectionId: connection.id,
+      providerMessageId: "message-first",
+      providerThreadId: "thread-first",
+      receivedAt: 200
+    )
+
+    let didPerform = await viewModel.perform(
+      .move,
+      targetProviderMailboxId: "provider-mailbox:deleted-child",
+      targetProviderStateIds: ["TRASH"],
+      for: [message],
+      connection: connection
+    )
+
+    XCTAssertTrue(didPerform)
+    let targetProviderStateIds = await service.recordedTargetProviderStateIds()
+    XCTAssertEqual(targetProviderStateIds, [["TRASH"]])
+  }
+
   func testMailActionViewModelRetriesBlockedBulkConnection() async {
     let firstConnection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -3904,6 +3939,7 @@ private actor MultiplePendingFailureService: MailboxProviderMailActing {
 private actor RecordingBulkMailActionService: MailboxProviderMailActing {
   private var connectionIds: [MailboxConnectionId] = []
   private let failingConnectionId: MailboxConnectionId
+  private var targetProviderStateIds: [Set<String>] = []
 
   init(failingConnectionId: MailboxConnectionId) {
     self.failingConnectionId = failingConnectionId
@@ -3921,8 +3957,28 @@ private actor RecordingBulkMailActionService: MailboxProviderMailActing {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _: ProviderMailAction,
+    targetProviderMailboxId _: String?,
+    targetProviderStateIds: Set<String>,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+    self.targetProviderStateIds.append(targetProviderStateIds)
+    if connection.id == failingConnectionId {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+  }
+
   func recordedConnectionIds() -> [MailboxConnectionId] {
     connectionIds
+  }
+
+  func recordedTargetProviderStateIds() -> [Set<String>] {
+    targetProviderStateIds
   }
 
   func send(
