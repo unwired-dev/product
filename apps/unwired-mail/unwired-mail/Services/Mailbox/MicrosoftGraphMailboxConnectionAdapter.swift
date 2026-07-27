@@ -3261,7 +3261,8 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private static func isDefinitePreDeliveryNetworkFailure(_ error: URLError) -> Bool {
     switch error.code {
-    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive,
+      .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
       return true
     default:
       return false

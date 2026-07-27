@@ -121,7 +121,11 @@ enum PendingProviderActionFailureDisposition {
   case userActionRequired
 }
 
-struct GraphAmbiguousActionError: Error {}
+struct GraphAmbiguousActionError: LocalizedError {
+  var errorDescription: String? {
+    "This action may have already been applied and must be confirmed before retrying."
+  }
+}
 
 typealias PendingProviderActionPerformer =
   @Sendable (

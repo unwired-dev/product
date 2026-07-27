@@ -3875,6 +3875,26 @@ describe('gmail push relay', () => {
       microsoftPendingClientStateDigest: replacementDigest,
       microsoftSubscriptionId: 'active-subscription',
     });
+    const activePush = await t.fetch(
+      `/microsoft-graph/push?routeId=${route.routeId}`,
+      {
+        body: JSON.stringify({
+          value: [
+            {
+              clientState: 'active-state',
+              subscriptionId: 'active-subscription',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      },
+    );
+    expect(activePush.status).toBe(202);
+    const pendingWakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(pendingWakeup?.routeId).toBe(route.routeId);
 
     await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
       clientStateDigest: replacementDigest,
