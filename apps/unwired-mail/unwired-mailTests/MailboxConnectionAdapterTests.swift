@@ -307,7 +307,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
-  func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async {
+  func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,

@@ -5416,11 +5416,7 @@ final class MailboxProviderConnectionViewModel {
   func refreshSnapshot() async -> Bool {
     do {
       try await refreshConnections()
-      if !connections.contains(where: { $0.id == selectedConnectionId }) {
-        selectedConnectionId =
-          connections.first { $0.id == defaultSendingConnectionId }?.id
-          ?? connections.first?.id
-      }
+      restoreSelection()
       errorMessage = nil
       return true
     } catch {
@@ -5430,17 +5426,21 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections() async {
-    if !connections.contains(where: { $0.id == selectedConnectionId }) {
-      selectedConnectionId =
-        connections.first { $0.id == defaultSendingConnectionId }?.id
-        ?? connections.first?.id
-    }
+    restoreSelection()
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
     errorMessage = nil
     for connection in connections {
       await refreshPushWatch(connection: connection)
+    }
+  }
+
+  private func restoreSelection() {
+    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+      selectedConnectionId =
+        connections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? connections.first?.id
     }
   }
 

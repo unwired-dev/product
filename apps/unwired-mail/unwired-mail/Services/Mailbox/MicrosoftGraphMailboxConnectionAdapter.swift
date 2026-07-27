@@ -67,7 +67,7 @@ struct MicrosoftGraphTokens: Codable, Equatable, Sendable {
   init(
     accessToken: String,
     expiresAtMilliseconds: Int64,
-    grantedScopes: Set<String>? = ["Mail.ReadWrite", "Mail.Send"],
+    grantedScopes: Set<String>? = nil,
     refreshToken: String
   ) {
     self.accessToken = accessToken
@@ -2415,9 +2415,21 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch {
         firstError = error
       }
-      try clearLocalConnectionWithoutLock(connection, session: session)
-      try await pendingActionService.clear(connection: connection, session: session)
-      try await outboxService.clear(connection: connection, session: session)
+      do {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await pendingActionService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await outboxService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
       if let firstError { throw firstError }
     }
   }

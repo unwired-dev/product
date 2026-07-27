@@ -4,6 +4,8 @@ import XCTest
 
 // swiftlint:disable file_length type_body_length type_name
 
+private let fullGraphMailScopes = Set(["Mail.ReadWrite", "Mail.Send"])
+
 @MainActor
 final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
@@ -495,6 +497,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -558,6 +561,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -874,6 +878,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1044,6 +1049,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "expired-token",
         expiresAtMilliseconds: 1,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1082,6 +1088,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1118,6 +1125,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1157,6 +1165,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1239,6 +1248,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         MicrosoftGraphTokens(
           accessToken: "access-\(account.id)",
           expiresAtMilliseconds: 4_000_000_000_000,
+          grantedScopes: fullGraphMailScopes,
           refreshToken: "refresh-\(account.id)"
         ),
         productAccountId: session.productAccountId,
@@ -1596,13 +1606,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-1"])
     XCTAssertEqual(subscriptionClient.deleteAccessTokens, ["provider-access-token"])
-    XCTAssertEqual(
-      routeTransport.removedOpaqueConnectionIds,
-      [routeTransport.prepared[0].opaqueConnectionId]
-    )
+    XCTAssertTrue(routeTransport.removedOpaqueConnectionIds.isEmpty)
   }
 
-  func testPushRegistrationRemovesPreparedRouteWhenSubscriptionCreationFails() async throws {
+  func testPushRegistrationPreservesPreparedRouteWhenSubscriptionCreationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
     let connections = try await adapter.loadConnections(session: session)
@@ -1629,10 +1636,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected subscription creation failure")
     } catch {}
 
-    XCTAssertEqual(
-      routeTransport.removedOpaqueConnectionIds,
-      [routeTransport.prepared[0].opaqueConnectionId]
-    )
+    XCTAssertTrue(routeTransport.removedOpaqueConnectionIds.isEmpty)
     XCTAssertTrue(subscriptionClient.deletedSubscriptionIds.isEmpty)
   }
 
@@ -1783,6 +1787,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       MicrosoftGraphTokens(
         accessToken: "access-token",
         expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
         refreshToken: "refresh-token"
       ),
       productAccountId: session.productAccountId,
@@ -1813,7 +1818,9 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     keyMaterialStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
     metadataStore: MicrosoftGraphMetadataPersisting? = nil,
     now: @escaping () -> Date = Date.init,
-    outboxService: OutboxDeliveryService = .shared,
+    outboxService: OutboxDeliveryService = OutboxDeliveryService(
+      store: InMemoryGraphOutboxDeliveryStore()
+    ),
     pendingActionService: PendingProviderActionService = PendingProviderActionService(
       store: InMemoryGraphPendingActionStore()
     ),
@@ -1927,11 +1934,13 @@ private final class RecordingMicrosoftGraphAuthorizer: MicrosoftGraphAuthorizing
   let authorizedTokens = MicrosoftGraphTokens(
     accessToken: "authorized-access-token",
     expiresAtMilliseconds: 4_000_000_000_000,
+    grantedScopes: fullGraphMailScopes,
     refreshToken: "authorized-refresh-token"
   )
   let refreshResult = MicrosoftGraphTokens(
     accessToken: "refreshed-access-token",
     expiresAtMilliseconds: 4_100_000_000_000,
+    grantedScopes: fullGraphMailScopes,
     refreshToken: "refreshed-refresh-token"
   )
   var refreshError: Error?
@@ -2449,5 +2458,22 @@ private final class RecordingMicrosoftGraphBodyCache: GmailMessageBodyCaching {
   ) throws {
     payloads[stableProviderMessageId] = payload
     savedMessageIds.append(stableProviderMessageId)
+  }
+}
+
+private final class InMemoryGraphOutboxDeliveryStore:
+  OutboxDeliveryPersisting, @unchecked Sendable
+{
+  private var attemptsByProductAccountId: [String: [OutgoingDeliveryAttempt]] = [:]
+
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    attemptsByProductAccountId[productAccountId] ?? []
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId: String
+  ) throws {
+    attemptsByProductAccountId[productAccountId] = attempts
   }
 }

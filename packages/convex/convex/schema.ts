@@ -148,6 +148,8 @@ export default defineSchema({
     ]),
 
   microsoftGraphWakeupStates: defineTable({
+    attemptCount: v.optional(v.number()),
+    pendingAt: v.optional(v.number()),
     routeId: v.id('mailProviderConnections'),
     scheduledAt: v.number(),
   }).index('by_routeId', ['routeId']),

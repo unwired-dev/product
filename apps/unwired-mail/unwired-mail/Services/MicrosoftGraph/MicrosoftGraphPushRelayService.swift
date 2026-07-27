@@ -84,6 +84,7 @@ protocol MicrosoftGraphPushStatusPersisting {
 }
 
 struct UserDefaultsMicrosoftGraphPushStatusStore: MicrosoftGraphPushStatusPersisting {
+  private static let lock = NSLock()
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -94,47 +95,61 @@ struct UserDefaultsMicrosoftGraphPushStatusStore: MicrosoftGraphPushStatusPersis
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
-    var statuses = try loadStatuses(productAccountId: productAccountId)
-    statuses[providerAccountIdentifier] = nil
-    try save(statuses, productAccountId: productAccountId)
+    try Self.lock.withLock {
+      var statuses = try loadStatusesUnlocked(productAccountId: productAccountId)
+      statuses[providerAccountIdentifier] = nil
+      try saveUnlocked(statuses, productAccountId: productAccountId)
+    }
   }
 
   func clearAll(productAccountId: String) throws {
-    defaults.removeObject(forKey: key(productAccountId))
+    Self.lock.withLock {
+      defaults.removeObject(forKey: key(productAccountId))
+    }
   }
 
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> MicrosoftGraphPushStatus? {
-    try loadStatuses(productAccountId: productAccountId)[providerAccountIdentifier]
+    try Self.lock.withLock {
+      try loadStatusesUnlocked(productAccountId: productAccountId)[providerAccountIdentifier]
+    }
   }
 
   func load(
     productAccountId: String,
     routeId: String
   ) throws -> MicrosoftGraphPushStatus? {
-    try loadAll(productAccountId: productAccountId).first { $0.routeId == routeId }
+    try Self.lock.withLock {
+      try loadStatusesUnlocked(productAccountId: productAccountId).values.first {
+        $0.routeId == routeId
+      }
+    }
   }
 
   func loadAll(productAccountId: String) throws -> [MicrosoftGraphPushStatus] {
-    Array(try loadStatuses(productAccountId: productAccountId).values)
+    try Self.lock.withLock {
+      Array(try loadStatusesUnlocked(productAccountId: productAccountId).values)
+    }
   }
 
   func save(
     _ status: MicrosoftGraphPushStatus,
     productAccountId: String
   ) throws {
-    var statuses = try loadStatuses(productAccountId: productAccountId)
-    statuses[status.providerAccountIdentifier] = status
-    try save(statuses, productAccountId: productAccountId)
+    try Self.lock.withLock {
+      var statuses = try loadStatusesUnlocked(productAccountId: productAccountId)
+      statuses[status.providerAccountIdentifier] = status
+      try saveUnlocked(statuses, productAccountId: productAccountId)
+    }
   }
 
   private func key(_ productAccountId: String) -> String {
     "microsoft-graph-push.\(productAccountId)"
   }
 
-  private func loadStatuses(
+  private func loadStatusesUnlocked(
     productAccountId: String
   ) throws -> [String: MicrosoftGraphPushStatus] {
     guard let data = defaults.data(forKey: key(productAccountId)) else {
@@ -143,7 +158,7 @@ struct UserDefaultsMicrosoftGraphPushStatusStore: MicrosoftGraphPushStatusPersis
     return try JSONDecoder().decode([String: MicrosoftGraphPushStatus].self, from: data)
   }
 
-  private func save(
+  private func saveUnlocked(
     _ statuses: [String: MicrosoftGraphPushStatus],
     productAccountId: String
   ) throws {
@@ -436,11 +451,6 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
           subscriptionId: createdSubscriptionId
         )
       }
-      _ = try? await transport.removeMicrosoftGraphPushRoute(
-        identityToken: session.identityToken,
-        opaqueConnectionId: connectionOpaqueId,
-        trustedDeviceId: session.trustedDeviceId
-      )
       throw error
     }
   }

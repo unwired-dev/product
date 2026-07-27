@@ -73,7 +73,10 @@ const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
 const microsoftGraphConnectionLimitPerTrustedDevice = 20;
-const microsoftGraphWakeupRetryDelayMs = 60 * 1000;
+const microsoftGraphWakeupClaimLeaseMs = 5 * 60 * 1000;
+const microsoftGraphWakeupMaximumAttempts = 5;
+const microsoftGraphWakeupMaximumRetryDelayMs = 15 * 60 * 1000;
+const microsoftGraphWakeupRetryBaseDelayMs = 60 * 1000;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
 const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
@@ -2344,6 +2347,7 @@ async function confirmMicrosoftGraphRouteForDevice(
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,
   });
+  await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
   return { routeId: args.routeId };
 }
 
@@ -2439,10 +2443,15 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   if (routeId === null) {
     return { accepted: false };
   }
-  if ((await microsoftGraphWakeupState(ctx, routeId)) !== null) {
+  const existing = await microsoftGraphWakeupState(ctx, routeId);
+  if (existing !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(existing._id, { pendingAt: now });
     return { accepted: true };
   }
   await ctx.db.insert('microsoftGraphWakeupStates', {
+    attemptCount: 0,
+    pendingAt: now,
     routeId,
     scheduledAt: now,
   });
@@ -2496,6 +2505,11 @@ async function claimMicrosoftGraphWakeupForRoute(
     await ctx.db.delete(state._id);
     return null;
   }
+  await ctx.scheduler.runAfter(
+    microsoftGraphWakeupClaimLeaseMs,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    args,
+  );
   return apnsRecipient(device, args.routeId);
 }
 
@@ -2521,18 +2535,91 @@ async function microsoftGraphRouteDevice(
   return ctx.db.get(route.trustedDeviceId);
 }
 
-function shouldRemoveMicrosoftGraphWakeup(
-  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  device: Doc<'trustedDevices'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
-  delivered: boolean,
+type MicrosoftGraphWakeupCompletionContext = Readonly<{
+  device: Doc<'trustedDevices'> | null;
+  route: Doc<'mailProviderConnections'> | null;
+  state: Doc<'microsoftGraphWakeupStates'>;
+}>;
+
+function microsoftGraphWakeupAttemptCount(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): number {
+  return state.attemptCount ?? 0;
+}
+
+function microsoftGraphWakeupPendingAt(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): number {
+  return state.pendingAt ?? state.scheduledAt;
+}
+
+function hasUsableMicrosoftGraphWakeupRoute(
+  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
 ): boolean {
-  if (delivered) {
+  if (!isActiveMicrosoftGraphRoute(context.route, Date.now())) {
+    return false;
+  }
+  return hasActiveApnsRoute(context.device);
+}
+
+function shouldDiscardMicrosoftGraphWakeup(
+  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): boolean {
+  if (!hasUsableMicrosoftGraphWakeupRoute(context)) {
     return true;
   }
-  if (!isActiveMicrosoftGraphRoute(route, Date.now())) {
-    return true;
+  if (args.delivered) {
+    return microsoftGraphWakeupPendingAt(context.state) <= args.scheduledAt;
   }
-  return !hasActiveApnsRoute(device);
+  return (
+    microsoftGraphWakeupAttemptCount(context.state) + 1 >=
+    microsoftGraphWakeupMaximumAttempts
+  );
+}
+
+function microsoftGraphWakeupRetryDelay(attemptCount: number): number {
+  return Math.min(
+    microsoftGraphWakeupRetryBaseDelayMs * 2 ** Math.max(0, attemptCount - 1),
+    microsoftGraphWakeupMaximumRetryDelayMs,
+  );
+}
+
+function nextMicrosoftGraphWakeupAttemptCount(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  delivered: boolean,
+): number {
+  return delivered ? 0 : microsoftGraphWakeupAttemptCount(state) + 1;
+}
+
+function nextMicrosoftGraphWakeupDelay(
+  delivered: boolean,
+  attemptCount: number,
+): number {
+  return delivered ? 0 : microsoftGraphWakeupRetryDelay(attemptCount);
+}
+
+async function scheduleMicrosoftGraphWakeupRetry(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is mutated through the database.
+  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<void> {
+  const attemptCount = nextMicrosoftGraphWakeupAttemptCount(
+    state,
+    args.delivered,
+  );
+  const delay = nextMicrosoftGraphWakeupDelay(args.delivered, attemptCount);
+  const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + delay);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(state._id, {
+    attemptCount,
+    scheduledAt: retryScheduledAt,
+  });
+  await ctx.scheduler.runAfter(
+    delay,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    { routeId: args.routeId, scheduledAt: retryScheduledAt },
+  );
 }
 
 async function completeMicrosoftGraphWakeupForRoute(
@@ -2545,19 +2632,12 @@ async function completeMicrosoftGraphWakeupForRoute(
   }
   const route = await ctx.db.get(args.routeId);
   const device = await microsoftGraphRouteDevice(ctx, route);
-  if (shouldRemoveMicrosoftGraphWakeup(route, device, args.delivered)) {
+  if (shouldDiscardMicrosoftGraphWakeup({ device, route, state }, args)) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete(state._id);
     return null;
   }
-  const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + 1);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(state._id, { scheduledAt: retryScheduledAt });
-  await ctx.scheduler.runAfter(
-    microsoftGraphWakeupRetryDelayMs,
-    internal.apns.deliverMicrosoftGraphWakeup,
-    { routeId: args.routeId, scheduledAt: retryScheduledAt },
-  );
+  await scheduleMicrosoftGraphWakeupRetry(ctx, state, args);
   return null;
 }
 

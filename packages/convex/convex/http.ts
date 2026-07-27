@@ -46,14 +46,13 @@ function hasValidVerificationToken(
 function microsoftGraphNotifications(
   value: unknown,
 ): MicrosoftGraphNotification[] {
-  if (
-    !isUnknownRecord(value) ||
-    !Array.isArray(value.value) ||
-    value.value.length > maxMicrosoftGraphNotificationsPerRequest
-  ) {
+  if (!isUnknownRecord(value) || !Array.isArray(value.value)) {
     return [];
   }
-  const candidates: unknown[] = value.value;
+  const candidates: unknown[] = value.value.slice(
+    0,
+    maxMicrosoftGraphNotificationsPerRequest,
+  );
   return candidates.flatMap((candidate) => {
     if (
       !isUnknownRecord(candidate) ||
@@ -106,15 +105,21 @@ async function enqueueMicrosoftGraphNotifications(
   routeId: string,
   notifications: readonly MicrosoftGraphNotification[],
 ): Promise<void> {
-  await Promise.all(
-    notifications.map(async (notification) =>
-      ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
-        clientStateDigest: await sha256Hex(notification.clientState),
-        routeId,
-        subscriptionId: notification.subscriptionId,
-      }),
-    ),
-  );
+  const uniqueNotifications = new Map<string, MicrosoftGraphNotification>();
+  for (const notification of notifications) {
+    const digest = await sha256Hex(notification.clientState);
+    uniqueNotifications.set(`${notification.subscriptionId}:${digest}`, {
+      clientState: digest,
+      subscriptionId: notification.subscriptionId,
+    });
+  }
+  for (const notification of uniqueNotifications.values()) {
+    await ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+      clientStateDigest: notification.clientState,
+      routeId,
+      subscriptionId: notification.subscriptionId,
+    });
+  }
 }
 
 async function microsoftGraphPushResponse(

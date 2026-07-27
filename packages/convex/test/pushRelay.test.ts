@@ -3588,7 +3588,7 @@ describe('gmail push relay', () => {
       }).toStrictEqual({
         pendingWakeupCount: 1,
         pendingWakeupRouteId: route.routeId,
-        statuses: [202, 400],
+        statuses: [202, 202],
       });
 
       apnsMock.status = 500;
@@ -3605,11 +3605,13 @@ describe('gmail push relay', () => {
         ctx.db.query('microsoftGraphWakeupStates').collect(),
       );
       expect({
+        attemptCount: retainedWakeups[0]!.attemptCount,
         requestCount: apnsMock.requests.length,
         retainedWakeupCount: retainedWakeups.length,
         retryWasRescheduled:
           retainedWakeups[0]!.scheduledAt > pendingWakeups[0]!.scheduledAt,
       }).toStrictEqual({
+        attemptCount: 1,
         requestCount: 1,
         retainedWakeupCount: 1,
         retryWasRescheduled: true,
@@ -3683,6 +3685,69 @@ describe('gmail push relay', () => {
         trustedDeviceId: device.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ routeId: expect.any(String) });
+  });
+
+  it('rejects unauthenticated and cross-account Graph route mutations', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const firstUser = t.withIdentity(appleIdentity);
+    const firstDevice = await firstUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-first-device',
+      platform: 'ios',
+    });
+    const otherUser = t.withIdentity({
+      ...appleIdentity,
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    await otherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-other-device',
+      platform: 'ios',
+    });
+    const routeArgs = {
+      clientStateDigest: 'graph-route-digest',
+      opaqueConnectionId: 'opaque-graph-auth',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+    const route = await firstUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      routeArgs,
+    );
+    const confirmationArgs = {
+      clientStateDigest: routeArgs.clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-auth-subscription',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+    const removalArgs = {
+      opaqueConnectionId: routeArgs.opaqueConnectionId,
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+
+    const results = await Promise.allSettled([
+      t.mutation(api.pushRelay.prepareMicrosoftGraphRoute, routeArgs),
+      t.mutation(api.pushRelay.confirmMicrosoftGraphRoute, confirmationArgs),
+      t.mutation(api.pushRelay.removeMicrosoftGraphRoute, removalArgs),
+      otherUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, routeArgs),
+      otherUser.mutation(
+        api.pushRelay.confirmMicrosoftGraphRoute,
+        confirmationArgs,
+      ),
+      otherUser.mutation(api.pushRelay.removeMicrosoftGraphRoute, removalArgs),
+    ]);
+
+    expect(
+      results.map((result) => String(Reflect.get(result, 'reason'))),
+    ).toStrictEqual([
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Trusted device required'),
+      expect.stringContaining('Trusted device required'),
+      expect.stringContaining('Trusted device required'),
+    ]);
   });
 
   it('rejects a stale Microsoft Graph subscription confirmation', async () => {
