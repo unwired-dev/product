@@ -249,6 +249,45 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
   }
 
+  func testEWSArchiveProjectionMarksOnlineArchiveHierarchy() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-ews-archive",
+      providerStateIds: ["INBOX"],
+      connectionId: ewsConnection.id
+    )
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: ewsConnection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: ewsConnection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+      ["ARCHIVE", EWSProviderMessage.archiveHierarchyStateId]
+    )
+  }
+
   // swiftlint:disable:next function_body_length
   func testPermanentRejectionRestoresProviderStateAndReplaysLaterIntent() async throws {
     let store = InMemoryPendingProviderActionStore()
@@ -1409,6 +1448,25 @@ final class PendingProviderActionServiceTests: XCTestCase {
       rfcMessageId: "<\(providerMessageId)@example.com>",
       snippet: "Message",
       subject: "Subject"
+    )
+  }
+
+  private var ewsConnection: MailboxConnection {
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .exchangeWebServices,
+      connectedAt: 1_781_200_000_000,
+      displayName: "reader@corp.example",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: "ews-user-001"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
     )
   }
 }

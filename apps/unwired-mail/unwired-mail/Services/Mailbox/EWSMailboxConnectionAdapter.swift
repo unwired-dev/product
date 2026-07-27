@@ -548,17 +548,25 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
 #endif
 
 extension MailboxConnectionCapabilities {
-  static let exchangeWebServices = MailboxConnectionCapabilities(
-    canCategorizeHistorical: false,
-    canForward: true,
-    canReadMessages: true,
-    canRegisterPush: false,
-    canReply: true,
-    canSearchProvider: false,
-    canSend: true,
-    canSynchronizeMetadata: true,
-    providerActions: Set(ProviderMailAction.allCases)
-  )
+  static let exchangeWebServices = exchangeWebServices(hasOnlineArchive: true)
+
+  static func exchangeWebServices(hasOnlineArchive: Bool) -> MailboxConnectionCapabilities {
+    var providerActions = Set(ProviderMailAction.allCases)
+    if !hasOnlineArchive {
+      providerActions.remove(.archive)
+    }
+    return MailboxConnectionCapabilities(
+      canCategorizeHistorical: false,
+      canForward: true,
+      canReadMessages: true,
+      canRegisterPush: false,
+      canReply: true,
+      canSearchProvider: false,
+      canSend: true,
+      canSynchronizeMetadata: true,
+      providerActions: providerActions
+    )
+  }
 }
 
 /// Connects a verified full-capability on-premises EWS mailbox without syncing its credential.
@@ -697,7 +705,7 @@ struct EWSSetupService {
 
     return MailboxConnection(
       authorizationState: .authorized,
-      capabilities: .exchangeWebServices,
+      capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
       connectedAt: connectedAt,
       displayName: account.primaryEmailAddress,
       id: definition.connectionId,
@@ -1504,7 +1512,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         try await clearLocalConnectionWithoutLock(connectionId, session: session)
       }
     }
-    return snapshot.connections.compactMap { definition in
+    return try snapshot.connections.compactMap { definition in
       guard
         definition.provider == MailProviderId.exchangeWebServices.rawValue,
         let ewsDefinition = definition.ewsDefinition
@@ -1514,9 +1522,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           productAccountId: session.productAccountId,
           connectionId: definition.id
         ))?.definition.matchesAuthorizationScope(ewsDefinition) == true
+      let hasOnlineArchive =
+        try metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: definition.id
+        )?.folders.contains { $0.role == .archive } == true
       return MailboxConnection(
         authorizationState: authorized ? .authorized : .required,
-        capabilities: authorized ? .exchangeWebServices : .none,
+        capabilities: authorized
+          ? .exchangeWebServices(hasOnlineArchive: hasOnlineArchive)
+          : .none,
         connectedAt: definition.connectedAt,
         displayName: definition.displayName,
         id: definition.id,

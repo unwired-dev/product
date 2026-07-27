@@ -436,6 +436,47 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(connection.authorizationState, .authorized)
+    XCTAssertFalse(connection.capabilities.supports(.archive))
+    XCTAssertTrue(connection.capabilities.supports(.delete))
+  }
+
+  func testLoadedConnectionDoesNotAdvertiseArchiveWithoutOnlineArchiveMetadata() async throws {
+    let definition = makeEWSDefinition()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      EWSMetadataSnapshot(
+        folders: [
+          EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+        ],
+        messages: [],
+        nextOffsetsByFolderId: [:],
+        hasInitialMailboxAvailability: true
+      ),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    XCTAssertEqual(connection.authorizationState, .authorized)
+    XCTAssertFalse(connection.capabilities.supports(.archive))
+    XCTAssertTrue(connection.capabilities.supports(.delete))
   }
 
   func testSystemClientUsesMailboxScopedFolderAccessAndParsesSupportedServerVersion() async throws {

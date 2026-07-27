@@ -876,6 +876,9 @@ extension MailboxMessageMetadata {
       states = states.filter { !$0.hasPrefix("ews-folder:") }
       if providerId == .microsoftGraph {
         states.insert("ARCHIVE")
+      } else if providerId == .exchangeWebServices {
+        states.insert("ARCHIVE")
+        states.insert(EWSProviderMessage.archiveHierarchyStateId)
       }
     case .delete:
       states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
