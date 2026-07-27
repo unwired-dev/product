@@ -1901,15 +1901,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
 }
 
 struct MailboxConnectionRouter: MailboxConnectionAdapter {
+  private let exchangeWebServices: MailboxConnectionAdapter
   private let gmail: MailboxConnectionAdapter
   private let imap: MailboxConnectionAdapter
   private let microsoftGraph: MailboxConnectionAdapter
 
   init(
+    exchangeWebServices: MailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
     gmail: MailboxConnectionAdapter = GmailMailboxConnectionAdapter(),
     imap: MailboxConnectionAdapter = IMAPMailboxConnectionAdapter(),
     microsoftGraph: MailboxConnectionAdapter = MicrosoftGraphMailboxConnectionAdapter()
   ) {
+    self.exchangeWebServices = exchangeWebServices
     self.gmail = gmail
     self.imap = imap
     self.microsoftGraph = microsoftGraph
@@ -1918,9 +1921,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     var firstError: Error?
     do {
-      try await gmail.clearLocalConnection(session: session)
+      try await exchangeWebServices.clearLocalConnection(session: session)
     } catch {
       firstError = error
+    }
+    do {
+      try await gmail.clearLocalConnection(session: session)
+    } catch {
+      if firstError == nil { firstError = error }
     }
     do {
       try await imap.clearLocalConnection(session: session)
@@ -1962,7 +1970,8 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     let gmailConnections = try await gmail.loadConnections(session: session)
     let imapConnections = (try? await imap.loadConnections(session: session)) ?? []
     let graphConnections = (try? await microsoftGraph.loadConnections(session: session)) ?? []
-    let connections = gmailConnections + imapConnections + graphConnections
+    let ewsConnections = (try? await exchangeWebServices.loadConnections(session: session)) ?? []
+    let connections = gmailConnections + imapConnections + graphConnections + ewsConnections
     return connections.sorted {
       if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
       return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
@@ -2078,9 +2087,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
     var firstError: Error?
     do {
-      try gmail.clearCachedMessageBodies(session: session)
+      try exchangeWebServices.clearCachedMessageBodies(session: session)
     } catch {
       firstError = error
+    }
+    do {
+      try gmail.clearCachedMessageBodies(session: session)
+    } catch {
+      if firstError == nil { firstError = error }
     }
     do {
       try imap.clearCachedMessageBodies(session: session)
@@ -2293,6 +2307,8 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     for connectionId: MailboxConnectionId
   ) throws -> MailboxConnectionAdapter {
     switch connectionId.providerId {
+    case .exchangeWebServices:
+      return exchangeWebServices
     case .gmail:
       return gmail
     case .imapSMTP:
@@ -2310,12 +2326,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     operation: (MailboxConnectionAdapter, [MailboxConnection]) async -> String?
   ) async -> String? {
     let gmailConnections = connections.filter { $0.id.providerId == .gmail }
+    let ewsConnections = connections.filter { $0.id.providerId == .exchangeWebServices }
     let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
     let graphConnections = connections.filter { $0.id.providerId == .microsoftGraph }
     let gmailError = await operation(gmail, gmailConnections)
+    let ewsError = await operation(exchangeWebServices, ewsConnections)
     let imapError = await operation(imap, imapConnections)
     let graphError = await operation(microsoftGraph, graphConnections)
-    let errors = [gmailError, imapError, graphError].compactMap { $0 }
+    let errors = [gmailError, imapError, graphError, ewsError].compactMap { $0 }
     return errors.isEmpty ? nil : errors.joined(separator: "\n")
   }
 
@@ -2324,12 +2342,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     operation: (MailboxConnectionAdapter, [MailboxConnection]) async -> [MailboxConnectionId]
   ) async -> [MailboxConnectionId] {
+    let ewsConnections = connections.filter { $0.id.providerId == .exchangeWebServices }
     let gmailConnections = connections.filter { $0.id.providerId == .gmail }
     let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
     let graphConnections = connections.filter { $0.id.providerId == .microsoftGraph }
+    let ewsIds = await operation(exchangeWebServices, ewsConnections)
     let gmailIds = await operation(gmail, gmailConnections)
     let imapIds = await operation(imap, imapConnections)
     let graphIds = await operation(microsoftGraph, graphConnections)
-    return gmailIds + imapIds + graphIds
+    return ewsIds + gmailIds + imapIds + graphIds
   }
 }

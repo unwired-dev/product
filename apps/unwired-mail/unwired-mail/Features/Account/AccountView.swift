@@ -644,6 +644,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -690,6 +691,12 @@ struct AccountView: View {
         },
         isSessionCurrent: { session.isCurrent(snapshot) },
         syncSession: snapshot
+      )
+    )
+    _ewsSetupViewModel = State(
+      initialValue: EWSSetupViewModel(
+        isSessionCurrent: { session.isCurrent($0) },
+        session: snapshot
       )
     )
     _gmailViewModel = State(
@@ -1311,6 +1318,14 @@ extension AccountView {
             isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction,
             selectMailbox: { selectConnection($0) },
             viewModel: microsoftGraphViewModel
+          )
+
+          EWSSetupPanel(
+            viewModel: ewsSetupViewModel,
+            connectionDidConnect: { selectConnection($0) },
+            connectionsDidChange: {
+              Task { _ = await gmailViewModel.load() }
+            }
           )
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)

@@ -264,6 +264,7 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.archive):
       return !states.contains(where: {
         $0.hasPrefix("imap-mailbox:") || $0.hasPrefix("graph-folder:")
+          || $0.hasPrefix("ews-folder:")
       })
         && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
