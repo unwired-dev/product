@@ -2364,17 +2364,17 @@ async function confirmMicrosoftGraphRouteForDevice(
   const confirmsPendingReplacement =
     args.clientStateDigest !== undefined &&
     route.microsoftPendingClientStateDigest === args.clientStateDigest;
+  let confirmedClientStateDigest = route.microsoftClientStateDigest;
+  let pendingClientStateDigest = route.microsoftPendingClientStateDigest;
   if (confirmsPendingReplacement) {
     await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
+    confirmedClientStateDigest = args.clientStateDigest;
+    pendingClientStateDigest = undefined;
   }
   await ctx.db.patch(args.routeId, {
     lastVerifiedAt: now,
-    microsoftClientStateDigest: confirmsPendingReplacement
-      ? args.clientStateDigest
-      : route.microsoftClientStateDigest,
-    microsoftPendingClientStateDigest: confirmsPendingReplacement
-      ? undefined
-      : route.microsoftPendingClientStateDigest,
+    microsoftClientStateDigest: confirmedClientStateDigest,
+    microsoftPendingClientStateDigest: pendingClientStateDigest,
     microsoftSubscriptionExpiresAt: args.expiresAt,
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,
