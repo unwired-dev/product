@@ -2360,6 +2360,75 @@ async function ownedMicrosoftGraphRoute(
   return route;
 }
 
+function confirmedMicrosoftGraphClientState(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Readonly<{
+  clientStateDigest: string | undefined;
+  confirmsPendingReplacement: boolean;
+  pendingClientStateDigest: string | undefined;
+}> {
+  const confirmsPendingReplacement =
+    args.clientStateDigest !== undefined &&
+    route.microsoftPendingClientStateDigest === args.clientStateDigest;
+  if (!confirmsPendingReplacement) {
+    return {
+      clientStateDigest: route.microsoftClientStateDigest,
+      confirmsPendingReplacement,
+      pendingClientStateDigest: route.microsoftPendingClientStateDigest,
+    };
+  }
+  return {
+    clientStateDigest: args.clientStateDigest,
+    confirmsPendingReplacement,
+    pendingClientStateDigest: undefined,
+  };
+}
+
+type ConfirmedMicrosoftGraphWakeupArgs = Readonly<{
+  clientStateDigest: string | undefined;
+  deleteMismatchedWakeup: boolean;
+  now: number;
+  routeId: Id<'mailProviderConnections'>;
+  subscriptionId: string;
+}>;
+
+function isConfirmedMicrosoftGraphWakeup(
+  wakeup: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): boolean {
+  return (
+    wakeup.clientStateDigest === args.clientStateDigest &&
+    wakeup.subscriptionId === args.subscriptionId
+  );
+}
+
+async function activateConfirmedMicrosoftGraphWakeup(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<void> {
+  const stagedWakeup = await microsoftGraphWakeupState(ctx, args.routeId);
+  if (stagedWakeup === null) {
+    return;
+  }
+  if (isConfirmedMicrosoftGraphWakeup(stagedWakeup, args)) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(stagedWakeup._id, {
+      pendingAt: args.now,
+      scheduledAt: args.now,
+    });
+    await ctx.scheduler.runAfter(0, internal.apns.deliverMicrosoftGraphWakeup, {
+      routeId: args.routeId,
+      scheduledAt: args.now,
+    });
+    return;
+  }
+  if (args.deleteMismatchedWakeup) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(stagedWakeup._id);
+  }
+}
+
 async function confirmMicrosoftGraphRouteForDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
@@ -2371,42 +2440,22 @@ async function confirmMicrosoftGraphRouteForDevice(
   );
   requireValidMicrosoftGraphConfirmation(route, args);
   const now = Date.now();
-  const confirmsPendingReplacement =
-    args.clientStateDigest !== undefined &&
-    route.microsoftPendingClientStateDigest === args.clientStateDigest;
-  let confirmedClientStateDigest = route.microsoftClientStateDigest;
-  let pendingClientStateDigest = route.microsoftPendingClientStateDigest;
-  if (confirmsPendingReplacement) {
-    confirmedClientStateDigest = args.clientStateDigest;
-    pendingClientStateDigest = undefined;
-  }
+  const confirmedState = confirmedMicrosoftGraphClientState(route, args);
   await ctx.db.patch(args.routeId, {
     lastVerifiedAt: now,
-    microsoftClientStateDigest: confirmedClientStateDigest,
-    microsoftPendingClientStateDigest: pendingClientStateDigest,
+    microsoftClientStateDigest: confirmedState.clientStateDigest,
+    microsoftPendingClientStateDigest: confirmedState.pendingClientStateDigest,
     microsoftSubscriptionExpiresAt: args.expiresAt,
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,
   });
-  const stagedWakeup = await microsoftGraphWakeupState(ctx, args.routeId);
-  if (
-    stagedWakeup !== null &&
-    stagedWakeup.clientStateDigest === confirmedClientStateDigest &&
-    stagedWakeup.subscriptionId === args.subscriptionId
-  ) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(stagedWakeup._id, {
-      pendingAt: now,
-      scheduledAt: now,
-    });
-    await ctx.scheduler.runAfter(0, internal.apns.deliverMicrosoftGraphWakeup, {
-      routeId: args.routeId,
-      scheduledAt: now,
-    });
-  } else if (confirmsPendingReplacement && stagedWakeup !== null) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(stagedWakeup._id);
-  }
+  await activateConfirmedMicrosoftGraphWakeup(ctx, {
+    clientStateDigest: confirmedState.clientStateDigest,
+    deleteMismatchedWakeup: confirmedState.confirmsPendingReplacement,
+    now,
+    routeId: args.routeId,
+    subscriptionId: args.subscriptionId,
+  });
   await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
   return { routeId: args.routeId };
 }
@@ -2507,15 +2556,38 @@ function matchesMicrosoftGraphSubscription(
   );
 }
 
+function isInitialMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  clientStateDigest: string,
+): boolean {
+  return (
+    route.microsoftSubscriptionId === undefined &&
+    route.microsoftClientStateDigest === clientStateDigest
+  );
+}
+
 function canStageMicrosoftGraphSubscription(
   route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
   clientStateDigest: string,
 ): route is Doc<'mailProviderConnections'> {
   return (
     route?.provider === 'microsoft-graph' &&
-    ((route.microsoftSubscriptionId === undefined &&
-      route.microsoftClientStateDigest === clientStateDigest) ||
+    (isInitialMicrosoftGraphSubscription(route, clientStateDigest) ||
       route.microsoftPendingClientStateDigest === clientStateDigest)
+  );
+}
+
+function acceptsMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: MicrosoftGraphWakeupArgs,
+  now: number,
+): boolean {
+  const matchesActiveSubscription =
+    isActiveMicrosoftGraphRoute(route, now) &&
+    matchesMicrosoftGraphSubscription(route, args);
+  return (
+    matchesActiveSubscription ||
+    canStageMicrosoftGraphSubscription(route, args.clientStateDigest)
   );
 }
 
@@ -2529,13 +2601,7 @@ async function acceptedMicrosoftGraphWakeupRoute(
     return null;
   }
   const route = await ctx.db.get(routeId);
-  if (
-    !(
-      (isActiveMicrosoftGraphRoute(route, now) &&
-        matchesMicrosoftGraphSubscription(route, args)) ||
-      canStageMicrosoftGraphSubscription(route, args.clientStateDigest)
-    )
-  ) {
+  if (!acceptsMicrosoftGraphWakeup(route, args, now)) {
     return null;
   }
   return routeId;
@@ -2606,6 +2672,62 @@ function isMatchingMicrosoftGraphWakeupState(
   return state !== null && state.scheduledAt === scheduledAt;
 }
 
+function matchesActiveMicrosoftGraphWakeup(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): boolean {
+  return (
+    state.clientStateDigest === undefined ||
+    (state.clientStateDigest === route.microsoftClientStateDigest &&
+      state.subscriptionId === route.microsoftSubscriptionId)
+  );
+}
+
+type ActiveMicrosoftGraphWakeupArgs = Readonly<{
+  route: Doc<'mailProviderConnections'>;
+  schedule: MicrosoftGraphWakeupScheduleArgs;
+  state: Doc<'microsoftGraphWakeupStates'>;
+}>;
+
+async function claimActiveMicrosoftGraphWakeup(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ActiveMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+): Promise<ApnsRecipient | null> {
+  const device = await ctx.db.get(args.route.trustedDeviceId);
+  if (!hasActiveApnsRoute(device)) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(args.state._id);
+    return null;
+  }
+  await ctx.scheduler.runAfter(
+    microsoftGraphWakeupClaimLeaseMs,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    args.schedule,
+  );
+  return apnsRecipient(device, args.schedule.routeId);
+}
+
+function isClaimableMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  now: number,
+): route is Doc<'mailProviderConnections'> {
+  return (
+    isActiveMicrosoftGraphRoute(route, now) &&
+    matchesActiveMicrosoftGraphWakeup(state, route)
+  );
+}
+
+function shouldStageMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): boolean {
+  return (
+    state.clientStateDigest !== undefined &&
+    canStageMicrosoftGraphSubscription(route, state.clientStateDigest)
+  );
+}
+
 async function claimMicrosoftGraphWakeupForRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
@@ -2615,29 +2737,14 @@ async function claimMicrosoftGraphWakeupForRoute(
   if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
     return null;
   }
-  if (
-    isActiveMicrosoftGraphRoute(route, Date.now()) &&
-    (state.clientStateDigest === undefined ||
-      (state.clientStateDigest === route.microsoftClientStateDigest &&
-        state.subscriptionId === route.microsoftSubscriptionId))
-  ) {
-    const device = await ctx.db.get(route.trustedDeviceId);
-    if (!hasActiveApnsRoute(device)) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(state._id);
-      return null;
-    }
-    await ctx.scheduler.runAfter(
-      microsoftGraphWakeupClaimLeaseMs,
-      internal.apns.deliverMicrosoftGraphWakeup,
-      args,
-    );
-    return apnsRecipient(device, args.routeId);
+  if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {
+    return claimActiveMicrosoftGraphWakeup(ctx, {
+      route,
+      schedule: args,
+      state,
+    });
   }
-  if (
-    state.clientStateDigest !== undefined &&
-    canStageMicrosoftGraphSubscription(route, state.clientStateDigest)
-  ) {
+  if (shouldStageMicrosoftGraphWakeup(route, state)) {
     return null;
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
