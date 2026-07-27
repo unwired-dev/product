@@ -2210,6 +2210,16 @@ type SaveMicrosoftGraphRouteOptions = Readonly<{
   productAccountId: Id<'productAccounts'>;
 }>;
 
+function hasActiveMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  now: number,
+): boolean {
+  return (
+    route.microsoftSubscriptionId !== undefined &&
+    (route.microsoftSubscriptionExpiresAt ?? 0) > now
+  );
+}
+
 async function saveMicrosoftGraphRoute(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
   args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
@@ -2229,10 +2239,7 @@ async function saveMicrosoftGraphRoute(
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const routeId = options.existing._id;
-  const hasConfirmedSubscription =
-    options.existing.microsoftSubscriptionId !== undefined &&
-    (options.existing.microsoftSubscriptionExpiresAt ?? 0) > options.now;
-  if (hasConfirmedSubscription) {
+  if (hasActiveMicrosoftGraphSubscription(options.existing, options.now)) {
     await ctx.db.patch(routeId, {
       lastVerifiedAt: options.now,
       microsoftPendingClientStateDigest: args.clientStateDigest,
