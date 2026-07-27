@@ -557,28 +557,45 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .userActionRequired)
   }
 
-  func testEWSTemporaryFailuresRetryWithoutReconciliation() async throws {
-    for error in [
-      EWSServiceError.response(code: "HTTP 503", message: "Unavailable"),
-      EWSServiceError.response(code: "ErrorServerBusy", message: "Busy"),
-    ] {
-      let service = OutboxDeliveryService(
-        handoffDelayNanoseconds: immediateHandoffDelay,
-        retryDelayNanoseconds: { _ in 60_000_000_000 },
-        store: InMemoryOutboxDeliveryStore()
-      )
+  func testEWSHTTP5xxFailureReconcilesBeforeRetrying() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
 
-      _ = try await service.enqueue(
-        message,
-        connection: connection,
-        session: session,
-        provider: { _, _, _ in throw error },
-        reconcile: { _, _ in .unknown }
-      )
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        throw EWSServiceError.response(code: "HTTP 503", message: "Unavailable")
+      },
+      reconcile: { _, _ in .unknown }
+    )
 
-      let attempts = try await service.items(session: session)
-      XCTAssertEqual(attempts.first?.state, .retrying)
-    }
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+  }
+
+  func testEWSServerBusyRetriesWithoutReconciliation() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        throw EWSServiceError.response(code: "ErrorServerBusy", message: "Busy")
+      },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .retrying)
   }
 
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {

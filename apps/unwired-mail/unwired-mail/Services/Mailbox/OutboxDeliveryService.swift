@@ -230,8 +230,10 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
         return .ambiguous
       case .response(let code, _):
         let status = code.split(separator: " ").last.flatMap { Int($0) }
+        if status.map({ $0 >= 500 }) == true {
+          return .ambiguous
+        }
         if status == 408 || status == 409 || status == 425 || status == 429
-          || status.map({ $0 >= 500 }) == true
           || [
             "ErrorExceededConnectionCount",
             "ErrorMailboxStoreUnavailable",

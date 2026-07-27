@@ -499,6 +499,92 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testSystemClientRejectsSuccessfulHTTPResponseWithoutEWSResponseCode() async throws {
+    let response = """
+      <?xml version="1.0" encoding="utf-8"?>
+      <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+        xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages">
+        <s:Body><m:CreateItemResponse/></s:Body>
+      </s:Envelope>
+      """
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      try await SystemEWSClient(session: makeEWSURLSession()).send(
+        OutgoingMessage(
+          body: "Body",
+          recipient: "recipient@example.com",
+          subject: "Subject",
+          idempotencyKey: "missing-response-code"
+        ),
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected a response without an EWS response code to be rejected")
+    } catch {
+      XCTAssertEqual(error as? EWSServiceError, .invalidResponse)
+    }
+  }
+
+  func testSystemClientTreatsPartialMultiFolderArchiveAsAmbiguous() async throws {
+    var archiveRequestCount = 0
+    EWSURLProtocol.requestHandler = { request in
+      archiveRequestCount += 1
+      if archiveRequestCount == 1 {
+        return (
+          HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data(Self.moveItemResponse.utf8)
+        )
+      }
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 503,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data("Unavailable".utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    do {
+      _ = try await SystemEWSClient(session: makeEWSURLSession()).perform(
+        .archive,
+        targetFolderId: nil,
+        messages: [
+          ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1"),
+          ewsMessage(2, folderId: "projects-id", conversationId: "conversation-2"),
+        ],
+        authorization: DeviceLocalEWSAuthorization(
+          credential: "password",
+          definition: makeEWSDefinition()
+        )
+      )
+      XCTFail("Expected a partial archive outcome to require reconciliation")
+    } catch {
+      XCTAssertTrue(error is EWSAmbiguousProviderActionError)
+    }
+  }
+
   func testSystemClientUsesValidMessageFieldURIs() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [String] = []
@@ -939,7 +1025,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       ])
     XCTAssertEqual(
       client.requestedPages,
-      ["inbox-id|0", "sent-id|0", "inbox-id|0", "inbox-id|2"]
+      ["inbox-id|0", "sent-id|0", "inbox-id|2"]
     )
   }
 
@@ -990,7 +1076,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailboxes.map(\.title), ["Projects"])
   }
 
-  func testHistoricalBackfillRestartsAndDrainsEveryPendingPage() async throws {
+  func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.folders = [
@@ -1047,7 +1133,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     XCTAssertEqual(
       client.requestedPages,
-      ["inbox-id|0", "inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0"]
+      ["inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0"]
     )
   }
 
@@ -1485,6 +1571,118 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(afterDeletion.messages.isEmpty)
   }
 
+  func testPersistedSyncPreservesFallbackIdentityWhenMatchingMovedItemId() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    var original = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+    original.stableProviderId = original.itemId
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [original], nextOffset: nil)
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    var stored = try XCTUnwrap(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    stored.messages[0].itemId = "ews-moved-1"
+    try metadataStore.save(
+      stored,
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    var refreshed = original
+    refreshed.itemId = "ews-moved-1"
+    refreshed.stableProviderId = refreshed.itemId
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [refreshed], nextOffset: nil)
+
+    let result = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertEqual(result.messages.map(\.providerMessageId), [original.stableProviderId])
+    _ = try await adapter.loadMessageBody(message: result.messages[0], session: session)
+    XCTAssertEqual(client.loadedBodyItemId, refreshed.itemId)
+  }
+
+  func testRecentSyncRetainsUnobservedMessageTiedAtPageCutoff() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    let cutoff = Int64(1_781_200_000_000)
+    let observed = ewsMessage(
+      1,
+      folderId: "inbox-id",
+      conversationId: "conversation-1",
+      receivedAtMilliseconds: cutoff
+    )
+    let tied = ewsMessage(
+      2,
+      folderId: "inbox-id",
+      conversationId: "conversation-2",
+      receivedAtMilliseconds: cutoff
+    )
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [observed, tied],
+      nextOffset: 50
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [observed], nextOffset: 50)
+
+    let result = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(
+      Set(result.messages.map(\.providerMessageId)),
+      Set([observed.stableProviderId, tied.stableProviderId])
+    )
+  }
+
   func testRecentInitialSyncDoesNotPersistAfterSessionBecomesStale() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -1811,7 +2009,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   private func ewsMessage(
     _ number: Int,
     folderId: String,
-    conversationId: String
+    conversationId: String,
+    receivedAtMilliseconds: Int64? = nil
   ) -> EWSProviderMessage {
     EWSProviderMessage(
       bccRecipients: [],
@@ -1824,7 +2023,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       isRead: number.isMultiple(of: 2),
       itemId: "ews-current-\(number)",
       parentFolderId: folderId,
-      receivedAtMilliseconds: 1_781_200_000_000 + Int64(number),
+      receivedAtMilliseconds:
+        receivedAtMilliseconds ?? 1_781_200_000_000 + Int64(number),
       replyTo: [],
       stableProviderId: "ews-stable-\(number)",
       subject: "Message \(number)",

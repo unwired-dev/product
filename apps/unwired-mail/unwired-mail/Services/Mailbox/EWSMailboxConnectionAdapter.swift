@@ -640,7 +640,7 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
   var parentFolderId: String
   let receivedAtMilliseconds: Int64
   let replyTo: [String]
-  let stableProviderId: String
+  var stableProviderId: String
   let subject: String
   let summary: String
   let toRecipients: [String]
@@ -1406,8 +1406,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     while let folder = snapshot.folders.first(where: {
       snapshot.nextOffsetsByFolderId[$0.id] != nil
     }) {
-      var offset = 0
-      snapshot.reconciliationMessageIdsByFolderId[folder.id] = []
+      var offset = snapshot.nextOffsetsByFolderId[folder.id] ?? 0
       while true {
         try Task.checkCancellation()
         let page = try await client.loadMessagePage(
@@ -1416,9 +1415,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           pageSize: Self.initialPageSize,
           authorization: authorization
         )
-        upsert(page.messages, into: &snapshot.messages)
+        let observedIds = upsert(page.messages, into: &snapshot.messages)
         snapshot.reconciliationMessageIdsByFolderId[folder.id, default: []]
-          .formUnion(page.messages.map(\.stableProviderId))
+          .formUnion(observedIds)
         if let nextOffset = page.nextOffset {
           offset = nextOffset
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
@@ -1503,9 +1502,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         pageSize: Self.initialPageSize,
         authorization: authorization
       )
-      upsert(page.messages, into: &snapshot.messages)
+      let observedIds = upsert(page.messages, into: &snapshot.messages)
       snapshot.reconciliationMessageIdsByFolderId[folder.id] =
-        Set(page.messages.map(\.stableProviderId))
+        observedIds
       if let nextOffset = page.nextOffset {
         snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
       } else {
@@ -2064,6 +2063,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     var snapshot = try requiredSnapshot(connection, session: session)
     let folders = try await client.loadFolders(authorization: authorization)
     var recentPagesByFolderId: [String: EWSMessagePage] = [:]
+    var recentObservedIdsByFolderId: [String: Set<String>] = [:]
     for folder in folders {
       let page = try await client.loadMessagePage(
         folder: folder,
@@ -2072,13 +2072,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorization: authorization
       )
       recentPagesByFolderId[folder.id] = page
-      upsert(page.messages, into: &snapshot.messages)
+      let observedIds = upsert(page.messages, into: &snapshot.messages)
+      recentObservedIdsByFolderId[folder.id] = observedIds
       let scanIsInProgress =
         snapshot.nextOffsetsByFolderId[folder.id] != nil
         || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
       if !scanIsInProgress {
-        snapshot.reconciliationMessageIdsByFolderId[folder.id] =
-          Set(page.messages.map(\.stableProviderId))
+        snapshot.reconciliationMessageIdsByFolderId[folder.id] = observedIds
         if let nextOffset = page.nextOffset {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
@@ -2090,14 +2090,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     snapshot.folders = folders
     snapshot.messages.removeAll { !activeFolderIds.contains($0.parentFolderId) }
     for folder in folders {
-      guard let page = recentPagesByFolderId[folder.id] else { continue }
-      let observedIds = Set(page.messages.map(\.stableProviderId))
+      guard
+        let page = recentPagesByFolderId[folder.id],
+        let observedIds = recentObservedIdsByFolderId[folder.id]
+      else { continue }
       let observedCutoff = page.messages.map(\.receivedAtMilliseconds).min()
       snapshot.messages.removeAll { message in
         guard message.parentFolderId == folder.id, !observedIds.contains(message.stableProviderId)
         else { return false }
         if page.nextOffset == nil { return true }
-        return observedCutoff.map { message.receivedAtMilliseconds >= $0 } ?? false
+        return observedCutoff.map { message.receivedAtMilliseconds > $0 } ?? false
       }
     }
     snapshot.nextOffsetsByFolderId = snapshot.nextOffsetsByFolderId.filter {
@@ -2309,21 +2311,27 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
   }
 
+  @discardableResult
   private func upsert(
     _ messages: [EWSProviderMessage],
     into existing: inout [EWSProviderMessage]
-  ) {
+  ) -> Set<String> {
+    var observedIds: Set<String> = []
     for message in messages {
       if let index = existing.firstIndex(where: {
         $0.stableProviderId == message.stableProviderId || $0.itemId == message.itemId
       }) {
         var updated = message
         updated.categoryId = updated.categoryId ?? existing[index].categoryId
+        updated.stableProviderId = existing[index].stableProviderId
         existing[index] = updated
+        observedIds.insert(updated.stableProviderId)
       } else {
         existing.append(message)
+        observedIds.insert(message.stableProviderId)
       }
     }
+    return observedIds
   }
 
   private func requiredConnection(

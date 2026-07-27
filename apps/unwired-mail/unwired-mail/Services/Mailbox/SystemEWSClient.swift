@@ -241,7 +241,7 @@ struct SystemEWSClient: EWSClient {
     return body.text
   }
 
-  // swiftlint:disable function_body_length
+  // swiftlint:disable function_body_length cyclomatic_complexity
   /// Applies one mailbox mutation after the shared pending-action queue hands it off.
   func perform(
     _ action: ProviderMailAction,
@@ -267,29 +267,36 @@ struct SystemEWSClient: EWSClient {
       )
     case .archive:
       var identities: [EWSMovedItemIdentity] = []
+      var didApplyAnyGroup = false
       for (sourceFolderId, sourceMessages) in Dictionary(
         grouping: messages,
         by: \.parentFolderId
       ) {
-        let document = try await request(
-          """
-          <m:ArchiveItem>
-            <m:ArchiveSourceFolderId><t:FolderId Id="\(xmlAttribute(sourceFolderId))"/>
-            </m:ArchiveSourceFolderId>
-            <m:ItemIds>\(itemIds(sourceMessages))</m:ItemIds>
-          </m:ArchiveItem>
-          """,
-          authorization: authorization
-        )
-        let returnedItemIds = document.descendants.filter { $0.localName == "ItemId" }
-        if returnedItemIds.count == sourceMessages.count {
-          identities += try movedIdentities(sourceMessages, itemIds: returnedItemIds)
-        } else {
-          for message in sourceMessages {
-            identities.append(
-              try await resolveArchivedIdentity(for: message, authorization: authorization)
-            )
+        do {
+          let document = try await request(
+            """
+            <m:ArchiveItem>
+              <m:ArchiveSourceFolderId><t:FolderId Id="\(xmlAttribute(sourceFolderId))"/>
+              </m:ArchiveSourceFolderId>
+              <m:ItemIds>\(itemIds(sourceMessages))</m:ItemIds>
+            </m:ArchiveItem>
+            """,
+            authorization: authorization
+          )
+          didApplyAnyGroup = true
+          let returnedItemIds = document.descendants.filter { $0.localName == "ItemId" }
+          if returnedItemIds.count == sourceMessages.count {
+            identities += try movedIdentities(sourceMessages, itemIds: returnedItemIds)
+          } else {
+            for message in sourceMessages {
+              identities.append(
+                try await resolveArchivedIdentity(for: message, authorization: authorization)
+              )
+            }
           }
+        } catch {
+          if didApplyAnyGroup { throw EWSAmbiguousProviderActionError() }
+          throw error
         }
       }
       return identities
@@ -321,7 +328,7 @@ struct SystemEWSClient: EWSClient {
       return try movedIdentities(messages, itemIds: itemIds)
     }
   }
-  // swiftlint:enable function_body_length
+  // swiftlint:enable function_body_length cyclomatic_complexity
 
   /// Sends one message and saves the provider copy in Sent Items.
   func send(
@@ -443,6 +450,9 @@ struct SystemEWSClient: EWSClient {
       throw EWSServiceError.invalidResponse
     }
     let responseCodes = document.descendants.filter { $0.localName == "ResponseCode" }
+    guard !responseCodes.isEmpty else {
+      throw EWSServiceError.invalidResponse
+    }
     if responseCodes.contains(where: { $0.text == "NoError" }),
       responseCodes.contains(where: { $0.text != "NoError" })
     {
