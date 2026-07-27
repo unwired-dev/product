@@ -88,6 +88,10 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
       endpoint.scheme?.lowercased() == "https",
       let host = endpoint.host?.lowercased(),
       !host.isEmpty,
+      endpoint.user == nil,
+      endpoint.password == nil,
+      endpoint.query == nil,
+      endpoint.fragment == nil,
       !exchangeOnlineHosts.contains(host),
       !exchangeOnlineHostSuffixes.contains(where: host.hasSuffix)
     else {
@@ -109,6 +113,7 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
     }
     let identityInput = [
       host,
+      String(effectivePort(endpoint) ?? 443),
       endpoint.path,
       primaryEmailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
     ].joined(separator: "\0")
@@ -194,7 +199,7 @@ protocol EWSClient: Sendable {
     targetFolderId: String?,
     messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
-  ) async throws
+  ) async throws -> [EWSMovedItemIdentity]
   /// Sends one Outbox message through the on-premises provider.
   func send(
     _ message: OutgoingMessage,
@@ -235,7 +240,7 @@ extension EWSClient {
     targetFolderId _: String?,
     messages _: [EWSProviderMessage],
     authorization _: DeviceLocalEWSAuthorization
-  ) async throws {
+  ) async throws -> [EWSMovedItemIdentity] {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
@@ -740,6 +745,12 @@ struct EWSMessagePage: Equatable, Sendable {
   let nextOffset: Int?
 }
 
+struct EWSMovedItemIdentity: Equatable, Sendable {
+  let changeKey: String
+  let itemId: String
+  let stableProviderId: String
+}
+
 /// Captures connection-scoped EWS metadata and resumable full-scan reconciliation state.
 ///
 /// Example:
@@ -1129,6 +1140,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let metadataStore: EWSMetadataPersisting
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
+  private let syncGate: MailboxConnectionSyncGate
 
   init(
     authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
@@ -1139,6 +1151,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
+    syncGate: MailboxConnectionSyncGate = .shared,
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -1153,6 +1166,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.metadataStore = metadataStore
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
+    self.syncGate = syncGate
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
@@ -1168,13 +1182,40 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try validate(connection, session: session, requiresAuthorization: false)
+    try await syncGate.withLock(connection.id) {
+      try await clearLocalConnectionWithoutLock(connection, session: session)
+    }
+  }
+
+  private func clearLocalConnectionWithoutLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await clearLocalConnectionWithoutLock(connection.id, session: session)
+  }
+
+  private func clearLocalConnectionWithoutLock(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     try authorizationStore.clear(
       productAccountId: session.productAccountId,
-      connectionId: connection.id
+      connectionId: connectionId
     )
     try metadataStore.clear(
       productAccountId: session.productAccountId,
-      connectionId: connection.id
+      connectionId: connectionId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .exchangeWebServices,
+      connectedAt: 0,
+      displayName: "",
+      id: connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
     )
     try await pendingActionService.clear(connection: connection, session: session)
     try await outboxService.clear(connection: connection, session: session)
@@ -1193,7 +1234,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    for connectionId in snapshot.removedConnectionIds
+    where connectionId.providerId == .exchangeWebServices {
+      try await syncGate.withLock(connectionId) {
+        try await clearLocalConnectionWithoutLock(connectionId, session: session)
+      }
+    }
     return snapshot.connections.compactMap { definition in
       guard
         definition.provider == MailProviderId.exchangeWebServices.rawValue,
@@ -1221,7 +1268,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadDefaultSendingConnectionId(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionId? {
-    try await definitionSyncService.loadSnapshot(session: session).defaultSendingConnectionId
+    try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      .defaultSendingConnectionId
   }
 
   func removeMailboxConnectionEverywhere(
@@ -1289,14 +1337,32 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let authorization = try activeAuthorization(connection, session: session)
+    try await syncGate.withLock(connection.id) {
+      try await continueHistoricalBackfillWithoutLock(connection: connection, session: session)
+    }
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func continueHistoricalBackfillWithoutLock(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    let authorization = try await authorizationForProviderAccess(
+      connection,
+      session: session,
+      isWithinSyncGate: true
+    )
     guard
       var snapshot = try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
     else {
-      return try await syncInbox(connection: connection, session: session)
+      return try await syncInbox(
+        connection: connection,
+        session: session,
+        shouldPersist: { true }
+      )
     }
     guard
       let folder = snapshot.folders.first(where: {
@@ -1343,19 +1409,26 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncInbox(
-      connection: connection,
-      session: session,
-      shouldPersist: { true }
-    )
+    try await syncGate.withLock(connection.id) {
+      try await syncInbox(
+        connection: connection,
+        session: session,
+        shouldPersist: { true }
+      )
+    }
   }
 
+  // swiftlint:disable:next function_body_length
   private func syncInbox(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     shouldPersist: () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    let authorization = try activeAuthorization(connection, session: session)
+    let authorization = try await authorizationForProviderAccess(
+      connection,
+      session: session,
+      isWithinSyncGate: true
+    )
     if let snapshot = try metadataStore.load(
       productAccountId: session.productAccountId,
       connectionId: connection.id
@@ -1413,38 +1486,44 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId _: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    guard shouldPersist() else { throw CancellationError() }
-    let authorization = try activeAuthorization(connection, session: session)
-    guard
-      try metadataStore.load(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
-      ) != nil
-    else {
-      return try await syncInbox(
-        connection: connection,
+    try await syncGate.withLock(connection.id) {
+      guard shouldPersist() else { throw CancellationError() }
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      guard
+        try metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        ) != nil
+      else {
+        return try await syncInbox(
+          connection: connection,
+          session: session,
+          shouldPersist: shouldPersist
+        )
+      }
+      let snapshot = try await refreshRecentSnapshot(
+        connection,
+        authorization: authorization,
         session: session,
         shouldPersist: shouldPersist
       )
+      let rawResult = try result(snapshot, .allObserved, connection: connection)
+      try await pendingActionService.reconcileProviderSync(
+        messages: rawResult.messages,
+        connection: connection,
+        session: session
+      )
+      return try await projectedResult(
+        snapshot,
+        .role(.inbox),
+        connection: connection,
+        session: session
+      )
     }
-    let snapshot = try await refreshRecentSnapshot(
-      connection,
-      authorization: authorization,
-      session: session,
-      shouldPersist: shouldPersist
-    )
-    let rawResult = try result(snapshot, .allObserved, connection: connection)
-    try await pendingActionService.reconcileProviderSync(
-      messages: rawResult.messages,
-      connection: connection,
-      session: session
-    )
-    return try await projectedResult(
-      snapshot,
-      .role(.inbox),
-      connection: connection,
-      session: session
-    )
   }
 
   func overrideCategory(
@@ -1453,25 +1532,27 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
     let connection = try await requiredConnection(message.connectionId, session: session)
-    guard
-      var snapshot = try metadataStore.load(
+    return try await syncGate.withLock(connection.id) {
+      guard
+        var snapshot = try metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        ),
+        let index = snapshot.messages.firstIndex(where: {
+          $0.stableProviderId == message.providerMessageId
+        })
+      else { throw MailboxConnectionAdapterError.connectionRemoved }
+      snapshot.messages[index].categoryId = categoryId
+      try metadataStore.save(
+        snapshot,
         productAccountId: session.productAccountId,
         connectionId: connection.id
-      ),
-      let index = snapshot.messages.firstIndex(where: {
-        $0.stableProviderId == message.providerMessageId
-      })
-    else { throw MailboxConnectionAdapterError.connectionRemoved }
-    snapshot.messages[index].categoryId = categoryId
-    try metadataStore.save(
-      snapshot,
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )
-    return snapshot.messages[index].mailboxMetadata(
-      connection: connection,
-      foldersById: Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
-    )
+      )
+      return snapshot.messages[index].mailboxMetadata(
+        connection: connection,
+        foldersById: Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
+      )
+    }
   }
 
   func searchProvider(
@@ -1506,7 +1587,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
     let connection = try await requiredConnection(message.connectionId, session: session)
-    let authorization = try activeAuthorization(connection, session: session)
+    let authorization = try await authorizationForProviderAccess(connection, session: session)
     let providerMessage = try storedMessage(message, session: session)
     return try await bodyService.load(
       message: message,
@@ -1522,7 +1603,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let authorization = try activeAuthorization(connection, session: session)
+    let authorization = try await authorizationForProviderAccess(connection, session: session)
     let snapshot = try requiredSnapshot(connection, session: session)
     let folders = Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
     let lowerBound =
@@ -1596,7 +1677,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try activeAuthorization(connection, session: session)
+    _ = try await authorizationForProviderAccess(connection, session: session)
     if action == .move, targetProviderMailboxId == nil {
       throw MailboxConnectionAdapterError.providerMailboxTargetRequired
     }
@@ -1749,9 +1830,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let authorization = try await authorizationForProviderAccess(connection, session: session)
     try await client.send(
       message,
-      authorization: activeAuthorization(connection, session: session)
+      authorization: authorization
     )
   }
 
@@ -1760,9 +1842,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
-    try await client.deliveryStatus(
+    let authorization = try await authorizationForProviderAccess(connection, session: session)
+    return try await client.deliveryStatus(
       rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
-      authorization: activeAuthorization(connection, session: session)
+      authorization: authorization
     )
   }
 
@@ -1772,55 +1855,63 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) -> PendingProviderActionPerformer {
     { action, targetFolderId, messageIds in
-      let authorization = try activeAuthorization(connection, session: session)
-      let refreshedSnapshot = try await refreshRecentSnapshot(
-        connection,
-        authorization: authorization,
-        session: session
-      )
-      if actionIsConfirmed(
-        action,
-        targetFolderId: targetFolderId,
-        messageIds: messageIds,
-        snapshot: refreshedSnapshot,
-        connection: connection
-      ) {
-        return
-      }
-      let snapshot = try requiredSnapshot(connection, session: session)
-      let messages = snapshot.messages.filter { messageIds.contains($0.stableProviderId) }
-      guard messages.count == messageIds.count else {
-        throw MailboxConnectionAdapterError.connectionRemoved
-      }
-      do {
-        try await client.perform(
-          action,
-          targetFolderId: targetFolderId.flatMap {
-            EWSProviderMessage.folderId(fromProviderStateId: $0)
-          } ?? targetFolderId,
-          messages: messages,
-          authorization: authorization
+      try await syncGate.withLock(connection.id) {
+        let authorization = try await authorizationForProviderAccess(
+          connection,
+          session: session,
+          isWithinSyncGate: true
         )
-      } catch let error as URLError {
-        if error.code == .cancelled || Task.isCancelled {
-          throw CancellationError()
+        let refreshedSnapshot = try await refreshRecentSnapshot(
+          connection,
+          authorization: authorization,
+          session: session
+        )
+        if actionIsConfirmed(
+          action,
+          targetFolderId: targetFolderId,
+          messageIds: messageIds,
+          snapshot: refreshedSnapshot,
+          connection: connection
+        ) {
+          return
         }
-        throw EWSAmbiguousProviderActionError()
-      } catch EWSServiceError.invalidResponse {
-        throw EWSAmbiguousProviderActionError()
+        let snapshot = try requiredSnapshot(connection, session: session)
+        let messages = snapshot.messages.filter { messageIds.contains($0.stableProviderId) }
+        guard messages.count == messageIds.count else {
+          throw MailboxConnectionAdapterError.connectionRemoved
+        }
+        let movedItems: [EWSMovedItemIdentity]
+        do {
+          movedItems = try await client.perform(
+            action,
+            targetFolderId: targetFolderId.flatMap {
+              EWSProviderMessage.folderId(fromProviderStateId: $0)
+            } ?? targetFolderId,
+            messages: messages,
+            authorization: authorization
+          )
+        } catch let error as URLError {
+          if error.code == .cancelled || Task.isCancelled {
+            throw CancellationError()
+          }
+          throw EWSAmbiguousProviderActionError()
+        } catch EWSServiceError.invalidResponse {
+          throw EWSAmbiguousProviderActionError()
+        }
+        try applyConfirmedAction(
+          action,
+          targetFolderId: targetFolderId,
+          messageIds: messageIds,
+          movedItems: movedItems,
+          connection: connection,
+          session: session
+        )
+        _ = try await refreshRecentSnapshot(
+          connection,
+          authorization: authorization,
+          session: session
+        )
       }
-      try applyConfirmedAction(
-        action,
-        targetFolderId: targetFolderId,
-        messageIds: messageIds,
-        connection: connection,
-        session: session
-      )
-      _ = try await refreshRecentSnapshot(
-        connection,
-        authorization: authorization,
-        session: session
-      )
     }
   }
 
@@ -1862,6 +1953,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ action: ProviderMailAction,
     targetFolderId: String?,
     messageIds: [String],
+    movedItems: [EWSMovedItemIdentity],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws {
@@ -1882,6 +1974,12 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
     for index in snapshot.messages.indices
     where messageIds.contains(snapshot.messages[index].stableProviderId) {
+      if let moved = movedItems.first(where: {
+        $0.stableProviderId == snapshot.messages[index].stableProviderId
+      }) {
+        snapshot.messages[index].itemId = moved.itemId
+        snapshot.messages[index].changeKey = moved.changeKey
+      }
       switch action {
       case .markRead:
         snapshot.messages[index].isRead = true
@@ -2007,18 +2105,38 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
-  private func activeAuthorization(
+  private func authorizationForProviderAccess(
     _ connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
-  ) throws -> DeviceLocalEWSAuthorization {
+    session: ProductAccountSessionSnapshot,
+    isWithinSyncGate: Bool = false
+  ) async throws -> DeviceLocalEWSAuthorization {
     try validate(connection, session: session, requiresAuthorization: true)
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    if snapshot.removedConnectionIds.contains(connection.id) {
+      if isWithinSyncGate {
+        try await clearLocalConnectionWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
     guard
       let authorization = try authorizationStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    return authorization
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
+        .ewsDefinition
+    else { throw MailboxConnectionAdapterError.connectionRemoved }
+    guard authorization.definition == definition else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    return DeviceLocalEWSAuthorization(
+      credential: authorization.credential,
+      definition: definition
+    )
   }
 
   private func loadResult(

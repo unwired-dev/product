@@ -22,6 +22,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     for endpoint in [
       "http://mail.corp.example/EWS/Exchange.asmx",
+      "https://reader:password@mail.corp.example/EWS/Exchange.asmx",
+      "https://mail.corp.example/EWS/Exchange.asmx?access_token=secret",
+      "https://mail.corp.example/EWS/Exchange.asmx#secret",
       "https://outlook.office365.com/EWS/Exchange.asmx",
       "https://outlook.office.com/EWS/Exchange.asmx",
       "https://outlook.office365.us/EWS/Exchange.asmx",
@@ -31,6 +34,24 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         XCTAssertEqual($0 as? EWSSetupError, .onPremisesEndpointRequired)
       }
     }
+  }
+
+  func testConnectionIdentityIncludesEffectiveEndpointPort() throws {
+    let standard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      primaryEmailAddress: "reader@corp.example"
+    )
+    let explicitStandard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:443/EWS/Exchange.asmx")),
+      primaryEmailAddress: "reader@corp.example"
+    )
+    let alternate = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")),
+      primaryEmailAddress: "reader@corp.example"
+    )
+
+    XCTAssertEqual(standard, explicitStandard)
+    XCTAssertNotEqual(standard, alternate)
   }
 
   func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
@@ -253,7 +274,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       serverVersion: .exchange2019,
       username: #"CORP\reader"#
     )
-    try await client.perform(
+    _ = try await client.perform(
       .markRead,
       targetFolderId: nil,
       messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
@@ -393,6 +414,66 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(findFolderOffsets, [0, 100])
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
+  }
+
+  func testSystemClientParsesItemBodyFractionalTimestampAndMovedIdentity() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let payload =
+        if body.contains("<m:GetItem>") {
+          Self.getItemResponse
+        } else if body.contains("<m:FindItem") {
+          Self.findItemResponse
+        } else {
+          Self.moveItemResponse
+        }
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(payload.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let client = SystemEWSClient(session: makeEWSURLSession())
+    let message = ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")
+
+    let body = try await client.loadMessageBody(
+      itemId: message.itemId,
+      authorization: authorization
+    )
+    let page = try await client.loadMessagePage(
+      folder: EWSFolder(changeKey: nil, displayName: "Inbox", id: "inbox-id", role: .inbox),
+      offset: 0,
+      pageSize: 50,
+      authorization: authorization
+    )
+    let moved = try await client.perform(
+      .archive,
+      targetFolderId: "archive-id",
+      messages: [message],
+      authorization: authorization
+    )
+
+    XCTAssertEqual(body, "Rendered message body")
+    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
+    XCTAssertEqual(
+      moved,
+      [
+        EWSMovedItemIdentity(
+          changeKey: "moved-change-key",
+          itemId: "moved-item-id",
+          stableProviderId: message.stableProviderId
+        )
+      ]
+    )
   }
 
   func testInitialAvailabilityAndBackfillPreserveRolesAndConversationIdentity() async throws {
@@ -656,6 +737,130 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.remainingActionFailuresByConnectionId[connection.id], 0)
   }
 
+  func testAuthenticationRejectedBlocksPendingEWSActionForUserIntervention() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.actionErrorsByConnectionId[definition.connectionId] =
+      EWSServiceError.authenticationRejected
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+
+    try await adapter.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    let blockedIds = await adapter.blockedPendingActionConnectionIds(
+      connections: [connection],
+      session: session
+    )
+    XCTAssertEqual(blockedIds, [connection.id])
+  }
+
+  func testSyncedEWSRemovalFencesAccessAndClearsLocalState() async throws {
+    let definition = makeEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      )
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    try metadata.save(
+      snapshot(message: ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      metadataStore: metadata
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.loadInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    definitions.removedConnectionIds = [connection.id]
+
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected synchronized removal to fence provider access")
+    } catch {}
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    XCTAssertNil(
+      try metadata.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+  }
+
+  func testEWSConnectionsLoadThroughOfflineProviderSnapshotPath() async throws {
+    let definition = makeEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      )
+    )
+    definitions.loadSnapshotError = EWSClientTestError.offline
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
+    XCTAssertEqual(definitions.providerAccessLoads, 1)
+  }
+
   func testRecentSyncReconcilesChangedEWSItemIdentityWithoutDuplicatingMessage() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -893,6 +1098,58 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     </s:Envelope>
     """
 
+  private static let getItemResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:GetItemResponse><m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message>
+            <t:ItemId Id="item-id" ChangeKey="change-key"/>
+            <t:Body BodyType="Text">Rendered message body</t:Body>
+          </t:Message></m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages></m:GetItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let findItemResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:FindItemResponse><m:ResponseMessages>
+        <m:FindItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:RootFolder IncludesLastItemInRange="true">
+            <t:Items><t:Message>
+              <t:ItemId Id="item-id" ChangeKey="change-key"/>
+              <t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>
+            </t:Message></t:Items>
+          </m:RootFolder>
+        </m:FindItemResponseMessage>
+      </m:ResponseMessages></m:FindItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let moveItemResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:MoveItemResponse><m:ResponseMessages>
+        <m:MoveItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message>
+            <t:ItemId Id="moved-item-id" ChangeKey="moved-change-key"/>
+          </t:Message></m:Items>
+        </m:MoveItemResponseMessage>
+      </m:ResponseMessages></m:MoveItemResponse></s:Body>
+    </s:Envelope>
+    """
+
   private static func findFolderResponse(offset: Int) -> String {
     let includesLast = offset == 100
     return """
@@ -1049,7 +1306,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     targetFolderId _: String?,
     messages _: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
-  ) async throws {
+  ) async throws -> [EWSMovedItemIdentity] {
     if let error = actionErrorsByConnectionId[authorization.definition.connectionId] {
       throw error
     }
@@ -1063,6 +1320,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
         PerformedAction(action: action, connectionId: authorization.definition.connectionId)
       )
     }
+    return []
   }
 
   func send(
@@ -1076,6 +1334,9 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefinitionSyncing,
   @unchecked Sendable
 {
+  var loadSnapshotError: Error?
+  var providerAccessLoads = 0
+  var removedConnectionIds: [MailboxConnectionId] = []
   var savedDefinition: MailboxConnectionDefinition?
 
   init(
@@ -1091,10 +1352,22 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    if let loadSnapshotError { throw loadSnapshotError }
+    return snapshot()
+  }
+
+  func loadSnapshotForProviderAccess(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    providerAccessLoads += 1
+    return snapshot()
+  }
+
+  private func snapshot() -> MailboxConnectionSyncSnapshot {
     MailboxConnectionSyncSnapshot(
       connections: savedDefinitions,
       defaultSendingConnectionId: nil,
-      removedConnectionIds: [],
+      removedConnectionIds: removedConnectionIds,
       updatedAt: nil
     )
   }
@@ -1106,7 +1379,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     MailboxConnectionSyncSnapshot(
       connections: connections,
       defaultSendingConnectionId: nil,
-      removedConnectionIds: [],
+      removedConnectionIds: removedConnectionIds,
       updatedAt: nil
     )
   }
@@ -1119,7 +1392,8 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
       savedDefinition = nil
     }
     savedDefinitions.removeAll { $0.id == connectionId }
-    return try await loadSnapshot(session: session)
+    removedConnectionIds.append(connectionId)
+    return snapshot()
   }
 
   func saveConnection(
@@ -1139,18 +1413,18 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     } else {
       savedDefinitions.append(definition)
     }
-    return try await loadSnapshot(session: session)
+    return snapshot()
   }
 
   func setDefaultSendingConnection(
     _ connectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    let snapshot = try await loadSnapshot(session: session)
+    let snapshot = snapshot()
     return MailboxConnectionSyncSnapshot(
       connections: snapshot.connections,
       defaultSendingConnectionId: connectionId,
-      removedConnectionIds: [],
+      removedConnectionIds: snapshot.removedConnectionIds,
       updatedAt: snapshot.updatedAt
     )
   }

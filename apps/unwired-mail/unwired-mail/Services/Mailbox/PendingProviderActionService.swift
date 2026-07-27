@@ -136,12 +136,26 @@ private let defaultFailureDisposition:
     if error is EWSAmbiguousProviderActionError {
       return .userActionRequired
     }
-    if let serviceError = error as? EWSServiceError,
-      case .response(let code, _) = serviceError,
-      let status = code.split(separator: " ").last.flatMap({ Int($0) }),
-      status == 408 || status == 409 || status == 425 || status == 429 || status >= 500
-    {
-      return .transient
+    if let serviceError = error as? EWSServiceError {
+      switch serviceError {
+      case .authenticationRejected:
+        return .userActionRequired
+      case .invalidResponse:
+        break
+      case .response(let code, _):
+        let status = code.split(separator: " ").last.flatMap { Int($0) }
+        if status == 408 || status == 409 || status == 425 || status == 429
+          || status.map({ $0 >= 500 }) == true
+          || [
+            "ErrorExceededConnectionCount",
+            "ErrorMailboxStoreUnavailable",
+            "ErrorServerBusy",
+            "ErrorTimeoutExpired",
+          ].contains(code)
+        {
+          return .transient
+        }
+      }
     }
     if let metadataError = error as? GmailMessageMetadataSyncError {
       switch metadataError {

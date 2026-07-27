@@ -1322,10 +1322,12 @@ extension AccountView {
 
           EWSSetupPanel(
             viewModel: ewsSetupViewModel,
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
             connectionDidConnect: { selectConnection($0) },
             connectionsDidChange: {
               Task { _ = await gmailViewModel.load() }
-            }
+            },
+            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
           )
 
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)

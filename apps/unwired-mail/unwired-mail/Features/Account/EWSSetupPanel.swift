@@ -135,8 +135,10 @@ final class EWSSetupViewModel {
 
 struct EWSSetupPanel: View {
   @Bindable var viewModel: EWSSetupViewModel
+  var cancelBodyPrefetch: () async -> Void = {}
   var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   var connectionsDidChange: () -> Void = {}
+  var isMailboxBusy = false
   @State private var task: Task<Void, Never>?
 
   var body: some View {
@@ -175,6 +177,7 @@ struct EWSSetupPanel: View {
             if connection.authorizationState == .authorized {
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
+                  await cancelBodyPrefetch()
                   await viewModel.removeLocal(connection)
                   connectionsDidChange()
                 }
@@ -182,11 +185,13 @@ struct EWSSetupPanel: View {
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
+                await cancelBodyPrefetch()
                 await viewModel.removeEverywhere(connection)
                 connectionsDidChange()
               }
             }
           }
+          .disabled(viewModel.isWorking || isMailboxBusy)
         }
       }
 
