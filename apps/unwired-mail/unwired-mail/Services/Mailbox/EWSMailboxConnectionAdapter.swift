@@ -304,10 +304,24 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws {
+    let previous = try load(
+      productAccountId: productAccountId,
+      connectionId: connectionId
+    )
+    let previousIds = try connectionIds(productAccountId: productAccountId)
     try KeychainStore.delete(service: service, account: account(productAccountId, connectionId))
-    var ids = try connectionIds(productAccountId: productAccountId)
+    var ids = previousIds
     ids.remove(connectionId.rawValue)
-    try saveConnectionIds(ids, productAccountId: productAccountId)
+    do {
+      try saveConnectionIds(ids, productAccountId: productAccountId)
+    } catch {
+      if let previous {
+        try? save(previous, productAccountId: productAccountId)
+      } else {
+        try? saveConnectionIds(previousIds, productAccountId: productAccountId)
+      }
+      throw error
+    }
   }
 
   func clearAll(productAccountId: String) throws {
@@ -554,6 +568,13 @@ struct EWSSetupService {
     guard isSessionCurrent(session) else { throw CancellationError() }
     try Task.checkCancellation()
 
+    let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+    guard isSessionCurrent(session) else { throw CancellationError() }
+    let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+    let connectedAt =
+      synchronizedSnapshot.connections
+      .first(where: { $0.id == definition.connectionId })?.connectedAt
+      ?? timestamp
     let previous = try authorizationStore.load(
       productAccountId: session.productAccountId,
       connectionId: definition.connectionId
@@ -562,11 +583,12 @@ struct EWSSetupService {
     do {
       _ = try await definitionSyncService.saveDefinition(
         definition.synchronizedDefinition(
-          connectedAt: Int64(now().timeIntervalSince1970 * 1_000),
+          connectedAt: connectedAt,
           displayName: account.primaryEmailAddress
         ),
         session: session
       )
+      guard isSessionCurrent(session) else { throw CancellationError() }
     } catch {
       if let previous {
         try? authorizationStore.save(previous, productAccountId: session.productAccountId)
@@ -579,11 +601,10 @@ struct EWSSetupService {
       throw error
     }
 
-    let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
     return MailboxConnection(
       authorizationState: .authorized,
       capabilities: .exchangeWebServices,
-      connectedAt: timestamp,
+      connectedAt: connectedAt,
       displayName: account.primaryEmailAddress,
       id: definition.connectionId,
       lastVerifiedAt: timestamp,
@@ -786,6 +807,7 @@ struct EWSMovedItemIdentity: Equatable, Sendable {
 /// let complete = snapshot.historicalMetadataBackfillIsComplete
 /// ```
 struct EWSMetadataSnapshot: Codable, Equatable, Sendable {
+  var completedHistoricalBackfillFolderIds: Set<String>? = []
   var folders: [EWSFolder]
   var messages: [EWSProviderMessage]
   var nextOffsetsByFolderId: [String: Int]
@@ -794,6 +816,16 @@ struct EWSMetadataSnapshot: Codable, Equatable, Sendable {
 
   var historicalMetadataBackfillIsComplete: Bool {
     hasInitialMailboxAvailability && nextOffsetsByFolderId.isEmpty
+      && completedFolderIds.isSuperset(of: folders.map(\.id))
+  }
+
+  var completedFolderIds: Set<String> {
+    if let completedHistoricalBackfillFolderIds {
+      return completedHistoricalBackfillFolderIds
+    }
+    return hasInitialMailboxAvailability && nextOffsetsByFolderId.isEmpty
+      ? Set(folders.map(\.id))
+      : []
   }
 }
 
@@ -1221,11 +1253,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    try authorizationStore.clearAll(productAccountId: session.productAccountId)
-    try metadataStore.clear(productAccountId: session.productAccountId)
-    try await pendingActionService.clear(session: session)
-    try await outboxService.clear(session: session)
-    try bodyService.clear(session: session)
+    let connectionIds = try await loadConnections(session: session).map(\.id).sorted {
+      $0.rawValue < $1.rawValue
+    }
+    try await withSyncLocks(connectionIds[...]) {
+      try authorizationStore.clearAll(productAccountId: session.productAccountId)
+      try metadataStore.clear(productAccountId: session.productAccountId)
+      try await pendingActionService.clear(session: session)
+      try await outboxService.clear(session: session)
+      try bodyService.clear(session: session)
+    }
   }
 
   func clearLocalConnection(
@@ -1243,6 +1280,18 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await clearLocalConnectionWithoutLock(connection.id, session: session)
+  }
+
+  private func withSyncLocks<T>(
+    _ connectionIds: ArraySlice<MailboxConnectionId>,
+    operation: () async throws -> T
+  ) async throws -> T {
+    guard let connectionId = connectionIds.first else {
+      return try await operation()
+    }
+    return try await syncGate.withLock(connectionId) {
+      try await withSyncLocks(connectionIds.dropFirst(), operation: operation)
+    }
   }
 
   private func clearLocalConnectionWithoutLock(
@@ -1508,6 +1557,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       hasInitialMailboxAvailability: false
     )
     for folder in folders {
+      try Task.checkCancellation()
+      guard shouldPersist() else { throw CancellationError() }
       let page = try await client.loadMessagePage(
         folder: folder,
         offset: 0,
@@ -1964,6 +2015,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           throw EWSAmbiguousProviderActionError()
         } catch EWSServiceError.invalidResponse {
           throw EWSAmbiguousProviderActionError()
+        } catch EWSServiceError.response(let code, let message) {
+          guard Self.isAmbiguousMutationResponse(code) else {
+            throw EWSServiceError.response(code: code, message: message)
+          }
+          throw EWSAmbiguousProviderActionError()
         }
         try applyConfirmedAction(
           action,
@@ -2035,7 +2091,6 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
     let destinationId =
       targetFolderId.flatMap { EWSProviderMessage.folderId(fromProviderStateId: $0) }
-      ?? targetFolderId
       ?? destinationRole.flatMap { role in
         snapshot.folders.first(where: { $0.role == role })?.id
       }
@@ -2093,7 +2148,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let scanIsInProgress =
         snapshot.nextOffsetsByFolderId[folder.id] != nil
         || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
-      if !scanIsInProgress {
+      if !scanIsInProgress, !snapshot.completedFolderIds.contains(folder.id) {
         snapshot.reconciliationMessageIdsByFolderId[folder.id] = observedIds
         if let nextOffset = page.nextOffset {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
@@ -2143,6 +2198,14 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  private static func isAmbiguousMutationResponse(_ code: String) -> Bool {
+    if code == "ErrorTimeoutExpired" { return true }
+    guard let status = code.split(separator: " ").last.flatMap({ Int($0) }) else {
+      return false
+    }
+    return status == 408 || status == 409 || status == 425 || status >= 500
+  }
+
   private func finishReconciliation(
     for folderId: String,
     snapshot: inout EWSMetadataSnapshot,
@@ -2156,6 +2219,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         $0.parentFolderId == folderId && !observedIds.contains($0.stableProviderId)
       }
     }
+    var completedFolderIds = snapshot.completedFolderIds
+    completedFolderIds.insert(folderId)
+    snapshot.completedHistoricalBackfillFolderIds = completedFolderIds
     snapshot.reconciliationMessageIdsByFolderId[folderId] = nil
   }
 
@@ -2336,17 +2402,27 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     into existing: inout [EWSProviderMessage]
   ) -> Set<String> {
     var observedIds: Set<String> = []
+    var indexesByIdentity: [String: Int] = [:]
+    for (index, message) in existing.enumerated() {
+      indexesByIdentity[message.stableProviderId] = index
+      indexesByIdentity[message.itemId] = index
+    }
     for message in messages {
-      if let index = existing.firstIndex(where: {
-        $0.stableProviderId == message.stableProviderId || $0.itemId == message.itemId
-      }) {
+      if let index =
+        indexesByIdentity[message.stableProviderId] ?? indexesByIdentity[message.itemId]
+      {
         var updated = message
         updated.categoryId = updated.categoryId ?? existing[index].categoryId
         updated.stableProviderId = existing[index].stableProviderId
         existing[index] = updated
+        indexesByIdentity[updated.stableProviderId] = index
+        indexesByIdentity[updated.itemId] = index
         observedIds.insert(updated.stableProviderId)
       } else {
         existing.append(message)
+        let index = existing.index(before: existing.endIndex)
+        indexesByIdentity[message.stableProviderId] = index
+        indexesByIdentity[message.itemId] = index
         observedIds.insert(message.stableProviderId)
       }
     }

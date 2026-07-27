@@ -46,6 +46,12 @@ struct SystemEWSClient: EWSClient {
     let primaryEmail =
       mailbox?.child(named: "EmailAddress")?.text.nonEmpty
       ?? authorization.definition.emailAddress
+    guard
+      primaryEmail.localizedCaseInsensitiveCompare(authorization.definition.emailAddress)
+        == .orderedSame
+    else {
+      throw EWSSetupError.invalidMailboxIdentity
+    }
     let displayName = mailbox?.child(named: "Name")?.text.nonEmpty ?? primaryEmail
     guard
       try await loadFolder(
@@ -146,6 +152,7 @@ struct SystemEWSClient: EWSClient {
     pageSize: Int,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSMessagePage {
+    let sortField = folder.role == .drafts ? "item:DateTimeCreated" : "item:DateTimeReceived"
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
@@ -173,7 +180,7 @@ struct SystemEWSClient: EWSClient {
         <m:IndexedPageItemView MaxEntriesReturned="\(pageSize)" Offset="\(offset)"
           BasePoint="Beginning"/>
         <m:SortOrder><t:FieldOrder Order="Descending">
-          <t:FieldURI FieldURI="item:DateTimeReceived"/>
+          <t:FieldURI FieldURI="\(sortField)"/>
         </t:FieldOrder></m:SortOrder>
         <m:ParentFolderIds><t:FolderId Id="\(xmlAttribute(folder.id))"/></m:ParentFolderIds>
       </m:FindItem>
@@ -375,7 +382,7 @@ struct SystemEWSClient: EWSClient {
     }.joined()
     var headers = ""
     if let messageId = message.rfcMessageId {
-      headers += extendedHeader(name: "Message-ID", value: messageId)
+      headers += outboxIdProperty(messageId)
     }
     if let inReplyTo = message.inReplyTo {
       headers += extendedHeader(name: "In-Reply-To", value: inReplyTo)
@@ -412,7 +419,8 @@ struct SystemEWSClient: EWSClient {
       <m:FindItem Traversal="Shallow">
         <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
         <m:Restriction><t:IsEqualTo>
-          <t:FieldURI FieldURI="message:InternetMessageId"/>
+          <t:ExtendedFieldURI PropertySetId="7a86cc5b-a9c6-47f6-980b-7e684d92c4af"
+            PropertyName="UnwiredOutboxId" PropertyType="String"/>
           <t:FieldURIOrConstant><t:Constant Value="\(xmlAttribute(rfcMessageId))"/>
           </t:FieldURIOrConstant>
         </t:IsEqualTo></m:Restriction>
@@ -446,10 +454,7 @@ struct SystemEWSClient: EWSClient {
     case .oauth:
       request.setValue("Bearer \(authorization.credential)", forHTTPHeaderField: "Authorization")
     case .appPassword, .password:
-      let value = Data(
-        "\(authorization.definition.username):\(authorization.credential)".utf8
-      ).base64EncodedString()
-      request.setValue("Basic \(value)", forHTTPHeaderField: "Authorization")
+      break
     }
     request.httpBody = Data(
       """
@@ -738,6 +743,16 @@ struct SystemEWSClient: EWSClient {
     """
   }
 
+  private func outboxIdProperty(_ value: String) -> String {
+    """
+    <t:ExtendedProperty>
+      <t:ExtendedFieldURI PropertySetId="7a86cc5b-a9c6-47f6-980b-7e684d92c4af"
+        PropertyName="UnwiredOutboxId" PropertyType="String"/>
+      <t:Value>\(xml(value))</t:Value>
+    </t:ExtendedProperty>
+    """
+  }
+
   private func addresses(_ node: EWSXMLNode?) -> [String] {
     node?.children.filter { $0.localName == "Mailbox" }.compactMap(formattedAddress) ?? []
   }
@@ -745,7 +760,11 @@ struct SystemEWSClient: EWSClient {
   private func formattedAddress(_ mailbox: EWSXMLNode?) -> String? {
     guard let email = mailbox?.child(named: "EmailAddress")?.text.nonEmpty else { return nil }
     guard let name = mailbox?.child(named: "Name")?.text.nonEmpty else { return email }
-    return "\(name) <\(email)>"
+    let escapedName =
+      name
+      .replacingOccurrences(of: "\\", with: "\\\\")
+      .replacingOccurrences(of: "\"", with: "\\\"")
+    return "\"\(escapedName)\" <\(email)>"
   }
 
   private func serverVersion(_ document: EWSXMLNode) throws -> EWSServerVersion {
@@ -890,7 +909,13 @@ private final class EWSXMLNode {
   }
 
   var descendants: [EWSXMLNode] {
-    children + children.flatMap(\.descendants)
+    var result: [EWSXMLNode] = []
+    var pending = Array(children.reversed())
+    while let node = pending.popLast() {
+      result.append(node)
+      pending.append(contentsOf: node.children.reversed())
+    }
+    return result
   }
 
   func child(named name: String) -> EWSXMLNode? {
@@ -1008,9 +1033,8 @@ private final class EWSXMLParser: NSObject, XMLParserDelegate {
     namespaceURI _: String?,
     qualifiedName _: String?
   ) {
-    stack[stack.count - 1].text =
-      stack[stack.count - 1].text.trimmingCharacters(in: .whitespacesAndNewlines)
-    stack.removeLast()
+    guard let node = stack.popLast() else { return }
+    node.text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
   }
 }
 

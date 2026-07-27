@@ -134,7 +134,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       client: client,
       definitionSyncService: definitions
     )
-    var sessionChecks = 0
+    var sessionIsCurrent = true
+    definitions.didLoadSnapshot = {
+      sessionIsCurrent = false
+    }
 
     let result = await Task {
       do {
@@ -145,13 +148,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
           username: #"CORP\reader"#,
           session: session,
-          isSessionCurrent: { _ in
-            sessionChecks += 1
-            if sessionChecks == 3 {
-              withUnsafeCurrentTask { $0?.cancel() }
-            }
-            return true
-          }
+          isSessionCurrent: { _ in sessionIsCurrent }
         )
         return false
       } catch is CancellationError {
@@ -172,33 +169,35 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testSetupAcceptsSupportedVersionsAndAuthorizationMethods() async throws {
-    for (index, version) in EWSServerVersion.allCases.enumerated() {
-      let method = MailAuthorizationMethod.allCases[index % MailAuthorizationMethod.allCases.count]
-      let client = RecordingEWSClient()
-      client.account = EWSAccount(
-        displayName: "On-Prem Reader",
-        primaryEmailAddress: "reader-\(index)@corp.example",
-        serverVersion: version
-      )
-      let definitions = RecordingEWSDefinitionSyncService()
-      let service = EWSSetupService(
-        authorizationStore: InMemoryEWSAuthorizationStore(),
-        client: client,
-        definitionSyncService: definitions
-      )
+    for (versionIndex, version) in EWSServerVersion.allCases.enumerated() {
+      for (methodIndex, method) in MailAuthorizationMethod.allCases.enumerated() {
+        let index = (versionIndex * MailAuthorizationMethod.allCases.count) + methodIndex
+        let client = RecordingEWSClient()
+        client.account = EWSAccount(
+          displayName: "On-Prem Reader",
+          primaryEmailAddress: "reader-\(index)@corp.example",
+          serverVersion: version
+        )
+        let definitions = RecordingEWSDefinitionSyncService()
+        let service = EWSSetupService(
+          authorizationStore: InMemoryEWSAuthorizationStore(),
+          client: client,
+          definitionSyncService: definitions
+        )
 
-      _ = try await service.connect(
-        authorizationMethod: method,
-        credential: "credential-\(index)",
-        emailAddress: "reader-\(index)@corp.example",
-        endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
-        username: #"CORP\reader"#,
-        session: session,
-        isSessionCurrent: { $0 == self.session }
-      )
+        _ = try await service.connect(
+          authorizationMethod: method,
+          credential: "credential-\(index)",
+          emailAddress: "reader-\(index)@corp.example",
+          endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+          username: #"CORP\reader"#,
+          session: session,
+          isSessionCurrent: { $0 == self.session }
+        )
 
-      XCTAssertEqual(client.verifiedAuthorization?.definition.authorizationMethod, method)
-      XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, version)
+        XCTAssertEqual(client.verifiedAuthorization?.definition.authorizationMethod, method)
+        XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, version)
+      }
     }
   }
 
@@ -296,9 +295,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(account.serverVersion, .exchange2019)
     XCTAssertEqual(account.primaryEmailAddress, "reader@corp.example")
     XCTAssertEqual(requests.count, 2)
-    let expectedAuthorization = Data(#"CORP\reader: password "#.utf8).base64EncodedString()
-    XCTAssertEqual(
-      requests[0].value(forHTTPHeaderField: "Authorization"), "Basic \(expectedAuthorization)")
+    XCTAssertNil(requests[0].value(forHTTPHeaderField: "Authorization"))
     XCTAssertTrue(
       requests[1].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/GetFolder") == true)
   }
@@ -431,8 +428,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(requests[0].value(forHTTPHeaderField: "Authorization"), "Bearer oauth-token")
-    let basic = Data(#"CORP\reader:app-password"#.utf8).base64EncodedString()
-    XCTAssertEqual(requests[1].value(forHTTPHeaderField: "Authorization"), "Basic \(basic)")
+    XCTAssertNil(requests[1].value(forHTTPHeaderField: "Authorization"))
     XCTAssertTrue(
       requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/UpdateItem") == true)
     XCTAssertTrue(
@@ -684,7 +680,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(metadataBody.contains(#"FieldURI="item:InternetMessageId""#))
     let deliveryBody = requestBodies[1]
     XCTAssertTrue(
-      deliveryBody.contains(#"FieldURI="message:InternetMessageId""#)
+      deliveryBody.contains(#"PropertyName="UnwiredOutboxId""#)
     )
   }
 
@@ -2184,7 +2180,8 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     serverVersion: .exchange2019
   )
   var body = ""
-  var bodyRequestCount = 0
+  private var storedBodyRequestCount = 0
+  var bodyRequestCount: Int { lock.withLock { storedBodyRequestCount } }
   private let lock = NSLock()
   var folders: [EWSFolder] = EWSFolderRole.allCases.map {
     EWSFolder(
@@ -2194,15 +2191,30 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       role: $0
     )
   }
-  var loadedBodyItemId: String?
+  private var storedLoadedBodyItemId: String?
+  var loadedBodyItemId: String? { lock.withLock { storedLoadedBodyItemId } }
   var pages: [String: EWSMessagePage] = [:]
-  var performedActions: [PerformedAction] = []
-  var performedMessageChangeKeys: [[String]] = []
+  private var storedPerformedActions: [PerformedAction] = []
+  var performedActions: [PerformedAction] { lock.withLock { storedPerformedActions } }
+  private var storedPerformedMessageChangeKeys: [[String]] = []
+  var performedMessageChangeKeys: [[String]] {
+    lock.withLock { storedPerformedMessageChangeKeys }
+  }
   var refreshedMessagesByStableId: [String: EWSProviderMessage] = [:]
-  var remainingOfflineFailuresByConnectionId: [MailboxConnectionId: Int] = [:]
-  var remainingActionFailuresByConnectionId: [MailboxConnectionId: Int] = [:]
-  var requestedPages: [String] = []
-  var sentMessages: [OutgoingMessage] = []
+  private var storedOfflineFailures: [MailboxConnectionId: Int] = [:]
+  var remainingOfflineFailuresByConnectionId: [MailboxConnectionId: Int] {
+    get { lock.withLock { storedOfflineFailures } }
+    set { lock.withLock { storedOfflineFailures = newValue } }
+  }
+  private var storedActionFailures: [MailboxConnectionId: Int] = [:]
+  var remainingActionFailuresByConnectionId: [MailboxConnectionId: Int] {
+    get { lock.withLock { storedActionFailures } }
+    set { lock.withLock { storedActionFailures = newValue } }
+  }
+  private var storedRequestedPages: [String] = []
+  var requestedPages: [String] { lock.withLock { storedRequestedPages } }
+  private var storedSentMessages: [OutgoingMessage] = []
+  var sentMessages: [OutgoingMessage] { lock.withLock { storedSentMessages } }
   var verifiedAuthorization: DeviceLocalEWSAuthorization?
 
   func verify(_ authorization: DeviceLocalEWSAuthorization) async throws -> EWSAccount {
@@ -2223,7 +2235,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> EWSMessagePage {
     let key = "\(folder.id)|\(offset)"
-    lock.withLock { requestedPages.append(key) }
+    lock.withLock { storedRequestedPages.append(key) }
     return pages[key] ?? EWSMessagePage(messages: [], nextOffset: nil)
   }
 
@@ -2231,9 +2243,11 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     itemId: String,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> String {
-    bodyRequestCount += 1
-    loadedBodyItemId = itemId
-    return body
+    return lock.withLock {
+      storedBodyRequestCount += 1
+      storedLoadedBodyItemId = itemId
+      return body
+    }
   }
 
   func refreshMessageIdentities(
@@ -2253,19 +2267,31 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       throw error
     }
     let connectionId = authorization.definition.connectionId
-    if let failures = remainingOfflineFailuresByConnectionId[connectionId], failures > 0 {
-      remainingOfflineFailuresByConnectionId[connectionId] = failures - 1
+    let shouldFailOffline = lock.withLock {
+      guard let failures = storedOfflineFailures[connectionId],
+        failures > 0
+      else { return false }
+      storedOfflineFailures[connectionId] = failures - 1
+      return true
+    }
+    if shouldFailOffline {
       throw URLError(.notConnectedToInternet)
     }
-    if let failures = remainingActionFailuresByConnectionId[connectionId], failures > 0 {
-      remainingActionFailuresByConnectionId[connectionId] = failures - 1
+    let shouldFailAction = lock.withLock {
+      guard let failures = storedActionFailures[connectionId],
+        failures > 0
+      else { return false }
+      storedActionFailures[connectionId] = failures - 1
+      return true
+    }
+    if shouldFailAction {
       throw EWSServiceError.response(code: "HTTP 503", message: "Temporarily unavailable")
     }
     lock.withLock {
-      performedActions.append(
+      storedPerformedActions.append(
         PerformedAction(action: action, connectionId: authorization.definition.connectionId)
       )
-      performedMessageChangeKeys.append(messages.map(\.changeKey))
+      storedPerformedMessageChangeKeys.append(messages.map(\.changeKey))
     }
     return []
   }
@@ -2274,7 +2300,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     _ message: OutgoingMessage,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws {
-    sentMessages.append(message)
+    lock.withLock { storedSentMessages.append(message) }
   }
 }
 
@@ -2282,6 +2308,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   @unchecked Sendable
 {
   var defaultSendingConnectionId: MailboxConnectionId?
+  var didLoadSnapshot: (() -> Void)?
   var loadSnapshotError: Error?
   var providerAccessLoads = 0
   var removedConnectionIds: [MailboxConnectionId] = []
@@ -2301,6 +2328,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     if let loadSnapshotError { throw loadSnapshotError }
+    didLoadSnapshot?()
     return snapshot()
   }
 
@@ -2393,7 +2421,13 @@ private final class EWSActionStore: PendingProviderActionPersisting, @unchecked 
 }
 
 private final class EWSURLProtocol: URLProtocol, @unchecked Sendable {
-  static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+  private static let handlerLock = NSLock()
+  private static var storedRequestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))?
+
+  static var requestHandler: ((URLRequest) throws -> (HTTPURLResponse, Data))? {
+    get { handlerLock.withLock { storedRequestHandler } }
+    set { handlerLock.withLock { storedRequestHandler = newValue } }
+  }
 
   // swiftlint:disable:next static_over_final_class
   override class func canInit(with _: URLRequest) -> Bool {

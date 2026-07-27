@@ -141,7 +141,7 @@ private let defaultFailureDisposition:
       case .authenticationRejected:
         return .userActionRequired
       case .invalidResponse:
-        break
+        return .userActionRequired
       case .response(let code, _):
         let status = code.split(separator: " ").last.flatMap { Int($0) }
         if status == 408 || status == 409 || status == 425 || status == 429

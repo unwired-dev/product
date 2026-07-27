@@ -558,6 +558,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
   }
 
   func testEWSHTTP5xxFailureReconcilesBeforeRetrying() async throws {
+    let reconciliations = DeliveryCounter()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       store: InMemoryOutboxDeliveryStore()
@@ -570,14 +571,20 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       provider: { _, _, _ in
         throw EWSServiceError.response(code: "HTTP 503", message: "Unavailable")
       },
-      reconcile: { _, _ in .unknown }
+      reconcile: { _, _ in
+        await reconciliations.increment()
+        return .unknown
+      }
     )
 
     let attempts = try await service.items(session: session)
+    let reconciliationCount = await reconciliations.currentValue()
+    XCTAssertEqual(reconciliationCount, 1)
     XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
   }
 
   func testEWSServerBusyRetriesWithoutReconciliation() async throws {
+    let reconciliations = DeliveryCounter()
     let service = OutboxDeliveryService(
       handoffDelayNanoseconds: immediateHandoffDelay,
       retryDelayNanoseconds: { _ in 60_000_000_000 },
@@ -591,11 +598,47 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       provider: { _, _, _ in
         throw EWSServiceError.response(code: "ErrorServerBusy", message: "Busy")
       },
-      reconcile: { _, _ in .unknown }
+      reconcile: { _, _ in
+        await reconciliations.increment()
+        return .unknown
+      }
     )
 
     let attempts = try await service.items(session: session)
+    let reconciliationCount = await reconciliations.currentValue()
+    XCTAssertEqual(reconciliationCount, 0)
     XCTAssertEqual(attempts.first?.state, .retrying)
+  }
+
+  func testEWSAmbiguousResponsesAlwaysReconcileBeforeRetrying() async throws {
+    let errors: [EWSServiceError] = [
+      .response(code: "HTTP 408", message: "Timeout"),
+      .response(code: "HTTP 425", message: "Too Early"),
+      .invalidResponse,
+    ]
+
+    for error in errors {
+      let reconciliations = DeliveryCounter()
+      let service = OutboxDeliveryService(
+        handoffDelayNanoseconds: immediateHandoffDelay,
+        store: InMemoryOutboxDeliveryStore()
+      )
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in throw error },
+        reconcile: { _, _ in
+          await reconciliations.increment()
+          return .unknown
+        }
+      )
+
+      let attempts = try await service.items(session: session)
+      let reconciliationCount = await reconciliations.currentValue()
+      XCTAssertEqual(reconciliationCount, 1)
+      XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+    }
   }
 
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {

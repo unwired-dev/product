@@ -14,6 +14,7 @@ final class EWSSetupViewModel {
   var username = ""
 
   private let adapter: EWSMailboxConnectionAdapter
+  private let authorizationStore: EWSAuthorizationPersisting
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
@@ -22,6 +23,7 @@ final class EWSSetupViewModel {
 
   init(
     adapter: EWSMailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
+    authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool,
@@ -29,6 +31,7 @@ final class EWSSetupViewModel {
     session: ProductAccountSessionSnapshot
   ) {
     self.adapter = adapter
+    self.authorizationStore = authorizationStore
     self.definitionSyncService = definitionSyncService
     self.isSessionCurrent = isSessionCurrent
     self.service = service
@@ -42,9 +45,10 @@ final class EWSSetupViewModel {
     do {
       let snapshot = try await definitionSyncService.loadSnapshot(session: session)
       definitionsByConnectionId = Dictionary(
-        uniqueKeysWithValues: snapshot.connections.compactMap {
+        snapshot.connections.compactMap {
           $0.ewsDefinition.map { ($0.connectionId, $0) }
-        }
+        },
+        uniquingKeysWith: { _, latest in latest }
       )
       defaultSendingConnectionId = snapshot.defaultSendingConnectionId
       connections = try await adapter.loadConnections(session: session)
@@ -69,7 +73,7 @@ final class EWSSetupViewModel {
         isSessionCurrent: isSessionCurrent
       )
       credential = ""
-      await reloadAfterMutation()
+      try await reloadAfterMutation()
       errorMessage = nil
       return connection
     } catch is CancellationError {
@@ -82,7 +86,7 @@ final class EWSSetupViewModel {
 
   func select(_ connection: MailboxConnection) async {
     credential = ""
-    let authorization = try? KeychainEWSAuthorizationStore().load(
+    let authorization = try? authorizationStore.load(
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )
@@ -130,22 +134,21 @@ final class EWSSetupViewModel {
     defer { isWorking = false }
     do {
       try await operation()
-      await reloadAfterMutation()
+      try await reloadAfterMutation()
       errorMessage = nil
     } catch {
       errorMessage = error.localizedDescription
     }
   }
 
-  private func reloadAfterMutation() async {
-    guard
-      let snapshot = try? await definitionSyncService.loadSnapshot(session: session),
-      let connections = try? await adapter.loadConnections(session: session)
-    else { return }
+  private func reloadAfterMutation() async throws {
+    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
+    let connections = try await adapter.loadConnections(session: session)
     definitionsByConnectionId = Dictionary(
-      uniqueKeysWithValues: snapshot.connections.compactMap {
+      snapshot.connections.compactMap {
         $0.ewsDefinition.map { ($0.connectionId, $0) }
-      }
+      },
+      uniquingKeysWith: { _, latest in latest }
     )
     defaultSendingConnectionId = snapshot.defaultSendingConnectionId
     self.connections = connections
