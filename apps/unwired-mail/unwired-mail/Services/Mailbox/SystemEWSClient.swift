@@ -28,8 +28,14 @@ enum EWSServiceError: LocalizedError, Equatable {
 struct SystemEWSClient: EWSClient {
   private let session: URLSession
 
-  init(session: URLSession = .shared) {
-    self.session = session
+  init(session: URLSession? = nil) {
+    self.session = session ?? Self.makeProductionSession()
+  }
+
+  static func makeProductionSession() -> URLSession {
+    let configuration = URLSessionConfiguration.default
+    configuration.tlsMinimumSupportedProtocolVersion = .TLSv12
+    return URLSession(configuration: configuration)
   }
 
   /// Verifies mailbox identity and the supported on-premises server version.

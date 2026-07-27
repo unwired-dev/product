@@ -13,6 +13,13 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     trustedDeviceId: "trusted-device-001"
   )
 
+  func testProductionEWSSessionRequiresTLS12OrNewer() {
+    let session = SystemEWSClient.makeProductionSession()
+    defer { session.invalidateAndCancel() }
+
+    XCTAssertEqual(session.configuration.tlsMinimumSupportedProtocolVersion, .TLSv12)
+  }
+
   func testSetupAcceptsOnlyHTTPSOnPremisesEndpoints() throws {
     XCTAssertNoThrow(
       try EWSConnectionDefinition.validatedEndpoint(
