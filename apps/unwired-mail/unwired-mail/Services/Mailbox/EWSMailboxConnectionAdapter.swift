@@ -1017,7 +1017,11 @@ struct EWSMessageBodyService {
     authorization: DeviceLocalEWSAuthorization,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    if let cached = try loadCached(message: message, session: session) {
+    if let cached = try loadCached(
+      message: message,
+      providerMessage: providerMessage,
+      session: session
+    ) {
       try? cache.recordMessageBodyAccess(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId,
@@ -1033,7 +1037,10 @@ struct EWSMessageBodyService {
       try? cache.saveMessageBody(
         material.encryptPayload(
           Data(text.utf8),
-          associatedData: associatedData(message.stableProviderMessageId)
+          associatedData: associatedData(
+            message.stableProviderMessageId,
+            changeKey: providerMessage.changeKey
+          )
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
@@ -1061,7 +1068,13 @@ struct EWSMessageBodyService {
       throw ProductSyncKeyMaterialStoreError.recoveryRequired
     }
     for (message, providerMessage) in messages
-    where try loadCached(message: message, session: session) == nil {
+    where
+      try loadCached(
+        message: message,
+        providerMessage: providerMessage,
+        session: session
+      ) == nil
+    {
       try Task.checkCancellation()
       let text = try await client.loadMessageBody(
         itemId: providerMessage.itemId,
@@ -1076,7 +1089,10 @@ struct EWSMessageBodyService {
           isProtected: true,
           payload: material.encryptPayload(
             Data(text.utf8),
-            associatedData: associatedData(message.stableProviderMessageId)
+            associatedData: associatedData(
+              message.stableProviderMessageId,
+              changeKey: providerMessage.changeKey
+            )
           ),
           retention: .prefetched
         ),
@@ -1098,6 +1114,7 @@ struct EWSMessageBodyService {
 
   private func loadCached(
     message: MailboxMessageMetadata,
+    providerMessage: EWSProviderMessage,
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxMessageBody? {
     guard
@@ -1110,7 +1127,10 @@ struct EWSMessageBodyService {
     do {
       let data = try material.decryptPayload(
         payload,
-        associatedData: associatedData(message.stableProviderMessageId)
+        associatedData: associatedData(
+          message.stableProviderMessageId,
+          changeKey: providerMessage.changeKey
+        )
       )
       guard let text = String(data: data, encoding: .utf8) else { return nil }
       return MailboxMessageBody(text: text)
@@ -1123,8 +1143,11 @@ struct EWSMessageBodyService {
     }
   }
 
-  private func associatedData(_ stableProviderMessageId: String) -> Data {
-    Data("exchange-web-services-body-cache:\(stableProviderMessageId)".utf8)
+  private func associatedData(
+    _ stableProviderMessageId: String,
+    changeKey: String
+  ) -> Data {
+    Data("exchange-web-services-body-cache:\(stableProviderMessageId):\(changeKey)".utf8)
   }
 }
 
@@ -1365,39 +1388,37 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         shouldPersist: { true }
       )
     }
-    guard
-      let folder = snapshot.folders.first(where: {
-        snapshot.nextOffsetsByFolderId[$0.id] != nil
-      }),
-      let offset = snapshot.nextOffsetsByFolderId[folder.id]
-    else {
-      return try await projectedResult(
-        snapshot,
-        .role(.inbox),
-        connection: connection,
-        session: session
-      )
+    while let folder = snapshot.folders.first(where: {
+      snapshot.nextOffsetsByFolderId[$0.id] != nil
+    }) {
+      var offset = 0
+      snapshot.reconciliationMessageIdsByFolderId[folder.id] = []
+      while true {
+        try Task.checkCancellation()
+        let page = try await client.loadMessagePage(
+          folder: folder,
+          offset: offset,
+          pageSize: Self.initialPageSize,
+          authorization: authorization
+        )
+        upsert(page.messages, into: &snapshot.messages)
+        snapshot.reconciliationMessageIdsByFolderId[folder.id, default: []]
+          .formUnion(page.messages.map(\.stableProviderId))
+        if let nextOffset = page.nextOffset {
+          offset = nextOffset
+          snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
+        } else {
+          snapshot.nextOffsetsByFolderId[folder.id] = nil
+          finishReconciliation(for: folder.id, snapshot: &snapshot)
+        }
+        try metadataStore.save(
+          snapshot,
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        )
+        if page.nextOffset == nil { break }
+      }
     }
-    let page = try await client.loadMessagePage(
-      folder: folder,
-      offset: offset,
-      pageSize: Self.initialPageSize,
-      authorization: authorization
-    )
-    upsert(page.messages, into: &snapshot.messages)
-    snapshot.reconciliationMessageIdsByFolderId[folder.id, default: []]
-      .formUnion(page.messages.map(\.stableProviderId))
-    if let nextOffset = page.nextOffset {
-      snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
-    } else {
-      snapshot.nextOffsetsByFolderId[folder.id] = nil
-      finishReconciliation(for: folder.id, snapshot: &snapshot)
-    }
-    try metadataStore.save(
-      snapshot,
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )
     return try await projectedResult(
       snapshot,
       .role(.inbox),

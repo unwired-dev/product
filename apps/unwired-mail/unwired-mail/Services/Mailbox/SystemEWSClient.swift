@@ -178,12 +178,36 @@ struct SystemEWSClient: EWSClient {
       """,
       authorization: authorization
     )
-    let rootFolder = document.firstDescendant(named: "RootFolder")
-    let includesLast = rootFolder?.attributes["IncludesLastItemInRange"] == "true"
-    let nextOffset =
-      includesLast ? nil : rootFolder?.attributes["IndexedPagingOffset"].flatMap(Int.init)
+    return try messagePage(document, folderId: folder.id, offset: offset)
+  }
+
+  private func messagePage(
+    _ document: EWSXMLNode,
+    folderId: String,
+    offset: Int
+  ) throws -> EWSMessagePage {
+    guard
+      let rootFolder = document.firstDescendant(named: "RootFolder"),
+      let includesLastValue = rootFolder.attributes["IncludesLastItemInRange"],
+      ["true", "false"].contains(includesLastValue)
+    else {
+      throw EWSServiceError.invalidResponse
+    }
+    let includesLast = includesLastValue == "true"
+    let nextOffset: Int?
+    if includesLast {
+      nextOffset = nil
+    } else {
+      guard
+        let value = rootFolder.attributes["IndexedPagingOffset"].flatMap(Int.init),
+        value > offset
+      else {
+        throw EWSServiceError.invalidResponse
+      }
+      nextOffset = value
+    }
     let items = document.descendants.filter(Self.isItemNode).compactMap {
-      providerMessage($0, defaultFolderId: folder.id)
+      providerMessage($0, defaultFolderId: folderId)
     }
     return EWSMessagePage(messages: items, nextOffset: nextOffset)
   }
@@ -226,22 +250,37 @@ struct SystemEWSClient: EWSClient {
     guard !messages.isEmpty else { return [] }
     switch action {
     case .markRead, .markUnread:
-      try await updateBoolean(
+      return try await updateBoolean(
         fieldURI: "message:IsRead",
         element: "t:IsRead",
         value: action == .markRead,
         messages: messages,
         authorization: authorization
       )
-      return []
     case .star, .unstar:
-      try await updateFlag(
+      return try await updateFlag(
         flagged: action == .star,
         messages: messages,
         authorization: authorization
       )
+    case .archive:
+      for (sourceFolderId, sourceMessages) in Dictionary(
+        grouping: messages,
+        by: \.parentFolderId
+      ) {
+        _ = try await request(
+          """
+          <m:ArchiveItem>
+            <m:ArchiveSourceFolderId><t:FolderId Id="\(xmlAttribute(sourceFolderId))"/>
+            </m:ArchiveSourceFolderId>
+            <m:ItemIds>\(itemIds(sourceMessages))</m:ItemIds>
+          </m:ArchiveItem>
+          """,
+          authorization: authorization
+        )
+      }
       return []
-    case .archive, .delete, .move, .notSpam, .restore, .spam:
+    case .delete, .move, .notSpam, .restore, .spam:
       let destination =
         targetFolderId.map { #"<t:FolderId Id="\#(xmlAttribute($0))"/>"# }
         ?? distinguishedDestination(action).map {
@@ -495,7 +534,7 @@ struct SystemEWSClient: EWSClient {
     value: Bool,
     messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
-  ) async throws {
+  ) async throws -> [EWSMovedItemIdentity] {
     let changes = messages.map {
       """
       <t:ItemChange><t:ItemId Id="\(xmlAttribute($0.itemId))"
@@ -504,14 +543,17 @@ struct SystemEWSClient: EWSClient {
         </t:Message></t:SetItemField></t:Updates></t:ItemChange>
       """
     }.joined()
-    _ = try await updateItems(changes, authorization: authorization)
+    return try updatedIdentities(
+      try await updateItems(changes, authorization: authorization),
+      messages: messages
+    )
   }
 
   private func updateFlag(
     flagged: Bool,
     messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
-  ) async throws {
+  ) async throws -> [EWSMovedItemIdentity] {
     let status = flagged ? "Flagged" : "NotFlagged"
     let changes = messages.map {
       """
@@ -521,7 +563,10 @@ struct SystemEWSClient: EWSClient {
         </t:Flag></t:Message></t:SetItemField></t:Updates></t:ItemChange>
       """
     }.joined()
-    _ = try await updateItems(changes, authorization: authorization)
+    return try updatedIdentities(
+      try await updateItems(changes, authorization: authorization),
+      messages: messages
+    )
   }
 
   private func updateItems(
@@ -543,6 +588,29 @@ struct SystemEWSClient: EWSClient {
     messages.map {
       #"<t:ItemId Id="\#(xmlAttribute($0.itemId))" ChangeKey="\#(xmlAttribute($0.changeKey))"/>"#
     }.joined()
+  }
+
+  private func updatedIdentities(
+    _ document: EWSXMLNode,
+    messages: [EWSProviderMessage]
+  ) throws -> [EWSMovedItemIdentity] {
+    let itemIds = document.descendants.filter { $0.localName == "ItemId" }
+    guard itemIds.count == messages.count else {
+      throw EWSServiceError.invalidResponse
+    }
+    return try zip(messages, itemIds).map { message, itemId in
+      guard
+        let id = itemId.attributes["Id"],
+        let changeKey = itemId.attributes["ChangeKey"]
+      else {
+        throw EWSServiceError.invalidResponse
+      }
+      return EWSMovedItemIdentity(
+        changeKey: changeKey,
+        itemId: id,
+        stableProviderId: message.stableProviderId
+      )
+    }
   }
 
   private func mailboxXML(_ authorization: DeviceLocalEWSAuthorization) -> String {
@@ -590,7 +658,6 @@ struct SystemEWSClient: EWSClient {
 
   private func distinguishedDestination(_ action: ProviderMailAction) -> String? {
     switch action {
-    case .archive: return "archiveinbox"
     case .delete: return "deleteditems"
     case .spam: return "junkemail"
     case .notSpam, .restore: return "inbox"
