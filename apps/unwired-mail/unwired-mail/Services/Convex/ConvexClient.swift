@@ -201,6 +201,24 @@ final class ConvexClient {
     )
   }
 
+  func rollbackMicrosoftGraphPushRoute(
+    clientStateDigest: String,
+    identityToken: String,
+    routeId: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    let response: RollbackMicrosoftGraphPushRouteResponse = try await performMutation(
+      path: "pushRelay:rollbackMicrosoftGraphRoute",
+      args: RollbackMicrosoftGraphPushRouteArgs(
+        clientStateDigest: clientStateDigest,
+        routeId: routeId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+    return response.rolledBack
+  }
+
   func removeMicrosoftGraphPushRoute(
     identityToken: String,
     opaqueConnectionId: String,
@@ -519,6 +537,16 @@ private struct ConfirmMicrosoftGraphPushRouteArgs: Encodable {
   let routeId: String
   let subscriptionId: String
   let trustedDeviceId: String
+}
+
+private struct RollbackMicrosoftGraphPushRouteArgs: Encodable {
+  let clientStateDigest: String
+  let routeId: String
+  let trustedDeviceId: String
+}
+
+private struct RollbackMicrosoftGraphPushRouteResponse: Decodable {
+  let rolledBack: Bool
 }
 
 private struct RemoveMicrosoftGraphPushRouteArgs: Encodable {

@@ -2395,6 +2395,44 @@ export const confirmMicrosoftGraphRoute = mutation({
   returns: microsoftGraphRouteResponseValidator,
 });
 
+export const rollbackMicrosoftGraphRoute = mutation({
+  args: {
+    clientStateDigest: v.string(),
+    routeId: v.id('mailProviderConnections'),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const route = await ctx.db.get(args.routeId);
+    requireMicrosoftGraphRoute(route);
+    requireMicrosoftGraphRouteOwnership(
+      route,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
+      await ctx.db.patch(args.routeId, {
+        microsoftPendingClientStateDigest: undefined,
+        updatedAt: Date.now(),
+      });
+      return { rolledBack: true };
+    }
+    if (
+      route.microsoftClientStateDigest === args.clientStateDigest &&
+      route.microsoftSubscriptionId === undefined
+    ) {
+      await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
+      await ctx.db.delete(args.routeId);
+      return { rolledBack: true };
+    }
+    return { rolledBack: false };
+  },
+  returns: v.object({ rolledBack: v.boolean() }),
+});
+
 export const removeMicrosoftGraphRoute = mutation({
   args: {
     opaqueConnectionId: v.string(),
@@ -2477,8 +2515,18 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   }
   const existing = await microsoftGraphWakeupState(ctx, routeId);
   if (existing !== null) {
+    const scheduledAt = now;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existing._id, { attemptCount: 0, pendingAt: now });
+    await ctx.db.patch(existing._id, {
+      attemptCount: 0,
+      pendingAt: now,
+      scheduledAt,
+    });
+    await ctx.scheduler.runAfter(
+      1000,
+      internal.apns.deliverMicrosoftGraphWakeup,
+      { routeId, scheduledAt },
+    );
     return { accepted: true };
   }
   await ctx.db.insert('microsoftGraphWakeupStates', {

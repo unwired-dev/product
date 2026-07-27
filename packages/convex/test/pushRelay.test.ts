@@ -3617,7 +3617,13 @@ describe('gmail push relay', () => {
         retryWasRescheduled: true,
       });
 
-      await t.fetch(pushURL, {
+      const previousScheduledAt = retainedWakeups[0]!.scheduledAt;
+      await t.run(async (ctx) => {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(retainedWakeups[0]!._id, { attemptCount: 4 });
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      const newerNotification = await t.fetch(pushURL, {
         body: JSON.stringify({ value: [notification] }),
         headers: { 'content-type': 'application/json' },
         method: 'POST',
@@ -3625,7 +3631,16 @@ describe('gmail push relay', () => {
       const refreshedWakeup = await t.run((ctx) =>
         ctx.db.query('microsoftGraphWakeupStates').unique(),
       );
-      expect(refreshedWakeup?.attemptCount).toBe(0);
+      expect({
+        attemptCount: refreshedWakeup?.attemptCount,
+        scheduledAtChanged:
+          refreshedWakeup?.scheduledAt !== previousScheduledAt,
+        status: newerNotification.status,
+      }).toStrictEqual({
+        attemptCount: 0,
+        scheduledAtChanged: true,
+        status: 202,
+      });
 
       apnsMock.status = 200;
       await t.finishAllScheduledFunctions(vi.runAllTimers);
@@ -3937,5 +3952,72 @@ describe('gmail push relay', () => {
       pendingClientStateDigest: undefined,
       subscriptionId: 'replacement-subscription',
     });
+  });
+
+  it('rolls back only the matching failed Microsoft Graph preparation', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-rollback-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256').update('first').digest('hex');
+    const replacementDigest = createHash('sha256')
+      .update('replacement')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-rollback',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      opaqueConnectionId: 'opaque-graph-rollback',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.rollbackMicrosoftGraphRoute, {
+        clientStateDigest: replacementDigest,
+        routeId: route.routeId,
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ rolledBack: true });
+    const retained = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(retained).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+    expect(retained?.microsoftPendingClientStateDigest).toBeUndefined();
+
+    const unconfirmed = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: replacementDigest,
+        opaqueConnectionId: 'opaque-graph-unconfirmed',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await expect(
+      asUser.mutation(api.pushRelay.rollbackMicrosoftGraphRoute, {
+        clientStateDigest: replacementDigest,
+        routeId: unconfirmed.routeId,
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ rolledBack: true });
+    await expect(
+      t.run((ctx) => ctx.db.get(unconfirmed.routeId)),
+    ).resolves.toBeNull();
   });
 });

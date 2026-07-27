@@ -28,6 +28,13 @@ protocol MicrosoftGraphPushRouteTransport {
     trustedDeviceId: String
   ) async throws -> MicrosoftGraphPushRouteResponse
 
+  func rollbackMicrosoftGraphPushRoute(
+    clientStateDigest: String,
+    identityToken: String,
+    routeId: String,
+    trustedDeviceId: String
+  ) async throws -> Bool
+
   func removeMicrosoftGraphPushRoute(
     identityToken: String,
     opaqueConnectionId: String,
@@ -451,9 +458,10 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
           subscriptionId: createdSubscriptionId
         )
       }
-      _ = try? await transport.removeMicrosoftGraphPushRoute(
+      _ = try? await transport.rollbackMicrosoftGraphPushRoute(
+        clientStateDigest: clientStateDigest,
         identityToken: session.identityToken,
-        opaqueConnectionId: connectionOpaqueId,
+        routeId: route.routeId,
         trustedDeviceId: session.trustedDeviceId
       )
       throw error

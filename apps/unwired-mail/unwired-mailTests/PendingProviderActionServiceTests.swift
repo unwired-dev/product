@@ -194,6 +194,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       (.markUnread, nil, ["INBOX"], ["INBOX", "UNREAD"]),
       (.archive, nil, ["INBOX"], []),
       (.move, "Label_projects", ["INBOX"], ["Label_projects"]),
+      (
+        .move, "graph-folder:destination", ["graph-folder:source", "UNREAD"],
+        ["graph-folder:destination", "UNREAD"]
+      ),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
       (.spam, nil, ["INBOX"], ["SPAM"]),
