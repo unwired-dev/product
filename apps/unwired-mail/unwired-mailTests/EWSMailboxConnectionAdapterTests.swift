@@ -343,15 +343,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
-  func testSystemClientUsesMailboxScopedRequestAndParsesSupportedServerVersion() async throws {
+  func testSystemClientUsesMailboxScopedFolderAccessAndParsesSupportedServerVersion() async throws {
     let definition = makeEWSDefinition()
     var requests: [URLRequest] = []
     EWSURLProtocol.requestHandler = { request in
       requests.append(request)
-      let payload =
-        request.value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/ResolveNames") == true
-        ? Self.resolveNamesResponse
-        : Self.getFolderResponse
       return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
@@ -359,7 +355,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           httpVersion: nil,
           headerFields: nil
         )!,
-        Data(payload.utf8)
+        Data(Self.getFolderResponse.utf8)
       )
     }
     defer { EWSURLProtocol.requestHandler = nil }
@@ -373,19 +369,18 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(account.serverVersion, .exchange2019)
     XCTAssertEqual(account.primaryEmailAddress, "reader@corp.example")
-    XCTAssertEqual(requests.count, 2)
+    XCTAssertEqual(requests.count, 1)
     XCTAssertNil(requests[0].value(forHTTPHeaderField: "Authorization"))
     XCTAssertTrue(
-      requests[1].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/GetFolder") == true)
+      requests[0].value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/GetFolder") == true)
+    XCTAssertTrue(
+      try Self.requestBody(requests[0]).contains("<t:EmailAddress>reader@corp.example"))
   }
 
   func testSystemClientRejectsExchangeOnlineVersionBehindCustomEndpoint() async throws {
     EWSURLProtocol.requestHandler = { request in
-      let payload =
-        request.value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/ResolveNames") == true
-        ? Self.resolveNamesResponse.replacingOccurrences(
-          of: #"MinorVersion="2""#, with: #"MinorVersion="20""#)
-        : Self.getFolderResponse
+      let payload = Self.getFolderResponse.replacingOccurrences(
+        of: #"MinorVersion="2""#, with: #"MinorVersion="20""#)
       return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
@@ -410,17 +405,64 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testSystemClientResolvesArchiveDestinationForReturnedItemId() async throws {
+    var requestBodies: [String] = []
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      requestBodies.append(body)
+      let payload =
+        body.contains("<m:ArchiveItem>")
+        ? Self.archiveItemWithIdentityResponse
+        : Self.archiveGetItemResponse
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(payload.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+    let message = ewsMessage(1, folderId: "sent-id", conversationId: "conversation-1")
+
+    let archived = try await SystemEWSClient(session: makeEWSURLSession()).perform(
+      .archive,
+      targetFolderId: nil,
+      messages: [message],
+      authorization: authorization
+    )
+
+    XCTAssertEqual(
+      archived,
+      [
+        EWSMovedItemIdentity(
+          changeKey: "archived-change-key",
+          destinationFolderId: "archive-sent-id",
+          itemId: "archived-item-id",
+          stableProviderId: message.stableProviderId
+        )
+      ]
+    )
+    XCTAssertEqual(requestBodies.count, 2)
+    XCTAssertTrue(requestBodies[1].contains("<m:GetItem>"))
+    XCTAssertTrue(requestBodies[1].contains(#"Id="archived-item-id""#))
+    XCTAssertTrue(requestBodies[1].contains(#"FieldURI="item:ParentFolderId""#))
+  }
+
   func testSystemClientRejectsExchange2013BeforeSP1() async throws {
     EWSURLProtocol.requestHandler = { request in
-      let payload =
-        request.value(forHTTPHeaderField: "SOAPAction")?.hasSuffix("/ResolveNames") == true
-        ? Self.resolveNamesResponse
-          .replacingOccurrences(
-            of: "MinorVersion=\"2\"",
-            with: "MinorVersion=\"0\" MajorBuildNumber=\"800\" MinorBuildNumber=\"0\""
-          )
-          .replacingOccurrences(of: "Exchange2019", with: "Exchange2013")
-        : Self.getFolderResponse
+      let payload = Self.getFolderResponse
+        .replacingOccurrences(
+          of: "MinorVersion=\"2\"",
+          with: "MinorVersion=\"0\" MajorBuildNumber=\"800\" MinorBuildNumber=\"0\""
+        )
+        .replacingOccurrences(of: "Exchange2019", with: "Exchange2013")
       return (
         HTTPURLResponse(
           url: try XCTUnwrap(request.url),
@@ -2559,25 +2601,6 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     return URLSession(configuration: configuration)
   }
 
-  private static let resolveNamesResponse = """
-    <?xml version="1.0" encoding="utf-8"?>
-    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
-      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
-      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
-      <s:Header><t:ServerVersionInfo MajorVersion="15" MinorVersion="2"
-        Version="Exchange2019"/></s:Header>
-      <s:Body><m:ResolveNamesResponse><m:ResponseMessages>
-        <m:ResolveNamesResponseMessage ResponseClass="Success">
-          <m:ResponseCode>NoError</m:ResponseCode>
-          <m:ResolutionSet><t:Resolution><t:Mailbox>
-            <t:Name>On-Prem Reader</t:Name>
-            <t:EmailAddress>reader@corp.example</t:EmailAddress>
-          </t:Mailbox></t:Resolution></m:ResolutionSet>
-        </m:ResolveNamesResponseMessage>
-      </m:ResponseMessages></m:ResolveNamesResponse></s:Body>
-    </s:Envelope>
-    """
-
   private static let getFolderResponse = """
     <?xml version="1.0" encoding="utf-8"?>
     <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
@@ -2668,6 +2691,39 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           <m:Items/>
         </m:ArchiveItemResponseMessage>
       </m:ResponseMessages></m:ArchiveItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let archiveItemWithIdentityResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:ArchiveItemResponse><m:ResponseMessages>
+        <m:ArchiveItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message>
+            <t:ItemId Id="archived-item-id" ChangeKey="archive-response-key"/>
+          </t:Message></m:Items>
+        </m:ArchiveItemResponseMessage>
+      </m:ResponseMessages></m:ArchiveItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let archiveGetItemResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:GetItemResponse><m:ResponseMessages>
+        <m:GetItemResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:Items><t:Message>
+            <t:ItemId Id="archived-item-id" ChangeKey="archived-change-key"/>
+            <t:ParentFolderId Id="archive-sent-id"/>
+          </t:Message></m:Items>
+        </m:GetItemResponseMessage>
+      </m:ResponseMessages></m:GetItemResponse></s:Body>
     </s:Envelope>
     """
 

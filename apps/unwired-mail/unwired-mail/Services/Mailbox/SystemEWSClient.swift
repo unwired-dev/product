@@ -36,34 +36,21 @@ struct SystemEWSClient: EWSClient {
   func verify(_ authorization: DeviceLocalEWSAuthorization) async throws -> EWSAccount {
     let document = try await request(
       """
-      <m:ResolveNames ReturnFullContactData="false" SearchScope="ActiveDirectory">
-        <m:UnresolvedEntry>\(xml(authorization.definition.emailAddress))</m:UnresolvedEntry>
-      </m:ResolveNames>
+      <m:GetFolder>
+        <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
+        <m:FolderIds><t:DistinguishedFolderId Id="inbox">
+          \(mailboxXML(authorization))
+        </t:DistinguishedFolderId></m:FolderIds>
+      </m:GetFolder>
       """,
       authorization: authorization
     )
-    let mailbox = document.firstDescendant(named: "Mailbox")
-    let primaryEmail =
-      mailbox?.child(named: "EmailAddress")?.text.nonEmpty
-      ?? authorization.definition.emailAddress
-    guard
-      primaryEmail.localizedCaseInsensitiveCompare(authorization.definition.emailAddress)
-        == .orderedSame
-    else {
+    guard document.descendants.contains(where: Self.isFolderNode) else {
       throw EWSSetupError.invalidMailboxIdentity
     }
-    let displayName = mailbox?.child(named: "Name")?.text.nonEmpty ?? primaryEmail
-    guard
-      try await loadFolder(
-        distinguishedId: "inbox",
-        role: .inbox,
-        authorization: authorization
-      ) != nil
-    else {
-      throw EWSSetupError.invalidMailboxIdentity
-    }
+    let primaryEmail = authorization.definition.emailAddress
     return EWSAccount(
-      displayName: displayName,
+      displayName: primaryEmail,
       primaryEmailAddress: primaryEmail,
       serverVersion: try serverVersion(document)
     )
@@ -431,7 +418,11 @@ struct SystemEWSClient: EWSClient {
           didApplyAnyGroup = true
           let returnedItemIds = document.descendants.filter { $0.localName == "ItemId" }
           if returnedItemIds.count == sourceMessages.count {
-            identities += try movedIdentities(sourceMessages, itemIds: returnedItemIds)
+            identities += try await resolveArchivedIdentities(
+              sourceMessages,
+              itemIds: returnedItemIds,
+              authorization: authorization
+            )
           } else {
             for message in sourceMessages {
               identities.append(
@@ -775,6 +766,52 @@ struct SystemEWSClient: EWSClient {
       itemId: id,
       stableProviderId: message.stableProviderId
     )
+  }
+
+  private func resolveArchivedIdentities(
+    _ messages: [EWSProviderMessage],
+    itemIds: [EWSXMLNode],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSMovedItemIdentity] {
+    let requestedItemIds = try itemIds.map {
+      guard let id = $0.attributes["Id"] else { throw EWSServiceError.invalidResponse }
+      return #"<t:ItemId Id="\#(xmlAttribute(id))"/>"#
+    }.joined()
+    let document = try await request(
+      """
+      <m:GetItem>
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
+        <m:ItemIds>\(requestedItemIds)</m:ItemIds>
+      </m:GetItem>
+      """,
+      authorization: authorization
+    )
+    let responseItemIds = document.descendants.filter { $0.localName == "ItemId" }
+    let destinationFolderIds = document.descendants.filter {
+      $0.localName == "ParentFolderId"
+    }
+    guard
+      responseItemIds.count == messages.count,
+      destinationFolderIds.count == messages.count
+    else { throw EWSServiceError.invalidResponse }
+    return try zip(zip(messages, responseItemIds), destinationFolderIds).map { pair in
+      let ((message, itemId), destinationFolderId) = pair
+      guard
+        let id = itemId.attributes["Id"],
+        let changeKey = itemId.attributes["ChangeKey"],
+        let destinationFolderId = destinationFolderId.attributes["Id"]
+      else { throw EWSServiceError.invalidResponse }
+      return EWSMovedItemIdentity(
+        changeKey: changeKey,
+        destinationFolderId: destinationFolderId,
+        itemId: id,
+        stableProviderId: message.stableProviderId
+      )
+    }
   }
 
   private func movedIdentities(
