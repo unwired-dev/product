@@ -285,6 +285,8 @@ protocol EWSAuthorizationPersisting {
   ) throws
   /// Clears all EWS authorizations for one Product Account on this device.
   func clearAll(productAccountId: String) throws
+  /// Lists connection ids backed by device-local EWS authorizations.
+  func connectionIds(productAccountId: String) throws -> [MailboxConnectionId]
   /// Loads one authorization from device-local protected storage.
   func load(
     productAccountId: String,
@@ -308,7 +310,7 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
       productAccountId: productAccountId,
       connectionId: connectionId
     )
-    let previousIds = try connectionIds(productAccountId: productAccountId)
+    let previousIds = try rawConnectionIds(productAccountId: productAccountId)
     try KeychainStore.delete(service: service, account: account(productAccountId, connectionId))
     var ids = previousIds
     ids.remove(connectionId.rawValue)
@@ -325,10 +327,25 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
   }
 
   func clearAll(productAccountId: String) throws {
-    for rawValue in try connectionIds(productAccountId: productAccountId) {
+    for rawValue in try rawConnectionIds(productAccountId: productAccountId) {
       try KeychainStore.delete(service: service, account: "\(productAccountId)-\(rawValue)")
     }
     try KeychainStore.delete(service: service, account: manifestAccount(productAccountId))
+  }
+
+  func connectionIds(productAccountId: String) throws -> [MailboxConnectionId] {
+    let prefix = "\(MailProviderId.exchangeWebServices.rawValue):"
+    return try rawConnectionIds(productAccountId: productAccountId)
+      .sorted()
+      .compactMap { rawValue in
+        guard rawValue.hasPrefix(prefix) else { return nil }
+        return MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .exchangeWebServices,
+            value: String(rawValue.dropFirst(prefix.count))
+          )
+        )
+      }
   }
 
   func load(
@@ -353,7 +370,7 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     guard let json = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
     }
-    let previousIds = try connectionIds(productAccountId: productAccountId)
+    let previousIds = try rawConnectionIds(productAccountId: productAccountId)
     var ids = previousIds
     ids.insert(authorization.definition.connectionId.rawValue)
     try saveConnectionIds(ids, productAccountId: productAccountId)
@@ -370,7 +387,7 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     }
   }
 
-  private func connectionIds(productAccountId: String) throws -> Set<String> {
+  private func rawConnectionIds(productAccountId: String) throws -> Set<String> {
     guard
       let json = try KeychainStore.readString(
         service: service,
@@ -427,6 +444,13 @@ struct KeychainEWSAuthorizationStore: EWSAuthorizationPersisting {
     func clearAll(productAccountId: String) throws {
       let prefix = "\(productAccountId)\0"
       values = values.filter { !$0.key.hasPrefix(prefix) }
+    }
+
+    func connectionIds(productAccountId: String) throws -> [MailboxConnectionId] {
+      let prefix = "\(productAccountId)\0"
+      return values.compactMap { key, authorization in
+        key.hasPrefix(prefix) ? authorization.definition.connectionId : nil
+      }
     }
 
     func load(
@@ -1253,7 +1277,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    let connectionIds = try await loadConnections(session: session).map(\.id).sorted {
+    let connectionIds = try authorizationStore.connectionIds(
+      productAccountId: session.productAccountId
+    ).sorted {
       $0.rawValue < $1.rawValue
     }
     try await withSyncLocks(connectionIds[...]) {
