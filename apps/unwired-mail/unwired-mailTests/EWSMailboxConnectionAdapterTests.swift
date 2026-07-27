@@ -913,7 +913,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorization: authorization
     )
 
-    XCTAssertEqual(body, "Rendered message body")
+    XCTAssertEqual(body, "  Rendered message body\n")
     XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
     XCTAssertEqual(
       archived,
@@ -953,6 +953,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       Self.findItemResponse.replacingOccurrences(
         of: #"IncludesLastItemInRange="true""#,
         with: #"IncludesLastItemInRange="false""#
+      ),
+      Self.findItemResponse.replacingOccurrences(
+        of: #"<t:ItemId Id="item-id" ChangeKey="change-key"/>"#,
+        with: ""
       ),
     ]
     let authorization = DeviceLocalEWSAuthorization(
@@ -1052,7 +1056,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(initial.messages.map(\.providerMessageId), ["ews-stable-3", "ews-stable-2"])
     XCTAssertEqual(sent.messages.map(\.providerMessageId), ["ews-stable-20"])
     XCTAssertEqual(initial.threads.first?.providerThreadId, "conversation-1")
-    XCTAssertTrue(complete.historicalMetadataBackfillIsComplete)
+    XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       complete.messages.map(\.providerMessageId),
       [
@@ -1161,7 +1165,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       throughHistoryId: nil,
       shouldPersist: { true }
     )
-    XCTAssertTrue(complete.historicalMetadataBackfillIsComplete)
+    XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
     XCTAssertEqual(
       Set(complete.messages.map(\.providerMessageId)),
       ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
@@ -1965,7 +1969,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           <m:ResponseCode>NoError</m:ResponseCode>
           <m:Items><t:Message>
             <t:ItemId Id="item-id" ChangeKey="change-key"/>
-            <t:Body BodyType="Text">Rendered message body</t:Body>
+            <t:Body BodyType="Text">  Rendered message body&#10;</t:Body>
           </t:Message></m:Items>
         </m:GetItemResponseMessage>
       </m:ResponseMessages></m:GetItemResponse></s:Body>

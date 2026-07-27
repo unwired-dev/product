@@ -1510,7 +1510,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
-          finishReconciliation(for: folder.id, snapshot: &snapshot, deleteUnobserved: false)
+          // Offset paging is mutable while messages move or disappear. Keep the
+          // fetched metadata, but require a fresh reconciliation scan before
+          // declaring this folder complete.
+          snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
         }
         try metadataStore.save(
           snapshot,

@@ -215,8 +215,12 @@ struct SystemEWSClient: EWSClient {
       }
       nextOffset = value
     }
-    let items = document.descendants.filter(Self.isItemNode).compactMap {
-      providerMessage($0, defaultFolderId: folderId)
+    let itemNodes = document.descendants.filter(Self.isItemNode)
+    let items = try itemNodes.map { node in
+      guard let message = providerMessage(node, defaultFolderId: folderId) else {
+        throw EWSServiceError.invalidResponse
+      }
+      return message
     }
     return EWSMessagePage(messages: items, nextOffset: nextOffset)
   }
@@ -1033,8 +1037,7 @@ private final class EWSXMLParser: NSObject, XMLParserDelegate {
     namespaceURI _: String?,
     qualifiedName _: String?
   ) {
-    guard let node = stack.popLast() else { return }
-    node.text = node.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    _ = stack.popLast()
   }
 }
 
