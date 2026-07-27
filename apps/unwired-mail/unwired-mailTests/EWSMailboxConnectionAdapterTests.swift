@@ -272,6 +272,52 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
   }
 
+  func testEWSSetupSelectionPrefersSynchronizedDefinitionOverStaleAuthorization() async throws {
+    let localDefinition = makeEWSDefinition()
+    let synchronizedDefinition = EWSConnectionDefinition(
+      authorizationMethod: .oauth,
+      emailAddress: "reader@corp.example",
+      endpoint: URL(string: "https://new-mail.corp.example/EWS/Exchange.asmx")!,
+      providerAccountIdentifier: localDefinition.providerAccountIdentifier,
+      serverVersion: .exchange2019,
+      username: "reader@corp.example"
+    )
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: synchronizedDefinition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: synchronizedDefinition.emailAddress
+      )
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "stale-password", definition: localDefinition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+    let viewModel = EWSSetupViewModel(
+      adapter: adapter,
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+    let connection = try XCTUnwrap(viewModel.connections.first)
+    await viewModel.select(connection)
+
+    XCTAssertEqual(connection.authorizationState, .required)
+    XCTAssertEqual(viewModel.authorizationMethod, .oauth)
+    XCTAssertEqual(viewModel.endpoint, synchronizedDefinition.endpoint.absoluteString)
+    XCTAssertEqual(viewModel.username, synchronizedDefinition.username)
+    XCTAssertEqual(viewModel.credential, "")
+  }
+
   func testSetupRequiresEveryFullCapabilityMailboxRole() async throws {
     let client = RecordingEWSClient()
     client.folders.removeAll { $0.role == .drafts }
@@ -1099,6 +1145,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(requestBodies[3].contains(#"Id="archivemsgfolderroot""#))
     XCTAssertTrue(requestBodies[4].contains(#"Id="archive-sent-id""#))
     XCTAssertTrue(requestBodies[4].contains(#"Id="archive-custom-id""#))
+    XCTAssertFalse(requestBodies[4].contains(#"Id="archive-search-id""#))
     XCTAssertTrue(requestBodies[4].contains(message.stableProviderId))
     XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
     XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
@@ -2399,6 +2446,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
                 <t:FolderId Id="archive-custom-id" ChangeKey="archive-custom-key"/>
                 <t:DisplayName>Projects</t:DisplayName>
               </t:Folder>
+              <t:SearchFolder>
+                <t:FolderId Id="archive-search-id" ChangeKey="archive-search-key"/>
+                <t:DisplayName>Virtual results</t:DisplayName>
+              </t:SearchFolder>
             </t:Folders>
           </m:RootFolder>
         </m:FindFolderResponseMessage>

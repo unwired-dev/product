@@ -90,7 +90,7 @@ final class EWSSetupViewModel {
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )
-    guard let definition = authorization?.definition ?? definitionsByConnectionId[connection.id]
+    guard let definition = definitionsByConnectionId[connection.id] ?? authorization?.definition
     else { return }
     authorizationMethod = definition.authorizationMethod
     emailAddress = definition.emailAddress

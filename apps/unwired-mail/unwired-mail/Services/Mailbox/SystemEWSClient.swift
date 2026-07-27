@@ -688,8 +688,9 @@ struct SystemEWSClient: EWSClient {
       isArchiveHierarchy: true,
       authorization: authorization
     )
-    guard !archiveFolders.isEmpty else { throw EWSServiceError.invalidResponse }
-    let parentFolderIds = archiveFolders.map {
+    let physicalArchiveFolders = archiveFolders.filter { $0.isSearchFolder != true }
+    guard !physicalArchiveFolders.isEmpty else { throw EWSServiceError.invalidResponse }
+    let parentFolderIds = physicalArchiveFolders.map {
       #"<t:FolderId Id="\#(xmlAttribute($0.id))"/>"#
     }.joined()
     let document = try await request(
