@@ -1871,9 +1871,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
-    var didLoadMessagePage = false
+    let didLoadMessagePage = LockedBoolean()
     client.didLoadMessagePage = {
-      didLoadMessagePage = true
+      didLoadMessagePage.setTrue()
     }
 
     do {
@@ -1884,7 +1884,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         sinceHistoryId: nil,
         throughHistoryId: nil,
         shouldPersist: {
-          !didLoadMessagePage
+          !didLoadMessagePage.value
         }
       )
       XCTFail("Expected stale session cancellation")
@@ -2229,6 +2229,19 @@ private final class RecordingEWSBodyCache: GmailMessageBodyCaching {
     stableProviderMessageId: String
   ) throws {
     payloads[stableProviderMessageId] = payload
+  }
+}
+
+private final class LockedBoolean: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedValue = false
+
+  var value: Bool {
+    lock.withLock { storedValue }
+  }
+
+  func setTrue() {
+    lock.withLock { storedValue = true }
   }
 }
 

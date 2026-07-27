@@ -202,7 +202,8 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
   { error in
     if let urlError = error as? URLError {
       switch urlError.code {
-      case .dataNotAllowed, .internationalRoamingOff, .notConnectedToInternet:
+      case .cannotConnectToHost, .cannotFindHost, .dataNotAllowed, .dnsLookupFailed,
+        .internationalRoamingOff, .notConnectedToInternet:
         return .transient
       default:
         return .ambiguous

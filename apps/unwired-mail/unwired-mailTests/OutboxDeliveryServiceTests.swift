@@ -458,7 +458,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(session: session)
   }
 
-  func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
+  func testPreRequestHostFailurePersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let firstService = OutboxDeliveryService(
@@ -472,7 +472,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       message,
       connection: connection,
       session: session,
-      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      provider: { _, _, _ in throw URLError(.cannotFindHost) },
       reconcile: { _, _ in .notSent }
     )
 
