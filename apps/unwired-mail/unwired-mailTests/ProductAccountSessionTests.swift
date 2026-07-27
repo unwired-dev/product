@@ -20,7 +20,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
           appleUserIdentifier: "apple-user-001",
-          identityToken: "token-001"
+          identityToken: "e30.eyJleHAiOjEwMDB9.signature"
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
@@ -39,8 +39,32 @@ final class ProductAccountSessionTests: XCTestCase {
       snapshot.productAccountId,
       ProductAccountConnectResponse.preview.productAccountId
     )
+    XCTAssertEqual(
+      snapshot.identityTokenExpiresAt,
+      Date(timeIntervalSince1970: 1_000)
+    )
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+  }
+
+  func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
+    let invalidTokens = [
+      "not-an-identity-token",
+      "e30.!.signature",
+      "e30.e30.signature",
+      "e30.eyJleHAiOiJzb29uIn0.signature",
+    ]
+
+    for token in invalidTokens {
+      XCTAssertNil(AppleIdentityToken.expirationDate(from: token))
+    }
+  }
+
+  func testAppleIdentityTokenExpirationReadsNumericClaim() {
+    XCTAssertEqual(
+      AppleIdentityToken.expirationDate(from: "e30.eyJleHAiOjEwMDB9.signature"),
+      Date(timeIntervalSince1970: 1_000)
+    )
   }
 
   func testSignOutClearsStoredSession() async {

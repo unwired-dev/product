@@ -36,4 +36,52 @@ final class ProductAccountSessionStoreTests: XCTestCase {
 
     XCTAssertNil(try store.load())
   }
+
+  func testIdentityTokenStateUsesVerifiedExpiration() {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "apple-token",
+      identityTokenExpiresAt: Date(timeIntervalSince1970: 1_000),
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(
+      snapshot.identityTokenState(at: Date(timeIntervalSince1970: 999)),
+      .active
+    )
+    XCTAssertEqual(
+      snapshot.identityTokenState(at: Date(timeIntervalSince1970: 1_000)),
+      .expired
+    )
+  }
+
+  func testIdentityTokenStateIsUnverifiableWithoutVerifiedExpiration() {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "e30.eyJleHAiOjEwMDB9.invalid-signature",
+      productAccountId: "productAccountFixtureId",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(snapshot.identityTokenState(at: Date()), .unverifiable)
+  }
+
+  func testLegacyEncodedSessionHasNoVerifiedExpiration() throws {
+    let legacyData = Data(
+      #"""
+      {
+        "appleUserIdentifier": "apple-user-001",
+        "identityToken": "e30.eyJleHAiOjEwMDB9.invalid-signature",
+        "productAccountId": "productAccountFixtureId",
+        "trustedDeviceId": "trustedDeviceFixtureId"
+      }
+      """#.utf8
+    )
+
+    let snapshot = try JSONDecoder().decode(ProductAccountSessionSnapshot.self, from: legacyData)
+
+    XCTAssertNil(snapshot.identityTokenExpiresAt)
+    XCTAssertEqual(snapshot.identityTokenState(at: Date()), .unverifiable)
+  }
 }

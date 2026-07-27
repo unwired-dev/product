@@ -1,10 +1,37 @@
 import Foundation
 
+enum ProductAccountIdentityTokenState: Equatable {
+  case active
+  case expired
+  case unverifiable
+}
+
 struct ProductAccountSessionSnapshot: Codable, Equatable {
   let appleUserIdentifier: String
   let identityToken: String
+  let identityTokenExpiresAt: Date?
   let productAccountId: String
   let trustedDeviceId: String
+
+  init(
+    appleUserIdentifier: String,
+    identityToken: String,
+    identityTokenExpiresAt: Date? = nil,
+    productAccountId: String,
+    trustedDeviceId: String
+  ) {
+    self.appleUserIdentifier = appleUserIdentifier
+    self.identityToken = identityToken
+    self.identityTokenExpiresAt = identityTokenExpiresAt
+    self.productAccountId = productAccountId
+    self.trustedDeviceId = trustedDeviceId
+  }
+
+  func identityTokenState(at date: Date = Date()) -> ProductAccountIdentityTokenState {
+    guard let identityTokenExpiresAt else { return .unverifiable }
+
+    return date < identityTokenExpiresAt ? .active : .expired
+  }
 }
 
 protocol ProductAccountSessionPersisting {
