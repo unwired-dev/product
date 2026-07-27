@@ -1893,6 +1893,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         role: nil
       ),
       EWSFolder(
+        changeKey: "junk-key",
+        displayName: "Junk Email",
+        id: "junk-id",
+        role: .spam
+      ),
+      EWSFolder(
+        changeKey: "junk-projects-key",
+        displayName: "Junk Projects",
+        id: "junk-projects-id",
+        parentFolderId: "junk-id",
+        role: nil
+      ),
+      EWSFolder(
         changeKey: "search-key",
         displayName: "Unread Mail",
         id: "unread-id",
@@ -1949,12 +1962,19 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(mailboxes.map(\.title), ["Projects", "Archived Projects"])
+    XCTAssertEqual(mailboxes.map(\.title), ["Projects", "Junk Projects", "Archived Projects"])
     XCTAssertEqual(
       mailboxes.filter(\.isMoveDestination).map(\.title),
-      ["Projects"]
+      ["Projects", "Junk Projects"]
     )
-    XCTAssertEqual(client.requestedPages, ["projects-id|0", "archive-projects-id|0"])
+    XCTAssertEqual(
+      mailboxes.first(where: { $0.title == "Junk Projects" })?.providerStateIds,
+      ["SPAM"]
+    )
+    XCTAssertEqual(
+      client.requestedPages,
+      ["projects-id|0", "junk-id|0", "junk-projects-id|0", "archive-projects-id|0"]
+    )
   }
 
   func testDeletingArchiveMessageTargetsArchiveDeletedItems() async throws {

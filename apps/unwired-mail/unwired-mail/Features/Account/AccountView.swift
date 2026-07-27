@@ -1577,15 +1577,18 @@ struct MailboxBulkActionBatch: Equatable, Sendable {
   let connection: MailboxConnection
   let messages: [MailboxMessageMetadata]
   let targetProviderMailboxId: String?
+  let targetProviderStateIds: Set<String>
 
   init(
     connection: MailboxConnection,
     messages: [MailboxMessageMetadata],
-    targetProviderMailboxId: String? = nil
+    targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = []
   ) {
     self.connection = connection
     self.messages = messages
     self.targetProviderMailboxId = targetProviderMailboxId
+    self.targetProviderStateIds = targetProviderStateIds
   }
 }
 
@@ -1596,6 +1599,7 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
 
   let id: Identity
   let providerMailboxIdsByConnection: [MailboxConnectionId: String]
+  let providerStateIdsByConnection: [MailboxConnectionId: Set<String>]
   let title: String
 
   static func shared(
@@ -1628,6 +1632,13 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
       return MailboxBulkMoveDestination(
         id: id,
         providerMailboxIdsByConnection: providerIds,
+        providerStateIdsByConnection: Dictionary(
+          uniqueKeysWithValues: connectionIds.compactMap { connectionId in
+            mailboxesByConnection[connectionId]?[id].map {
+              (connectionId, $0.providerStateIds)
+            }
+          }
+        ),
         title: firstMailbox.title
       )
     }
@@ -1647,7 +1658,8 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
         MailboxBulkActionBatch(
           connection: batch.connection,
           messages: batch.messages,
-          targetProviderMailboxId: providerMailboxId
+          targetProviderMailboxId: providerMailboxId,
+          targetProviderStateIds: providerStateIdsByConnection[batch.connection.id] ?? []
         )
       )
     }
@@ -4371,6 +4383,7 @@ extension GmailMailActionViewModel {
       try await service.perform(
         action,
         targetProviderMailboxId: batch.targetProviderMailboxId,
+        targetProviderStateIds: batch.targetProviderStateIds,
         messages: batch.messages,
         connection: batch.connection,
         session: session

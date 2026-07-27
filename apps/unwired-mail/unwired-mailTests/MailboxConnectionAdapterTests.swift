@@ -1831,11 +1831,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connectionIds: [firstConnection.id, secondConnection.id],
       providerMailboxesByConnection: [
         firstConnection.id: [
-          ProviderMailbox(id: "Label_101", title: "Projects"),
+          ProviderMailbox(id: "Label_101", providerStateIds: ["SPAM"], title: "Projects"),
           ProviderMailbox(id: "Label_102", title: "First only"),
         ],
         secondConnection.id: [
-          ProviderMailbox(id: "Label_201", title: "Projects"),
+          ProviderMailbox(id: "Label_201", providerStateIds: ["TRASH"], title: "Projects"),
           ProviderMailbox(id: "Label_202", title: "Second only"),
         ],
       ]
@@ -1849,6 +1849,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       destinations.first?.targeting(batches)?.map(\.targetProviderMailboxId),
       ["Label_101", "Label_201"]
+    )
+    XCTAssertEqual(
+      destinations.first?.targeting(batches)?.map(\.targetProviderStateIds),
+      [["SPAM"], ["TRASH"]]
     )
     XCTAssertNil(destinations.first?.targeting([batches[0]]))
   }

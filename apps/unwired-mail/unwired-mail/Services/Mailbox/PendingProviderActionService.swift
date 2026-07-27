@@ -22,6 +22,7 @@ struct PendingProviderAction: Codable, Equatable, Identifiable, Sendable {
   let sequence: UInt64
   var state: PendingProviderActionState
   let targetProviderMailboxId: String?
+  let targetProviderStateIds: Set<String>?
 
   var mailboxConnectionId: MailboxConnectionId {
     MailboxConnectionId(
@@ -281,6 +282,7 @@ actor PendingProviderActionService {
   func enqueue(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String>? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -308,7 +310,8 @@ actor PendingProviderActionService {
           providerMailboxIdentity: connection.providerMailboxIdentity.value,
           sequence: nextSequence,
           state: .pending,
-          targetProviderMailboxId: targetProviderMailboxId
+          targetProviderMailboxId: targetProviderMailboxId,
+          targetProviderStateIds: targetProviderStateIds
         )
       )
       nextSequence += 1
@@ -340,7 +343,8 @@ actor PendingProviderActionService {
         return current.applying(
           pendingAction.action,
           providerId: connection.providerId,
-          targetProviderMailboxId: pendingAction.targetProviderMailboxId
+          targetProviderMailboxId: pendingAction.targetProviderMailboxId,
+          targetProviderStateIds: pendingAction.targetProviderStateIds
         )
       }
     }
@@ -867,7 +871,8 @@ extension MailboxMessageMetadata {
   fileprivate func applying(
     _ action: ProviderMailAction,
     providerId: MailProviderId,
-    targetProviderMailboxId: String?
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>?
   ) -> MailboxMessageMetadata {
     var states = Set(providerStateIds ?? ["INBOX"])
     switch action {
@@ -894,6 +899,11 @@ extension MailboxMessageMetadata {
       states.remove("INBOX")
       states = states.filter {
         !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
+      }
+      if providerId == .exchangeWebServices {
+        states.remove("SPAM")
+        states.remove("TRASH")
+        states.formUnion(targetProviderStateIds ?? [])
       }
     case .notSpam:
       states.remove("SPAM")

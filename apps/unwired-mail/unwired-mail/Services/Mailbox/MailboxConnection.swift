@@ -307,11 +307,18 @@ struct MailboxItemCount: Equatable, Sendable {
 struct ProviderMailbox: Equatable, Hashable, Sendable {
   let id: String
   let isMoveDestination: Bool
+  let providerStateIds: Set<String>
   let title: String
 
-  init(id: String, isMoveDestination: Bool = true, title: String) {
+  init(
+    id: String,
+    isMoveDestination: Bool = true,
+    providerStateIds: Set<String> = [],
+    title: String
+  ) {
     self.id = id
     self.isMoveDestination = isMoveDestination
+    self.providerStateIds = providerStateIds
     self.title = title
   }
 }
@@ -975,6 +982,16 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -1041,6 +1058,24 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
     .unknown
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds _: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
   }
 
   func perform(

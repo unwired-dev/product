@@ -330,6 +330,62 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testEWSMoveProjectionRecomputesInheritedDestinationRole() async throws {
+    // swiftlint:disable:next large_tuple
+    let cases: [(sourceStates: [String], targetStates: Set<String>, expected: Set<String>)] = [
+      (
+        ["SPAM", EWSProviderMessage.customFolderStateId("junk-projects"), "UNREAD"],
+        [],
+        [EWSProviderMessage.customFolderStateId("projects"), "UNREAD"]
+      ),
+      (
+        [EWSProviderMessage.customFolderStateId("projects"), "UNREAD"],
+        ["TRASH"],
+        ["TRASH", EWSProviderMessage.customFolderStateId("deleted-projects"), "UNREAD"]
+      ),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+      let store = InMemoryPendingProviderActionStore()
+      let service = PendingProviderActionService(store: store)
+      let message = pendingActionMessage(
+        providerMessageId: "message-ews-move-\(index)",
+        providerStateIds: testCase.sourceStates,
+        connectionId: ewsConnection.id
+      )
+      let targetFolderState =
+        index == 0
+        ? EWSProviderMessage.customFolderStateId("projects")
+        : EWSProviderMessage.customFolderStateId("deleted-projects")
+      try await service.enqueue(
+        .move,
+        targetProviderMailboxId: targetFolderState,
+        targetProviderStateIds: testCase.targetStates,
+        messages: [message],
+        connection: ewsConnection,
+        session: session
+      )
+
+      let projected = try await service.project(
+        MailboxMetadataSyncResult(
+          hasUnlistedNewMessages: false,
+          messages: [message],
+          newMessageIds: nil,
+          providerCursorIsExpired: false,
+          threads: MailboxThread.group([message])
+        ),
+        collection: .allObserved,
+        connection: ewsConnection,
+        session: session
+      )
+
+      XCTAssertEqual(
+        Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+        testCase.expected
+      )
+    }
+  }
+
   // swiftlint:disable:next function_body_length
   func testPermanentRejectionRestoresProviderStateAndReplaysLaterIntent() async throws {
     let store = InMemoryPendingProviderActionStore()

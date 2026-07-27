@@ -931,6 +931,20 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     return "ews-folder:\(encoded)"
   }
 
+  static func inheritedRoleStateIds(
+    folderId: String,
+    foldersById: [String: EWSFolder]
+  ) -> Set<String> {
+    var states: Set<String> = []
+    if isTrashHierarchy(folderId: folderId, foldersById: foldersById) {
+      states.insert(providerStateId(.trash))
+    }
+    if isSpamHierarchy(folderId: folderId, foldersById: foldersById) {
+      states.insert(providerStateId(.spam))
+    }
+    return states
+  }
+
   private static func isTrashHierarchy(
     folderId: String,
     foldersById: [String: EWSFolder]
@@ -1642,10 +1656,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox] {
     try validate(connection, session: session, requiresAuthorization: true)
-    return try metadataStore.load(
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )?.folders.compactMap {
+    let folders =
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.folders ?? []
+    let foldersById = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
+    return folders.compactMap {
       guard
         $0.role == nil,
         $0.isOutbox != true,
@@ -1655,9 +1672,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       return ProviderMailbox(
         id: EWSProviderMessage.customFolderStateId($0.id),
         isMoveDestination: $0.isArchiveHierarchy != true,
+        providerStateIds: EWSProviderMessage.inheritedRoleStateIds(
+          folderId: $0.id,
+          foldersById: foldersById
+        ),
         title: $0.displayName
       )
-    } ?? []
+    }
   }
 
   func continueHistoricalBackfill(
@@ -2054,6 +2075,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2072,6 +2094,24 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await pendingActionService.enqueue(
       action,
       targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: [],
       messages: messages,
       connection: connection,
       session: session
