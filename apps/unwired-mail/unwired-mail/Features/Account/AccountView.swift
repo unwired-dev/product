@@ -3206,13 +3206,18 @@ struct MailShellConversationReader: View {
     {
       actions.remove(.move)
     }
-    if collection != .role(.trash) {
+    let messagesAreTrash =
+      !messages.isEmpty && messages.allSatisfy { $0.belongs(to: .trash) }
+    let messagesAreSpam =
+      !messages.isEmpty && messages.allSatisfy { $0.belongs(to: .spam) }
+    if collection != .role(.trash) && !messagesAreTrash {
       actions.remove(.restore)
     }
-    if collection != .role(.spam) {
+    if collection != .role(.spam) && !messagesAreSpam {
       actions.remove(.notSpam)
     }
-    if collection == .role(.trash) || collection == .role(.spam)
+    if collection == .role(.trash) || collection == .role(.spam) || messagesAreTrash
+      || messagesAreSpam
       || collection == .role(.sent)
       || messages.contains(where: { $0.belongs(to: .drafts) || $0.belongs(to: .sent) })
     {

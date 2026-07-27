@@ -1446,6 +1446,36 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testEWSFolderAcceptsMailCompatibleSubclasses() {
+    XCTAssertTrue(
+      EWSFolder(
+        changeKey: nil,
+        displayName: "Messages",
+        folderClass: "IPF.Note.Custom",
+        id: "messages-id",
+        role: nil
+      ).isMailFolder
+    )
+    XCTAssertTrue(
+      EWSFolder(
+        changeKey: nil,
+        displayName: "Messages",
+        folderClass: "ipf.note.custom",
+        id: "messages-id",
+        role: nil
+      ).isMailFolder
+    )
+    XCTAssertFalse(
+      EWSFolder(
+        changeKey: nil,
+        displayName: "Calendar",
+        folderClass: "IPF.Appointment",
+        id: "calendar-id",
+        role: nil
+      ).isMailFolder
+    )
+  }
+
   func testSystemClientMarksDistinguishedOutbox() async throws {
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)

@@ -794,7 +794,9 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   }
 
   var isMailFolder: Bool {
-    folderClass == nil || folderClass?.caseInsensitiveCompare("IPF.Note") == .orderedSame
+    guard let folderClass else { return true }
+    let normalizedClass = folderClass.lowercased()
+    return normalizedClass == "ipf.note" || normalizedClass.hasPrefix("ipf.note.")
   }
 }
 

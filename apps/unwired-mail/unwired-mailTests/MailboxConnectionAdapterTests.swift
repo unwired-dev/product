@@ -2008,6 +2008,49 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testContextualActionsHonorInheritedProviderMailboxRoles() {
+    let spamMessage = mailShellMessage(
+      providerMessageId: "spam-message",
+      providerThreadId: "spam-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "SPAM",
+        EWSProviderMessage.customFolderStateId("junk-projects"),
+      ]
+    )
+    let trashMessage = mailShellMessage(
+      providerMessageId: "trash-message",
+      providerThreadId: "trash-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "TRASH",
+        EWSProviderMessage.customFolderStateId("deleted-projects"),
+      ]
+    )
+
+    let spamActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.notSpam, .restore, .spam],
+      messages: [spamMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("junk-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+    let trashActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.notSpam, .restore, .spam],
+      messages: [trashMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("deleted-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(spamActions, [.notSpam])
+    XCTAssertEqual(trashActions, [.restore])
+  }
+
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
