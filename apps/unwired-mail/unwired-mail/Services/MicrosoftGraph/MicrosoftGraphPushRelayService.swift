@@ -413,18 +413,26 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
       expirationDate: expirationDate,
       notificationURL: notificationURL
     )
-    try await confirmAndSave(
-      current: MicrosoftGraphPushStatus(
-        clientStateDigest: clientStateDigest,
-        expiresAtMilliseconds: 0,
-        opaqueConnectionId: opaqueConnectionId(connection, session: session),
-        providerAccountIdentifier: connection.providerMailboxIdentity.value,
-        routeId: route.routeId,
+    do {
+      try await confirmAndSave(
+        current: MicrosoftGraphPushStatus(
+          clientStateDigest: clientStateDigest,
+          expiresAtMilliseconds: 0,
+          opaqueConnectionId: opaqueConnectionId(connection, session: session),
+          providerAccountIdentifier: connection.providerMailboxIdentity.value,
+          routeId: route.routeId,
+          subscriptionId: subscription.subscriptionId
+        ),
+        providerResponse: subscription,
+        session: session
+      )
+    } catch {
+      try? await subscriptionClient.delete(
+        accessToken: accessToken,
         subscriptionId: subscription.subscriptionId
-      ),
-      providerResponse: subscription,
-      session: session
-    )
+      )
+      throw error
+    }
   }
 
   func clear(
@@ -588,7 +596,7 @@ struct MicrosoftGraphPushWakeupHandler {
     else {
       return false
     }
-    try await pushService.registerOrRenewPush(connection: connection, session: session)
+    try? await pushService.registerOrRenewPush(connection: connection, session: session)
     publish(.syncing, connection: connection, session: session)
     do {
       _ = try await syncService.syncRecentInbox(

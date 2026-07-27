@@ -191,6 +191,57 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(draftJSON["internetMessageHeaders"])
   }
 
+  func testGraphForwardSendsTheAlreadyComposedBodyAsANewDraft() async throws {
+    var requests: [URLRequest] = []
+    var requestBodies: [Data?] = []
+    let session = ConvexClientTesting.makeSession { request in
+      requests.append(request)
+      requestBodies.append(try graphRequestBody(request))
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: requests.count == 1 ? 200 : (requests.count == 2 ? 201 : 202),
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        requests.count == 1
+          ? Data(#"{"value":[]}"#.utf8)
+          : (requests.count == 2 ? Data(#"{"id":"forward-draft"}"#.utf8) : Data())
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    try await client.send(
+      OutgoingMessage(
+        body: "Preface\n\nForwarded message from Sender:\nOriginal body",
+        recipient: "recipient@example.com",
+        subject: "Fwd: Subject",
+        kind: .forward,
+        sourceProviderMessageId: "source-message",
+        idempotencyKey: "forward-attempt"
+      ),
+      accessToken: "provider-access"
+    )
+
+    XCTAssertEqual(requests.map(\.httpMethod), ["GET", "POST", "POST"])
+    XCTAssertEqual(
+      requests.compactMap(\.url?.path),
+      [
+        "/v1.0/me/mailFolders/drafts/messages",
+        "/v1.0/me/messages",
+        "/v1.0/me/messages/forward-draft/send",
+      ]
+    )
+    let createBody = try XCTUnwrap(requestBodies[1])
+    let draftJSON = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: createBody) as? [String: Any]
+    )
+    XCTAssertEqual(
+      (draftJSON["body"] as? [String: Any])?["content"] as? String,
+      "Preface\n\nForwarded message from Sender:\nOriginal body"
+    )
+  }
+
   func testGraphSendReusesAnExistingProviderDraft() async throws {
     var requests: [URLRequest] = []
     let session = ConvexClientTesting.makeSession { request in
@@ -489,6 +540,54 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(push.clearedAccessTokens, ["access-token"])
     XCTAssertEqual(push.clearedConnectionIds, [connection.id])
+  }
+
+  func testConnectionRemovalContinuesWhenPushCleanupFails() async throws {
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    push.clearError = URLError(.networkConnectionLost)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let directory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      keyMaterialStore: keyStore,
+      outboxService: OutboxDeliveryService(
+        store: FileOutboxDeliveryStore(
+          keyMaterialStore: keyStore,
+          rootDirectory: directory
+        )
+      ),
+      pushRegistrar: push,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected push cleanup failure")
+    } catch {}
+
+    XCTAssertEqual(definitions.removedConnectionIds, [connection.id])
   }
 
   func testInitialFiftyMessagesRemainAvailableWhileBackfillResumesAfterRecreation() async throws {
@@ -1343,7 +1442,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(push.accessTokens, ["access-token"])
   }
 
-  func testGraphWakeupRenewsPushBeforeSynchronizingMailbox() async throws {
+  func testGraphWakeupSynchronizesWhenPushRenewalFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
     client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
@@ -1371,6 +1470,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let push = RecordingMailboxPushService()
+    push.error = URLError(.networkConnectionLost)
     let handler = MicrosoftGraphPushWakeupHandler(
       connectionManager: adapter,
       pushService: push,
@@ -1389,6 +1489,37 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(handled)
     XCTAssertEqual(push.connectionIds, [connection.id])
+  }
+
+  func testPushRegistrationDeletesNewSubscriptionWhenConfirmationFails() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    routeTransport.confirmError = URLError(.cannotConnectToHost)
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    let defaultsName = "MicrosoftGraphPushRollbackTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let service = MicrosoftGraphPushSubscriptionService(
+      siteURL: URL(string: "https://deployment.convex.site"),
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      subscriptionClient: subscriptionClient,
+      transport: routeTransport
+    )
+
+    do {
+      try await service.registerOrRenew(
+        connection: connection,
+        accessToken: "provider-access-token",
+        session: session
+      )
+      XCTFail("Expected route confirmation failure")
+    } catch {}
+
+    XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-1"])
+    XCTAssertEqual(subscriptionClient.deleteAccessTokens, ["provider-access-token"])
   }
 
   func testPushRegistrationRecreatesAnExpiredProviderSubscription() async throws {
@@ -1568,6 +1699,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     keyMaterialStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
     metadataStore: MicrosoftGraphMetadataPersisting? = nil,
     now: @escaping () -> Date = Date.init,
+    outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = PendingProviderActionService(
       store: InMemoryGraphPendingActionStore()
     ),
@@ -1590,6 +1722,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       keyMaterialStore: keyMaterialStore,
       metadataStore: resolvedMetadataStore,
       now: now,
+      outboxService: outboxService,
       pendingActionService: pendingActionService,
       pushRegistrar: pushRegistrar,
       shouldContinueHistoricalBackfill: shouldContinueHistoricalBackfill,
@@ -1876,6 +2009,7 @@ private final class InMemoryGraphPendingActionStore:
 
 private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegistering {
   var accessTokens: [String] = []
+  var clearError: Error?
   var clearedAccessTokens: [String?] = []
   var clearedConnectionIds: [MailboxConnectionId] = []
   var registeredConnectionIds: [MailboxConnectionId] = []
@@ -1896,6 +2030,7 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
   ) async throws {
     clearedAccessTokens.append(accessToken)
     clearedConnectionIds.append(connection.id)
+    if let clearError { throw clearError }
   }
 
   func clearAll(
@@ -1906,12 +2041,14 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
 
 private final class RecordingMailboxPushService: MailboxPushRegistering {
   private(set) var connectionIds: [MailboxConnectionId] = []
+  var error: Error?
 
   func registerOrRenewPush(
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
+    if let error { throw error }
   }
 }
 
@@ -1934,6 +2071,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
   }
 
   private(set) var confirmed: [ConfirmedCall] = []
+  var confirmError: Error?
   private(set) var prepared: [PreparedCall] = []
   private(set) var removedOpaqueConnectionIds: [String] = []
 
@@ -1968,6 +2106,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
         trustedDeviceId: trustedDeviceId
       )
     )
+    if let confirmError { throw confirmError }
     return MicrosoftGraphPushRouteResponse(routeId: confirmation.routeId)
   }
 

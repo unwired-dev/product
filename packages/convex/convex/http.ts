@@ -5,6 +5,7 @@ import { httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 
 const http = httpRouter();
+const maxMicrosoftGraphNotificationsPerRequest = 100;
 
 type MicrosoftGraphNotification = Readonly<{
   clientState: string;
@@ -43,7 +44,11 @@ function hasValidVerificationToken(
 function microsoftGraphNotifications(
   value: unknown,
 ): MicrosoftGraphNotification[] {
-  if (!isUnknownRecord(value) || !Array.isArray(value.value)) {
+  if (
+    !isUnknownRecord(value) ||
+    !Array.isArray(value.value) ||
+    value.value.length > maxMicrosoftGraphNotificationsPerRequest
+  ) {
     return [];
   }
   const candidates: unknown[] = value.value;

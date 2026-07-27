@@ -3571,7 +3571,16 @@ describe('gmail push relay', () => {
         headers: { 'content-type': 'application/json' },
         method: 'POST',
       });
-      expect(isolatedResponse.status).toBe(202);
+      const oversizedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: Array.from({ length: 101 }, () => notification),
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      expect([isolatedResponse.status, oversizedResponse.status]).toStrictEqual(
+        [202, 400],
+      );
 
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 

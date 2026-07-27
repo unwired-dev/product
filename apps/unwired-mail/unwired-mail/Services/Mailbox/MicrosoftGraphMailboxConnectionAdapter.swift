@@ -826,7 +826,7 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     for message: OutgoingMessage,
     accessToken: String
   ) async throws -> GraphMessageIdentifierResponse {
-    guard let kind = message.kind, kind != .new else {
+    guard message.kind == .reply else {
       return try await request(
         try graphURL(pathComponents: ["me", "messages"]),
         method: "POST",
@@ -839,9 +839,8 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     guard let sourceMessageId = message.sourceProviderMessageId?.nonEmpty else {
       throw MicrosoftGraphClientError.invalidProviderResponse
     }
-    let operation = kind == .reply ? "createReply" : "createForward"
     let response: GraphMessageIdentifierResponse = try await request(
-      try graphURL(pathComponents: ["me", "messages", sourceMessageId, operation]),
+      try graphURL(pathComponents: ["me", "messages", sourceMessageId, "createReply"]),
       method: "POST",
       body: GraphReplyOrForwardDraftRequest(message: draft),
       accessToken: accessToken,
@@ -2594,8 +2593,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await clearLocalConnection(connection, session: session)
-    _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    var firstError: Error?
+    do {
+      try await clearLocalConnection(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   func setDefaultSendingConnection(
