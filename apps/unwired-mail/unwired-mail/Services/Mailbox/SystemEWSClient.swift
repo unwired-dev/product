@@ -98,8 +98,12 @@ struct SystemEWSClient: EWSClient {
       knownFolders: knownFolders,
       authorization: authorization
     )
-    let foldersWithArchiveTrash = try await markArchiveTrashHierarchy(
+    let foldersWithOutbox = try await markOutbox(
       resolvedFolders,
+      authorization: authorization
+    )
+    let foldersWithArchiveTrash = try await markArchiveTrashHierarchy(
+      foldersWithOutbox,
       authorization: authorization
     )
     return try await markArchiveSentHierarchy(
@@ -171,6 +175,7 @@ struct SystemEWSClient: EWSClient {
           folderClass: folders[index].folderClass,
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
+          isOutbox: folders[index].isOutbox,
           isSearchFolder: folders[index].isSearchFolder,
           isSentHierarchy: role == .sent || folders[index].isSentHierarchy == true,
           isTrashHierarchy: folders[index].isTrashHierarchy,
@@ -200,6 +205,7 @@ struct SystemEWSClient: EWSClient {
           folderClass: folders[index].folderClass,
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
+          isOutbox: folders[index].isOutbox,
           isSearchFolder: folders[index].isSearchFolder,
           isSentHierarchy: role == .sent || folders[index].isSentHierarchy == true,
           isTrashHierarchy: folders[index].isTrashHierarchy,
@@ -213,6 +219,46 @@ struct SystemEWSClient: EWSClient {
     return folders.sorted {
       $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
     }
+  }
+
+  private func markOutbox(
+    _ discoveredFolders: [EWSFolder],
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> [EWSFolder] {
+    let outbox: EWSFolder?
+    do {
+      outbox = try await loadFolder(
+        distinguishedId: "outbox",
+        role: nil,
+        isOutbox: true,
+        authorization: authorization
+      )
+    } catch EWSServiceError.response(let code, _)
+      where code == "ErrorFolderNotFound"
+    {
+      return discoveredFolders
+    }
+    guard let outbox else { return discoveredFolders }
+    var folders = discoveredFolders
+    if let index = folders.firstIndex(where: { $0.id == outbox.id }) {
+      let folder = folders[index]
+      folders[index] = EWSFolder(
+        changeKey: folder.changeKey,
+        displayName: folder.displayName,
+        folderClass: folder.folderClass,
+        id: folder.id,
+        isArchiveHierarchy: folder.isArchiveHierarchy,
+        isOutbox: true,
+        isSearchFolder: folder.isSearchFolder,
+        isSentHierarchy: folder.isSentHierarchy,
+        isTrashHierarchy: folder.isTrashHierarchy,
+        parentFolderId: folder.parentFolderId,
+        role: folder.role
+      )
+    } else {
+      folders.append(outbox)
+    }
+    return folders
   }
 
   private func markArchiveTrashHierarchy(
@@ -243,6 +289,7 @@ struct SystemEWSClient: EWSClient {
         folderClass: folder.folderClass,
         id: folder.id,
         isArchiveHierarchy: true,
+        isOutbox: folder.isOutbox,
         isSearchFolder: folder.isSearchFolder,
         isSentHierarchy: folder.isSentHierarchy,
         isTrashHierarchy: true,
@@ -293,6 +340,7 @@ struct SystemEWSClient: EWSClient {
         folderClass: folder.folderClass,
         id: folder.id,
         isArchiveHierarchy: true,
+        isOutbox: folder.isOutbox,
         isSearchFolder: folder.isSearchFolder,
         isSentHierarchy: true,
         isTrashHierarchy: folder.isTrashHierarchy,
@@ -734,6 +782,7 @@ struct SystemEWSClient: EWSClient {
     role: EWSFolderRole?,
     isArchiveHierarchy: Bool? = nil,
     isTrashHierarchy: Bool? = nil,
+    isOutbox: Bool? = nil,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSFolder? {
     let document = try await request(
@@ -761,6 +810,7 @@ struct SystemEWSClient: EWSClient {
       folderClass: value.folderClass,
       id: value.id,
       isArchiveHierarchy: isArchiveHierarchy,
+      isOutbox: isOutbox,
       isSearchFolder: value.isSearchFolder,
       isSentHierarchy: role == .sent,
       isTrashHierarchy: isTrashHierarchy,
@@ -985,14 +1035,20 @@ struct SystemEWSClient: EWSClient {
     messages: [EWSProviderMessage],
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> [EWSMovedItemIdentity] {
-    let status = flagged ? "Flagged" : "NotFlagged"
     let changes = messages.map {
-      """
-      <t:ItemChange><t:ItemId Id="\(xmlAttribute($0.itemId))"
-        ChangeKey="\(xmlAttribute($0.changeKey))"/><t:Updates><t:SetItemField>
-        <t:FieldURI FieldURI="item:Flag"/><t:Message><t:Flag><t:FlagStatus>\(status)</t:FlagStatus>
-        </t:Flag></t:Message></t:SetItemField></t:Updates></t:ItemChange>
-      """
+      if flagged {
+        return """
+          <t:ItemChange><t:ItemId Id="\(xmlAttribute($0.itemId))"
+            ChangeKey="\(xmlAttribute($0.changeKey))"/><t:Updates><t:SetItemField>
+            <t:FieldURI FieldURI="item:Flag"/><t:Message><t:Flag><t:FlagStatus>Flagged</t:FlagStatus>
+            </t:Flag></t:Message></t:SetItemField></t:Updates></t:ItemChange>
+          """
+      }
+      return """
+        <t:ItemChange><t:ItemId Id="\(xmlAttribute($0.itemId))"
+          ChangeKey="\(xmlAttribute($0.changeKey))"/><t:Updates><t:DeleteItemField>
+          <t:FieldURI FieldURI="item:Flag"/></t:DeleteItemField></t:Updates></t:ItemChange>
+        """
     }.joined()
     return try updatedIdentities(
       try await updateItems(changes, authorization: authorization),

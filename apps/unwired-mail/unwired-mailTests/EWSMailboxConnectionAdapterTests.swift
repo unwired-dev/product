@@ -416,6 +416,28 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testSetupAllowsMailboxWithoutOnlineArchive() async throws {
+    let client = RecordingEWSClient()
+    client.folders.removeAll { $0.role == .archive }
+    let service = EWSSetupService(
+      authorizationStore: InMemoryEWSAuthorizationStore(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService()
+    )
+
+    let connection = try await service.connect(
+      authorizationMethod: .password,
+      credential: "password",
+      emailAddress: "reader@corp.example",
+      endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      username: #"CORP\reader"#,
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(connection.authorizationState, .authorized)
+  }
+
   func testSystemClientUsesMailboxScopedFolderAccessAndParsesSupportedServerVersion() async throws {
     let definition = makeEWSDefinition()
     var requests: [URLRequest] = []
@@ -643,6 +665,38 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
     XCTAssertTrue(sendBody.contains("<t:EmailAddress>three@example.com</t:EmailAddress>"))
     XCTAssertFalse(sendBody.contains("Recipient, One"))
+  }
+
+  func testSystemClientDeletesFlagFieldWhenUnstarring() async throws {
+    var requestBody = ""
+    EWSURLProtocol.requestHandler = { request in
+      requestBody = try Self.requestBody(request)
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(Self.updateItemResponse.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    _ = try await SystemEWSClient(session: makeEWSURLSession()).perform(
+      .unstar,
+      targetFolderId: nil,
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    XCTAssertTrue(requestBody.contains("<t:DeleteItemField>"))
+    XCTAssertTrue(requestBody.contains(#"FieldURI="item:Flag""#))
+    XCTAssertFalse(requestBody.contains("<t:SetItemField>"))
+    XCTAssertFalse(requestBody.contains("NotFlagged"))
   }
 
   func testSystemClientRefreshesCurrentItemIdentityWithoutSubmittingStaleChangeKey()
@@ -1273,6 +1327,45 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testSystemClientMarksDistinguishedOutbox() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      let body = try Self.requestBody(request)
+      let response =
+        if body.contains("<m:FindFolder"),
+          body.contains(#"Id="msgfolderroot""#)
+        {
+          Self.findFolderResponse(offset: 100)
+            .replacingOccurrences(of: "custom-100", with: "outbox-id")
+            .replacingOccurrences(of: "Custom 100", with: "Localized Outbox")
+        } else if body.contains(#"Id="outbox""#) {
+          Self.getFolderResponse
+            .replacingOccurrences(of: "inbox-id", with: "outbox-id")
+            .replacingOccurrences(of: "Inbox", with: "Localized Outbox")
+        } else {
+          Self.folderNotFoundResponse
+        }
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(response.utf8)
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+
+    let folders = try await SystemEWSClient(session: makeEWSURLSession()).loadFolders(
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+
+    XCTAssertEqual(folders.first(where: { $0.id == "outbox-id" })?.isOutbox, true)
+  }
+
   func testSystemClientMarksArchiveDeletedItemsHierarchy() async throws {
     var archiveSentRequestBody = ""
     EWSURLProtocol.requestHandler = { request in
@@ -1700,6 +1793,14 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         displayName: "Calendar",
         folderClass: "IPF.Appointment",
         id: "calendar-id",
+        isSearchFolder: false,
+        role: nil
+      ),
+      EWSFolder(
+        changeKey: "outbox-key",
+        displayName: "Localized Outbox",
+        id: "outbox-id",
+        isOutbox: true,
         isSearchFolder: false,
         role: nil
       ),

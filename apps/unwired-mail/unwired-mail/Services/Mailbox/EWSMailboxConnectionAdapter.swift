@@ -653,7 +653,7 @@ struct EWSSetupService {
       credential: credential,
       definition: definition
     )
-    let requiredRoles = Set(EWSFolderRole.allCases)
+    let requiredRoles = Set(EWSFolderRole.allCases.filter { $0 != .archive })
     let resolvedRoles = Set(
       try await client.loadFolders(authorization: authorization).compactMap(\.role)
     )
@@ -736,6 +736,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let folderClass: String?
   let id: String
   let isArchiveHierarchy: Bool?
+  let isOutbox: Bool?
   let isSearchFolder: Bool?
   let isSentHierarchy: Bool?
   let isTrashHierarchy: Bool?
@@ -748,6 +749,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     folderClass: String? = nil,
     id: String,
     isArchiveHierarchy: Bool? = nil,
+    isOutbox: Bool? = nil,
     isSearchFolder: Bool? = nil,
     isSentHierarchy: Bool? = nil,
     isTrashHierarchy: Bool? = nil,
@@ -759,6 +761,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     self.folderClass = folderClass
     self.id = id
     self.isArchiveHierarchy = isArchiveHierarchy
+    self.isOutbox = isOutbox
     self.isSearchFolder = isSearchFolder
     self.isSentHierarchy = isSentHierarchy
     self.isTrashHierarchy = isTrashHierarchy
@@ -1585,7 +1588,12 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )?.folders.compactMap {
-      guard $0.role == nil, $0.isSearchFolder != true, $0.isMailFolder else { return nil }
+      guard
+        $0.role == nil,
+        $0.isOutbox != true,
+        $0.isSearchFolder != true,
+        $0.isMailFolder
+      else { return nil }
       return ProviderMailbox(
         id: EWSProviderMessage.customFolderStateId($0.id),
         isMoveDestination: $0.isArchiveHierarchy != true,
@@ -1744,7 +1752,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     }
     let folders = try await client.loadFolders(authorization: authorization)
-      .filter { $0.isSearchFolder != true && $0.isMailFolder }
+      .filter { $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder }
     var snapshot = EWSMetadataSnapshot(
       folders: folders,
       messages: [],
@@ -2376,7 +2384,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     let loadedFolders = try await client.loadFolders(
       authorization: authorization,
       knownFolders: snapshot.folders
-    ).filter { $0.isSearchFolder != true && $0.isMailFolder }
+    ).filter { $0.isOutbox != true && $0.isSearchFolder != true && $0.isMailFolder }
     let loadedFolderIds = Set(loadedFolders.map(\.id))
     let previouslyMissingFolderIds = snapshot.missingFolderIds ?? []
     let missingFolders = snapshot.folders.filter {
