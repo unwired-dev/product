@@ -2344,19 +2344,29 @@ function requireValidMicrosoftGraphConfirmation(
   }
 }
 
-async function confirmMicrosoftGraphRouteForDevice(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
-  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
-): Promise<{ routeId: Id<'mailProviderConnections'> }> {
-  const account = await requireAuthenticatedTrustedDevice(
-    ctx,
-    args.trustedDeviceId,
-  );
-  const route = await ctx.db.get(args.routeId);
+async function ownedMicrosoftGraphRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by authentication.
+  routeId: Id<'mailProviderConnections'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<Doc<'mailProviderConnections'>> {
+  const account = await requireAuthenticatedTrustedDevice(ctx, trustedDeviceId);
+  const route = await ctx.db.get(routeId);
   requireMicrosoftGraphRoute(route);
   requireMicrosoftGraphRouteOwnership(
     route,
     account.productAccountId,
+    trustedDeviceId,
+  );
+  return route;
+}
+
+async function confirmMicrosoftGraphRouteForDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<{ routeId: Id<'mailProviderConnections'> }> {
+  const route = await ownedMicrosoftGraphRoute(
+    ctx,
+    args.routeId,
     args.trustedDeviceId,
   );
   requireValidMicrosoftGraphConfirmation(route, args);
@@ -2402,15 +2412,9 @@ export const rollbackMicrosoftGraphRoute = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const account = await requireAuthenticatedTrustedDevice(
+    const route = await ownedMicrosoftGraphRoute(
       ctx,
-      args.trustedDeviceId,
-    );
-    const route = await ctx.db.get(args.routeId);
-    requireMicrosoftGraphRoute(route);
-    requireMicrosoftGraphRouteOwnership(
-      route,
-      account.productAccountId,
+      args.routeId,
       args.trustedDeviceId,
     );
     if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
