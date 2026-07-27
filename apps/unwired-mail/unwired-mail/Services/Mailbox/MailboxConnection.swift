@@ -709,10 +709,18 @@ extension HistoricalCategorizationScope {
   }
 }
 
+enum OutgoingMessageKind: String, Codable, Sendable {
+  case forward
+  case new
+  case reply
+}
+
 struct OutgoingMessage: Codable, Equatable, Sendable {
   let body: String
   let idempotencyKey: String?
+  let kind: OutgoingMessageKind?
   let recipient: String
+  let sourceProviderMessageId: String?
   let subject: String
   let inReplyTo: String?
   let providerThreadId: String?
@@ -722,12 +730,16 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
     recipient: String,
     subject: String,
     inReplyTo: String? = nil,
+    kind: OutgoingMessageKind? = nil,
     providerThreadId: String? = nil,
+    sourceProviderMessageId: String? = nil,
     idempotencyKey: String? = nil
   ) {
     self.body = body
     self.idempotencyKey = idempotencyKey
+    self.kind = kind
     self.recipient = recipient
+    self.sourceProviderMessageId = sourceProviderMessageId
     self.subject = subject
     self.inReplyTo = inReplyTo
     self.providerThreadId = providerThreadId
@@ -747,7 +759,9 @@ struct OutgoingMessage: Codable, Equatable, Sendable {
       recipient: recipient,
       subject: subject,
       inReplyTo: inReplyTo,
+      kind: kind,
       providerThreadId: providerThreadId,
+      sourceProviderMessageId: sourceProviderMessageId,
       idempotencyKey: idempotencyKey
     )
   }

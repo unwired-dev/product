@@ -121,6 +121,12 @@ enum PendingProviderActionFailureDisposition {
   case userActionRequired
 }
 
+struct GraphAmbiguousActionError: LocalizedError {
+  var errorDescription: String? {
+    "This action may have already been applied and must be confirmed before retrying."
+  }
+}
+
 typealias PendingProviderActionPerformer =
   @Sendable (
     _ action: ProviderMailAction,
@@ -130,6 +136,9 @@ typealias PendingProviderActionPerformer =
 
 private let defaultFailureDisposition:
   @Sendable (Error) -> PendingProviderActionFailureDisposition = { error in
+    if error is GraphAmbiguousActionError {
+      return .userActionRequired
+    }
     if error is URLError {
       return .transient
     }
@@ -178,6 +187,23 @@ private let defaultFailureDisposition:
     if error as? MailboxConnectionAdapterError == .authorizationRequired {
       return .userActionRequired
     }
+    if case .tokenExchangeFailed(let status) = error as? MicrosoftGraphOAuthError,
+      let status,
+      status == 408 || status == 409 || status == 425 || status == 429 || status >= 500
+    {
+      return .transient
+    }
+    if case .requestFailed(let status) = error as? MicrosoftGraphClientError {
+      if status == 401 || status == 403 {
+        return .userActionRequired
+      }
+      if status == 429 {
+        return .transient
+      }
+      if status == 408 || status == 409 || status == 425 || status >= 500 {
+        return .userActionRequired
+      }
+    }
     if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
       return .transient
     }
@@ -210,6 +236,8 @@ actor PendingProviderActionService {
   private let failureDisposition: @Sendable (Error) -> PendingProviderActionFailureDisposition
   private let maximumAttempts: Int
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
+  private var processingWaiters:
+    [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [PendingProviderActionQueueKey: Task<Void, Never>] = [:]
   private let store: PendingProviderActionPersisting
@@ -311,6 +339,7 @@ actor PendingProviderActionService {
         guard pendingAction.applies(to: current) else { return current }
         return current.applying(
           pendingAction.action,
+          providerId: connection.providerId,
           targetProviderMailboxId: pendingAction.targetProviderMailboxId
         )
       }
@@ -392,8 +421,14 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) async {
     let key = queueKey(connection: connection, session: session)
-    while !Task.isCancelled, let task = retryTasks[key] {
-      await task.value
+    while !Task.isCancelled {
+      if let task = retryTasks[key] {
+        await task.value
+      } else if processingQueueKeys.contains(key) {
+        await waitUntilProcessingFinishes(key: key)
+      } else {
+        return
+      }
     }
   }
 
@@ -450,6 +485,7 @@ actor PendingProviderActionService {
 
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
+    removesContradictedActions: Bool = true,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     isConfirmed: (
@@ -461,18 +497,19 @@ actor PendingProviderActionService {
     )? = nil
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
+    let actionIsConfirmed: (PendingProviderAction) -> Bool = { pendingAction in
+      isConfirmed?(
+        pendingAction.action,
+        pendingAction.targetProviderMailboxId,
+        pendingAction.messageIds
+      ) ?? pendingAction.isConfirmed(in: messages, providerId: connection.providerId)
+    }
     let confirmedActionIds = Set(
       actions.filter { pendingAction in
-        let actionIsConfirmed =
-          isConfirmed?(
-            pendingAction.action,
-            pendingAction.targetProviderMailboxId,
-            pendingAction.messageIds
-          ) ?? pendingAction.isConfirmed(in: messages)
         return pendingAction.connectionId == connection.id.rawValue
           && (pendingAction.state == .providerConfirmed
             || pendingAction.state == .userActionRequired)
-          && actionIsConfirmed
+          && actionIsConfirmed(pendingAction)
       }.map(\.id)
     )
     let supersededActionIds = Set(
@@ -489,12 +526,13 @@ actor PendingProviderActionService {
     )
     let contradictedActionIds = Set(
       actions.filter { action in
-        action.connectionId == connection.id.rawValue
+        removesContradictedActions
+          && action.connectionId == connection.id.rawValue
           && action.state == .providerConfirmed
           && action.messageIds.allSatisfy { messageId in
             messages.contains { $0.providerMessageId == messageId }
           }
-          && !action.isConfirmed(in: messages)
+          && !actionIsConfirmed(action)
       }.map(\.id)
     )
     actions.removeAll {
@@ -573,7 +611,7 @@ actor PendingProviderActionService {
     )
     guard retryTasks[key] == nil else { return }
     guard processingQueueKeys.insert(key).inserted else { return }
-    defer { processingQueueKeys.remove(key) }
+    defer { finishProcessing(key: key) }
     var firstPermanentFailure: Error?
 
     while true {
@@ -621,7 +659,14 @@ actor PendingProviderActionService {
         }
         actions[updatedIndex].attemptCount += 1
         actions[updatedIndex].lastErrorDescription = error.localizedDescription
-        switch failureDisposition(error) {
+        var disposition = failureDisposition(error)
+        if pendingAction.action == .markRead || pendingAction.action == .markUnread,
+          case .requestFailed(let status) = error as? MicrosoftGraphClientError,
+          status == 408 || status == 409 || status == 425 || status >= 500
+        {
+          disposition = .transient
+        }
+        switch disposition {
         case .transient where actions[updatedIndex].attemptCount < maximumAttempts:
           try store.save(actions, productAccountId: productAccountId)
           scheduleRetry(action: actions[updatedIndex], provider: provider)
@@ -671,8 +716,9 @@ actor PendingProviderActionService {
       do {
         try await Task.sleep(nanoseconds: delay)
         guard let self else { return }
-        await self.finishRetry(key: key)
-        try await self.process(
+        await self.waitUntilProcessingFinishes(key: key)
+        try await self.runScheduledRetry(
+          key: key,
           connectionId: action.mailboxConnectionId,
           productAccountId: action.productAccountId,
           provider: provider
@@ -680,6 +726,56 @@ actor PendingProviderActionService {
       } catch {
         await self?.finishRetry(key: key)
       }
+    }
+  }
+
+  private func runScheduledRetry(
+    key: PendingProviderActionQueueKey,
+    connectionId: MailboxConnectionId,
+    productAccountId: String,
+    provider: @escaping PendingProviderActionPerformer
+  ) async throws {
+    retryTasks[key] = nil
+    try await process(
+      connectionId: connectionId,
+      productAccountId: productAccountId,
+      provider: provider
+    )
+  }
+
+  private func waitUntilProcessingFinishes(key: PendingProviderActionQueueKey) async {
+    guard processingQueueKeys.contains(key) else { return }
+    let waiterId = UUID()
+    await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled, processingQueueKeys.contains(key) else {
+          continuation.resume()
+          return
+        }
+        processingWaiters[key, default: [:]][waiterId] = continuation
+      }
+    } onCancel: {
+      Task {
+        await self.cancelProcessingWaiter(key: key, waiterId: waiterId)
+      }
+    }
+  }
+
+  private func cancelProcessingWaiter(
+    key: PendingProviderActionQueueKey,
+    waiterId: UUID
+  ) {
+    processingWaiters[key]?.removeValue(forKey: waiterId)?.resume()
+    if processingWaiters[key]?.isEmpty == true {
+      processingWaiters[key] = nil
+    }
+  }
+
+  private func finishProcessing(key: PendingProviderActionQueueKey) {
+    processingQueueKeys.remove(key)
+    let waiters = processingWaiters.removeValue(forKey: key) ?? [:]
+    for continuation in waiters.values {
+      continuation.resume()
     }
   }
 
@@ -700,7 +796,10 @@ actor PendingProviderActionService {
 
 extension PendingProviderAction {
   // swiftlint:disable:next cyclomatic_complexity
-  fileprivate func isConfirmed(in messages: [MailboxMessageMetadata]) -> Bool {
+  fileprivate func isConfirmed(
+    in messages: [MailboxMessageMetadata],
+    providerId: MailProviderId
+  ) -> Bool {
     messageIds.allSatisfy { messageId in
       guard let message = messages.first(where: { $0.providerMessageId == messageId }) else {
         return false
@@ -708,7 +807,9 @@ extension PendingProviderAction {
       let states = Set(message.providerStateIds ?? [])
       switch action {
       case .archive:
-        return !states.contains("INBOX")
+        return providerId == .microsoftGraph
+          ? states.contains("ARCHIVE")
+          : !states.contains("INBOX")
       case .delete:
         return states.contains("TRASH")
       case .markRead:
@@ -762,15 +863,19 @@ extension ProviderMailAction {
 }
 
 extension MailboxMessageMetadata {
-  // swiftlint:disable:next cyclomatic_complexity
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   fileprivate func applying(
     _ action: ProviderMailAction,
+    providerId: MailProviderId,
     targetProviderMailboxId: String?
   ) -> MailboxMessageMetadata {
     var states = Set(providerStateIds ?? ["INBOX"])
     switch action {
     case .archive:
       states.remove("INBOX")
+      if providerId == .microsoftGraph {
+        states.insert("ARCHIVE")
+      }
     case .delete:
       states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
       states.insert("TRASH")
@@ -780,6 +885,7 @@ extension MailboxMessageMetadata {
       states.insert("UNREAD")
     case .move:
       states.remove("INBOX")
+      states = states.filter { !$0.hasPrefix("graph-folder:") }
     case .notSpam:
       states.remove("SPAM")
       states.insert("INBOX")
@@ -788,6 +894,7 @@ extension MailboxMessageMetadata {
       states.insert("INBOX")
     case .spam:
       states.remove("INBOX")
+      states = states.filter { !$0.hasPrefix("graph-folder:") }
       states.insert("SPAM")
     case .star:
       states.insert("STARRED")

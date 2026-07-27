@@ -13,28 +13,80 @@ import SwiftData
 
 // swiftlint:disable file_length function_parameter_count type_body_length
 
+#if canImport(UIKit)
+  private let microsoftGraphCanRegisterPush = true
+#else
+  private let microsoftGraphCanRegisterPush = false
+#endif
+
 extension MailProviderId {
   static let microsoftGraph = MailProviderId(rawValue: "microsoft-graph")
 }
 
 extension MailboxConnectionCapabilities {
-  static let microsoftGraphRead = MailboxConnectionCapabilities(
+  static let microsoftGraph = MailboxConnectionCapabilities(
     canCategorizeHistorical: false,
-    canForward: false,
+    canForward: true,
     canReadMessages: true,
-    canRegisterPush: false,
-    canReply: false,
+    canRegisterPush: microsoftGraphCanRegisterPush,
+    canReply: true,
     canSearchProvider: false,
-    canSend: false,
+    canSend: true,
     canSynchronizeMetadata: true,
-    providerActions: []
+    providerActions: [.markRead, .markUnread]
   )
+
+  static func microsoftGraph(
+    folders: [MicrosoftGraphFolder]
+  ) -> MailboxConnectionCapabilities {
+    var actions: Set<ProviderMailAction> = [.markRead, .markUnread]
+    let roles = Set(folders.compactMap(\.role))
+    if roles.contains(.archive) { actions.insert(.archive) }
+    if roles.contains(.trash) { actions.insert(.delete) }
+    if roles.contains(.spam) { actions.insert(.spam) }
+    if roles.contains(.inbox) {
+      actions.formUnion([.notSpam, .restore])
+    }
+    if folders.contains(where: { $0.role == nil }) {
+      actions.insert(.move)
+    }
+    return MailboxConnectionCapabilities(
+      canCategorizeHistorical: false,
+      canForward: true,
+      canReadMessages: true,
+      canRegisterPush: microsoftGraphCanRegisterPush,
+      canReply: true,
+      canSearchProvider: false,
+      canSend: true,
+      canSynchronizeMetadata: true,
+      providerActions: actions
+    )
+  }
 }
 
 struct MicrosoftGraphTokens: Codable, Equatable, Sendable {
   let accessToken: String
   let expiresAtMilliseconds: Int64
+  let grantedScopes: Set<String>?
   let refreshToken: String
+
+  init(
+    accessToken: String,
+    expiresAtMilliseconds: Int64,
+    grantedScopes: Set<String>? = nil,
+    refreshToken: String
+  ) {
+    self.accessToken = accessToken
+    self.expiresAtMilliseconds = expiresAtMilliseconds
+    self.grantedScopes = grantedScopes
+    self.refreshToken = refreshToken
+  }
+
+  var hasFullMailAccess: Bool {
+    guard let grantedScopes else { return false }
+    let normalized = Set(grantedScopes.map { $0.lowercased() })
+    return normalized.contains("mail.readwrite") && normalized.contains("mail.send")
+  }
 }
 
 struct MicrosoftGraphAccount: Equatable, Sendable {
@@ -371,6 +423,17 @@ struct MicrosoftGraphProviderMessage: Codable, Equatable, Sendable {
     return "graph-folder:\(encoded)"
   }
 
+  static func folderId(fromCustomFolderStateId stateId: String) -> String? {
+    let prefix = "graph-folder:"
+    guard stateId.hasPrefix(prefix) else { return nil }
+    var encoded = String(stateId.dropFirst(prefix.count))
+      .replacingOccurrences(of: "-", with: "+")
+      .replacingOccurrences(of: "_", with: "/")
+    encoded += String(repeating: "=", count: (4 - encoded.count % 4) % 4)
+    guard let data = Data(base64Encoded: encoded) else { return nil }
+    return String(data: data, encoding: .utf8)?.nonEmpty
+  }
+
   private static func dateMilliseconds(_ value: String?) -> Int64 {
     guard let value else { return 0 }
     let formatter = ISO8601DateFormatter()
@@ -437,7 +500,25 @@ enum MicrosoftGraphClientError: LocalizedError, Equatable {
   }
 }
 
+struct MicrosoftGraphSendError: LocalizedError {
+  enum Stage: Equatable {
+    case preparation
+    case providerHandoff
+  }
+
+  let stage: Stage
+  let underlyingError: Error
+
+  var errorDescription: String? {
+    (underlyingError as? LocalizedError)?.errorDescription
+  }
+}
+
 protocol MicrosoftGraphClient {
+  func deliveryStatus(
+    rfcMessageId: String,
+    accessToken: String
+  ) async throws -> MailboxDeliveryStatus
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount
   func loadFolders(accessToken: String) async throws -> [MicrosoftGraphFolder]
   func loadRecentMetadataPage(
@@ -452,14 +533,71 @@ protocol MicrosoftGraphClient {
     accessToken: String
   ) async throws -> MicrosoftGraphMetadataPage
   func loadTextBody(messageId: String, accessToken: String) async throws -> String
+  func moveMessage(
+    messageId: String,
+    destinationFolderId: String,
+    accessToken: String
+  ) async throws
+  func send(_ message: OutgoingMessage, accessToken: String) async throws
+  func setMessageRead(
+    _ isRead: Bool,
+    messageId: String,
+    accessToken: String
+  ) async throws
 }
 
 struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
   private static let baseURL = URL(string: "https://graph.microsoft.com/v1.0")!
+  private static let outboxPropertyId =
+    "String {576B35CE-054C-4D8A-8D4F-B90700B843D2} Name UnwiredOutboxId"
   private let session: URLSession
 
   init(session: URLSession = .shared) {
     self.session = session
+  }
+
+  func deliveryStatus(
+    rfcMessageId: String,
+    accessToken: String
+  ) async throws -> MailboxDeliveryStatus {
+    let idempotencyKey =
+      rfcMessageId
+      .trimmingCharacters(in: CharacterSet(charactersIn: "<>"))
+      .replacingOccurrences(of: "@outbox.unwired.mail", with: "")
+    return try await messageIdentifier(
+      folder: "sentitems",
+      idempotencyKey: idempotencyKey,
+      accessToken: accessToken
+    ) == nil ? .unknown : .sent
+  }
+
+  private func messageIdentifier(
+    folder: String,
+    idempotencyKey: String,
+    accessToken: String
+  ) async throws -> GraphMessageIdentifierResponse? {
+    var components = URLComponents(
+      url: try graphURL(pathComponents: ["me", "mailFolders", folder, "messages"]),
+      resolvingAgainstBaseURL: false
+    )!
+    let propertyId = Self.outboxPropertyId.replacingOccurrences(of: "'", with: "''")
+    let propertyValue = idempotencyKey.replacingOccurrences(of: "'", with: "''")
+    components.queryItems = [
+      URLQueryItem(
+        name: "$filter",
+        value:
+          "singleValueExtendedProperties/Any(ep: ep/id eq '\(propertyId)' "
+          + "and ep/value eq '\(propertyValue)')"
+      ),
+      URLQueryItem(name: "$select", value: "id"),
+      URLQueryItem(name: "$top", value: "1"),
+    ]
+    let response: GraphMessageIdentifierPageResponse = try await get(
+      try requiredURL(components),
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#]
+    )
+    return response.value.first
   }
 
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount {
@@ -589,6 +727,196 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     return response.body.content
   }
 
+  func moveMessage(
+    messageId: String,
+    destinationFolderId: String,
+    accessToken: String
+  ) async throws {
+    let url = try graphURL(pathComponents: ["me", "messages", messageId, "move"])
+    try await requestNoContent(
+      url,
+      method: "POST",
+      body: GraphMoveMessageRequest(destinationId: destinationFolderId),
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#],
+      acceptedStatusCodes: 200..<300
+    )
+  }
+
+  func setMessageRead(
+    _ isRead: Bool,
+    messageId: String,
+    accessToken: String
+  ) async throws {
+    let url = try graphURL(pathComponents: ["me", "messages", messageId])
+    try await requestNoContent(
+      url,
+      method: "PATCH",
+      body: GraphReadStateRequest(isRead: isRead),
+      accessToken: accessToken,
+      acceptedStatusCodes: 200..<300
+    )
+  }
+
+  func send(_ message: OutgoingMessage, accessToken: String) async throws {
+    guard let idempotencyKey = message.idempotencyKey else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    let draftResponse = try await preparedDraft(
+      for: message,
+      idempotencyKey: idempotencyKey,
+      accessToken: accessToken
+    )
+    let sendURL = try graphURL(pathComponents: ["me", "messages", draftResponse.id, "send"])
+    do {
+      try await requestNoContent(
+        sendURL,
+        method: "POST",
+        body: Optional<String>.none,
+        accessToken: accessToken,
+        acceptedStatusCodes: 200..<300
+      )
+    } catch {
+      throw MicrosoftGraphSendError(stage: .providerHandoff, underlyingError: error)
+    }
+  }
+
+  private func preparedDraft(
+    for message: OutgoingMessage,
+    idempotencyKey: String,
+    accessToken: String
+  ) async throws -> GraphMessageIdentifierResponse {
+    let recipients = Self.recipientAddresses(in: message.recipient)
+    guard !recipients.isEmpty else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    let draft = GraphDraftRequest(
+      body: GraphDraftRequest.Body(content: message.body, contentType: "Text"),
+      internetMessageHeaders: message.kind == .reply
+        ? nil
+        : message.inReplyTo.map {
+          [
+            GraphDraftRequest.Header(name: "In-Reply-To", value: $0),
+            GraphDraftRequest.Header(name: "References", value: $0),
+          ]
+        },
+      singleValueExtendedProperties: [
+        GraphSingleValueExtendedProperty(
+          id: Self.outboxPropertyId,
+          value: idempotencyKey
+        )
+      ],
+      subject: message.subject,
+      toRecipients: recipients.map {
+        GraphDraftRequest.Recipient(
+          emailAddress: GraphDraftRequest.EmailAddress(address: $0)
+        )
+      }
+    )
+    let draftResponse: GraphMessageIdentifierResponse
+    do {
+      let existingDraft = try await messageIdentifier(
+        folder: "drafts",
+        idempotencyKey: idempotencyKey,
+        accessToken: accessToken
+      )
+      if let existingDraft {
+        draftResponse = existingDraft
+      } else {
+        draftResponse = try await createDraft(
+          draft,
+          for: message,
+          accessToken: accessToken
+        )
+      }
+    } catch {
+      throw MicrosoftGraphSendError(stage: .preparation, underlyingError: error)
+    }
+    return draftResponse
+  }
+
+  private func createDraft(
+    _ draft: GraphDraftRequest,
+    for message: OutgoingMessage,
+    accessToken: String
+  ) async throws -> GraphMessageIdentifierResponse {
+    guard message.kind == .reply else {
+      return try await request(
+        try graphURL(pathComponents: ["me", "messages"]),
+        method: "POST",
+        body: draft,
+        accessToken: accessToken,
+        preferences: [#"IdType="ImmutableId""#],
+        acceptedStatusCodes: 200..<300
+      )
+    }
+    guard let sourceMessageId = message.sourceProviderMessageId?.nonEmpty else {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+    let response: GraphMessageIdentifierResponse = try await request(
+      try graphURL(pathComponents: ["me", "messages", sourceMessageId, "createReply"]),
+      method: "POST",
+      body: GraphReplyOrForwardDraftRequest(message: draft),
+      accessToken: accessToken,
+      preferences: [#"IdType="ImmutableId""#],
+      acceptedStatusCodes: 200..<300
+    )
+    return response
+  }
+
+  private static func recipientAddresses(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<" where !isQuoted:
+        angleBracketDepth += 1
+      case ">" where !isQuoted:
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0,
+        ";" where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+      mailbox.append(character)
+    }
+    mailboxes.append(mailbox)
+    return mailboxes.compactMap(mailboxAddress)
+  }
+
+  private static func mailboxAddress(in value: String) -> String? {
+    let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+    let address: String
+    if let opening = trimmed.lastIndex(of: "<"),
+      let closing = trimmed.lastIndex(of: ">"),
+      opening < closing
+    {
+      address = String(trimmed[trimmed.index(after: opening)..<closing])
+    } else {
+      address = trimmed
+    }
+    return address.trimmingCharacters(in: .whitespacesAndNewlines).nonEmpty
+  }
+
   private func folderListURL(parentFolderId: String?) throws -> URL {
     var pathComponents = ["me", "mailFolders"]
     if let parentFolderId {
@@ -681,10 +1009,74 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     accessToken: String,
     preferences: [String] = []
   ) async throws -> Response {
+    try await request(
+      url,
+      method: "GET",
+      body: Optional<String>.none,
+      accessToken: accessToken,
+      preferences: preferences,
+      acceptedStatusCodes: 200..<300
+    )
+  }
+
+  private func request<Response: Decodable, Body: Encodable>(
+    _ url: URL,
+    method: String,
+    body: Body?,
+    accessToken: String,
+    preferences: [String] = [],
+    acceptedStatusCodes: Range<Int>
+  ) async throws -> Response {
+    let data = try await responseData(
+      url,
+      method: method,
+      body: body,
+      accessToken: accessToken,
+      preferences: preferences,
+      acceptedStatusCodes: acceptedStatusCodes
+    )
+    do {
+      return try JSONDecoder().decode(Response.self, from: data)
+    } catch {
+      throw MicrosoftGraphClientError.invalidProviderResponse
+    }
+  }
+
+  private func requestNoContent<Body: Encodable>(
+    _ url: URL,
+    method: String,
+    body: Body?,
+    accessToken: String,
+    preferences: [String] = [],
+    acceptedStatusCodes: Range<Int>
+  ) async throws {
+    _ = try await responseData(
+      url,
+      method: method,
+      body: body,
+      accessToken: accessToken,
+      preferences: preferences,
+      acceptedStatusCodes: acceptedStatusCodes
+    )
+  }
+
+  private func responseData<Body: Encodable>(
+    _ url: URL,
+    method: String,
+    body: Body?,
+    accessToken: String,
+    preferences: [String],
+    acceptedStatusCodes: Range<Int>
+  ) async throws -> Data {
     var request = URLRequest(url: url)
+    request.httpMethod = method
     request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
     if !preferences.isEmpty {
       request.setValue(preferences.joined(separator: ", "), forHTTPHeaderField: "Prefer")
+    }
+    if let body {
+      request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+      request.httpBody = try JSONEncoder().encode(body)
     }
     let (data, response) = try await session.data(for: request)
     guard let response = response as? HTTPURLResponse else {
@@ -693,14 +1085,10 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     if response.statusCode == 410 {
       throw MicrosoftGraphClientError.deltaTokenExpired
     }
-    guard (200..<300).contains(response.statusCode) else {
+    guard acceptedStatusCodes.contains(response.statusCode) else {
       throw MicrosoftGraphClientError.requestFailed(response.statusCode)
     }
-    do {
-      return try JSONDecoder().decode(Response.self, from: data)
-    } catch {
-      throw MicrosoftGraphClientError.invalidProviderResponse
-    }
+    return data
   }
 
   private func safeContinuationURL(_ url: URL) throws -> URL {
@@ -784,6 +1172,57 @@ private struct GraphFolderResponse: Decodable {
 
 private struct GraphFolderIdentifierResponse: Decodable {
   let id: String
+}
+
+private struct GraphMessageIdentifierResponse: Decodable {
+  let id: String
+}
+
+private struct GraphMessageIdentifierPageResponse: Decodable {
+  let value: [GraphMessageIdentifierResponse]
+}
+
+private struct GraphMoveMessageRequest: Encodable {
+  let destinationId: String
+}
+
+private struct GraphReadStateRequest: Encodable {
+  let isRead: Bool
+}
+
+private struct GraphSingleValueExtendedProperty: Encodable {
+  let id: String
+  let value: String
+}
+
+private struct GraphDraftRequest: Encodable {
+  struct Body: Encodable {
+    let content: String
+    let contentType: String
+  }
+
+  struct EmailAddress: Encodable {
+    let address: String
+  }
+
+  struct Header: Encodable {
+    let name: String
+    let value: String
+  }
+
+  struct Recipient: Encodable {
+    let emailAddress: EmailAddress
+  }
+
+  let body: Body
+  let internetMessageHeaders: [Header]?
+  let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]
+  let subject: String
+  let toRecipients: [Recipient]
+}
+
+private struct GraphReplyOrForwardDraftRequest: Encodable {
+  let message: GraphDraftRequest
 }
 
 private struct GraphMessagePageResponse: Decodable {
@@ -887,6 +1326,20 @@ struct MicrosoftGraphFolderSyncState: Codable, Equatable, Sendable {
 struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
+  var initialCrawlMessageIdsByFolderId: [String: Set<String>]?
+  var seededMessageIdsByFolderId: [String: Set<String>]?
+
+  init(
+    folders: [MicrosoftGraphFolderSyncState],
+    hasInitialMailboxAvailability: Bool,
+    initialCrawlMessageIdsByFolderId: [String: Set<String>]? = nil,
+    seededMessageIdsByFolderId: [String: Set<String>]? = nil
+  ) {
+    self.folders = folders
+    self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
+    self.initialCrawlMessageIdsByFolderId = initialCrawlMessageIdsByFolderId
+    self.seededMessageIdsByFolderId = seededMessageIdsByFolderId
+  }
 
   var historicalMetadataBackfillIsComplete: Bool {
     hasInitialMailboxAvailability && folders.allSatisfy { $0.deltaLink != nil }
@@ -916,7 +1369,8 @@ protocol MicrosoftGraphMetadataPersisting {
     folderId: String,
     state: MicrosoftGraphMetadataSyncState,
     productAccountId: String,
-    connectionId: MailboxConnectionId
+    connectionId: MailboxConnectionId,
+    removingMessageIds: Set<String>
   ) throws
   func updateCategory(
     _ categoryId: String,
@@ -924,6 +1378,25 @@ protocol MicrosoftGraphMetadataPersisting {
     productAccountId: String,
     connectionId: MailboxConnectionId
   ) throws -> MicrosoftGraphProviderMessage
+}
+
+extension MicrosoftGraphMetadataPersisting {
+  func savePage(
+    _ messages: [MicrosoftGraphProviderMessage],
+    folderId: String,
+    state: MicrosoftGraphMetadataSyncState,
+    productAccountId: String,
+    connectionId: MailboxConnectionId
+  ) throws {
+    try savePage(
+      messages,
+      folderId: folderId,
+      state: state,
+      productAccountId: productAccountId,
+      connectionId: connectionId,
+      removingMessageIds: []
+    )
+  }
 }
 
 @Model
@@ -1071,18 +1544,24 @@ struct SwiftDataMicrosoftGraphMetadataStore: MicrosoftGraphMetadataPersisting {
     folderId: String,
     state: MicrosoftGraphMetadataSyncState,
     productAccountId: String,
-    connectionId: MailboxConnectionId
+    connectionId: MailboxConnectionId,
+    removingMessageIds: Set<String> = []
   ) throws {
     let context = try makeContext()
     let messageIds = Set(messages.map(\.id))
     let existing = Dictionary(
       uniqueKeysWithValues: try records(
-        matching: messageIds,
+        matching: messageIds.union(removingMessageIds),
         productAccountId: productAccountId,
         connectionId: connectionId,
         context: context
       ).map { ($0.stableProviderMessageId, $0) }
     )
+    for messageId in removingMessageIds.subtracting(messageIds) {
+      if let record = existing[messageId], record.parentFolderId == folderId {
+        context.delete(record)
+      }
+    }
     for var message in messages {
       if message.removed {
         if let record = existing[message.id], record.parentFolderId == folderId {
@@ -1360,24 +1839,6 @@ struct MicrosoftGraphMetadataService {
         connectionId: connection.id
       )
     }
-    guard state.historicalMetadataBackfillIsComplete else {
-      let recentInboxPage = try await client.loadMetadataPage(
-        folder: state.folders[0].folder,
-        continuationURL: nil,
-        pageSize: Self.initialPageSize,
-        accessToken: accessToken
-      )
-      guard shouldPersist() else { throw CancellationError() }
-      try store.savePage(
-        recentInboxPage.messages,
-        folderId: state.folders[0].folder.id,
-        state: state,
-        productAccountId: productAccountId,
-        connectionId: connection.id
-      )
-      return try load(connection: connection, productAccountId: productAccountId)
-        .limitedInitialPage(to: Self.initialPageSize)
-    }
     do {
       for index in state.folders.indices {
         guard let deltaLink = state.folders[index].deltaLink else { continue }
@@ -1403,6 +1864,26 @@ struct MicrosoftGraphMetadataService {
           continuation = page.nextLink
         } while continuation != nil
       }
+      guard state.historicalMetadataBackfillIsComplete else {
+        if state.folders[0].deltaLink == nil {
+          let recentInboxPage = try await client.loadMetadataPage(
+            folder: state.folders[0].folder,
+            continuationURL: nil,
+            pageSize: Self.initialPageSize,
+            accessToken: accessToken
+          )
+          guard shouldPersist() else { throw CancellationError() }
+          try store.savePage(
+            recentInboxPage.messages,
+            folderId: state.folders[0].folder.id,
+            state: state,
+            productAccountId: productAccountId,
+            connectionId: connection.id
+          )
+        }
+        return try load(connection: connection, productAccountId: productAccountId)
+          .limitedInitialPage(to: Self.initialPageSize)
+      }
       return try load(connection: connection, productAccountId: productAccountId)
     } catch MicrosoftGraphClientError.deltaTokenExpired {
       try Task.checkCancellation()
@@ -1418,6 +1899,7 @@ struct MicrosoftGraphMetadataService {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func continueBackfill(
     connection: MailboxConnection,
     productAccountId: String,
@@ -1450,12 +1932,34 @@ struct MicrosoftGraphMetadataService {
           try Task.checkCancellation()
           state.folders[index].nextLink = page.nextLink
           state.folders[index].deltaLink = page.deltaLink
+          let folderId = state.folders[index].folder.id
+          if state.seededMessageIdsByFolderId?[folderId] != nil {
+            var observedByFolder = state.initialCrawlMessageIdsByFolderId ?? [:]
+            observedByFolder[folderId, default: []].formUnion(
+              page.messages.compactMap { message in
+                !message.removed && message.parentFolderId == folderId ? message.id : nil
+              }
+            )
+            state.initialCrawlMessageIdsByFolderId = observedByFolder
+          }
+          var removingMessageIds: Set<String> = []
+          if page.deltaLink != nil,
+            let seededMessageIds = state.seededMessageIdsByFolderId?[folderId]
+          {
+            removingMessageIds =
+              seededMessageIds.subtracting(
+                state.initialCrawlMessageIdsByFolderId?[folderId] ?? []
+              )
+            state.seededMessageIdsByFolderId?[folderId] = nil
+            state.initialCrawlMessageIdsByFolderId?[folderId] = nil
+          }
           try store.savePage(
             page.messages,
-            folderId: state.folders[index].folder.id,
+            folderId: folderId,
             state: state,
             productAccountId: productAccountId,
-            connectionId: connection.id
+            connectionId: connection.id,
+            removingMessageIds: removingMessageIds
           )
           continuation = page.nextLink
         } while continuation != nil
@@ -1525,21 +2029,27 @@ struct MicrosoftGraphMetadataService {
           accessToken: accessToken
         )
         messages = recentPage.messages
+        var seededByFolder = state.seededMessageIdsByFolderId ?? [:]
+        seededByFolder[state.folders[index].folder.id] = Set(messages.map(\.id))
+        state.seededMessageIdsByFolderId = seededByFolder
+      } else {
+        repeat {
+          let page = try await client.loadMetadataPage(
+            folder: state.folders[index].folder,
+            continuationURL: continuation,
+            pageSize: Self.initialPageSize - messages.count,
+            accessToken: accessToken
+          )
+          try Task.checkCancellation()
+          guard shouldPersist() else { throw CancellationError() }
+          messages.append(contentsOf: page.messages)
+          state.folders[index].nextLink = page.nextLink
+          state.folders[index].deltaLink = page.deltaLink
+          continuation = page.nextLink
+        } while messages.count < Self.initialPageSize && continuation != nil
       }
-      repeat {
-        let page = try await client.loadMetadataPage(
-          folder: state.folders[index].folder,
-          continuationURL: continuation,
-          pageSize: Self.initialPageSize,
-          accessToken: accessToken
-        )
-        try Task.checkCancellation()
-        guard shouldPersist() else { throw CancellationError() }
-        messages.append(contentsOf: page.messages)
-        state.folders[index].nextLink = page.nextLink
-        state.folders[index].deltaLink = page.deltaLink
-        continuation = page.nextLink
-      } while messages.count < Self.initialPageSize && continuation != nil
+      try Task.checkCancellation()
+      guard shouldPersist() else { throw CancellationError() }
       try store.savePage(
         messages,
         folderId: state.folders[index].folder.id,
@@ -1578,7 +2088,9 @@ struct MicrosoftGraphMetadataService {
           nextLink: cursor.nextLink
         )
       },
-      hasInitialMailboxAvailability: state.hasInitialMailboxAvailability
+      hasInitialMailboxAvailability: state.hasInitialMailboxAvailability,
+      initialCrawlMessageIdsByFolderId: state.initialCrawlMessageIdsByFolderId,
+      seededMessageIdsByFolderId: state.seededMessageIdsByFolderId
     )
     try store.savePage(
       [],
@@ -1789,6 +2301,25 @@ struct MicrosoftGraphMessageBodyService {
   }
 }
 
+protocol MicrosoftGraphPushRegistering {
+  func registerOrRenew(
+    connection: MailboxConnection,
+    accessToken: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func clear(
+    accessToken: String?,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
+  func clearAll(
+    accessTokensByProviderAccountIdentifier: [String: String],
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
 struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let assignmentSync: MessageCategoryAssignmentSyncing
   private let authorizer: MicrosoftGraphAuthorizing
@@ -1797,6 +2328,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let metadataService: MicrosoftGraphMetadataService
   private let metadataStore: MicrosoftGraphMetadataPersisting
   private let now: () -> Date
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
+  private let pushRegistrar: MicrosoftGraphPushRegistering
   private let syncGate: MailboxConnectionSyncGate
   private let tokenStore: MicrosoftGraphAuthorizationPersisting
 
@@ -1811,6 +2345,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     metadataStore: MicrosoftGraphMetadataPersisting =
       SwiftDataMicrosoftGraphMetadataStore(),
     now: @escaping () -> Date = Date.init,
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared,
+    pushRegistrar: MicrosoftGraphPushRegistering = MicrosoftGraphPushSubscriptionService(),
     shouldContinueHistoricalBackfill: @escaping () -> Bool = {
       !ProcessInfo.processInfo.isLowPowerModeEnabled
     },
@@ -1833,10 +2370,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     self.metadataStore = metadataStore
     self.now = now
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
+    self.pushRegistrar = pushRegistrar
     self.syncGate = syncGate
     self.tokenStore = tokenStore
   }
 
+  // swiftlint:disable:next function_body_length
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
     try await syncGate.withLock(accountCleanupLockId(session: session)) {
       var connectionIds = Set(
@@ -1864,10 +2405,32 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       try await withLocks(connectionIds.sorted { $0.rawValue < $1.rawValue }) {
         var firstError: Error?
+        var accessTokensByProviderAccountIdentifier: [String: String] = [:]
+        for providerAccountIdentifier in try tokenStore.providerAccountIdentifiers(
+          productAccountId: session.productAccountId)
+        {
+          do {
+            accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
+              try await accessTokenForCleanup(
+                productAccountId: session.productAccountId,
+                providerAccountIdentifier: providerAccountIdentifier
+              )
+          } catch {
+            firstError = firstError ?? error
+          }
+        }
+        do {
+          try await pushRegistrar.clearAll(
+            accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
+            session: session
+          )
+        } catch {
+          firstError = firstError ?? error
+        }
         do {
           try tokenStore.clearAll(productAccountId: session.productAccountId)
         } catch {
-          firstError = error
+          firstError = firstError ?? error
         }
         do {
           try metadataStore.clear(productAccountId: session.productAccountId)
@@ -1876,6 +2439,16 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         }
         do {
           try bodyService.clear(session: session)
+        } catch {
+          firstError = firstError ?? error
+        }
+        do {
+          try await pendingActionService.clear(session: session)
+        } catch {
+          firstError = firstError ?? error
+        }
+        do {
+          try await outboxService.clear(session: session)
         } catch {
           firstError = firstError ?? error
         }
@@ -1916,9 +2489,58 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    try await clearLocalConnection(
+      connection,
+      session: session,
+      reportsPushFailure: true
+    )
+  }
+
+  private func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    reportsPushFailure: Bool
+  ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      try clearLocalConnectionWithoutLock(connection, session: session)
+      var firstError: Error?
+      let accessToken: String?
+      do {
+        accessToken = try await accessTokenForCleanup(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerMailboxIdentity.value
+        )
+      } catch {
+        accessToken = nil
+        firstError = error
+      }
+      do {
+        try await pushRegistrar.clear(
+          accessToken: accessToken,
+          connection: connection,
+          session: session
+        )
+      } catch {
+        if reportsPushFailure {
+          firstError = firstError ?? error
+        }
+      }
+      do {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await pendingActionService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await outboxService.clear(connection: connection, session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
     }
   }
 
@@ -1981,7 +2603,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       let connection = MailboxConnection(
         authorizationState: .authorized,
-        capabilities: .microsoftGraphRead,
+        capabilities: .microsoftGraph,
         connectedAt: previousDefinition?.connectedAt ?? timestamp,
         displayName: account.emailAddress,
         id: connectionId,
@@ -2064,7 +2686,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorized: true,
         updatedAt: snapshot.updatedAt
       )
-      try await clearLocalConnection(removed, session: session)
+      try await clearLocalConnection(
+        removed,
+        session: session,
+        reportsPushFailure: false
+      )
     }
     return try snapshot.connections.compactMap { definition in
       guard definition.provider == MailProviderId.microsoftGraph.rawValue else { return nil }
@@ -2072,7 +2698,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: definition.providerAccountIdentifier
-        ) != nil
+        )?.hasFullMailAccess == true
       return placeholderConnection(
         definition: definition,
         session: session,
@@ -2093,8 +2719,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await clearLocalConnection(connection, session: session)
-    _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    var firstError: Error?
+    do {
+      try await clearLocalConnection(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   func setDefaultSendingConnection(
@@ -2103,9 +2739,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     if let connection {
       try validate(connection: connection, session: session, requiresAuthorization: true)
-      throw MailboxConnectionAdapterError.unsupportedCapability
     }
-    _ = try await definitionSyncService.setDefaultSendingConnection(nil, session: session)
+    _ = try await definitionSyncService.setDefaultSendingConnection(
+      connection?.id,
+      session: session
+    )
   }
 
   func categorizeHistorical(
@@ -2121,15 +2759,19 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try validate(connection: connection, session: session, requiresAuthorization: false)
-    return try await applyingSyncedCategories(
+    let categorized = try await applyingSyncedCategories(
       to: metadataService.load(
         connection: connection,
         productAccountId: session.productAccountId
-      )
-      .projected(to: .role(.inbox))
-      .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize),
+      ),
       session: session
     )
+    return try await pendingActionService.project(
+      categorized,
+      connection: connection,
+      session: session
+    )
+    .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
   }
 
   func loadMailbox(
@@ -2138,11 +2780,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try validate(connection: connection, session: session, requiresAuthorization: false)
-    let result = try await applyingSyncedCategories(
+    let categorized = try await applyingSyncedCategories(
       to: metadataService.load(
         connection: connection,
         productAccountId: session.productAccountId
-      ).projected(to: collection),
+      ),
+      session: session
+    )
+    let result = try await pendingActionService.project(
+      categorized,
+      collection: collection,
+      connection: connection,
       session: session
     )
     return collection == .allObserved
@@ -2202,11 +2850,22 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           productAccountId: session.productAccountId,
           accessToken: token
         )
-        .projected(to: .role(.inbox))
-        .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
       }
     }
-    return try await applyingSyncedCategories(to: result, session: session)
+    let categorized = try await applyingSyncedCategories(to: result, session: session)
+    try? await registerOrRenewPush(connection: connection, session: session)
+    try await reconcileAndResumePendingActions(
+      messages: categorized.messages,
+      removesContradictedActions: categorized.historicalMetadataBackfillIsComplete,
+      connection: connection,
+      session: session
+    )
+    return try await pendingActionService.project(
+      categorized,
+      connection: connection,
+      session: session
+    )
+    .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
   }
 
   func syncRecentInbox(
@@ -2230,11 +2889,21 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           accessToken: token,
           shouldPersist: shouldPersist
         )
-        .projected(to: .role(.inbox))
-        .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
       }
     }
-    return try await applyingSyncedCategories(to: result, session: session)
+    let categorized = try await applyingSyncedCategories(to: result, session: session)
+    try await reconcileAndResumePendingActions(
+      messages: categorized.messages,
+      removesContradictedActions: categorized.historicalMetadataBackfillIsComplete,
+      connection: connection,
+      session: session
+    )
+    return try await pendingActionService.project(
+      categorized,
+      connection: connection,
+      session: session
+    )
+    .limitedInitialPage(to: MicrosoftGraphMetadataService.initialPageSize)
   }
 
   func overrideCategory(
@@ -2435,10 +3104,20 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   func registerOrRenewPush(
-    connection _: MailboxConnection,
-    session _: ProductAccountSessionSnapshot
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await withAccessTokenRetry(
+      connection: connection,
+      session: session,
+      isWithinSyncGate: false
+    ) { token in
+      try await pushRegistrar.registerOrRenew(
+        connection: connection,
+        accessToken: token,
+        session: session
+      )
+    }
   }
 
   func perform(
@@ -2447,7 +3126,348 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await perform(
+      action,
+      targetProviderMailboxId: nil,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try validate(connection: connection, session: session, requiresAuthorization: false)
+    guard connection.capabilities.supports(action) else {
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+    try await pendingActionService.enqueue(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func resumePendingActions(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
+      for (index, connection) in connections.enumerated() {
+        group.addTask {
+          let error = await resumePendingActions(connection: connection, session: session)
+          return (index, error.map { "\(connection.displayName): \($0)" })
+        }
+      }
+      var errors: [(Int, String)] = []
+      for await (index, error) in group {
+        if let error { errors.append((index, error)) }
+      }
+      let descriptions = errors.sorted { $0.0 < $1.0 }.map(\.1)
+      return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
+    }
+  }
+
+  func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    var description: String?
+    do {
+      try await pendingActionService.resume(
+        connection: connection,
+        session: session,
+        provider: pendingActionPerformer(connection: connection, session: session)
+      )
+    } catch is CancellationError {
+      return nil
+    } catch {
+      description = error.localizedDescription
+    }
+    return
+      (try? await pendingActionService.failureDescription(
+        connection: connection,
+        session: session
+      )) ?? description
+  }
+
+  func retryBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(
+      connection: connection,
+      session: session,
+      discarding: false
+    )
+  }
+
+  func discardBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await resolveBlockedPendingAction(
+      connection: connection,
+      session: session,
+      discarding: true
+    )
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var connectionIds: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasBlockedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      connectionIds.append(connection.id)
+    }
+    return connectionIds
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    var connectionIds: [MailboxConnectionId] = []
+    for connection in connections
+    where
+      (try? await pendingActionService.hasFailedAction(
+        connection: connection,
+        session: session
+      )) == true
+    {
+      connectionIds.append(connection.id)
+    }
+    return connectionIds
+  }
+
+  func pendingActionFailureDetails(
+    _ action: ProviderMailAction,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    try? await pendingActionService.failureDetails(
+      action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func waitForPendingActionRetries(
+    connections: [MailboxConnection],
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await withTaskGroup(of: (Int, String?).self, returning: String?.self) { group in
+      for (index, connection) in connections.enumerated() {
+        group.addTask {
+          let error = await waitForPendingActionRetries(
+            connection: connection,
+            session: session
+          )
+          return (index, error.map { "\(connection.displayName): \($0)" })
+        }
+      }
+      var errors: [(Int, String)] = []
+      for await (index, error) in group {
+        if let error { errors.append((index, error)) }
+      }
+      let descriptions = errors.sorted { $0.0 < $1.0 }.map(\.1)
+      return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
+    }
+  }
+
+  func waitForPendingActionRetries(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await pendingActionService.waitForScheduledRetries(
+      connection: connection,
+      session: session
+    )
+    return try? await pendingActionService.failureDescription(
+      connection: connection,
+      session: session
+    )
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    try? await pendingActionService.acknowledgeFailures(
+      connection: connection,
+      session: session
+    )
+  }
+
+  private func resolveBlockedPendingAction(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    discarding: Bool
+  ) async -> String? {
+    do {
+      let provider = pendingActionPerformer(connection: connection, session: session)
+      if discarding {
+        try await pendingActionService.discardBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      } else {
+        try await pendingActionService.retryBlockedAction(
+          connection: connection,
+          session: session,
+          provider: provider
+        )
+      }
+      return await waitForPendingActionRetries(connection: connection, session: session)
+    } catch is CancellationError {
+      return nil
+    } catch {
+      return error.localizedDescription
+    }
+  }
+
+  private func pendingActionPerformer(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) -> PendingProviderActionPerformer {
+    { action, targetProviderMailboxId, messageIds in
+      do {
+        try await performProviderAction(
+          action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          messageIds: messageIds,
+          connection: connection,
+          session: session
+        )
+      } catch let error as URLError {
+        if error.code == .cancelled || Task.isCancelled {
+          throw CancellationError()
+        }
+        let actionMayHaveMovedMessage =
+          switch action {
+          case .archive, .delete, .move, .notSpam, .restore, .spam: true
+          case .markRead, .markUnread, .star, .unstar: false
+          }
+        if actionMayHaveMovedMessage, !Self.isDefinitePreDeliveryNetworkFailure(error) {
+          throw GraphAmbiguousActionError()
+        }
+        throw error
+      }
+    }
+  }
+
+  private static func isDefinitePreDeliveryNetworkFailure(_ error: URLError) -> Bool {
+    switch error.code {
+    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive,
+      .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed:
+      return true
+    default:
+      return false
+    }
+  }
+
+  private func performProviderAction(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    messageIds: [String],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let destinationFolderId = try destinationFolderId(
+      for: action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      connection: connection,
+      session: session
+    )
+    try await withAccessTokenRetry(
+      connection: connection,
+      session: session,
+      isWithinSyncGate: false
+    ) { token in
+      for messageId in messageIds {
+        switch action {
+        case .markRead:
+          try await metadataService.clientForAccountVerification.setMessageRead(
+            true,
+            messageId: messageId,
+            accessToken: token
+          )
+        case .markUnread:
+          try await metadataService.clientForAccountVerification.setMessageRead(
+            false,
+            messageId: messageId,
+            accessToken: token
+          )
+        case .archive, .delete, .move, .notSpam, .restore, .spam:
+          guard let destinationFolderId else {
+            throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+          }
+          try await metadataService.clientForAccountVerification.moveMessage(
+            messageId: messageId,
+            destinationFolderId: destinationFolderId,
+            accessToken: token
+          )
+        case .star, .unstar:
+          throw MailboxConnectionAdapterError.unsupportedCapability
+        }
+      }
+    }
+  }
+
+  private func destinationFolderId(
+    for action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> String? {
+    let role: MailboxRole?
+    switch action {
+    case .archive:
+      role = .archive
+    case .delete:
+      role = .trash
+    case .notSpam, .restore:
+      role = .inbox
+    case .spam:
+      role = .spam
+    case .move:
+      guard let targetProviderMailboxId,
+        let folderId = MicrosoftGraphProviderMessage.folderId(
+          fromCustomFolderStateId: targetProviderMailboxId
+        )
+      else { throw MailboxConnectionAdapterError.providerMailboxTargetRequired }
+      return folderId
+    case .markRead, .markUnread:
+      return nil
+    case .star, .unstar:
+      throw MailboxConnectionAdapterError.unsupportedCapability
+    }
+    let state = try metadataStore.loadState(
+      productAccountId: session.productAccountId,
+      connectionId: connection.id
+    )
+    guard
+      let role,
+      let folderId = state?.folders.first(where: { $0.folder.role == role })?.folder.id
+    else { throw MailboxConnectionAdapterError.unsupportedCapability }
+    return folderId
   }
 
   func send(
@@ -2455,7 +3475,45 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    throw MailboxConnectionAdapterError.unsupportedCapability
+    try await withAccessTokenRetry(
+      connection: connection,
+      session: session,
+      isWithinSyncGate: false
+    ) { token in
+      try await metadataService.clientForAccountVerification.send(message, accessToken: token)
+    }
+  }
+
+  func deliveryStatus(
+    idempotencyKey: String,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxDeliveryStatus {
+    try await withAccessTokenRetry(
+      connection: connection,
+      session: session,
+      isWithinSyncGate: false
+    ) { token in
+      try await metadataService.clientForAccountVerification.deliveryStatus(
+        rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
+        accessToken: token
+      )
+    }
+  }
+
+  private func reconcileAndResumePendingActions(
+    messages: [MailboxMessageMetadata],
+    removesContradictedActions: Bool,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await pendingActionService.reconcileProviderSync(
+      messages: messages,
+      removesContradictedActions: removesContradictedActions,
+      connection: connection,
+      session: session
+    )
+    _ = await resumePendingActions(connection: connection, session: session)
   }
 
   private func accessToken(
@@ -2499,6 +3557,33 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     return tokens.accessToken
   }
 
+  private func accessTokenForCleanup(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) async throws -> String? {
+    guard
+      var tokens = try tokenStore.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    else { return nil }
+    let refreshBoundary = Int64(now().addingTimeInterval(60).timeIntervalSince1970 * 1_000)
+    guard tokens.expiresAtMilliseconds <= refreshBoundary else {
+      return tokens.accessToken
+    }
+    do {
+      tokens = try await authorizer.refresh(tokens)
+    } catch MicrosoftGraphOAuthError.authorizationRejected {
+      return nil
+    }
+    try tokenStore.save(
+      tokens,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    return tokens.accessToken
+  }
+
   private func withAccessTokenRetry<T>(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -2512,11 +3597,19 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     do {
       return try await operation(token)
-    } catch MicrosoftGraphClientError.requestFailed(401) {
+    } catch let error where isUnauthorized(error) {
       return try await operation(
         try await refreshAccessToken(connection: connection, session: session)
       )
     }
+  }
+
+  private func isUnauthorized(_ error: Error) -> Bool {
+    if case .requestFailed(401) = error as? MicrosoftGraphClientError {
+      return true
+    }
+    guard let sendError = error as? MicrosoftGraphSendError else { return false }
+    return isUnauthorized(sendError.underlyingError)
   }
 
   private func refreshAccessToken(
@@ -2562,9 +3655,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     authorized: Bool,
     updatedAt: Int64?
   ) -> MailboxConnection {
-    MailboxConnection(
+    let folders =
+      try? metadataStore.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: definition.id
+      )?.folders.map(\.folder)
+    return MailboxConnection(
       authorizationState: authorized ? .authorized : .required,
-      capabilities: authorized ? .microsoftGraphRead : .none,
+      capabilities: authorized ? .microsoftGraph(folders: folders ?? []) : .none,
       connectedAt: definition.connectedAt,
       displayName: definition.displayName,
       id: definition.id,
@@ -2603,7 +3701,7 @@ enum MicrosoftGraphOAuthError: LocalizedError, Equatable {
   case configurationMissing
   case invalidAuthorizationCallback
   case invalidAuthorizationState
-  case tokenExchangeFailed
+  case tokenExchangeFailed(status: Int?)
   case webAuthenticationUnavailable
 
   var errorDescription: String? {
@@ -2648,7 +3746,7 @@ extension MailboxMessageMetadata {
 @MainActor
 final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
   nonisolated fileprivate static let scopes =
-    "openid profile email offline_access User.Read Mail.Read"
+    "openid profile email offline_access User.Read Mail.ReadWrite Mail.Send"
 
   private let callbackScheme: String?
   private let clientIdentifier: String?
@@ -2716,13 +3814,15 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
         "refresh_token": tokens.refreshToken,
         "scope": Self.scopes,
       ],
-      fallbackRefreshToken: tokens.refreshToken
+      fallbackRefreshToken: tokens.refreshToken,
+      fallbackScopes: tokens.grantedScopes
     )
   }
 
   private func exchange(
     parameters: [String: String],
-    fallbackRefreshToken: String? = nil
+    fallbackRefreshToken: String? = nil,
+    fallbackScopes: Set<String>? = nil
   ) async throws -> MicrosoftGraphTokens {
     var request = URLRequest(
       url: URL(string: "https://login.microsoftonline.com/common/oauth2/v2.0/token")!
@@ -2736,17 +3836,25 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     {
       throw MicrosoftGraphOAuthError.authorizationRejected
     }
+    guard let response = response as? HTTPURLResponse else {
+      throw MicrosoftGraphOAuthError.tokenExchangeFailed(status: nil)
+    }
     guard
-      let response = response as? HTTPURLResponse,
       (200..<300).contains(response.statusCode),
       let payload = try? JSONDecoder().decode(MicrosoftGraphTokenResponse.self, from: data),
       let refreshToken = payload.refreshToken?.nonEmpty ?? fallbackRefreshToken?.nonEmpty
-    else { throw MicrosoftGraphOAuthError.tokenExchangeFailed }
+    else { throw MicrosoftGraphOAuthError.tokenExchangeFailed(status: response.statusCode) }
+    let requestedScopes = Set(
+      Self.scopes.split(whereSeparator: \.isWhitespace).map(String.init)
+    )
     return MicrosoftGraphTokens(
       accessToken: payload.accessToken,
       expiresAtMilliseconds: Int64(
         now().addingTimeInterval(TimeInterval(payload.expiresIn)).timeIntervalSince1970 * 1_000
       ),
+      grantedScopes: payload.scope.map {
+        Set($0.split(whereSeparator: \.isWhitespace).map(String.init))
+      } ?? fallbackScopes ?? requestedScopes,
       refreshToken: refreshToken
     )
   }
@@ -2882,11 +3990,13 @@ private struct MicrosoftGraphTokenResponse: Decodable {
   let accessToken: String
   let expiresIn: Int
   let refreshToken: String?
+  let scope: String?
 
   enum CodingKeys: String, CodingKey {
     case accessToken = "access_token"
     case expiresIn = "expires_in"
     case refreshToken = "refresh_token"
+    case scope
   }
 }
 

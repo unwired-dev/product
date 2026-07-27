@@ -1,6 +1,6 @@
 /// <reference types="vite/client" />
 
-import { createHmac, generateKeyPairSync, sign } from 'node:crypto';
+import { createHash, createHmac, generateKeyPairSync, sign } from 'node:crypto';
 
 import type { TestConvexForDataModel } from 'convex-test';
 
@@ -3485,5 +3485,616 @@ describe('gmail push relay', () => {
       vi.unstubAllEnvs();
       apnsMock.stallResponseBody = false;
     }
+  });
+
+  it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
+    expect.assertions(7);
+
+    vi.useFakeTimers();
+    apnsMock.connections.length = 0;
+    apnsMock.requests.length = 0;
+    apnsMock.responseBody = '';
+    apnsMock.sessions.length = 0;
+    apnsMock.status = 200;
+    apnsMock.statusByToken = {};
+    vi.stubEnv('APNS_KEY_ID', 'key-id');
+    vi.stubEnv('APNS_TEAM_ID', 'team-id');
+    const { privateKey } = generateKeyPairSync('ec', { namedCurve: 'P-256' });
+    vi.stubEnv(
+      'APNS_PRIVATE_KEY',
+      privateKey.export({ format: 'pem', type: 'pkcs8' }),
+    );
+    vi.stubEnv('APNS_TOPIC', 'dev.unwired.mail');
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const device = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'graph-device',
+        platform: 'ios',
+      });
+      await asUser.mutation(api.pushRelay.registerDevice, {
+        apnsEnvironment: 'sandbox',
+        apnsToken: 'graph-device-token',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      const clientState = 'graph-client-state';
+      const clientStateDigest = createHash('sha256')
+        .update(clientState)
+        .digest('hex');
+      const route = await asUser.mutation(
+        api.pushRelay.prepareMicrosoftGraphRoute,
+        {
+          clientStateDigest,
+          opaqueConnectionId: 'opaque-graph-connection',
+          trustedDeviceId: device.trustedDeviceId,
+        },
+      );
+      await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest,
+        expiresAt: Date.now() + 10 * 60_000,
+        routeId: route.routeId,
+        subscriptionId: 'graph-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+
+      const validation = await t.fetch(
+        '/microsoft-graph/push?validationToken=validation-value',
+        { method: 'POST' },
+      );
+      await expect(validation.text()).resolves.toBe('validation-value');
+      const notification = {
+        clientState,
+        resource: 'users/private/messages/provider-message-id',
+        resourceData: {
+          body: 'provider message content must not cross the boundary',
+        },
+        subscriptionId: 'graph-subscription',
+      };
+      const pushURL = `/microsoft-graph/push?routeId=${route.routeId}`;
+      for (let index = 0; index < 2; index += 1) {
+        const response = await t.fetch(pushURL, {
+          body: JSON.stringify({ value: [notification] }),
+          headers: { 'content-type': 'application/json' },
+          method: 'POST',
+        });
+        expect(response.status).toBe(202);
+      }
+      const isolatedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: [
+            {
+              ...notification,
+              clientState: 'another-route-client-state',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const oversizedResponse = await t.fetch(pushURL, {
+        body: JSON.stringify({
+          value: Array.from({ length: 101 }, () => notification),
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const pendingWakeups = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      expect({
+        pendingWakeupCount: pendingWakeups.length,
+        pendingWakeupRouteId: pendingWakeups[0]?.routeId,
+        statuses: [isolatedResponse.status, oversizedResponse.status],
+      }).toStrictEqual({
+        pendingWakeupCount: 1,
+        pendingWakeupRouteId: route.routeId,
+        statuses: [202, 202],
+      });
+
+      apnsMock.status = 500;
+      const failedDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: pendingWakeups[0]!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await failedDelivery;
+      const retainedWakeups = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      expect({
+        attemptCount: retainedWakeups[0]!.attemptCount,
+        requestCount: apnsMock.requests.length,
+        retainedWakeupCount: retainedWakeups.length,
+        retryWasRescheduled:
+          retainedWakeups[0]!.scheduledAt > pendingWakeups[0]!.scheduledAt,
+      }).toStrictEqual({
+        attemptCount: 1,
+        requestCount: 1,
+        retainedWakeupCount: 1,
+        retryWasRescheduled: true,
+      });
+
+      const previousScheduledAt = retainedWakeups[0]!.scheduledAt;
+      await t.run(async (ctx) => {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.patch(retainedWakeups[0]!._id, { attemptCount: 4 });
+      });
+      await vi.advanceTimersByTimeAsync(1);
+      const newerNotification = await t.fetch(pushURL, {
+        body: JSON.stringify({ value: [notification] }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const refreshedWakeup = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+      expect({
+        attemptCount: refreshedWakeup?.attemptCount,
+        scheduledAtChanged:
+          refreshedWakeup?.scheduledAt !== previousScheduledAt,
+        status: newerNotification.status,
+      }).toStrictEqual({
+        attemptCount: 0,
+        scheduledAtChanged: false,
+        status: 202,
+      });
+
+      apnsMock.status = 200;
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      const remainingAfterSuccessfulRetry = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest,
+        expiresAt: Date.now() + 10 * 60_000,
+        routeId: route.routeId,
+        subscriptionId: 'graph-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      });
+      await t.fetch(pushURL, {
+        body: JSON.stringify({ value: [notification] }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const permanentWakeup = await t.run(async (ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+      apnsMock.status = 400;
+      const permanentDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: permanentWakeup!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await permanentDelivery;
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+      const remainingAfterPermanentFailure = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      expect({
+        payload: JSON.parse(apnsMock.requests[0]!.payload),
+        payloadContainsProviderData: apnsMock.requests[0]!.payload.includes(
+          'provider-message-id',
+        ),
+        remainingAfterPermanentFailure,
+        remainingAfterSuccessfulRetry,
+        requestCount: apnsMock.requests.length,
+      }).toStrictEqual({
+        payload: {
+          aps: { 'content-available': 1 },
+          provider: 'microsoft-graph',
+          routeId: route.routeId,
+        },
+        payloadContainsProviderData: false,
+        remainingAfterPermanentFailure: [],
+        remainingAfterSuccessfulRetry: [],
+        requestCount: 3,
+      });
+    } finally {
+      vi.useRealTimers();
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it('retains a Microsoft Graph notification received before route confirmation', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-preconfirmation-device',
+      platform: 'ios',
+    });
+    await asUser.mutation(api.pushRelay.registerDevice, {
+      apnsEnvironment: 'sandbox',
+      apnsToken: 'graph-preconfirmation-token',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const clientStateDigest = createHash('sha256')
+      .update('graph-preconfirmation-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest,
+        opaqueConnectionId: 'opaque-graph-preconfirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+
+    await expect(
+      t.mutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest,
+        routeId: route.routeId,
+        subscriptionId: 'graph-preconfirmation-subscription',
+      }),
+    ).resolves.toStrictEqual({ accepted: true });
+    const staged = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(staged).toMatchObject({
+      clientStateDigest,
+      routeId: route.routeId,
+      subscriptionId: 'graph-preconfirmation-subscription',
+    });
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-preconfirmation-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const confirmed = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(confirmed?.routeId).toBe(route.routeId);
+    await expect(
+      t.mutation(internal.pushRelay.claimMicrosoftGraphWakeup, {
+        routeId: route.routeId,
+        scheduledAt: confirmed!.scheduledAt,
+      }),
+    ).resolves.toMatchObject({
+      apnsToken: 'graph-preconfirmation-token',
+      routeId: route.routeId,
+    });
+  });
+
+  it('caps Microsoft Graph routes per trusted device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-route-cap-device',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      await Promise.all(
+        Array.from({ length: 20 }, async (_, index) => {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: index,
+            lastVerifiedAt: index,
+            opaqueConnectionId: `opaque-graph-${String(index)}`,
+            productAccountId: device.productAccountId,
+            provider: 'microsoft-graph',
+            trustedDeviceId: device.trustedDeviceId,
+            updatedAt: index,
+          });
+        }),
+      );
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+        clientStateDigest: 'new-client-state-digest',
+        opaqueConnectionId: 'opaque-graph-over-limit',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Microsoft Graph connection limit reached');
+    await expect(
+      asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+        clientStateDigest: 'replacement-client-state-digest',
+        opaqueConnectionId: 'opaque-graph-0',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ routeId: expect.any(String) });
+  });
+
+  it('rejects unauthenticated and cross-account Graph route mutations', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const firstUser = t.withIdentity(appleIdentity);
+    const firstDevice = await firstUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-first-device',
+      platform: 'ios',
+    });
+    const otherUser = t.withIdentity({
+      ...appleIdentity,
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    await otherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-other-device',
+      platform: 'ios',
+    });
+    const routeArgs = {
+      clientStateDigest: 'graph-route-digest',
+      opaqueConnectionId: 'opaque-graph-auth',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+    const route = await firstUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      routeArgs,
+    );
+    const confirmationArgs = {
+      clientStateDigest: routeArgs.clientStateDigest,
+      expiresAt: Date.now() + 60_000,
+      routeId: route.routeId,
+      subscriptionId: 'graph-auth-subscription',
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+    const removalArgs = {
+      opaqueConnectionId: routeArgs.opaqueConnectionId,
+      trustedDeviceId: firstDevice.trustedDeviceId,
+    };
+
+    const results = await Promise.allSettled([
+      t.mutation(api.pushRelay.prepareMicrosoftGraphRoute, routeArgs),
+      t.mutation(api.pushRelay.confirmMicrosoftGraphRoute, confirmationArgs),
+      t.mutation(api.pushRelay.removeMicrosoftGraphRoute, removalArgs),
+      otherUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, routeArgs),
+      otherUser.mutation(
+        api.pushRelay.confirmMicrosoftGraphRoute,
+        confirmationArgs,
+      ),
+      otherUser.mutation(api.pushRelay.removeMicrosoftGraphRoute, removalArgs),
+    ]);
+
+    expect(
+      results.map((result) => String(Reflect.get(result, 'reason'))),
+    ).toStrictEqual([
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Authentication required'),
+      expect.stringContaining('Trusted device required'),
+      expect.stringContaining('Trusted device required'),
+      expect.stringContaining('Trusted device required'),
+    ]);
+  });
+
+  it('rejects a stale Microsoft Graph subscription confirmation', async () => {
+    expect.assertions(3);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-confirmation-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256')
+      .update('first-state')
+      .digest('hex');
+    const secondDigest = createHash('sha256')
+      .update('second-state')
+      .digest('hex');
+    const firstRoute = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-confirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    const secondRoute = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: secondDigest,
+        opaqueConnectionId: 'opaque-graph-confirmation',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+
+    expect(secondRoute.routeId).toBe(firstRoute.routeId);
+    await expect(
+      asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest: firstDigest,
+        expiresAt: Date.now() + 60_000,
+        routeId: firstRoute.routeId,
+        subscriptionId: 'stale-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Microsoft Graph route rejected');
+    await expect(
+      asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+        clientStateDigest: secondDigest,
+        expiresAt: Date.now() + 60_000,
+        routeId: secondRoute.routeId,
+        subscriptionId: 'current-subscription',
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ routeId: secondRoute.routeId });
+  });
+
+  it('keeps a confirmed Microsoft Graph route active while preparing its replacement', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-replacement-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256')
+      .update('active-state')
+      .digest('hex');
+    const replacementDigest = createHash('sha256')
+      .update('replacement-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-replacement',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      opaqueConnectionId: 'opaque-graph-replacement',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const prepared = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(prepared).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftPendingClientStateDigest: replacementDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+    const activePush = await t.fetch(
+      `/microsoft-graph/push?routeId=${route.routeId}`,
+      {
+        body: JSON.stringify({
+          value: [
+            {
+              clientState: 'active-state',
+              subscriptionId: 'active-subscription',
+            },
+          ],
+        }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      },
+    );
+    expect(activePush.status).toBe(202);
+    const pendingWakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect(pendingWakeup?.routeId).toBe(route.routeId);
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const renewed = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(renewed).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftPendingClientStateDigest: replacementDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'replacement-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const confirmed = await t.run((ctx) => ctx.db.get(route.routeId));
+    const retainedWakeup = await t.run((ctx) =>
+      ctx.db.query('microsoftGraphWakeupStates').unique(),
+    );
+    expect({
+      clientStateDigest: confirmed?.microsoftClientStateDigest,
+      pendingClientStateDigest: confirmed?.microsoftPendingClientStateDigest,
+      retainedWakeup: {
+        clientStateDigest: retainedWakeup?.clientStateDigest,
+        routeId: retainedWakeup?.routeId,
+        subscriptionId: retainedWakeup?.subscriptionId,
+      },
+      subscriptionId: confirmed?.microsoftSubscriptionId,
+    }).toStrictEqual({
+      clientStateDigest: replacementDigest,
+      pendingClientStateDigest: undefined,
+      retainedWakeup: {
+        clientStateDigest: replacementDigest,
+        routeId: route.routeId,
+        subscriptionId: 'replacement-subscription',
+      },
+      subscriptionId: 'replacement-subscription',
+    });
+  });
+
+  it('rolls back only the matching failed Microsoft Graph preparation', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-rollback-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256').update('first').digest('hex');
+    const replacementDigest = createHash('sha256')
+      .update('replacement')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-rollback',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    await asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      opaqueConnectionId: 'opaque-graph-rollback',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await expect(
+      asUser.mutation(api.pushRelay.rollbackMicrosoftGraphRoute, {
+        clientStateDigest: replacementDigest,
+        routeId: route.routeId,
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ rolledBack: true });
+    const retained = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(retained).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+    expect(retained?.microsoftPendingClientStateDigest).toBeUndefined();
+
+    const unconfirmed = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: replacementDigest,
+        opaqueConnectionId: 'opaque-graph-unconfirmed',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await expect(
+      asUser.mutation(api.pushRelay.rollbackMicrosoftGraphRoute, {
+        clientStateDigest: replacementDigest,
+        routeId: unconfirmed.routeId,
+        trustedDeviceId: device.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ rolledBack: true });
+    await expect(
+      t.run((ctx) => ctx.db.get(unconfirmed.routeId)),
+    ).resolves.toBeNull();
   });
 });

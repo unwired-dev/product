@@ -64,7 +64,7 @@ function gmailConnectionStatus(
     connectedAt: connection.connectedAt,
     emailAddress: connection.emailAddress,
     lastVerifiedAt: connection.lastVerifiedAt,
-    provider: connection.provider,
+    provider: 'gmail' as const,
     providerAccountIdentifier: connection.providerAccountIdentifier,
     trustedDeviceId: connection.trustedDeviceId,
     updatedAt: connection.updatedAt,

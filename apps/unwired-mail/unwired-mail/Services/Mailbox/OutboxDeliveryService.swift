@@ -198,76 +198,105 @@ typealias OutboxDeliveryReconciler =
     _ connectionId: MailboxConnectionId
   ) async throws -> MailboxDeliveryStatus
 
-private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDeliveryFailureDisposition =
-  { error in
-    if let urlError = error as? URLError {
-      switch urlError.code {
-      case .cannotConnectToHost, .cannotFindHost, .dataNotAllowed, .dnsLookupFailed,
-        .internationalRoamingOff, .notConnectedToInternet:
-        return .transient
-      default:
-        return .ambiguous
-      }
-    }
-    if let metadataError = error as? GmailMessageMetadataSyncError {
-      switch metadataError {
-      case .insufficientGmailScope, .missingLocalGmailTokens,
-        .refreshedTokenAccountMismatch, .refreshTokenRejected:
-        return .userActionRequired
-      case .oauthResponseStatus(let status):
-        if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
-          return .transient
-        }
-        return .userActionRequired
-      default:
-        break
-      }
-    }
-    if let ewsError = error as? EWSServiceError {
-      switch ewsError {
-      case .authenticationRejected:
-        return .userActionRequired
-      case .invalidResponse:
-        return .ambiguous
-      case .response(let code, _):
-        let status = code.split(separator: " ").last.flatMap { Int($0) }
-        if status.map({ $0 >= 500 }) == true
-          || status == 408 || status == 409 || status == 425
-          || code == "ErrorTimeoutExpired"
-        {
-          return .ambiguous
-        }
-        if status == 429
-          || [
-            "ErrorADUnavailable",
-            "ErrorExceededConnectionCount",
-            "ErrorInternalServerTransientError",
-            "ErrorMailboxStoreUnavailable",
-            "ErrorServerBusy",
-          ].contains(code)
-        {
-          return .transient
-        }
-      }
-    }
-    if error as? MailboxConnectionAdapterError == .authorizationRequired {
-      return .userActionRequired
-    }
-    if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
+// swiftlint:disable:next cyclomatic_complexity function_body_length
+func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposition {
+  if let sendError = error as? MicrosoftGraphSendError {
+    let disposition = outboxFailureDisposition(for: sendError.underlyingError)
+    if sendError.stage == .preparation, disposition == .ambiguous {
       return .transient
     }
-    if case .responseStatus(let status) = error as? GmailProviderMailActionError {
-      if status == 401 || status == 403 {
-        return .userActionRequired
-      }
-      if status == 429 {
+    return disposition
+  }
+  if let urlError = error as? URLError {
+    switch urlError.code {
+    case .cannotConnectToHost, .cannotFindHost, .dataNotAllowed, .dnsLookupFailed,
+      .internationalRoamingOff, .notConnectedToInternet:
+      return .transient
+    default:
+      return .ambiguous
+    }
+  }
+  if let metadataError = error as? GmailMessageMetadataSyncError {
+    switch metadataError {
+    case .insufficientGmailScope, .missingLocalGmailTokens,
+      .refreshedTokenAccountMismatch, .refreshTokenRejected:
+      return .userActionRequired
+    case .oauthResponseStatus(let status):
+      if status == 408 || status == 409 || status == 425 || status == 429 || status >= 500 {
         return .transient
       }
-      if status == 408 || status == 409 || status == 425 || status >= 500 {
+      return .userActionRequired
+    default:
+      break
+    }
+  }
+  if error as? MailboxConnectionAdapterError == .authorizationRequired {
+    return .userActionRequired
+  }
+  if let ewsError = error as? EWSServiceError {
+    switch ewsError {
+    case .authenticationRejected:
+      return .userActionRequired
+    case .invalidResponse:
+      return .ambiguous
+    case .response(let code, _):
+      let status = code.split(separator: " ").last.flatMap { Int($0) }
+      if status.map({ $0 >= 500 }) == true
+        || status == 408 || status == 409 || status == 425
+        || code == "ErrorTimeoutExpired"
+      {
         return .ambiguous
       }
+      if status == 429
+        || [
+          "ErrorADUnavailable",
+          "ErrorExceededConnectionCount",
+          "ErrorInternalServerTransientError",
+          "ErrorMailboxStoreUnavailable",
+          "ErrorServerBusy",
+        ].contains(code)
+      {
+        return .transient
+      }
     }
-    return .permanent
+  }
+  if case .tokenExchangeFailed(let status) = error as? MicrosoftGraphOAuthError,
+    let status,
+    status == 408 || status == 409 || status == 425 || status == 429 || status >= 500
+  {
+    return .transient
+  }
+  if case .requestFailed(let status) = error as? MicrosoftGraphClientError {
+    if status == 401 || status == 403 {
+      return .userActionRequired
+    }
+    if status == 429 {
+      return .transient
+    }
+    if status == 408 || status == 409 || status == 425 || status >= 500 {
+      return .ambiguous
+    }
+  }
+  if case .rateLimitedResponseStatus = error as? GmailProviderMailActionError {
+    return .transient
+  }
+  if case .responseStatus(let status) = error as? GmailProviderMailActionError {
+    if status == 401 || status == 403 {
+      return .userActionRequired
+    }
+    if status == 429 {
+      return .transient
+    }
+    if status == 408 || status == 409 || status == 425 || status >= 500 {
+      return .ambiguous
+    }
+  }
+  return .permanent
+}
+
+private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDeliveryFailureDisposition =
+  {
+    outboxFailureDisposition(for: $0)
   }
 
 private let defaultOutboxRetryDelay: @Sendable (Int) -> UInt64 = { attempt in

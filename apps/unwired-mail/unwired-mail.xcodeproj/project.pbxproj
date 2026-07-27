@@ -70,6 +70,7 @@
 		71A6A1322C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1332C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift */; };
 		71A6A1342C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1352C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift */; };
 		71A6A1362C0B000100000001 /* Features/Account/EWSSetupPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1372C0B000100000001 /* Features/Account/EWSSetupPanel.swift */; };
+		71A6A1242C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */; };
 		71A6A1002C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */; };
 		71A6A1102C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */; };
 		71A6A1022C0B000100000001 /* PendingProviderActionServiceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */; };
@@ -151,6 +152,7 @@
 		71A6A10B2C0B000100000001 /* IMAPMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IMAPMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
 		71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift; sourceTree = "<group>"; };
 		71A6A1232C0B000100000001 /* MicrosoftGraphMailboxConnectionAdapterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MicrosoftGraphMailboxConnectionAdapterTests.swift; sourceTree = "<group>"; };
+		71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift; sourceTree = "<group>"; };
 		71A6A1012C0B000100000001 /* Services/Mailbox/PendingProviderActionService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/PendingProviderActionService.swift; sourceTree = "<group>"; };
 		71A6A1112C0B000100000001 /* Services/Mailbox/OutboxDeliveryService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/OutboxDeliveryService.swift; sourceTree = "<group>"; };
 		71A6A1032C0B000100000001 /* PendingProviderActionServiceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PendingProviderActionServiceTests.swift; sourceTree = "<group>"; };
@@ -217,6 +219,7 @@
 				71A6A1212C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift */,
 				71A6A1332C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift */,
 				71A6A1352C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift */,
+				71A6A1252C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift */,
 				71A6A1092C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift */,
 				71A6A0D52C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift */,
 				71A6A0822C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift */,
@@ -404,6 +407,7 @@
 				71A6A1202C0B000100000001 /* Services/Mailbox/MicrosoftGraphMailboxConnectionAdapter.swift in Sources */,
 				71A6A1322C0B000100000001 /* Services/Mailbox/EWSMailboxConnectionAdapter.swift in Sources */,
 				71A6A1342C0B000100000001 /* Services/Mailbox/SystemEWSClient.swift in Sources */,
+				71A6A1242C0B000100000001 /* Services/MicrosoftGraph/MicrosoftGraphPushRelayService.swift in Sources */,
 				71A6A1082C0B000100000001 /* Services/Mailbox/SystemIMAPMailboxClient.swift in Sources */,
 				71A6A0D42C0B000100000001 /* Services/Mailbox/SystemGenericMailEndpointVerifier.swift in Sources */,
 				71A6A0802C0B000100000001 /* Services/ProductAccount/GmailProviderConnectionService.swift in Sources */,

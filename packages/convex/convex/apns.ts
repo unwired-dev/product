@@ -21,6 +21,7 @@ const apnsEnvironmentValidator = v.union(
 );
 
 const apnsRequestTimeoutMs = 10_000;
+const permanentApnsFailureStatuses = new Set([400, 403, 404, 405, 410, 413]);
 
 type ApnsConfiguration = Readonly<{
   keyId: string;
@@ -231,6 +232,16 @@ function isStaleTokenFailure(
   );
 }
 
+function isPermanentApnsFailure(
+  result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
+): boolean {
+  return (
+    result.status === 'rejected' &&
+    result.reason instanceof ApnsRequestError &&
+    permanentApnsFailureStatuses.has(result.reason.status)
+  );
+}
+
 async function handleDeliveryResult(
   ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex action context invokes mutations.
   result: PromiseSettledResult<void>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Promise results are immutable inputs here.
@@ -376,6 +387,62 @@ export const deliverQueuedGmailWakeups = internalAction({
         recipients,
       });
     }
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const deliverMicrosoftGraphWakeup = internalAction({
+  args: {
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const recipient = await ctx.runMutation(
+      internal.pushRelay.claimMicrosoftGraphWakeup,
+      args,
+    );
+    if (recipient === null) {
+      return null;
+    }
+    let delivered = false;
+    let terminalFailure = false;
+    try {
+      const configuration = apnsConfiguration();
+      const client = connect(apnsAuthority(recipient.apnsEnvironment));
+      client.on('error', (error) => {
+        console.error('APNs HTTP/2 session failed', error);
+      });
+      const result = await Promise.allSettled([
+        sendWakeup(
+          {
+            apnsEnvironment: recipient.apnsEnvironment,
+            apnsToken: recipient.apnsToken,
+            authorization: providerToken(configuration),
+            configuration,
+            payload: JSON.stringify({
+              aps: { 'content-available': 1 },
+              provider: 'microsoft-graph',
+              routeId: recipient.routeId,
+            }),
+          },
+          client,
+        ),
+      ]).finally(() => {
+        client.close();
+      });
+      await handleDeliveryResult(ctx, result[0], recipient);
+      delivered = result[0].status === 'fulfilled';
+      terminalFailure = isPermanentApnsFailure(result[0]);
+    } catch (error) {
+      console.error('APNs wakeup delivery failed', error);
+    }
+    await ctx.runMutation(internal.pushRelay.completeMicrosoftGraphWakeup, {
+      delivered,
+      routeId: args.routeId,
+      scheduledAt: args.scheduledAt,
+      terminalFailure,
+    });
     return null;
   },
   returns: v.null(),
