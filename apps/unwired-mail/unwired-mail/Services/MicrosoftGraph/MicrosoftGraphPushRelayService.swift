@@ -400,25 +400,28 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     }
     let clientState = UUID().uuidString
     let clientStateDigest = sha256Hex(clientState)
+    let connectionOpaqueId = opaqueConnectionId(connection, session: session)
     let route = try await transport.prepareMicrosoftGraphPushRoute(
       clientStateDigest: clientStateDigest,
       identityToken: session.identityToken,
-      opaqueConnectionId: opaqueConnectionId(connection, session: session),
+      opaqueConnectionId: connectionOpaqueId,
       trustedDeviceId: session.trustedDeviceId
     )
     notificationURL.append(queryItems: [URLQueryItem(name: "routeId", value: route.routeId)])
-    let subscription = try await subscriptionClient.create(
-      accessToken: accessToken,
-      clientState: clientState,
-      expirationDate: expirationDate,
-      notificationURL: notificationURL
-    )
+    var createdSubscriptionId: String?
     do {
+      let subscription = try await subscriptionClient.create(
+        accessToken: accessToken,
+        clientState: clientState,
+        expirationDate: expirationDate,
+        notificationURL: notificationURL
+      )
+      createdSubscriptionId = subscription.subscriptionId
       try await confirmAndSave(
         current: MicrosoftGraphPushStatus(
           clientStateDigest: clientStateDigest,
           expiresAtMilliseconds: 0,
-          opaqueConnectionId: opaqueConnectionId(connection, session: session),
+          opaqueConnectionId: connectionOpaqueId,
           providerAccountIdentifier: connection.providerMailboxIdentity.value,
           routeId: route.routeId,
           subscriptionId: subscription.subscriptionId
@@ -427,9 +430,16 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
         session: session
       )
     } catch {
-      try? await subscriptionClient.delete(
-        accessToken: accessToken,
-        subscriptionId: subscription.subscriptionId
+      if let createdSubscriptionId {
+        try? await subscriptionClient.delete(
+          accessToken: accessToken,
+          subscriptionId: createdSubscriptionId
+        )
+      }
+      _ = try? await transport.removeMicrosoftGraphPushRoute(
+        identityToken: session.identityToken,
+        opaqueConnectionId: connectionOpaqueId,
+        trustedDeviceId: session.trustedDeviceId
       )
       throw error
     }

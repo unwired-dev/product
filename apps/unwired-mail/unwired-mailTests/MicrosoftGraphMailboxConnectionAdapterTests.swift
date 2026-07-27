@@ -1596,6 +1596,44 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-1"])
     XCTAssertEqual(subscriptionClient.deleteAccessTokens, ["provider-access-token"])
+    XCTAssertEqual(
+      routeTransport.removedOpaqueConnectionIds,
+      [routeTransport.prepared[0].opaqueConnectionId]
+    )
+  }
+
+  func testPushRegistrationRemovesPreparedRouteWhenSubscriptionCreationFails() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    subscriptionClient.createError = URLError(.cannotConnectToHost)
+    let defaultsName = "MicrosoftGraphPushPreparationRollbackTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let service = MicrosoftGraphPushSubscriptionService(
+      siteURL: URL(string: "https://deployment.convex.site"),
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      subscriptionClient: subscriptionClient,
+      transport: routeTransport
+    )
+
+    do {
+      try await service.registerOrRenew(
+        connection: connection,
+        accessToken: "provider-access-token",
+        session: session
+      )
+      XCTFail("Expected subscription creation failure")
+    } catch {}
+
+    XCTAssertEqual(
+      routeTransport.removedOpaqueConnectionIds,
+      [routeTransport.prepared[0].opaqueConnectionId]
+    )
+    XCTAssertTrue(subscriptionClient.deletedSubscriptionIds.isEmpty)
   }
 
   func testPushRegistrationRecreatesAnExpiredProviderSubscription() async throws {
@@ -2207,6 +2245,7 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
   }
 
   private(set) var created: [CreateCall] = []
+  var createError: Error?
   private(set) var deleteAccessTokens: [String] = []
   private(set) var deletedSubscriptionIds: [String] = []
   var deleteError: Error?
@@ -2227,6 +2266,7 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
         notificationURL: notificationURL
       )
     )
+    if let createError { throw createError }
     return MicrosoftGraphPushStatusProviderResponse(
       expirationDate: expirationDate,
       subscriptionId: "subscription-1"

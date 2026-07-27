@@ -3488,7 +3488,7 @@ describe('gmail push relay', () => {
   });
 
   it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
-    expect.assertions(5);
+    expect.assertions(6);
 
     vi.useFakeTimers();
     apnsMock.connections.length = 0;
@@ -3531,7 +3531,7 @@ describe('gmail push relay', () => {
       );
       await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
         clientStateDigest,
-        expiresAt: Date.now() + 60_000,
+        expiresAt: Date.now() + 10 * 60_000,
         routeId: route.routeId,
         subscriptionId: 'graph-subscription',
         trustedDeviceId: device.trustedDeviceId,
@@ -3591,6 +3591,31 @@ describe('gmail push relay', () => {
         statuses: [202, 400],
       });
 
+      apnsMock.status = 500;
+      const failedDelivery = t.action(
+        internal.apns.deliverMicrosoftGraphWakeup,
+        {
+          routeId: route.routeId,
+          scheduledAt: pendingWakeups[0]!.scheduledAt,
+        },
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      await failedDelivery;
+      const retainedWakeups = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').collect(),
+      );
+      expect({
+        requestCount: apnsMock.requests.length,
+        retainedWakeupCount: retainedWakeups.length,
+        retryWasRescheduled:
+          retainedWakeups[0]!.scheduledAt > pendingWakeups[0]!.scheduledAt,
+      }).toStrictEqual({
+        requestCount: 1,
+        retainedWakeupCount: 1,
+        retryWasRescheduled: true,
+      });
+
+      apnsMock.status = 200;
       await t.finishAllScheduledFunctions(vi.runAllTimers);
 
       const remainingWakeups = await t.run((ctx) =>
@@ -3611,7 +3636,7 @@ describe('gmail push relay', () => {
         },
         payloadContainsProviderData: false,
         remainingWakeups: [],
-        requestCount: 1,
+        requestCount: 2,
       });
     } finally {
       vi.useRealTimers();

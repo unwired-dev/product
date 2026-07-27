@@ -73,6 +73,7 @@ const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
 const microsoftGraphConnectionLimitPerTrustedDevice = 20;
+const microsoftGraphWakeupRetryDelayMs = 60 * 1000;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
 const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
@@ -2321,22 +2322,63 @@ export const claimMicrosoftGraphWakeup = internalMutation({
     if (state?.scheduledAt !== args.scheduledAt) {
       return null;
     }
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(state._id);
     if (
       route === null ||
       route.provider !== 'microsoft-graph' ||
       (route.microsoftSubscriptionExpiresAt ?? 0) <= Date.now()
     ) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(state._id);
       return null;
     }
     const device = await ctx.db.get(route.trustedDeviceId);
     if (!hasActiveApnsRoute(device)) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(state._id);
       return null;
     }
     return apnsRecipient(device, args.routeId);
   },
   returns: v.union(apnsRecipientValidator, v.null()),
+});
+
+export const completeMicrosoftGraphWakeup = internalMutation({
+  args: {
+    delivered: v.boolean(),
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const state = await microsoftGraphWakeupState(ctx, args.routeId);
+    if (state?.scheduledAt !== args.scheduledAt) {
+      return null;
+    }
+    const route = await ctx.db.get(args.routeId);
+    const device =
+      route?.provider === 'microsoft-graph'
+        ? await ctx.db.get(route.trustedDeviceId)
+        : null;
+    if (
+      args.delivered ||
+      route?.provider !== 'microsoft-graph' ||
+      (route.microsoftSubscriptionExpiresAt ?? 0) <= Date.now() ||
+      !hasActiveApnsRoute(device)
+    ) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(state._id);
+      return null;
+    }
+    const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + 1);
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(state._id, { scheduledAt: retryScheduledAt });
+    await ctx.scheduler.runAfter(
+      microsoftGraphWakeupRetryDelayMs,
+      internal.apns.deliverMicrosoftGraphWakeup,
+      { routeId: args.routeId, scheduledAt: retryScheduledAt },
+    );
+    return null;
+  },
+  returns: v.null(),
 });
 
 function isCurrentPushRoute(
