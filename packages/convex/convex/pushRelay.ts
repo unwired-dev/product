@@ -2229,10 +2229,22 @@ async function saveMicrosoftGraphRoute(
   }
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const routeId = options.existing._id;
+  const hasConfirmedSubscription =
+    options.existing.microsoftSubscriptionId !== undefined &&
+    (options.existing.microsoftSubscriptionExpiresAt ?? 0) > options.now;
+  if (hasConfirmedSubscription) {
+    await ctx.db.patch(routeId, {
+      lastVerifiedAt: options.now,
+      microsoftPendingClientStateDigest: args.clientStateDigest,
+      updatedAt: options.now,
+    });
+    return routeId;
+  }
   await deleteMicrosoftGraphWakeupState(ctx, routeId);
   await ctx.db.patch(routeId, {
     lastVerifiedAt: options.now,
     microsoftClientStateDigest: args.clientStateDigest,
+    microsoftPendingClientStateDigest: undefined,
     microsoftSubscriptionExpiresAt: undefined,
     microsoftSubscriptionId: undefined,
     updatedAt: options.now,
@@ -2304,6 +2316,9 @@ function hasMatchingMicrosoftGraphConfirmation(
   route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
   args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
 ): boolean {
+  if (route.microsoftPendingClientStateDigest !== undefined) {
+    return args.clientStateDigest === route.microsoftPendingClientStateDigest;
+  }
   if (route.microsoftClientStateDigest === undefined) {
     return false;
   }
@@ -2343,6 +2358,9 @@ async function confirmMicrosoftGraphRouteForDevice(
   const now = Date.now();
   await ctx.db.patch(args.routeId, {
     lastVerifiedAt: now,
+    microsoftClientStateDigest:
+      args.clientStateDigest ?? route.microsoftClientStateDigest,
+    microsoftPendingClientStateDigest: undefined,
     microsoftSubscriptionExpiresAt: args.expiresAt,
     microsoftSubscriptionId: args.subscriptionId,
     updatedAt: now,

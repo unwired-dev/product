@@ -69,6 +69,7 @@ export default defineSchema({
     gmailRoutingKeyVersion: v.optional(v.number()),
     lastVerifiedAt: v.number(),
     microsoftClientStateDigest: v.optional(v.string()),
+    microsoftPendingClientStateDigest: v.optional(v.string()),
     microsoftSubscriptionExpiresAt: v.optional(v.number()),
     microsoftSubscriptionId: v.optional(v.string()),
     opaqueConnectionId: v.optional(v.string()),

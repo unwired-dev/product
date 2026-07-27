@@ -433,6 +433,53 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(client.moves.isEmpty)
   }
 
+  func testAmbiguousGraphTransportFailureDoesNotReplayMove() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "archive-id", displayName: "Archive", wellKnownName: "archive"),
+    ]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.moveErrors = [URLError(.networkConnectionLost)]
+    let pendingStore = InMemoryGraphPendingActionStore()
+    let pendingActions = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 0 },
+      store: pendingStore
+    )
+    let adapter = try authorizedAdapter(
+      client: client,
+      pendingActionService: pendingActions
+    )
+    let initialConnections = try await adapter.loadConnections(session: session)
+    let initialConnection = try XCTUnwrap(initialConnections.first)
+    let inbox = try await adapter.syncInbox(
+      connection: initialConnection,
+      session: session
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let message = try XCTUnwrap(inbox.messages.first)
+
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    XCTAssertEqual(client.moveAttempts, 1)
+    let hasBlockedAction = try await pendingActions.hasBlockedAction(
+      connection: connection,
+      session: session
+    )
+    XCTAssertTrue(hasBlockedAction)
+  }
+
   func testMappedFolderRolesControlAdvertisedProviderActions() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [

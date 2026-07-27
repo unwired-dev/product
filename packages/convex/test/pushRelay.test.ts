@@ -3833,4 +3833,61 @@ describe('gmail push relay', () => {
       }),
     ).resolves.toStrictEqual({ routeId: secondRoute.routeId });
   });
+
+  it('keeps a confirmed Microsoft Graph route active while preparing its replacement', async () => {
+    expect.hasAssertions();
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const device = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'graph-replacement-device',
+      platform: 'ios',
+    });
+    const firstDigest = createHash('sha256')
+      .update('active-state')
+      .digest('hex');
+    const replacementDigest = createHash('sha256')
+      .update('replacement-state')
+      .digest('hex');
+    const route = await asUser.mutation(
+      api.pushRelay.prepareMicrosoftGraphRoute,
+      {
+        clientStateDigest: firstDigest,
+        opaqueConnectionId: 'opaque-graph-replacement',
+        trustedDeviceId: device.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: firstDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'active-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+
+    await asUser.mutation(api.pushRelay.prepareMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      opaqueConnectionId: 'opaque-graph-replacement',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const prepared = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(prepared).toMatchObject({
+      microsoftClientStateDigest: firstDigest,
+      microsoftPendingClientStateDigest: replacementDigest,
+      microsoftSubscriptionId: 'active-subscription',
+    });
+
+    await asUser.mutation(api.pushRelay.confirmMicrosoftGraphRoute, {
+      clientStateDigest: replacementDigest,
+      expiresAt: Date.now() + 120_000,
+      routeId: route.routeId,
+      subscriptionId: 'replacement-subscription',
+      trustedDeviceId: device.trustedDeviceId,
+    });
+    const confirmed = await t.run((ctx) => ctx.db.get(route.routeId));
+    expect(confirmed).toMatchObject({
+      microsoftClientStateDigest: replacementDigest,
+      microsoftSubscriptionId: 'replacement-subscription',
+    });
+    expect(confirmed?.microsoftPendingClientStateDigest).toBeUndefined();
+  });
 });

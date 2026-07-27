@@ -3234,13 +3234,37 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) -> PendingProviderActionPerformer {
     { action, targetProviderMailboxId, messageIds in
-      try await performProviderAction(
-        action,
-        targetProviderMailboxId: targetProviderMailboxId,
-        messageIds: messageIds,
-        connection: connection,
-        session: session
-      )
+      do {
+        try await performProviderAction(
+          action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          messageIds: messageIds,
+          connection: connection,
+          session: session
+        )
+      } catch let error as URLError {
+        if error.code == .cancelled || Task.isCancelled {
+          throw CancellationError()
+        }
+        let actionMayHaveMovedMessage =
+          switch action {
+          case .archive, .delete, .move, .notSpam, .restore, .spam: true
+          case .markRead, .markUnread, .star, .unstar: false
+          }
+        if actionMayHaveMovedMessage, !Self.isDefinitePreDeliveryNetworkFailure(error) {
+          throw GraphAmbiguousActionError()
+        }
+        throw error
+      }
+    }
+  }
+
+  private static func isDefinitePreDeliveryNetworkFailure(_ error: URLError) -> Bool {
+    switch error.code {
+    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+      return true
+    default:
+      return false
     }
   }
 

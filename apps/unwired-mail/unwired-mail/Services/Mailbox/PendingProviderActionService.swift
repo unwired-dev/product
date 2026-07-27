@@ -121,6 +121,8 @@ enum PendingProviderActionFailureDisposition {
   case userActionRequired
 }
 
+struct GraphAmbiguousActionError: Error {}
+
 typealias PendingProviderActionPerformer =
   @Sendable (
     _ action: ProviderMailAction,
@@ -130,6 +132,9 @@ typealias PendingProviderActionPerformer =
 
 private let defaultFailureDisposition:
   @Sendable (Error) -> PendingProviderActionFailureDisposition = { error in
+    if error is GraphAmbiguousActionError {
+      return .userActionRequired
+    }
     if error is URLError {
       return .transient
     }
