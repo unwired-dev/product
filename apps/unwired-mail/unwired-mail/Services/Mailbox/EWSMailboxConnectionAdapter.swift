@@ -175,6 +175,17 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
 struct DeviceLocalEWSAuthorization: Codable, Equatable, Sendable {
   let credential: String
   let definition: EWSConnectionDefinition
+  let hasOnlineArchive: Bool?
+
+  init(
+    credential: String,
+    definition: EWSConnectionDefinition,
+    hasOnlineArchive: Bool? = nil
+  ) {
+    self.credential = credential
+    self.definition = definition
+    self.hasOnlineArchive = hasOnlineArchive
+  }
 }
 
 /// Performs device-local EWS operations without sending credentials or mailbox data to Product Sync.
@@ -657,7 +668,7 @@ struct EWSSetupService {
       serverVersion: account.serverVersion,
       username: username
     )
-    let authorization = DeviceLocalEWSAuthorization(
+    var authorization = DeviceLocalEWSAuthorization(
       credential: credential,
       definition: definition
     )
@@ -668,6 +679,11 @@ struct EWSSetupService {
     guard requiredRoles.isSubset(of: resolvedRoles) else {
       throw EWSSetupError.missingRequiredMailboxRole
     }
+    authorization = DeviceLocalEWSAuthorization(
+      credential: credential,
+      definition: definition,
+      hasOnlineArchive: resolvedRoles.contains(.archive)
+    )
     guard isSessionCurrent(session) else { throw CancellationError() }
     try Task.checkCancellation()
 
@@ -1517,16 +1533,21 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         definition.provider == MailProviderId.exchangeWebServices.rawValue,
         let ewsDefinition = definition.ewsDefinition
       else { return nil }
+      let authorization = try? authorizationStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.id
+      )
       let authorized =
-        (try? authorizationStore.load(
-          productAccountId: session.productAccountId,
-          connectionId: definition.id
-        ))?.definition.matchesAuthorizationScope(ewsDefinition) == true
+        authorization?
+        .definition.matchesAuthorizationScope(ewsDefinition) == true
+      let metadataSnapshot = try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.id
+      )
       let hasOnlineArchive =
-        try metadataStore.load(
-          productAccountId: session.productAccountId,
-          connectionId: definition.id
-        )?.folders.contains { $0.role == .archive } == true
+        metadataSnapshot?.folders.contains { $0.role == .archive }
+        ?? authorization?.hasOnlineArchive
+        ?? false
       return MailboxConnection(
         authorizationState: authorized ? .authorized : .required,
         capabilities: authorized

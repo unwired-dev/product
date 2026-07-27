@@ -881,7 +881,10 @@ extension MailboxMessageMetadata {
         states.insert(EWSProviderMessage.archiveHierarchyStateId)
       }
     case .delete:
-      states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
+      states = states.filter {
+        ["IMPORTANT", "STARRED", "UNREAD", EWSProviderMessage.archiveHierarchyStateId]
+          .contains($0)
+      }
       states.insert("TRASH")
     case .markRead:
       states.remove("UNREAD")

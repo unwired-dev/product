@@ -288,6 +288,48 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testEWSDeleteProjectionPreservesOnlineArchiveHierarchy() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-ews-archive-delete",
+      providerStateIds: [
+        EWSProviderMessage.archiveHierarchyStateId,
+        EWSProviderMessage.customFolderStateId("archive-folder"),
+      ],
+      connectionId: ewsConnection.id
+    )
+    try await service.perform(
+      .delete,
+      messages: [message],
+      connection: ewsConnection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: ewsConnection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+      ["TRASH", EWSProviderMessage.archiveHierarchyStateId]
+    )
+  }
+
   // swiftlint:disable:next function_body_length
   func testPermanentRejectionRestoresProviderStateAndReplaysLaterIntent() async throws {
     let store = InMemoryPendingProviderActionStore()

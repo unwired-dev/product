@@ -479,6 +479,35 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connection.capabilities.supports(.delete))
   }
 
+  func testLoadedConnectionKeepsArchiveBeforeFirstMetadataSnapshot() async throws {
+    let definition = makeEWSDefinition()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: definition,
+        hasOnlineArchive: true
+      ),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    XCTAssertEqual(connection.authorizationState, .authorized)
+    XCTAssertTrue(connection.capabilities.supports(.archive))
+  }
+
   func testSystemClientUsesMailboxScopedFolderAccessAndParsesSupportedServerVersion() async throws {
     let definition = makeEWSDefinition()
     var requests: [URLRequest] = []
