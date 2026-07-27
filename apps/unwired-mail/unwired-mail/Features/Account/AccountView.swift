@@ -3073,10 +3073,14 @@ struct MailShellConversationReader: View {
   ) -> some View {
     let messages = batches.flatMap(\.messages)
     let moveDestinations = bulkMoveDestinations(batches: batches)
-    let actions = contextualProviderActions(
+    let actions = Self.contextualProviderActions(
       supported: selection.bulkProviderActions(connections: connections),
       messages: messages,
-      allowsMove: !moveDestinations.isEmpty
+      collection: selection.selectedMailbox?.collection,
+      allowsMove: !moveDestinations.isEmpty,
+      allowsProviderMailboxMove: batches.allSatisfy {
+        $0.connection.providerId == .microsoftGraph
+      }
     )
     if !actions.isEmpty {
       Menu {
@@ -3111,10 +3115,12 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
-    let actions = contextualProviderActions(
+    let actions = Self.contextualProviderActions(
       supported: connection.capabilities.providerActions,
       messages: thread.messages,
-      allowsMove: true
+      collection: selection.selectedMailbox?.collection,
+      allowsMove: true,
+      allowsProviderMailboxMove: connection.providerId == .microsoftGraph
     )
     if !actions.isEmpty {
       Menu {
@@ -3142,13 +3148,14 @@ struct MailShellConversationReader: View {
     }
   }
 
-  private func contextualProviderActions(
+  static func contextualProviderActions(
     supported: Set<ProviderMailAction>,
     messages: [MailboxMessageMetadata],
-    allowsMove: Bool
+    collection: MailboxMessageCollection?,
+    allowsMove: Bool,
+    allowsProviderMailboxMove: Bool
   ) -> Set<ProviderMailAction> {
     var actions = supported
-    let collection = selection.selectedMailbox?.collection
     if collection != .role(.inbox) {
       actions.remove(.archive)
     }
@@ -3158,7 +3165,10 @@ struct MailShellConversationReader: View {
       } else {
         false
       }
-    if !allowsMove || (collection != .role(.inbox) && !isProviderMailbox) {
+    if !allowsMove
+      || (collection != .role(.inbox)
+        && (!isProviderMailbox || !allowsProviderMailboxMove))
+    {
       actions.remove(.move)
     }
     if collection != .role(.trash) {

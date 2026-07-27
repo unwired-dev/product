@@ -904,6 +904,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
+    _ = try await adapter.syncInbox(connection: connection, session: session)
     _ = try await adapter.continueHistoricalBackfill(
       connection: connection,
       session: session
@@ -1674,6 +1675,85 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(routeTransport.prepared.count, 1)
     XCTAssertEqual(subscriptionClient.created.count, 1)
     XCTAssertEqual(routeTransport.confirmed.count, 1)
+  }
+
+  func testPushCleanupWaitsForInitialRegistration() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let defaultsName = "MicrosoftGraphConcurrentPushCleanupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    subscriptionClient.createDelayNanoseconds = 50_000_000
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    let service = MicrosoftGraphPushSubscriptionService(
+      siteURL: URL(string: "https://deployment.convex.site"),
+      statusStore: statusStore,
+      subscriptionClient: subscriptionClient,
+      transport: routeTransport
+    )
+
+    async let registration: Void = service.registerOrRenew(
+      connection: connection,
+      accessToken: "provider-access-token",
+      session: session
+    )
+    while subscriptionClient.createStartedCount == 0 {
+      await Task.yield()
+    }
+    async let cleanup: Void = service.clearAll(
+      accessTokensByProviderAccountIdentifier: [
+        connection.providerMailboxIdentity.value: "provider-access-token"
+      ],
+      session: session
+    )
+    _ = try await (registration, cleanup)
+
+    XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-1"])
+    XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.count, 1)
+    XCTAssertNil(
+      try statusStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    )
+  }
+
+  func testPushRegistrationRecoversFromCorruptLocalStatus() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let defaultsName = "MicrosoftGraphCorruptPushRegistrationTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let key = "microsoft-graph-push.\(session.productAccountId)"
+    defaults.set(Data("not-json".utf8), forKey: key)
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    let service = MicrosoftGraphPushSubscriptionService(
+      siteURL: URL(string: "https://deployment.convex.site"),
+      statusStore: statusStore,
+      subscriptionClient: subscriptionClient,
+      transport: RecordingMicrosoftGraphPushRouteTransport()
+    )
+
+    try await service.registerOrRenew(
+      connection: connection,
+      accessToken: "provider-access-token",
+      session: session
+    )
+
+    XCTAssertEqual(subscriptionClient.created.count, 1)
+    XCTAssertNotNil(
+      try statusStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    )
   }
 
   func testForegroundMailboxSyncRenewsPushWithoutWaitingForNotification() async throws {
@@ -2585,6 +2665,7 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
   private(set) var created: [CreateCall] = []
   var createDelayNanoseconds: UInt64 = 0
   var createError: Error?
+  private(set) var createStartedCount = 0
   private(set) var deleteAccessTokens: [String] = []
   private(set) var deletedSubscriptionIds: [String] = []
   var deleteError: Error?
@@ -2597,6 +2678,7 @@ private final class RecordingMicrosoftGraphSubscriptionClient:
     expirationDate: Date,
     notificationURL: URL
   ) async throws -> MicrosoftGraphPushStatusProviderResponse {
+    createStartedCount += 1
     if createDelayNanoseconds > 0 {
       try await Task.sleep(nanoseconds: createDelayNanoseconds)
     }

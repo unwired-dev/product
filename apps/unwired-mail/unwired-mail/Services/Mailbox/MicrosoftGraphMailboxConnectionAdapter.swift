@@ -2072,7 +2072,9 @@ struct MicrosoftGraphMetadataService {
           nextLink: cursor.nextLink
         )
       },
-      hasInitialMailboxAvailability: state.hasInitialMailboxAvailability
+      hasInitialMailboxAvailability: state.hasInitialMailboxAvailability,
+      initialCrawlMessageIdsByFolderId: state.initialCrawlMessageIdsByFolderId,
+      seededMessageIdsByFolderId: state.seededMessageIdsByFolderId
     )
     try store.savePage(
       [],

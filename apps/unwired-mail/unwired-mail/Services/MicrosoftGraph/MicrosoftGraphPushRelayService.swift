@@ -162,7 +162,12 @@ struct UserDefaultsMicrosoftGraphPushStatusStore: MicrosoftGraphPushStatusPersis
     guard let data = defaults.data(forKey: key(productAccountId)) else {
       return [:]
     }
-    return try JSONDecoder().decode([String: MicrosoftGraphPushStatus].self, from: data)
+    do {
+      return try JSONDecoder().decode([String: MicrosoftGraphPushStatus].self, from: data)
+    } catch {
+      defaults.removeObject(forKey: key(productAccountId))
+      return [:]
+    }
   }
 
   private func saveUnlocked(
@@ -334,6 +339,7 @@ enum MicrosoftGraphPushError: LocalizedError {
   }
 }
 
+// swiftlint:disable:next type_body_length
 struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
   static let renewalWindow: TimeInterval = 24 * 60 * 60
   private static let registrationGate = MailboxConnectionSyncGate()
@@ -488,6 +494,20 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    try await Self.registrationGate.withLock(connection.id) {
+      try await clearLocked(
+        accessToken: accessToken,
+        connection: connection,
+        session: session
+      )
+    }
+  }
+
+  private func clearLocked(
+    accessToken: String?,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     var firstError: Error?
     if let status = try statusStore.load(
       productAccountId: session.productAccountId,
@@ -525,8 +545,36 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     accessTokensByProviderAccountIdentifier: [String: String],
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let persistedProviderAccountIdentifiers = Set(
+      try statusStore.loadAll(productAccountId: session.productAccountId)
+        .map(\.providerAccountIdentifier)
+    )
+    let connectionIds =
+      persistedProviderAccountIdentifiers
+      .union(accessTokensByProviderAccountIdentifier.keys)
+      .map {
+        MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .microsoftGraph,
+            value: $0
+          )
+        )
+      }
+      .sorted { $0.rawValue < $1.rawValue }
+    try await withRegistrationLocks(connectionIds[...]) {
+      try await clearAllLocked(
+        accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
+        session: session
+      )
+    }
+  }
+
+  private func clearAllLocked(
+    accessTokensByProviderAccountIdentifier: [String: String],
+    session: ProductAccountSessionSnapshot
+  ) async throws {
     var firstError: Error?
-    let statuses = (try? statusStore.loadAll(productAccountId: session.productAccountId)) ?? []
+    let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
     for status in statuses {
       if let accessToken =
         accessTokensByProviderAccountIdentifier[status.providerAccountIdentifier]
@@ -553,6 +601,16 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     }
     try statusStore.clearAll(productAccountId: session.productAccountId)
     if let firstError { throw firstError }
+  }
+
+  private func withRegistrationLocks<T>(
+    _ connectionIds: ArraySlice<MailboxConnectionId>,
+    operation: @escaping () async throws -> T
+  ) async throws -> T {
+    guard let connectionId = connectionIds.first else { return try await operation() }
+    return try await Self.registrationGate.withLock(connectionId) {
+      try await withRegistrationLocks(connectionIds.dropFirst(), operation: operation)
+    }
   }
 
   private func confirmAndSave(
