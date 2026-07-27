@@ -198,6 +198,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         .move, "graph-folder:destination", ["graph-folder:source", "UNREAD"],
         ["graph-folder:destination", "UNREAD"]
       ),
+      (.move, "ews-folder:destination", ["ews-folder:source"], ["ews-folder:destination"]),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
       (.spam, nil, ["graph-folder:source", "INBOX"], ["SPAM"]),

@@ -576,7 +576,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     try await client.send(
       OutgoingMessage(
         body: "Body",
-        recipient: #""Recipient, One" <one@example.com>, Two <two@example.com>"#,
+        recipient:
+          #""Recipient, One" <one@example.com>; Two <two@example.com>, three@example.com"#,
         subject: "Subject",
         idempotencyKey: "ews-send"
       ),
@@ -604,6 +605,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
     XCTAssertTrue(sendBody.contains("<t:EmailAddress>one@example.com</t:EmailAddress>"))
     XCTAssertTrue(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
+    XCTAssertTrue(sendBody.contains("<t:EmailAddress>three@example.com</t:EmailAddress>"))
     XCTAssertFalse(sendBody.contains("Recipient, One"))
   }
 
@@ -2383,6 +2385,59 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.remainingInvalidIdentityRefreshes, 0)
   }
 
+  func testMissingIdentityAfterAmbiguousMoveRemainsBlockedForReconciliation() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [], nextOffset: 50)
+    client.identityRefreshError = EWSServiceError.response(
+      code: "ErrorItemNotFound",
+      message: "The item no longer exists at this identity."
+    )
+
+    try await adapter.perform(
+      .move,
+      targetProviderMailboxId: EWSProviderMessage.customFolderStateId("destination-id"),
+      messages: [try XCTUnwrap(inbox.messages.first)],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+
+    let blockedIds = await adapter.blockedPendingActionConnectionIds(
+      connections: [connection],
+      session: session
+    )
+    XCTAssertEqual(blockedIds, [connection.id])
+    XCTAssertTrue(client.performedActions.isEmpty)
+  }
+
   func testArchiveFromSentRefreshesIdentityAndRunsProviderAction() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -3435,6 +3490,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var performedMessageChangeKeys: [[String]] {
     lock.withLock { storedPerformedMessageChangeKeys }
   }
+  var identityRefreshError: Error?
   var refreshedMessagesByStableId: [String: EWSProviderMessage] = [:]
   private var storedRemainingInvalidIdentityRefreshes = 0
   var remainingInvalidIdentityRefreshes: Int {
@@ -3504,6 +3560,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     _ messages: [EWSProviderMessage],
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
+    if let identityRefreshError { throw identityRefreshError }
     let shouldFail = lock.withLock {
       guard storedRemainingInvalidIdentityRefreshes > 0 else { return false }
       storedRemainingInvalidIdentityRefreshes -= 1

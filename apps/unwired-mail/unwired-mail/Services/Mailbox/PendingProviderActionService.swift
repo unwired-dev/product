@@ -885,7 +885,9 @@ extension MailboxMessageMetadata {
       states.insert("UNREAD")
     case .move:
       states.remove("INBOX")
-      states = states.filter { !$0.hasPrefix("graph-folder:") }
+      states = states.filter {
+        !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
+      }
     case .notSpam:
       states.remove("SPAM")
       states.insert("INBOX")

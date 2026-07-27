@@ -2205,8 +2205,8 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
             messages,
             authorization: authorization
           )
-        } catch EWSServiceError.invalidResponse {
-          throw URLError(.badServerResponse)
+        } catch let error as EWSServiceError {
+          throw Self.mappedIdentityRefreshError(error)
         }
         let movedItems: [EWSMovedItemIdentity]
         let providerTargetFolderId =
@@ -2468,6 +2468,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     default:
       return false
     }
+  }
+
+  private static func mappedIdentityRefreshError(_ error: EWSServiceError) -> Error {
+    if case .invalidResponse = error {
+      return URLError(.badServerResponse)
+    }
+    if case .response(let code, _) = error, code == "ErrorItemNotFound" {
+      return EWSAmbiguousProviderActionError()
+    }
+    return error
   }
 
   private static func isAmbiguousMutationResponse(_ code: String) -> Bool {

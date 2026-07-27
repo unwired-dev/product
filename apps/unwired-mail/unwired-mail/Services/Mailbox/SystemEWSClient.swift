@@ -1159,7 +1159,8 @@ struct SystemEWSClient: EWSClient {
         angleBracketDepth += 1
       case ">":
         angleBracketDepth = max(0, angleBracketDepth - 1)
-      case "," where !isQuoted && angleBracketDepth == 0:
+      case let delimiter
+      where (delimiter == "," || delimiter == ";") && !isQuoted && angleBracketDepth == 0:
         mailboxes.append(mailbox)
         mailbox = ""
         continue
