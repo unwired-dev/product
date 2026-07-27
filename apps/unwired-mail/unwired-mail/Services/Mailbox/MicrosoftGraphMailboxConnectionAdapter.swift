@@ -2013,15 +2013,13 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: false
     )
-    var initialMessageCount = 0
-    for index in state.folders.indices where initialMessageCount < Self.initialPageSize {
+    for index in state.folders.indices {
       var continuation: URL?
       var messages: [MicrosoftGraphProviderMessage] = []
-      let remainingMessageCount = Self.initialPageSize - initialMessageCount
       if state.folders[index].folder.role == .sent {
         let recentPage = try await client.loadRecentMetadataPage(
           folder: state.folders[index].folder,
-          pageSize: remainingMessageCount,
+          pageSize: Self.initialPageSize,
           accessToken: accessToken
         )
         messages = recentPage.messages
@@ -2033,7 +2031,7 @@ struct MicrosoftGraphMetadataService {
           let page = try await client.loadMetadataPage(
             folder: state.folders[index].folder,
             continuationURL: continuation,
-            pageSize: Self.initialPageSize - initialMessageCount - messages.count,
+            pageSize: Self.initialPageSize - messages.count,
             accessToken: accessToken
           )
           try Task.checkCancellation()
@@ -2042,12 +2040,10 @@ struct MicrosoftGraphMetadataService {
           state.folders[index].nextLink = page.nextLink
           state.folders[index].deltaLink = page.deltaLink
           continuation = page.nextLink
-        } while initialMessageCount + messages.count < Self.initialPageSize
-          && continuation != nil
+        } while messages.count < Self.initialPageSize && continuation != nil
       }
       try Task.checkCancellation()
       guard shouldPersist() else { throw CancellationError() }
-      initialMessageCount += messages.count
       try store.savePage(
         messages,
         folderId: state.folders[index].folder.id,
@@ -2487,6 +2483,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    try await clearLocalConnection(
+      connection,
+      session: session,
+      reportsPushFailure: true
+    )
+  }
+
+  private func clearLocalConnection(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    reportsPushFailure: Bool
+  ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
       var firstError: Error?
@@ -2507,7 +2515,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session
         )
       } catch {
-        firstError = firstError ?? error
+        if reportsPushFailure {
+          firstError = firstError ?? error
+        }
       }
       do {
         try clearLocalConnectionWithoutLock(connection, session: session)
@@ -2670,7 +2680,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorized: true,
         updatedAt: snapshot.updatedAt
       )
-      try await clearLocalConnection(removed, session: session)
+      try await clearLocalConnection(
+        removed,
+        session: session,
+        reportsPushFailure: false
+      )
     }
     return try snapshot.connections.compactMap { definition in
       guard definition.provider == MailProviderId.microsoftGraph.rawValue else { return nil }
@@ -3654,7 +3668,7 @@ enum MicrosoftGraphOAuthError: LocalizedError, Equatable {
   case configurationMissing
   case invalidAuthorizationCallback
   case invalidAuthorizationState
-  case tokenExchangeFailed
+  case tokenExchangeFailed(status: Int?)
   case webAuthenticationUnavailable
 
   var errorDescription: String? {
@@ -3789,12 +3803,14 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     {
       throw MicrosoftGraphOAuthError.authorizationRejected
     }
+    guard let response = response as? HTTPURLResponse else {
+      throw MicrosoftGraphOAuthError.tokenExchangeFailed(status: nil)
+    }
     guard
-      let response = response as? HTTPURLResponse,
       (200..<300).contains(response.statusCode),
       let payload = try? JSONDecoder().decode(MicrosoftGraphTokenResponse.self, from: data),
       let refreshToken = payload.refreshToken?.nonEmpty ?? fallbackRefreshToken?.nonEmpty
-    else { throw MicrosoftGraphOAuthError.tokenExchangeFailed }
+    else { throw MicrosoftGraphOAuthError.tokenExchangeFailed(status: response.statusCode) }
     let requestedScopes = Set(
       Self.scopes.split(whereSeparator: \.isWhitespace).map(String.init)
     )

@@ -547,6 +547,57 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testTransientTokenRefreshFailureRetriesQueuedGraphAction() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    authorizer.refreshErrors = [
+      MicrosoftGraphOAuthError.tokenExchangeFailed(status: 429)
+    ]
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "archive-id", displayName: "Archive", wellKnownName: "archive"),
+    ]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    let pendingActions = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryGraphPendingActionStore()
+    )
+    let adapter = try authorizedAdapter(
+      authorizer: authorizer,
+      client: client,
+      pendingActionService: pendingActions
+    )
+    let initialConnections = try await adapter.loadConnections(session: session)
+    let initialConnection = try XCTUnwrap(initialConnections.first)
+    let inbox = try await adapter.syncInbox(
+      connection: initialConnection,
+      session: session
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let message = try XCTUnwrap(inbox.messages.first)
+    client.rejectedAccessTokens = ["access-token"]
+
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    await pendingActions.waitForScheduledRetries(connection: connection, session: session)
+
+    XCTAssertEqual(authorizer.refreshedTokens, 2)
+    XCTAssertEqual(
+      client.moves,
+      [.init(destinationFolderId: "archive-id", messageId: message.providerMessageId)]
+    )
+  }
+
   func testMappedFolderRolesControlAdvertisedProviderActions() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [
@@ -690,6 +741,33 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(push.clearedAccessTokens, [nil])
     XCTAssertEqual(tokenStore.clearedProviderAccountIdentifiers, [graphAccount.id])
+  }
+
+  func testRemovedConnectionPushCleanupFailureDoesNotBlockActiveConnections() async throws {
+    let removedConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .microsoftGraph,
+        value: "removed-graph-account"
+      )
+    )
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    definitions.removedConnectionIds = [removedConnectionId]
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    push.clearError = URLError(.notConnectedToInternet)
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      outboxService: OutboxDeliveryService(store: InMemoryGraphOutboxDeliveryStore()),
+      pushRegistrar: push,
+      tokenStore: InMemoryMicrosoftGraphAuthorizationStore()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(connections.map(\.id), [graphConnectionDefinition.id])
+    XCTAssertEqual(push.clearedConnectionIds, [removedConnectionId])
   }
 
   func testAccountCleanupContinuesWhenStoredTokenCannotBeDecoded() async throws {
@@ -929,7 +1007,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(complete.historicalMetadataBackfillIsComplete)
   }
 
-  func testInitialAvailabilityStopsAfterFiftyMessagesBeforeLoadingOtherFolders() async throws {
+  func testInitialAvailabilityFindsNewerMessagesAfterFirstFolderHasFifty() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [
       graphFolder(id: "inbox-id", wellKnownName: "inbox"),
@@ -940,17 +1018,30 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       nextLink: URL(string: "https://graph.microsoft.test/inbox/page-2"),
       deltaLink: nil
     )
+    client.pages["sent-id|recent"] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(100, folderId: "sent-id")],
+      nextLink: nil,
+      deltaLink: nil
+    )
     let adapter = try authorizedAdapter(client: client)
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
 
     let initial = try await adapter.syncInbox(connection: connection, session: session)
+    let allObserved = try await adapter.loadMailbox(
+      .allObserved,
+      connection: connection,
+      session: session
+    )
 
     XCTAssertTrue(initial.hasInitialMailboxAvailability)
     XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
-    XCTAssertEqual(initial.messages.count, 50)
+    XCTAssertEqual(initial.messages.count, 49)
+    XCTAssertFalse(initial.messages.contains { $0.subject == "Message 1" })
+    XCTAssertEqual(allObserved.messages.count, 51)
+    XCTAssertEqual(allObserved.messages.first?.subject, "Message 100")
     XCTAssertEqual(client.requestedContinuations, [nil])
-    XCTAssertTrue(client.requestedRecentFolderIds.isEmpty)
+    XCTAssertEqual(client.requestedRecentFolderIds, ["sent-id"])
   }
 
   func testExpiredDeltaCursorRestartsWithoutRetainingDuplicateOrStaleMessages() async throws {
@@ -2182,6 +2273,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
   private func authorizedAdapter(
     assignmentSync: MessageCategoryAssignmentSyncing = RecordingGraphCategoryAssignmentSync(),
+    authorizer: RecordingMicrosoftGraphAuthorizer? = nil,
     bodyCache: GmailMessageBodyCaching = RecordingMicrosoftGraphBodyCache(),
     client: RecordingMicrosoftGraphClient,
     keyMaterialStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
@@ -2205,6 +2297,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
     return try makeAdapter(
       assignmentSync: assignmentSync,
+      authorizer: authorizer,
       bodyCache: bodyCache,
       client: client,
       definitions: RecordingMicrosoftGraphDefinitionSyncService(
@@ -2354,6 +2447,7 @@ private final class RecordingMicrosoftGraphAuthorizer: MicrosoftGraphAuthorizing
     refreshToken: "refreshed-refresh-token"
   )
   var refreshError: Error?
+  var refreshErrors: [Error] = []
   var refreshedTokens = 0
 
   func authorize() async throws -> MicrosoftGraphTokens {
@@ -2362,6 +2456,9 @@ private final class RecordingMicrosoftGraphAuthorizer: MicrosoftGraphAuthorizing
 
   func refresh(_ tokens: MicrosoftGraphTokens) async throws -> MicrosoftGraphTokens {
     refreshedTokens += 1
+    if !refreshErrors.isEmpty {
+      throw refreshErrors.removeFirst()
+    }
     if let refreshError { throw refreshError }
     return refreshResult
   }
