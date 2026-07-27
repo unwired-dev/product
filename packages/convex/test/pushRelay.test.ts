@@ -3638,7 +3638,7 @@ describe('gmail push relay', () => {
         status: newerNotification.status,
       }).toStrictEqual({
         attemptCount: 0,
-        scheduledAtChanged: true,
+        scheduledAtChanged: false,
         status: 202,
       });
 

@@ -197,6 +197,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(draftJSON["internetMessageHeaders"])
   }
 
+  // swiftlint:disable:next function_body_length
   func testGraphForwardSendsTheAlreadyComposedBodyAsANewDraft() async throws {
     var requests: [URLRequest] = []
     var requestBodies: [Data?] = []
@@ -222,6 +223,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         body: "Preface\n\nForwarded message from Sender:\nOriginal body",
         recipient: "recipient@example.com",
         subject: "Fwd: Subject",
+        inReplyTo: "<source@example.com>",
         kind: .forward,
         sourceProviderMessageId: "source-message",
         idempotencyKey: "forward-attempt"
@@ -245,6 +247,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       (draftJSON["body"] as? [String: Any])?["content"] as? String,
       "Preface\n\nForwarded message from Sender:\nOriginal body"
+    )
+    XCTAssertEqual(
+      (draftJSON["internetMessageHeaders"] as? [[String: String]]) ?? [],
+      [
+        ["name": "In-Reply-To", "value": "<source@example.com>"],
+        ["name": "References", "value": "<source@example.com>"],
+      ]
     )
   }
 
@@ -2107,18 +2116,68 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     defer { defaults.removePersistentDomain(forName: defaultsName) }
     let key = "microsoft-graph-push.\(session.productAccountId)"
     defaults.set(Data("not-json".utf8), forKey: key)
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    let statusStore = UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
     let service = MicrosoftGraphPushSubscriptionService(
-      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      statusStore: statusStore,
       subscriptionClient: RecordingMicrosoftGraphSubscriptionClient(),
-      transport: RecordingMicrosoftGraphPushRouteTransport()
+      transport: routeTransport
     )
 
-    try await service.clearAll(
-      accessTokensByProviderAccountIdentifier: [:],
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .microsoftGraph,
+      connectedAt: 1,
+      displayName: "provider@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .microsoftGraph,
+          value: "provider-account"
+        )
+      ),
+      lastVerifiedAt: 1,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+    try await service.clear(
+      accessToken: nil,
+      connection: connection,
       session: session
     )
 
-    XCTAssertNil(defaults.object(forKey: key))
+    XCTAssertNil(
+      try statusStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    )
+    XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.count, 1)
+    XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.first?.count, 64)
+  }
+
+  func testPushCleanupAllRemovesRouteWhenLocalStatusIsCorrupt() async throws {
+    let defaultsName = "MicrosoftGraphCorruptPushCleanupAllTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    defaults.set(
+      Data("not-json".utf8),
+      forKey: "microsoft-graph-push.\(session.productAccountId)"
+    )
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    let service = MicrosoftGraphPushSubscriptionService(
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      subscriptionClient: RecordingMicrosoftGraphSubscriptionClient(),
+      transport: routeTransport
+    )
+
+    try await service.clearAll(
+      accessTokensByProviderAccountIdentifier: ["provider-account": "access-token"],
+      session: session
+    )
+
+    XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.count, 1)
+    XCTAssertEqual(routeTransport.removedOpaqueConnectionIds.first?.count, 64)
   }
 
   private func authorizedAdapter(

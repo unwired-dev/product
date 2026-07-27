@@ -792,6 +792,14 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     }
     let draft = GraphDraftRequest(
       body: GraphDraftRequest.Body(content: message.body, contentType: "Text"),
+      internetMessageHeaders: message.kind == .reply
+        ? nil
+        : message.inReplyTo.map {
+          [
+            GraphDraftRequest.Header(name: "In-Reply-To", value: $0),
+            GraphDraftRequest.Header(name: "References", value: $0),
+          ]
+        },
       singleValueExtendedProperties: [
         GraphSingleValueExtendedProperty(
           id: Self.outboxPropertyId,
@@ -1197,11 +1205,17 @@ private struct GraphDraftRequest: Encodable {
     let address: String
   }
 
+  struct Header: Encodable {
+    let name: String
+    let value: String
+  }
+
   struct Recipient: Encodable {
     let emailAddress: EmailAddress
   }
 
   let body: Body
+  let internetMessageHeaders: [Header]?
   let singleValueExtendedProperties: [GraphSingleValueExtendedProperty]
   let subject: String
   let toRecipients: [Recipient]

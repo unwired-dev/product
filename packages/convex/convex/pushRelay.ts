@@ -2618,20 +2618,13 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   }
   const existing = await microsoftGraphWakeupState(ctx, routeId);
   if (existing !== null) {
-    const scheduledAt = now;
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.patch(existing._id, {
       attemptCount: 0,
       clientStateDigest: args.clientStateDigest,
       pendingAt: now,
-      scheduledAt,
       subscriptionId: args.subscriptionId,
     });
-    await ctx.scheduler.runAfter(
-      1000,
-      internal.apns.deliverMicrosoftGraphWakeup,
-      { routeId, scheduledAt },
-    );
     return { accepted: true };
   }
   await ctx.db.insert('microsoftGraphWakeupStates', {

@@ -509,10 +509,11 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var firstError: Error?
-    if let status = try statusStore.load(
+    let status = try statusStore.load(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerMailboxIdentity.value
-    ) {
+    )
+    if let status {
       if let accessToken {
         do {
           try await subscriptionClient.delete(
@@ -524,15 +525,16 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
           firstError = error
         }
       }
-      do {
-        _ = try await transport.removeMicrosoftGraphPushRoute(
-          identityToken: session.identityToken,
-          opaqueConnectionId: status.opaqueConnectionId,
-          trustedDeviceId: session.trustedDeviceId
-        )
-      } catch {
-        firstError = firstError ?? error
-      }
+    }
+    do {
+      _ = try await transport.removeMicrosoftGraphPushRoute(
+        identityToken: session.identityToken,
+        opaqueConnectionId: status?.opaqueConnectionId
+          ?? opaqueConnectionId(connection, session: session),
+        trustedDeviceId: session.trustedDeviceId
+      )
+    } catch {
+      firstError = firstError ?? error
     }
     try statusStore.clear(
       productAccountId: session.productAccountId,
@@ -545,13 +547,15 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     accessTokensByProviderAccountIdentifier: [String: String],
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
     let persistedProviderAccountIdentifiers = Set(
-      try statusStore.loadAll(productAccountId: session.productAccountId)
-        .map(\.providerAccountIdentifier)
+      statuses.map(\.providerAccountIdentifier)
     )
-    let connectionIds =
+    let providerAccountIdentifiers =
       persistedProviderAccountIdentifiers
       .union(accessTokensByProviderAccountIdentifier.keys)
+    let connectionIds =
+      providerAccountIdentifiers
       .map {
         MailboxConnectionId(
           providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -564,6 +568,8 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     try await withRegistrationLocks(connectionIds[...]) {
       try await clearAllLocked(
         accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
+        providerAccountIdentifiers: providerAccountIdentifiers,
+        statuses: statuses,
         session: session
       )
     }
@@ -571,13 +577,17 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
 
   private func clearAllLocked(
     accessTokensByProviderAccountIdentifier: [String: String],
+    providerAccountIdentifiers: Set<String>,
+    statuses: [MicrosoftGraphPushStatus],
     session: ProductAccountSessionSnapshot
   ) async throws {
     var firstError: Error?
-    let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
-    for status in statuses {
-      if let accessToken =
-        accessTokensByProviderAccountIdentifier[status.providerAccountIdentifier]
+    for providerAccountIdentifier in providerAccountIdentifiers {
+      let status = statuses.first {
+        $0.providerAccountIdentifier == providerAccountIdentifier
+      }
+      if let status,
+        let accessToken = accessTokensByProviderAccountIdentifier[providerAccountIdentifier]
       {
         do {
           try await subscriptionClient.delete(
@@ -590,9 +600,16 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
         }
       }
       do {
+        let connectionId = MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .microsoftGraph,
+            value: providerAccountIdentifier
+          )
+        )
         _ = try await transport.removeMicrosoftGraphPushRoute(
           identityToken: session.identityToken,
-          opaqueConnectionId: status.opaqueConnectionId,
+          opaqueConnectionId: status?.opaqueConnectionId
+            ?? opaqueConnectionId(connectionId, session: session),
           trustedDeviceId: session.trustedDeviceId
         )
       } catch {
@@ -646,7 +663,14 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) -> String {
-    sha256Hex("\(session.productAccountId)\u{0}\(connection.id.rawValue)")
+    opaqueConnectionId(connection.id, session: session)
+  }
+
+  private func opaqueConnectionId(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) -> String {
+    sha256Hex("\(session.productAccountId)\u{0}\(connectionId.rawValue)")
   }
 
   private func sha256Hex(_ value: String) -> String {
