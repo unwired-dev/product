@@ -805,6 +805,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       Set(metadata.providerStateIds ?? []),
       ["ARCHIVE", "UNREAD", EWSProviderMessage.customFolderStateId("archive-projects")]
     )
+    XCTAssertTrue(
+      MailboxMessageCollection.role(.archive).contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
   }
 
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
@@ -1259,8 +1264,37 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       connection: connection,
       session: session
     )
+    client.pages["inbox-id|50"] = EWSMessagePage(
+      messages: [
+        ewsMessage(
+          2,
+          folderId: "inbox-id",
+          conversationId: "conversation-2",
+          isRead: false
+        )
+      ],
+      nextOffset: 100
+    )
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+    let reconciled = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
     XCTAssertFalse(complete.historicalMetadataBackfillIsComplete)
     XCTAssertTrue(verified.historicalMetadataBackfillIsComplete)
+    let reconciledMessage = try XCTUnwrap(
+      reconciled.messages.first(where: { $0.providerMessageId == "ews-stable-2" })
+    )
+    XCTAssertTrue(
+      try XCTUnwrap(reconciledMessage.providerStateIds).contains("UNREAD")
+    )
     XCTAssertEqual(
       Set(complete.messages.map(\.providerMessageId)),
       ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
@@ -1269,7 +1303,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       client.requestedPages,
       [
         "inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0", "inbox-id|50",
-        "inbox-id|100",
+        "inbox-id|100", "inbox-id|0", "inbox-id|50", "inbox-id|100",
       ]
     )
   }
@@ -2211,6 +2245,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     _ number: Int,
     folderId: String,
     conversationId: String,
+    isRead: Bool? = nil,
     receivedAtMilliseconds: Int64? = nil
   ) -> EWSProviderMessage {
     EWSProviderMessage(
@@ -2221,7 +2256,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       from: "Sender <sender@example.com>",
       internetMessageId: "<message-\(number)@example.com>",
       isDraft: false,
-      isRead: number.isMultiple(of: 2),
+      isRead: isRead ?? number.isMultiple(of: 2),
       itemId: "ews-current-\(number)",
       parentFolderId: folderId,
       receivedAtMilliseconds:

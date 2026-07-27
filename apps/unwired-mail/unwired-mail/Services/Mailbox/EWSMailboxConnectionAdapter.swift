@@ -2273,7 +2273,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let scanIsInProgress =
         snapshot.nextOffsetsByFolderId[folder.id] != nil
         || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
-      if !scanIsInProgress, !snapshot.completedFolderIds.contains(folder.id) {
+      if !scanIsInProgress {
         snapshot.reconciliationMessageIdsByFolderId[folder.id] = observedIds
         if let nextOffset = page.nextOffset {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset

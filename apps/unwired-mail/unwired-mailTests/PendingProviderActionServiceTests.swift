@@ -736,7 +736,11 @@ final class PendingProviderActionServiceTests: XCTestCase {
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
       XCTFail("Expected retry-limit failure")
-    } catch {}
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
 
     try await service.reconcileProviderSync(
       messages: [message],
