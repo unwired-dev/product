@@ -22,6 +22,7 @@ enum DotEnvFile {
 
   #if DEBUG || TESTING
     private static let appleClientKeys: Set = [
+      "CONVEX_SITE_URL",
       "CONVEX_URL",
       "GMAIL_OAUTH_CLIENT_ID",
       "GMAIL_PUBSUB_TOPIC",

@@ -1028,7 +1028,16 @@ struct AccountView: View {
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
         as? Bool == true
       guard successfulSyncAt != nil || reloadObservedMetadata else { return }
-      Task { await reloadObservedMailboxes() }
+      Task {
+        if successfulSyncAt != nil {
+          let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
+          mailboxFreshnessViewModel.updateConnections(
+            gmailViewModel.connections,
+            prunesPersistedState: connectionsAreAuthoritative
+          )
+        }
+        await reloadObservedMailboxes()
+      }
     }
   }
 
@@ -3064,10 +3073,14 @@ struct MailShellConversationReader: View {
   ) -> some View {
     let messages = batches.flatMap(\.messages)
     let moveDestinations = bulkMoveDestinations(batches: batches)
-    let actions = contextualProviderActions(
+    let actions = Self.contextualProviderActions(
       supported: selection.bulkProviderActions(connections: connections),
       messages: messages,
-      allowsMove: !moveDestinations.isEmpty
+      collection: selection.selectedMailbox?.collection,
+      allowsMove: !moveDestinations.isEmpty,
+      allowsProviderMailboxMove: batches.allSatisfy {
+        $0.connection.providerId == .microsoftGraph
+      }
     )
     if !actions.isEmpty {
       Menu {
@@ -3102,10 +3115,12 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
-    let actions = contextualProviderActions(
+    let actions = Self.contextualProviderActions(
       supported: connection.capabilities.providerActions,
       messages: thread.messages,
-      allowsMove: true
+      collection: selection.selectedMailbox?.collection,
+      allowsMove: true,
+      allowsProviderMailboxMove: connection.providerId == .microsoftGraph
     )
     if !actions.isEmpty {
       Menu {
@@ -3133,16 +3148,27 @@ struct MailShellConversationReader: View {
     }
   }
 
-  private func contextualProviderActions(
+  static func contextualProviderActions(
     supported: Set<ProviderMailAction>,
     messages: [MailboxMessageMetadata],
-    allowsMove: Bool
+    collection: MailboxMessageCollection?,
+    allowsMove: Bool,
+    allowsProviderMailboxMove: Bool
   ) -> Set<ProviderMailAction> {
     var actions = supported
-    let collection = selection.selectedMailbox?.collection
     if collection != .role(.inbox) {
-      actions.subtract([.archive, .move])
-    } else if !allowsMove {
+      actions.remove(.archive)
+    }
+    let isProviderMailbox =
+      if case .some(.providerMailbox) = collection {
+        true
+      } else {
+        false
+      }
+    if !allowsMove
+      || (collection != .role(.inbox)
+        && (!isProviderMailbox || !allowsProviderMailboxMove))
+    {
       actions.remove(.move)
     }
     if collection != .role(.trash) {
@@ -3289,6 +3315,7 @@ struct MailShellConversationReader: View {
       subject: draft.subject,
       body: draft.body,
       replyTo: draft.replyToMessage,
+      sourceMessage: draft.sourceMessage,
       connection: connection
     )
     if !didSend {
@@ -4012,6 +4039,7 @@ final class GmailMailActionViewModel {
     subject: String,
     body: String,
     replyTo: MailboxMessageMetadata?,
+    sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection
   ) async -> Bool {
     guard connection.capabilities.canSend else { return false }
@@ -4021,14 +4049,19 @@ final class GmailMailActionViewModel {
     defer { isPerformingAction = false }
 
     do {
+      let selectedSourceMessage =
+        sourceMessage?.connectionId == connection.id ? sourceMessage : nil
       _ = try await outboxService.enqueue(
         OutgoingMessage(
           body: body,
           recipient: recipient,
           subject: subject,
           inReplyTo: replyTo?.rfcMessageId,
+          kind: selectedSourceMessage == nil
+            ? .new : (replyTo != nil ? .reply : .forward),
           providerThreadId: replyTo?.connectionId == connection.id && replyTo?.rfcMessageId != nil
-            ? replyTo?.providerThreadId : nil
+            ? replyTo?.providerThreadId : nil,
+          sourceProviderMessageId: selectedSourceMessage?.providerMessageId
         ),
         connection: connection,
         session: session,
@@ -4076,8 +4109,11 @@ final class GmailMailActionViewModel {
           recipient: recipient,
           subject: subject,
           inReplyTo: attempt.message.inReplyTo,
+          kind: attempt.mailboxConnectionId == connection.id ? attempt.message.kind : nil,
           providerThreadId: attempt.mailboxConnectionId == connection.id
-            ? attempt.message.providerThreadId : nil
+            ? attempt.message.providerThreadId : nil,
+          sourceProviderMessageId: attempt.mailboxConnectionId == connection.id
+            ? attempt.message.sourceProviderMessageId : nil
         ),
         connection: connection,
         session: session,
@@ -5394,18 +5430,34 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func completeLoadingConnections() async {
-    if !connections.contains(where: { $0.id == selectedConnectionId }) {
-      selectedConnectionId =
-        connections.first { $0.id == defaultSendingConnectionId }?.id
-        ?? connections.first?.id
+  func refreshSnapshot() async -> Bool {
+    do {
+      try await refreshConnections()
+      restoreSelection()
+      errorMessage = nil
+      return true
+    } catch {
+      errorMessage = error.localizedDescription
+      return false
     }
+  }
+
+  private func completeLoadingConnections() async {
+    restoreSelection()
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
     errorMessage = nil
     for connection in connections {
       await refreshPushWatch(connection: connection)
+    }
+  }
+
+  private func restoreSelection() {
+    if !connections.contains(where: { $0.id == selectedConnectionId }) {
+      selectedConnectionId =
+        connections.first { $0.id == defaultSendingConnectionId }?.id
+        ?? connections.first?.id
     }
   }
 

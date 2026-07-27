@@ -72,6 +72,11 @@ const gmailActiveRouteInspectionLimit = 100;
 const gmailConnectionLimitPerTrustedDevice = 20;
 const gmailLegacyRouteFallbackLimit = 100;
 const gmailLegacySignalMigrationLimit = 100;
+const microsoftGraphConnectionLimitPerTrustedDevice = 20;
+const microsoftGraphWakeupClaimLeaseMs = 5 * 60 * 1000;
+const microsoftGraphWakeupMaximumAttempts = 5;
+const microsoftGraphWakeupMaximumRetryDelayMs = 15 * 60 * 1000;
+const microsoftGraphWakeupRetryBaseDelayMs = 60 * 1000;
 const googleJsonWebKeySetUrl = 'https://www.googleapis.com/oauth2/v3/certs';
 const googleSigningKeyFallbackLifetimeMs = 5 * 60 * 1000;
 const googleSigningKeyMaximumLifetimeMs = 24 * 60 * 60 * 1000;
@@ -2094,6 +2099,791 @@ export const clearStaleDevice = internalMutation({
     }
     return null;
   },
+  returns: v.null(),
+});
+
+const microsoftGraphRouteResponseValidator = v.object({
+  routeId: v.string(),
+});
+
+async function microsoftGraphWakeupState(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeId: Id<'mailProviderConnections'>,
+): Promise<Doc<'microsoftGraphWakeupStates'> | null> {
+  return ctx.db
+    .query('microsoftGraphWakeupStates')
+    .withIndex('by_routeId', (q) => q.eq('routeId', routeId))
+    .unique();
+}
+
+async function deleteMicrosoftGraphWakeupState(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  routeId: Id<'mailProviderConnections'>,
+): Promise<void> {
+  const state = await microsoftGraphWakeupState(ctx, routeId);
+  if (state !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
+  }
+}
+
+type PrepareMicrosoftGraphRouteArgs = Readonly<{
+  clientStateDigest: string;
+  opaqueConnectionId: string;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
+type ConfirmMicrosoftGraphRouteArgs = Readonly<{
+  clientStateDigest?: string;
+  expiresAt: number;
+  routeId: Id<'mailProviderConnections'>;
+  subscriptionId: string;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
+type MicrosoftGraphWakeupArgs = Readonly<{
+  clientStateDigest: string;
+  routeId: string;
+  subscriptionId: string;
+}>;
+
+function requireMicrosoftGraphRouteIdentifiers(
+  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): void {
+  if (
+    args.clientStateDigest.length === 0 ||
+    args.opaqueConnectionId.length === 0
+  ) {
+    throw new Error('Microsoft Graph route identifiers required');
+  }
+}
+
+async function existingMicrosoftGraphRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<Doc<'mailProviderConnections'> | null> {
+  return ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productId_provider_deviceId_connectionId', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('provider', 'microsoft-graph')
+        .eq('trustedDeviceId', args.trustedDeviceId)
+        .eq('opaqueConnectionId', args.opaqueConnectionId),
+    )
+    .unique();
+}
+
+type MicrosoftGraphRouteContext = Readonly<{
+  existing: Doc<'mailProviderConnections'> | null;
+  productAccountId: Id<'productAccounts'>;
+  trustedDeviceId: Id<'trustedDevices'>;
+}>;
+
+async function requireMicrosoftGraphConnectionCapacity(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeContext: MicrosoftGraphRouteContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents and identifiers are branded values.
+): Promise<void> {
+  if (routeContext.existing !== null) {
+    return;
+  }
+  const deviceConnections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+      q
+        .eq('productAccountId', routeContext.productAccountId)
+        .eq('provider', 'microsoft-graph')
+        .eq('trustedDeviceId', routeContext.trustedDeviceId),
+    )
+    .take(microsoftGraphConnectionLimitPerTrustedDevice + 1);
+  if (
+    deviceConnections.length >= microsoftGraphConnectionLimitPerTrustedDevice
+  ) {
+    throw new Error('Microsoft Graph connection limit reached');
+  }
+}
+
+type SaveMicrosoftGraphRouteOptions = Readonly<{
+  existing: Doc<'mailProviderConnections'> | null;
+  now: number;
+  productAccountId: Id<'productAccounts'>;
+}>;
+
+function hasActiveMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  now: number,
+): boolean {
+  return (
+    route.microsoftSubscriptionId !== undefined &&
+    (route.microsoftSubscriptionExpiresAt ?? 0) > now
+  );
+}
+
+async function saveMicrosoftGraphRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+  options: SaveMicrosoftGraphRouteOptions, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents and identifiers are branded values.
+): Promise<Id<'mailProviderConnections'>> {
+  if (options.existing === null) {
+    return ctx.db.insert('mailProviderConnections', {
+      connectedAt: options.now,
+      lastVerifiedAt: options.now,
+      microsoftClientStateDigest: args.clientStateDigest,
+      opaqueConnectionId: args.opaqueConnectionId,
+      productAccountId: options.productAccountId,
+      provider: 'microsoft-graph',
+      trustedDeviceId: args.trustedDeviceId,
+      updatedAt: options.now,
+    });
+  }
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  const routeId = options.existing._id;
+  if (hasActiveMicrosoftGraphSubscription(options.existing, options.now)) {
+    await ctx.db.patch(routeId, {
+      lastVerifiedAt: options.now,
+      microsoftPendingClientStateDigest: args.clientStateDigest,
+      updatedAt: options.now,
+    });
+    return routeId;
+  }
+  await deleteMicrosoftGraphWakeupState(ctx, routeId);
+  await ctx.db.patch(routeId, {
+    lastVerifiedAt: options.now,
+    microsoftClientStateDigest: args.clientStateDigest,
+    microsoftPendingClientStateDigest: undefined,
+    microsoftSubscriptionExpiresAt: undefined,
+    microsoftSubscriptionId: undefined,
+    updatedAt: options.now,
+  });
+  return routeId;
+}
+
+async function prepareMicrosoftGraphRouteForDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: PrepareMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<{ routeId: Id<'mailProviderConnections'> }> {
+  const account = await requireAuthenticatedTrustedDevice(
+    ctx,
+    args.trustedDeviceId,
+  );
+  requireMicrosoftGraphRouteIdentifiers(args);
+  const existing = await existingMicrosoftGraphRoute(
+    ctx,
+    account.productAccountId,
+    args,
+  );
+  await requireMicrosoftGraphConnectionCapacity(ctx, {
+    existing,
+    productAccountId: account.productAccountId,
+    trustedDeviceId: args.trustedDeviceId,
+  });
+  const now = Date.now();
+  const routeId = await saveMicrosoftGraphRoute(ctx, args, {
+    existing,
+    now,
+    productAccountId: account.productAccountId,
+  });
+  await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
+  return { routeId };
+}
+
+export const prepareMicrosoftGraphRoute = mutation({
+  args: {
+    clientStateDigest: v.string(),
+    opaqueConnectionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: prepareMicrosoftGraphRouteForDevice,
+  returns: microsoftGraphRouteResponseValidator,
+});
+
+function requireMicrosoftGraphRoute(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): asserts route is Doc<'mailProviderConnections'> {
+  if (route === null || route.provider !== 'microsoft-graph') {
+    throw new Error('Microsoft Graph route rejected');
+  }
+}
+
+function requireMicrosoftGraphRouteOwnership(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): void {
+  if (
+    route.productAccountId !== productAccountId ||
+    route.trustedDeviceId !== trustedDeviceId
+  ) {
+    throw new Error('Microsoft Graph route rejected');
+  }
+}
+
+function hasMatchingMicrosoftGraphConfirmation(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): boolean {
+  if (route.microsoftClientStateDigest === undefined) {
+    return false;
+  }
+  return args.clientStateDigest === undefined
+    ? route.microsoftSubscriptionId === args.subscriptionId
+    : route.microsoftClientStateDigest === args.clientStateDigest ||
+        route.microsoftPendingClientStateDigest === args.clientStateDigest;
+}
+
+function requireValidMicrosoftGraphConfirmation(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): void {
+  if (args.subscriptionId.length === 0 || args.expiresAt <= Date.now()) {
+    throw new Error('Microsoft Graph route rejected');
+  }
+  if (!hasMatchingMicrosoftGraphConfirmation(route, args)) {
+    throw new Error('Microsoft Graph route rejected');
+  }
+}
+
+async function ownedMicrosoftGraphRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by authentication.
+  routeId: Id<'mailProviderConnections'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<Doc<'mailProviderConnections'>> {
+  const account = await requireAuthenticatedTrustedDevice(ctx, trustedDeviceId);
+  const route = await ctx.db.get(routeId);
+  requireMicrosoftGraphRoute(route);
+  requireMicrosoftGraphRouteOwnership(
+    route,
+    account.productAccountId,
+    trustedDeviceId,
+  );
+  return route;
+}
+
+function confirmedMicrosoftGraphClientState(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Readonly<{
+  clientStateDigest: string | undefined;
+  confirmsPendingReplacement: boolean;
+  pendingClientStateDigest: string | undefined;
+}> {
+  const confirmsPendingReplacement =
+    args.clientStateDigest !== undefined &&
+    route.microsoftPendingClientStateDigest === args.clientStateDigest;
+  if (!confirmsPendingReplacement) {
+    return {
+      clientStateDigest: route.microsoftClientStateDigest,
+      confirmsPendingReplacement,
+      pendingClientStateDigest: route.microsoftPendingClientStateDigest,
+    };
+  }
+  return {
+    clientStateDigest: args.clientStateDigest,
+    confirmsPendingReplacement,
+    pendingClientStateDigest: undefined,
+  };
+}
+
+type ConfirmedMicrosoftGraphWakeupArgs = Readonly<{
+  activateMismatchedWakeup: boolean;
+  clientStateDigest: string | undefined;
+  now: number;
+  routeId: Id<'mailProviderConnections'>;
+  subscriptionId: string;
+}>;
+
+function isConfirmedMicrosoftGraphWakeup(
+  wakeup: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): boolean {
+  return (
+    wakeup.clientStateDigest === args.clientStateDigest &&
+    wakeup.subscriptionId === args.subscriptionId
+  );
+}
+
+async function activateConfirmedMicrosoftGraphWakeup(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ConfirmedMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<void> {
+  const stagedWakeup = await microsoftGraphWakeupState(ctx, args.routeId);
+  if (stagedWakeup === null) {
+    return;
+  }
+  if (
+    isConfirmedMicrosoftGraphWakeup(stagedWakeup, args) ||
+    args.activateMismatchedWakeup
+  ) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(stagedWakeup._id, {
+      clientStateDigest: args.clientStateDigest,
+      pendingAt: args.now,
+      scheduledAt: args.now,
+      subscriptionId: args.subscriptionId,
+    });
+    await ctx.scheduler.runAfter(0, internal.apns.deliverMicrosoftGraphWakeup, {
+      routeId: args.routeId,
+      scheduledAt: args.now,
+    });
+  }
+}
+
+async function confirmMicrosoftGraphRouteForDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ConfirmMicrosoftGraphRouteArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<{ routeId: Id<'mailProviderConnections'> }> {
+  const route = await ownedMicrosoftGraphRoute(
+    ctx,
+    args.routeId,
+    args.trustedDeviceId,
+  );
+  requireValidMicrosoftGraphConfirmation(route, args);
+  const now = Date.now();
+  const confirmedState = confirmedMicrosoftGraphClientState(route, args);
+  await ctx.db.patch(args.routeId, {
+    lastVerifiedAt: now,
+    microsoftClientStateDigest: confirmedState.clientStateDigest,
+    microsoftPendingClientStateDigest: confirmedState.pendingClientStateDigest,
+    microsoftSubscriptionExpiresAt: args.expiresAt,
+    microsoftSubscriptionId: args.subscriptionId,
+    updatedAt: now,
+  });
+  await activateConfirmedMicrosoftGraphWakeup(ctx, {
+    activateMismatchedWakeup: confirmedState.confirmsPendingReplacement,
+    clientStateDigest: confirmedState.clientStateDigest,
+    now,
+    routeId: args.routeId,
+    subscriptionId: args.subscriptionId,
+  });
+  await refreshDevicePushRouteHeartbeat(ctx, args.trustedDeviceId, now);
+  return { routeId: args.routeId };
+}
+
+export const confirmMicrosoftGraphRoute = mutation({
+  args: {
+    clientStateDigest: v.optional(v.string()),
+    expiresAt: v.number(),
+    routeId: v.id('mailProviderConnections'),
+    subscriptionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: confirmMicrosoftGraphRouteForDevice,
+  returns: microsoftGraphRouteResponseValidator,
+});
+
+export const rollbackMicrosoftGraphRoute = mutation({
+  args: {
+    clientStateDigest: v.string(),
+    routeId: v.id('mailProviderConnections'),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const route = await ownedMicrosoftGraphRoute(
+      ctx,
+      args.routeId,
+      args.trustedDeviceId,
+    );
+    if (route.microsoftPendingClientStateDigest === args.clientStateDigest) {
+      await ctx.db.patch(args.routeId, {
+        microsoftPendingClientStateDigest: undefined,
+        updatedAt: Date.now(),
+      });
+      return { rolledBack: true };
+    }
+    if (
+      route.microsoftClientStateDigest === args.clientStateDigest &&
+      route.microsoftSubscriptionId === undefined
+    ) {
+      await deleteMicrosoftGraphWakeupState(ctx, args.routeId);
+      await ctx.db.delete(args.routeId);
+      return { rolledBack: true };
+    }
+    return { rolledBack: false };
+  },
+  returns: v.object({ rolledBack: v.boolean() }),
+});
+
+export const removeMicrosoftGraphRoute = mutation({
+  args: {
+    opaqueConnectionId: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const route = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productId_provider_deviceId_connectionId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'microsoft-graph')
+          .eq('trustedDeviceId', args.trustedDeviceId)
+          .eq('opaqueConnectionId', args.opaqueConnectionId),
+      )
+      .unique();
+    if (route !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await deleteMicrosoftGraphWakeupState(ctx, route._id);
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(route._id);
+    }
+    return { removed: route !== null };
+  },
+  returns: v.object({ removed: v.boolean() }),
+});
+
+function isActiveMicrosoftGraphRoute(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  now: number,
+): route is Doc<'mailProviderConnections'> {
+  return (
+    route !== null &&
+    route.provider === 'microsoft-graph' &&
+    (route.microsoftSubscriptionExpiresAt ?? 0) > now
+  );
+}
+
+function matchesMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: MicrosoftGraphWakeupArgs,
+): boolean {
+  return (
+    route.microsoftClientStateDigest === args.clientStateDigest &&
+    route.microsoftSubscriptionId === args.subscriptionId
+  );
+}
+
+function isInitialMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  clientStateDigest: string,
+): boolean {
+  return (
+    route.microsoftSubscriptionId === undefined &&
+    route.microsoftClientStateDigest === clientStateDigest
+  );
+}
+
+function canStageMicrosoftGraphSubscription(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  clientStateDigest: string,
+): route is Doc<'mailProviderConnections'> {
+  return (
+    route?.provider === 'microsoft-graph' &&
+    (isInitialMicrosoftGraphSubscription(route, clientStateDigest) ||
+      route.microsoftPendingClientStateDigest === clientStateDigest)
+  );
+}
+
+function acceptsMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  args: MicrosoftGraphWakeupArgs,
+  now: number,
+): boolean {
+  const matchesActiveSubscription =
+    isActiveMicrosoftGraphRoute(route, now) &&
+    matchesMicrosoftGraphSubscription(route, args);
+  return (
+    matchesActiveSubscription ||
+    canStageMicrosoftGraphSubscription(route, args.clientStateDigest)
+  );
+}
+
+async function acceptedMicrosoftGraphWakeupRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: MicrosoftGraphWakeupArgs,
+  now: number,
+): Promise<Id<'mailProviderConnections'> | null> {
+  const routeId = ctx.db.normalizeId('mailProviderConnections', args.routeId);
+  if (routeId === null) {
+    return null;
+  }
+  const route = await ctx.db.get(routeId);
+  if (!acceptsMicrosoftGraphWakeup(route, args, now)) {
+    return null;
+  }
+  return routeId;
+}
+
+async function enqueueMicrosoftGraphWakeupForRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: MicrosoftGraphWakeupArgs,
+): Promise<{ accepted: boolean }> {
+  const now = Date.now();
+  const routeId = await acceptedMicrosoftGraphWakeupRoute(ctx, args, now);
+  if (routeId === null) {
+    return { accepted: false };
+  }
+  const existing = await microsoftGraphWakeupState(ctx, routeId);
+  if (existing !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.patch(existing._id, {
+      attemptCount: 0,
+      clientStateDigest: args.clientStateDigest,
+      pendingAt: now,
+      subscriptionId: args.subscriptionId,
+    });
+    return { accepted: true };
+  }
+  await ctx.db.insert('microsoftGraphWakeupStates', {
+    attemptCount: 0,
+    clientStateDigest: args.clientStateDigest,
+    pendingAt: now,
+    routeId,
+    scheduledAt: now,
+    subscriptionId: args.subscriptionId,
+  });
+  await ctx.scheduler.runAfter(
+    1000,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    { routeId, scheduledAt: now },
+  );
+  return { accepted: true };
+}
+
+export const enqueueMicrosoftGraphWakeup = internalMutation({
+  args: {
+    clientStateDigest: v.string(),
+    routeId: v.string(),
+    subscriptionId: v.string(),
+  },
+  handler: enqueueMicrosoftGraphWakeupForRoute,
+  returns: v.object({ accepted: v.boolean() }),
+});
+
+type MicrosoftGraphWakeupScheduleArgs = Readonly<{
+  routeId: Id<'mailProviderConnections'>;
+  scheduledAt: number;
+}>;
+
+function isMatchingMicrosoftGraphWakeupState(
+  state: Doc<'microsoftGraphWakeupStates'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  scheduledAt: number,
+): state is Doc<'microsoftGraphWakeupStates'> {
+  return state !== null && state.scheduledAt === scheduledAt;
+}
+
+function matchesActiveMicrosoftGraphWakeup(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  route: Doc<'mailProviderConnections'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): boolean {
+  return (
+    state.clientStateDigest === undefined ||
+    (state.clientStateDigest === route.microsoftClientStateDigest &&
+      state.subscriptionId === route.microsoftSubscriptionId)
+  );
+}
+
+type ActiveMicrosoftGraphWakeupArgs = Readonly<{
+  route: Doc<'mailProviderConnections'>;
+  schedule: MicrosoftGraphWakeupScheduleArgs;
+  state: Doc<'microsoftGraphWakeupStates'>;
+}>;
+
+async function claimActiveMicrosoftGraphWakeup(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: ActiveMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+): Promise<ApnsRecipient | null> {
+  const device = await ctx.db.get(args.route.trustedDeviceId);
+  if (!hasActiveApnsRoute(device)) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(args.state._id);
+    return null;
+  }
+  await ctx.scheduler.runAfter(
+    microsoftGraphWakeupClaimLeaseMs,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    args.schedule,
+  );
+  return apnsRecipient(device, args.schedule.routeId);
+}
+
+function isClaimableMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  now: number,
+): route is Doc<'mailProviderConnections'> {
+  return (
+    isActiveMicrosoftGraphRoute(route, now) &&
+    matchesActiveMicrosoftGraphWakeup(state, route)
+  );
+}
+
+function shouldStageMicrosoftGraphWakeup(
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): boolean {
+  return (
+    state.clientStateDigest !== undefined &&
+    canStageMicrosoftGraphSubscription(route, state.clientStateDigest)
+  );
+}
+
+async function claimMicrosoftGraphWakeupForRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: MicrosoftGraphWakeupScheduleArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<ApnsRecipient | null> {
+  const route = await ctx.db.get(args.routeId);
+  const state = await microsoftGraphWakeupState(ctx, args.routeId);
+  if (!isMatchingMicrosoftGraphWakeupState(state, args.scheduledAt)) {
+    return null;
+  }
+  if (isClaimableMicrosoftGraphWakeup(route, state, Date.now())) {
+    return claimActiveMicrosoftGraphWakeup(ctx, {
+      route,
+      schedule: args,
+      state,
+    });
+  }
+  if (shouldStageMicrosoftGraphWakeup(route, state)) {
+    return null;
+  }
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.delete(state._id);
+  return null;
+}
+
+export const claimMicrosoftGraphWakeup = internalMutation({
+  args: {
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+  },
+  handler: claimMicrosoftGraphWakeupForRoute,
+  returns: v.union(apnsRecipientValidator, v.null()),
+});
+
+type CompleteMicrosoftGraphWakeupArgs = MicrosoftGraphWakeupScheduleArgs &
+  Readonly<{ delivered: boolean; terminalFailure?: boolean }>;
+
+async function microsoftGraphRouteDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  route: Doc<'mailProviderConnections'> | null, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): Promise<Doc<'trustedDevices'> | null> {
+  if (route?.provider !== 'microsoft-graph') {
+    return null;
+  }
+  return ctx.db.get(route.trustedDeviceId);
+}
+
+type MicrosoftGraphWakeupCompletionContext = Readonly<{
+  device: Doc<'trustedDevices'> | null;
+  route: Doc<'mailProviderConnections'> | null;
+  state: Doc<'microsoftGraphWakeupStates'>;
+}>;
+
+function microsoftGraphWakeupAttemptCount(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): number {
+  return state.attemptCount ?? 0;
+}
+
+function microsoftGraphWakeupPendingAt(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+): number {
+  return state.pendingAt ?? state.scheduledAt;
+}
+
+function hasUsableMicrosoftGraphWakeupRoute(
+  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+): boolean {
+  if (!isActiveMicrosoftGraphRoute(context.route, Date.now())) {
+    return false;
+  }
+  return hasActiveApnsRoute(context.device);
+}
+
+function shouldDiscardMicrosoftGraphWakeup(
+  context: MicrosoftGraphWakeupCompletionContext, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are inspected but not mutated.
+  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): boolean {
+  if (args.terminalFailure === true) {
+    return true;
+  }
+  if (!hasUsableMicrosoftGraphWakeupRoute(context)) {
+    return true;
+  }
+  if (args.delivered) {
+    return microsoftGraphWakeupPendingAt(context.state) <= args.scheduledAt;
+  }
+  return (
+    microsoftGraphWakeupAttemptCount(context.state) + 1 >=
+    microsoftGraphWakeupMaximumAttempts
+  );
+}
+
+function microsoftGraphWakeupRetryDelay(attemptCount: number): number {
+  return Math.min(
+    microsoftGraphWakeupRetryBaseDelayMs * 2 ** Math.max(0, attemptCount - 1),
+    microsoftGraphWakeupMaximumRetryDelayMs,
+  );
+}
+
+function nextMicrosoftGraphWakeupAttemptCount(
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is inspected but not mutated.
+  delivered: boolean,
+): number {
+  return delivered ? 0 : microsoftGraphWakeupAttemptCount(state) + 1;
+}
+
+function nextMicrosoftGraphWakeupDelay(
+  delivered: boolean,
+  attemptCount: number,
+): number {
+  return delivered ? 0 : microsoftGraphWakeupRetryDelay(attemptCount);
+}
+
+async function scheduleMicrosoftGraphWakeupRetry(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  state: Doc<'microsoftGraphWakeupStates'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex document is mutated through the database.
+  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<void> {
+  const attemptCount = nextMicrosoftGraphWakeupAttemptCount(
+    state,
+    args.delivered,
+  );
+  const delay = nextMicrosoftGraphWakeupDelay(args.delivered, attemptCount);
+  const retryScheduledAt = Math.max(Date.now(), args.scheduledAt + delay);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(state._id, {
+    attemptCount,
+    scheduledAt: retryScheduledAt,
+  });
+  await ctx.scheduler.runAfter(
+    delay,
+    internal.apns.deliverMicrosoftGraphWakeup,
+    { routeId: args.routeId, scheduledAt: retryScheduledAt },
+  );
+}
+
+async function completeMicrosoftGraphWakeupForRoute(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  args: CompleteMicrosoftGraphWakeupArgs, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex identifiers are branded values.
+): Promise<null> {
+  const state = await microsoftGraphWakeupState(ctx, args.routeId);
+  if (state?.scheduledAt !== args.scheduledAt) {
+    return null;
+  }
+  const route = await ctx.db.get(args.routeId);
+  const device = await microsoftGraphRouteDevice(ctx, route);
+  if (shouldDiscardMicrosoftGraphWakeup({ device, route, state }, args)) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(state._id);
+    return null;
+  }
+  await scheduleMicrosoftGraphWakeupRetry(ctx, state, args);
+  return null;
+}
+
+export const completeMicrosoftGraphWakeup = internalMutation({
+  args: {
+    delivered: v.boolean(),
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+    terminalFailure: v.optional(v.boolean()),
+  },
+  handler: completeMicrosoftGraphWakeupForRoute,
   returns: v.null(),
 });
 

@@ -68,9 +68,13 @@ export default defineSchema({
     gmailRoutingDigest: v.optional(v.string()),
     gmailRoutingKeyVersion: v.optional(v.number()),
     lastVerifiedAt: v.number(),
+    microsoftClientStateDigest: v.optional(v.string()),
+    microsoftPendingClientStateDigest: v.optional(v.string()),
+    microsoftSubscriptionExpiresAt: v.optional(v.number()),
+    microsoftSubscriptionId: v.optional(v.string()),
     opaqueConnectionId: v.optional(v.string()),
     productAccountId: v.id('productAccounts'),
-    provider: v.literal('gmail'),
+    provider: v.union(v.literal('gmail'), v.literal('microsoft-graph')),
     providerAccountIdentifier: v.optional(v.string()),
     pushVerificationHistoryId: v.optional(v.string()),
     pushVerificationOwnershipVerifiedAt: v.optional(v.number()),
@@ -143,6 +147,15 @@ export default defineSchema({
       'gmailPreviousRoutingDigest',
       'pushVerifiedAt',
     ]),
+
+  microsoftGraphWakeupStates: defineTable({
+    attemptCount: v.optional(v.number()),
+    clientStateDigest: v.optional(v.string()),
+    pendingAt: v.optional(v.number()),
+    routeId: v.id('mailProviderConnections'),
+    scheduledAt: v.number(),
+    subscriptionId: v.optional(v.string()),
+  }).index('by_routeId', ['routeId']),
 
   gmailOpaqueIdentityBindings: defineTable({
     identityBindingDigest: v.string(),

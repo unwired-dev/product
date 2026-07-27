@@ -307,6 +307,39 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
+  func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    let refreshedStatus = GmailProviderConnectionStatus(
+      connectedAt: 1_781_200_000_000,
+      emailAddress: "refreshed@example.com",
+      lastVerifiedAt: 1_781_200_000_100,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-refreshed",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    connectionService.statuses = [refreshedStatus]
+    let refreshedConnectionId = refreshedStatus.mailboxConnection(
+      productAccountId: session.productAccountId
+    ).id
+    XCTAssertFalse(viewModel.connections.contains { $0.id == refreshedConnectionId })
+
+    let refreshed = await viewModel.refreshSnapshot()
+
+    XCTAssertTrue(refreshed)
+    XCTAssertTrue(viewModel.connections.contains { $0.id == refreshedConnectionId })
+  }
+
   func testGmailAdapterListsAndRemovesOneMailboxConnection() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let second = GmailProviderConnectionStatus(
@@ -1916,6 +1949,26 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(result.messages.first?.providerStateIds, ["INBOX", "UNREAD", "Label_projects"])
   }
 
+  func testContextualMoveFromProviderMailboxRequiresGraphConnection() {
+    let gmailActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.move],
+      messages: [],
+      collection: .providerMailbox("Label_projects"),
+      allowsMove: true,
+      allowsProviderMailboxMove: false
+    )
+    let graphActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.move],
+      messages: [],
+      collection: .providerMailbox("graph-folder-projects"),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertFalse(gmailActions.contains(.move))
+    XCTAssertTrue(graphActions.contains(.move))
+  }
+
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
     let message = mailShellMessage(
       providerMessageId: "message-001",
@@ -2335,6 +2388,96 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(didSend)
     XCTAssertNil(service.outgoingMessage?.threadId)
     XCTAssertNil(service.outgoingMessage?.inReplyTo)
+  }
+
+  func testMailActionReplyFromAnotherConnectionUsesANewProviderMessage() async throws {
+    let sourceConnection = mailShellConnection(
+      emailAddress: "source@example.com",
+      providerAccountIdentifier: "source-account",
+      productAccountId: session.productAccountId
+    )
+    let selectedConnection = mailShellConnection(
+      emailAddress: "selected@example.com",
+      providerAccountIdentifier: "selected-account",
+      productAccountId: session.productAccountId
+    )
+    let sourceMessage = mailShellMessage(
+      connectionId: sourceConnection.id,
+      providerMessageId: "source-message",
+      providerThreadId: "source-thread",
+      receivedAt: 100
+    )
+    let store = AdapterOutboxStore()
+    let viewModel = GmailMailActionViewModel(
+      service: RestoredBlockedActionService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: store)
+    )
+
+    let didSend = await viewModel.send(
+      recipient: "recipient@example.com",
+      subject: "Re: Subject",
+      body: "Reply",
+      replyTo: sourceMessage,
+      sourceMessage: sourceMessage,
+      connection: selectedConnection
+    )
+    let attempt = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId).first
+    )
+
+    XCTAssertTrue(didSend)
+    XCTAssertEqual(attempt.message.kind, .new)
+    XCTAssertNil(attempt.message.sourceProviderMessageId)
+    XCTAssertNil(attempt.message.providerThreadId)
+  }
+
+  func testEditingOutboxReplyOnSameConnectionPreservesProviderReplyMetadata() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let store = AdapterOutboxStore()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: store
+    )
+    let original = try await outboxService.enqueue(
+      OutgoingMessage(
+        body: "Original",
+        recipient: "sender@example.com",
+        subject: "Re: Subject",
+        inReplyTo: "<source@example.com>",
+        kind: .reply,
+        providerThreadId: "provider-thread",
+        sourceProviderMessageId: "provider-message"
+      ),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .unknown }
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: RestoredBlockedActionService(),
+      session: session,
+      outboxService: outboxService
+    )
+
+    let didEdit = await viewModel.editOutboxAttempt(
+      original,
+      recipient: "updated@example.com",
+      subject: "Re: Updated",
+      body: "Updated",
+      connection: connection
+    )
+    let replacement = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId)
+        .first(where: { $0.state == .pending })
+    )
+
+    XCTAssertTrue(didEdit)
+    XCTAssertEqual(replacement.message.kind, .reply)
+    XCTAssertEqual(replacement.message.sourceProviderMessageId, "provider-message")
+    XCTAssertEqual(replacement.message.providerThreadId, "provider-thread")
   }
 
   func testMailActionViewModelRestoresBlockedConnectionState() async {

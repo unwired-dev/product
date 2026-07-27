@@ -194,9 +194,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
       (.markUnread, nil, ["INBOX"], ["INBOX", "UNREAD"]),
       (.archive, nil, ["INBOX"], []),
       (.move, "Label_projects", ["INBOX"], ["Label_projects"]),
+      (
+        .move, "graph-folder:destination", ["graph-folder:source", "UNREAD"],
+        ["graph-folder:destination", "UNREAD"]
+      ),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
-      (.spam, nil, ["INBOX"], ["SPAM"]),
+      (.spam, nil, ["graph-folder:source", "INBOX"], ["SPAM"]),
       (.notSpam, nil, ["SPAM"], ["INBOX"]),
       (.star, nil, ["INBOX"], ["INBOX", "STARRED"]),
       (.unstar, nil, ["INBOX", "STARRED"], ["INBOX"]),
@@ -629,6 +633,40 @@ final class PendingProviderActionServiceTests: XCTestCase {
     }
   }
 
+  func testGraphReadStateServerFailureRetriesAutomatically() async throws {
+    let recorder = PendingProviderActionRecorder()
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      maximumAttempts: 2,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-read-retry",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { action, _, messageIds in
+      let count = await recorder.recordAndCount(action: action, messageIds: messageIds)
+      if count == 1 {
+        throw MicrosoftGraphClientError.requestFailed(500)
+      }
+    }
+    await service.waitForScheduledRetries(connection: connection, session: session)
+
+    let calls = await recorder.calls
+    XCTAssertEqual(calls.map(\.action), [.markRead, .markRead])
+    XCTAssertEqual(
+      try store.load(productAccountId: session.productAccountId).first?.state,
+      .providerConfirmed
+    )
+  }
+
   func testPermanentFailureRemainsDurableUntilAcknowledged() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(
@@ -702,7 +740,6 @@ final class PendingProviderActionServiceTests: XCTestCase {
         return XCTFail("Expected retry-limit failure")
       }
     }
-
     try await service.reconcileProviderSync(
       messages: [
         pendingActionMessage(
@@ -715,6 +752,122 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
 
     let actions = try await service.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGraphArchiveReconciliationRequiresArchiveState() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      failureDisposition: { _ in .userActionRequired },
+      store: store
+    )
+    let graphConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .microsoftGraph,
+      connectedAt: 1_781_200_000_000,
+      displayName: "reader@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .microsoftGraph,
+          value: "graph-user-001"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-graph-archive",
+      providerStateIds: ["INBOX"],
+      connectionId: graphConnection.id
+    )
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: graphConnection,
+        session: session
+      ) { _, _, _ in
+        throw PendingProviderActionTestError.rejected
+      }
+      XCTFail("Expected ambiguous archive failure")
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: graphConnection,
+      session: session
+    )
+    XCTAssertEqual(Set(try XCTUnwrap(projected.messages.first?.providerStateIds)), ["ARCHIVE"])
+
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: message.providerMessageId,
+          providerStateIds: []
+        )
+      ],
+      connection: graphConnection,
+      session: session
+    )
+    var actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
+
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: message.providerMessageId,
+          providerStateIds: ["ARCHIVE"]
+        )
+      ],
+      connection: graphConnection,
+      session: session
+    )
+    actions = try await service.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
+  func testNonAuthoritativeSyncKeepsContradictedConfirmedAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-confirmed-archive",
+      providerStateIds: ["INBOX"]
+    )
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+
+    try await service.reconcileProviderSync(
+      messages: [message],
+      removesContradictedActions: false,
+      connection: connection,
+      session: session
+    )
+
+    var actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    actions = try await service.pendingActions(session: session)
     XCTAssertTrue(actions.isEmpty)
   }
 
@@ -813,6 +966,41 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
     let pendingActions = try await service.pendingActions(session: session)
     XCTAssertTrue(pendingActions.isEmpty)
+  }
+
+  func testOptimisticGraphMoveRemovesThePreviousFolder() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-graph-move",
+      providerStateIds: ["graph-folder:source", "UNREAD"]
+    )
+
+    try await service.perform(
+      .move,
+      targetProviderMailboxId: "graph-folder:destination",
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message]),
+        hasInitialMailboxAvailability: true,
+        historicalMetadataBackfillIsComplete: true
+      ),
+      collection: .providerMailbox("graph-folder:destination"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      projected.messages.first?.providerStateIds,
+      ["UNREAD", "graph-folder:destination"]
+    )
   }
 
   func testProviderSyncRemovesSupersededConfirmedAction() async throws {
@@ -1129,13 +1317,46 @@ final class PendingProviderActionServiceTests: XCTestCase {
     )
   }
 
+  func testCancellingRetryWaiterDoesNotWaitForStalledProviderWork() async throws {
+    let service = PendingProviderActionService(
+      store: InMemoryPendingProviderActionStore()
+    )
+    let gate = PendingProviderActionGate()
+    async let providerAction: Void = service.perform(
+      .archive,
+      messages: [
+        pendingActionMessage(providerMessageId: "message-001", providerStateIds: ["INBOX"])
+      ],
+      connection: connection,
+      session: session
+    ) { _, _, _ in
+      await gate.block()
+    }
+    await gate.waitUntilBlocked()
+    let waitCompleted = expectation(description: "Cancelled retry waiter completed")
+    let waiter = Task {
+      await service.waitForScheduledRetries(
+        connection: connection,
+        session: session
+      )
+      waitCompleted.fulfill()
+    }
+
+    waiter.cancel()
+
+    await fulfillment(of: [waitCompleted], timeout: 1)
+    await gate.release()
+    try await providerAction
+  }
+
   private func pendingActionMessage(
     providerMessageId: String,
-    providerStateIds: [String]
+    providerStateIds: [String],
+    connectionId: MailboxConnectionId? = nil
   ) -> MailboxMessageMetadata {
     MailboxMessageMetadata(
       categoryId: nil,
-      connectionId: connection.id,
+      connectionId: connectionId ?? connection.id,
       from: "sender@example.com",
       isHistorical: false,
       providerInternalDateMilliseconds: 1_781_200_000_000,

@@ -1,10 +1,24 @@
 import { httpRouter } from 'convex/server';
 
+import type { ActionCtx } from './_generated/server.js';
+
 import { internal } from './_generated/api.js';
 import { httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 
 const http = httpRouter();
+const maxMicrosoftGraphNotificationsPerRequest = 100;
+
+type MicrosoftGraphNotification = Readonly<{
+  clientState: string;
+  subscriptionId: string;
+}>;
+
+function isUnknownRecord(
+  value: unknown,
+): value is Readonly<Record<string, unknown>> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
 
 function decodeRequestEnvelope(
   envelope: unknown,
@@ -29,6 +43,110 @@ function hasValidVerificationToken(
   );
 }
 
+function microsoftGraphNotifications(
+  value: unknown,
+): MicrosoftGraphNotification[] {
+  if (!isUnknownRecord(value) || !Array.isArray(value.value)) {
+    return [];
+  }
+  const candidates: unknown[] = value.value.slice(
+    0,
+    maxMicrosoftGraphNotificationsPerRequest,
+  );
+  return candidates.flatMap((candidate) => {
+    if (
+      !isUnknownRecord(candidate) ||
+      typeof candidate.clientState !== 'string' ||
+      typeof candidate.subscriptionId !== 'string'
+    ) {
+      return [];
+    }
+    return [
+      {
+        clientState: candidate.clientState,
+        subscriptionId: candidate.subscriptionId,
+      },
+    ];
+  });
+}
+
+async function sha256Hex(value: string): Promise<string> {
+  const digest = await crypto.subtle.digest(
+    'SHA-256',
+    new TextEncoder().encode(value),
+  );
+  return [...new Uint8Array(digest)]
+    .map((byte) => byte.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+function microsoftGraphValidationResponse(
+  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
+): Response | null {
+  const validationToken = url.searchParams.get('validationToken');
+  if (validationToken === null) {
+    return null;
+  }
+  return new Response(validationToken, {
+    headers: { 'content-type': 'text/plain' },
+    status: 200,
+  });
+}
+
+function microsoftGraphRouteId(
+  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
+): string | null {
+  const routeId = url.searchParams.get('routeId');
+  return routeId?.length === 0 ? null : routeId;
+}
+
+async function enqueueMicrosoftGraphNotifications(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeId: string,
+  notifications: readonly MicrosoftGraphNotification[],
+): Promise<void> {
+  const uniqueNotifications = new Map<
+    string,
+    { clientStateDigest: string; subscriptionId: string }
+  >();
+  for (const notification of notifications) {
+    const digest = await sha256Hex(notification.clientState);
+    uniqueNotifications.set(`${notification.subscriptionId}:${digest}`, {
+      clientStateDigest: digest,
+      subscriptionId: notification.subscriptionId,
+    });
+  }
+  for (const notification of uniqueNotifications.values()) {
+    await ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+      clientStateDigest: notification.clientStateDigest,
+      routeId,
+      subscriptionId: notification.subscriptionId,
+    });
+  }
+}
+
+async function microsoftGraphPushResponse(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+): Promise<Response> {
+  const url = new URL(request.url);
+  const validationResponse = microsoftGraphValidationResponse(url);
+  if (validationResponse !== null) {
+    return validationResponse;
+  }
+  const routeId = microsoftGraphRouteId(url);
+  if (routeId === null) {
+    return new Response('Microsoft Graph route required', { status: 400 });
+  }
+  const payload: unknown = await request.json().catch(() => null);
+  const notifications = microsoftGraphNotifications(payload);
+  if (notifications.length === 0) {
+    return new Response('Invalid Microsoft Graph push', { status: 400 });
+  }
+  await enqueueMicrosoftGraphNotifications(ctx, routeId, notifications);
+  return new Response(null, { status: 202 });
+}
+
 http.route({
   path: '/gmail/push',
   method: 'POST',
@@ -49,6 +167,12 @@ http.route({
     );
     return new Response(null, { status: 204 });
   }),
+});
+
+http.route({
+  path: '/microsoft-graph/push',
+  method: 'POST',
+  handler: httpAction(microsoftGraphPushResponse),
 });
 
 export default http;

@@ -56,6 +56,7 @@ final class DotEnvFileTests: XCTestCase {
   func testAppleClientValuesExcludeBackendSecrets() {
     let values = DotEnvFile.parseAppleClientValues(
       """
+      CONVEX_SITE_URL=https://example.convex.site
       CONVEX_URL=https://example.convex.cloud
       GMAIL_OAUTH_CLIENT_ID=client-id.apps.googleusercontent.com
       GMAIL_PUBSUB_TOPIC=projects/example/topics/gmail-push
@@ -68,11 +69,32 @@ final class DotEnvFileTests: XCTestCase {
     XCTAssertEqual(
       values,
       [
+        "CONVEX_SITE_URL": "https://example.convex.site",
         "CONVEX_URL": "https://example.convex.cloud",
         "GMAIL_OAUTH_CLIENT_ID": "client-id.apps.googleusercontent.com",
         "GMAIL_PUBSUB_TOPIC": "projects/example/topics/gmail-push",
         "MICROSOFT_GRAPH_CLIENT_ID": "microsoft-client-id",
       ]
+    )
+  }
+
+  func testExplicitConvexSiteURLTakesPrecedenceOverDerivedURL() {
+    XCTAssertEqual(
+      BackendEnvironment.resolveConvexSiteURL(
+        explicitValue: "https://custom.example.test",
+        convexURL: URL(string: "https://example.convex.cloud")
+      ),
+      URL(string: "https://custom.example.test")
+    )
+  }
+
+  func testConvexSiteURLFallsBackToDerivedDeploymentSite() {
+    XCTAssertEqual(
+      BackendEnvironment.resolveConvexSiteURL(
+        explicitValue: nil,
+        convexURL: URL(string: "https://example.convex.cloud")
+      ),
+      URL(string: "https://example.convex.site")
     )
   }
 }

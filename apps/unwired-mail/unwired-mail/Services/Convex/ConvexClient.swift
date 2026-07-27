@@ -166,6 +166,75 @@ final class ConvexClient {
     )
   }
 
+  func prepareMicrosoftGraphPushRoute(
+    clientStateDigest: String,
+    identityToken: String,
+    opaqueConnectionId: String,
+    trustedDeviceId: String
+  ) async throws -> MicrosoftGraphPushRouteResponse {
+    try await performMutation(
+      path: "pushRelay:prepareMicrosoftGraphRoute",
+      args: PrepareMicrosoftGraphPushRouteArgs(
+        clientStateDigest: clientStateDigest,
+        opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func confirmMicrosoftGraphPushRoute(
+    confirmation: MicrosoftGraphPushRouteConfirmation,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> MicrosoftGraphPushRouteResponse {
+    try await performMutation(
+      path: "pushRelay:confirmMicrosoftGraphRoute",
+      args: ConfirmMicrosoftGraphPushRouteArgs(
+        clientStateDigest: confirmation.clientStateDigest,
+        expiresAt: confirmation.expiresAt,
+        routeId: confirmation.routeId,
+        subscriptionId: confirmation.subscriptionId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func rollbackMicrosoftGraphPushRoute(
+    clientStateDigest: String,
+    identityToken: String,
+    routeId: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    let response: RollbackMicrosoftGraphPushRouteResponse = try await performMutation(
+      path: "pushRelay:rollbackMicrosoftGraphRoute",
+      args: RollbackMicrosoftGraphPushRouteArgs(
+        clientStateDigest: clientStateDigest,
+        routeId: routeId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+    return response.rolledBack
+  }
+
+  func removeMicrosoftGraphPushRoute(
+    identityToken: String,
+    opaqueConnectionId: String,
+    trustedDeviceId: String
+  ) async throws -> Bool {
+    let response: RemoveMicrosoftGraphPushRouteResponse = try await performMutation(
+      path: "pushRelay:removeMicrosoftGraphRoute",
+      args: RemoveMicrosoftGraphPushRouteArgs(
+        opaqueConnectionId: opaqueConnectionId,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+    return response.removed
+  }
+
   func putEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String,
@@ -454,6 +523,39 @@ private struct VerifyGmailPushWatchArgs: Encodable {
   let historyId: String
   let opaqueConnectionId: String
   let trustedDeviceId: String
+}
+
+private struct PrepareMicrosoftGraphPushRouteArgs: Encodable {
+  let clientStateDigest: String
+  let opaqueConnectionId: String
+  let trustedDeviceId: String
+}
+
+private struct ConfirmMicrosoftGraphPushRouteArgs: Encodable {
+  let clientStateDigest: String?
+  let expiresAt: Int64
+  let routeId: String
+  let subscriptionId: String
+  let trustedDeviceId: String
+}
+
+private struct RollbackMicrosoftGraphPushRouteArgs: Encodable {
+  let clientStateDigest: String
+  let routeId: String
+  let trustedDeviceId: String
+}
+
+private struct RollbackMicrosoftGraphPushRouteResponse: Decodable {
+  let rolledBack: Bool
+}
+
+private struct RemoveMicrosoftGraphPushRouteArgs: Encodable {
+  let opaqueConnectionId: String
+  let trustedDeviceId: String
+}
+
+private struct RemoveMicrosoftGraphPushRouteResponse: Decodable {
+  let removed: Bool
 }
 
 private struct PutEncryptedProductSyncPayloadArgs: Encodable {
