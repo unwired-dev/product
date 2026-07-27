@@ -478,6 +478,60 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
     XCTAssertTrue(hasBlockedAction)
+    let failureDescription = try await pendingActions.failureDescription(
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(
+      failureDescription,
+      "This action may have already been applied and must be confirmed before retrying."
+    )
+  }
+
+  func testGraphConnectionFailureRetriesMove() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "archive-id", displayName: "Archive", wellKnownName: "archive"),
+    ]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.moveErrors = [URLError(.cannotConnectToHost)]
+    let pendingActions = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 0 },
+      store: InMemoryGraphPendingActionStore()
+    )
+    let adapter = try authorizedAdapter(
+      client: client,
+      pendingActionService: pendingActions
+    )
+    let initialConnections = try await adapter.loadConnections(session: session)
+    let initialConnection = try XCTUnwrap(initialConnections.first)
+    let inbox = try await adapter.syncInbox(
+      connection: initialConnection,
+      session: session
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let message = try XCTUnwrap(inbox.messages.first)
+
+    try await adapter.perform(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    await pendingActions.waitForScheduledRetries(connection: connection, session: session)
+
+    XCTAssertEqual(client.moveAttempts, 2)
+    XCTAssertEqual(
+      client.moves,
+      [.init(destinationFolderId: "archive-id", messageId: message.providerMessageId)]
+    )
   }
 
   func testMappedFolderRolesControlAdvertisedProviderActions() async throws {
