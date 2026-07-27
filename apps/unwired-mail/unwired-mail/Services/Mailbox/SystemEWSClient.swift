@@ -241,17 +241,7 @@ struct SystemEWSClient: EWSClient {
         authorization: authorization
       )
       return []
-    case .delete:
-      _ = try await request(
-        """
-        <m:DeleteItem DeleteType="MoveToDeletedItems" SendMeetingCancellations="SendToNone">
-          <m:ItemIds>\(itemIds(messages))</m:ItemIds>
-        </m:DeleteItem>
-        """,
-        authorization: authorization
-      )
-      return []
-    case .archive, .move, .notSpam, .restore, .spam:
+    case .archive, .delete, .move, .notSpam, .restore, .spam:
       let destination =
         targetFolderId.map { #"<t:FolderId Id="\#(xmlAttribute($0))"/>"# }
         ?? distinguishedDestination(action).map {
@@ -296,6 +286,9 @@ struct SystemEWSClient: EWSClient {
     _ message: OutgoingMessage,
     authorization: DeviceLocalEWSAuthorization
   ) async throws {
+    let recipients = recipientAddresses(message.recipient).map {
+      "<t:Mailbox><t:EmailAddress>\(xml($0))</t:EmailAddress></t:Mailbox>"
+    }.joined()
     var headers = ""
     if let messageId = message.rfcMessageId {
       headers += extendedHeader(name: "Message-ID", value: messageId)
@@ -315,8 +308,7 @@ struct SystemEWSClient: EWSClient {
             <t:Subject>\(xml(message.subject))</t:Subject>
             <t:Body BodyType="Text">\(xml(message.body))</t:Body>
             \(headers)
-            <t:ToRecipients><t:Mailbox><t:EmailAddress>\(xml(message.recipient))</t:EmailAddress>
-            </t:Mailbox></t:ToRecipients>
+            <t:ToRecipients>\(recipients)</t:ToRecipients>
           </t:Message>
         </m:Items>
       </m:CreateItem>
@@ -599,10 +591,64 @@ struct SystemEWSClient: EWSClient {
   private func distinguishedDestination(_ action: ProviderMailAction) -> String? {
     switch action {
     case .archive: return "archiveinbox"
+    case .delete: return "deleteditems"
     case .spam: return "junkemail"
     case .notSpam, .restore: return "inbox"
     default: return nil
     }
+  }
+
+  private func recipientAddresses(_ value: String) -> [String] {
+    mailboxValues(in: value).compactMap { mailbox in
+      let trimmed = mailbox.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !trimmed.isEmpty else { return nil }
+      guard
+        let opening = trimmed.lastIndex(of: "<"),
+        let closing = trimmed.lastIndex(of: ">"),
+        opening < closing
+      else { return trimmed }
+      let address = trimmed[trimmed.index(after: opening)..<closing]
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return address.isEmpty ? nil : address
+    }
+  }
+
+  private func mailboxValues(in value: String) -> [String] {
+    var mailboxes: [String] = []
+    var mailbox = ""
+    var isEscaped = false
+    var isQuoted = false
+    var angleBracketDepth = 0
+
+    for character in value {
+      if isEscaped {
+        mailbox.append(character)
+        isEscaped = false
+        continue
+      }
+      if character == "\\" && isQuoted {
+        mailbox.append(character)
+        isEscaped = true
+        continue
+      }
+      switch character {
+      case "\"":
+        isQuoted.toggle()
+      case "<":
+        angleBracketDepth += 1
+      case ">":
+        angleBracketDepth = max(0, angleBracketDepth - 1)
+      case "," where !isQuoted && angleBracketDepth == 0:
+        mailboxes.append(mailbox)
+        mailbox = ""
+        continue
+      default:
+        break
+      }
+      mailbox.append(character)
+    }
+    mailboxes.append(mailbox)
+    return mailboxes
   }
 
   private static func distinguishedFolderId(_ role: EWSFolderRole) -> String? {

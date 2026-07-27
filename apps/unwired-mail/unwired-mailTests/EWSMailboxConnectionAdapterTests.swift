@@ -106,8 +106,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection.providerId, .exchangeWebServices)
     XCTAssertEqual(connection.authorizationState, .authorized)
     XCTAssertEqual(connection.capabilities, .exchangeWebServices)
+    XCTAssertEqual(connection.displayName, "reader@corp.example")
     XCTAssertEqual(client.verifiedAuthorization?.credential, " private-password ")
     XCTAssertEqual(definitions.savedDefinition?.provider, "exchange-web-services")
+    XCTAssertEqual(definitions.savedDefinition?.displayName, "reader@corp.example")
     XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, .exchange2019)
     XCTAssertEqual(
       try authorizations.load(
@@ -120,6 +122,52 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let encoded = try JSONEncoder().encode(definitions.savedDefinition)
     XCTAssertFalse(
       (String(bytes: encoded, encoding: .utf8) ?? "").contains("private-password")
+    )
+  }
+
+  func testSetupCancellationBeforePersistenceLeavesNoConnection() async throws {
+    let client = RecordingEWSClient()
+    let definitions = RecordingEWSDefinitionSyncService()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: definitions
+    )
+    var sessionChecks = 0
+
+    let result = await Task {
+      do {
+        _ = try await service.connect(
+          authorizationMethod: .password,
+          credential: "password",
+          emailAddress: "reader@corp.example",
+          endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+          username: #"CORP\reader"#,
+          session: session,
+          isSessionCurrent: { _ in
+            sessionChecks += 1
+            if sessionChecks == 3 {
+              withUnsafeCurrentTask { $0?.cancel() }
+            }
+            return true
+          }
+        )
+        return false
+      } catch is CancellationError {
+        return true
+      } catch {
+        return false
+      }
+    }.value
+
+    XCTAssertTrue(result)
+    XCTAssertNil(definitions.savedDefinition)
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: makeEWSDefinition().connectionId
+      )
     )
   }
 
@@ -152,6 +200,40 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       XCTAssertEqual(client.verifiedAuthorization?.definition.authorizationMethod, method)
       XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, version)
     }
+  }
+
+  func testEWSSetupCanSetDefaultSendingConnection() async throws {
+    let definition = makeEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      )
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+    let viewModel = EWSSetupViewModel(
+      adapter: adapter,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    await viewModel.load()
+    let connection = try XCTUnwrap(viewModel.connections.first)
+    await viewModel.setDefaultSendingConnection(connection)
+
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
   }
 
   func testSetupRequiresEveryFullCapabilityMailboxRole() async throws {
@@ -294,7 +376,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     try await client.send(
       OutgoingMessage(
         body: "Body",
-        recipient: "recipient@example.com",
+        recipient: #""Recipient, One" <one@example.com>, Two <two@example.com>"#,
         subject: "Subject",
         idempotencyKey: "ews-send"
       ),
@@ -314,6 +396,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     let updateBody = requestBodies[0]
     XCTAssertTrue(updateBody.contains("<t:IsRead>true</t:IsRead>"))
     XCTAssertFalse(updateBody.contains("<m:IsRead>"))
+    let sendBody = requestBodies[1]
+    XCTAssertTrue(sendBody.contains("<t:EmailAddress>one@example.com</t:EmailAddress>"))
+    XCTAssertTrue(sendBody.contains("<t:EmailAddress>two@example.com</t:EmailAddress>"))
+    XCTAssertFalse(sendBody.contains("Recipient, One"))
   }
 
   func testSystemClientUsesValidMessageFieldURIs() async throws {
@@ -417,8 +503,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testSystemClientParsesItemBodyFractionalTimestampAndMovedIdentity() async throws {
+    var requestBodies: [String] = []
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
+      requestBodies.append(body)
       let payload =
         if body.contains("<m:GetItem>") {
           Self.getItemResponse
@@ -461,6 +549,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       messages: [message],
       authorization: authorization
     )
+    let deleted = try await client.perform(
+      .delete,
+      targetFolderId: nil,
+      messages: [message],
+      authorization: authorization
+    )
 
     XCTAssertEqual(body, "Rendered message body")
     XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
@@ -474,6 +568,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         )
       ]
     )
+    XCTAssertEqual(deleted, moved)
+    XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
+    XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
+    XCTAssertFalse(requestBodies.last?.contains("<m:DeleteItem") == true)
   }
 
   func testInitialAvailabilityAndBackfillPreserveRolesAndConversationIdentity() async throws {
@@ -542,6 +640,69 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         "ews-stable-3", "ews-stable-2", "ews-stable-1",
       ])
     XCTAssertEqual(client.requestedPages, ["inbox-id|0", "sent-id|0", "inbox-id|2"])
+  }
+
+  func testRecentRefreshPreservesAdvancedHistoricalBackfillCursor() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(3, folderId: "inbox-id", conversationId: "conversation-3")],
+      nextOffset: 50
+    )
+    client.pages["inbox-id|50"] = EWSMessagePage(
+      messages: [ewsMessage(2, folderId: "inbox-id", conversationId: "conversation-2")],
+      nextOffset: 100
+    )
+    client.pages["inbox-id|100"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    _ = try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+    let complete = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(complete.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(
+      Set(complete.messages.map(\.providerMessageId)),
+      ["ews-stable-1", "ews-stable-2", "ews-stable-3"]
+    )
+    XCTAssertEqual(
+      client.requestedPages,
+      ["inbox-id|0", "inbox-id|50", "inbox-id|0", "inbox-id|100"]
+    )
   }
 
   func testProviderActionsUseSharedOfflineQueueAndKeepConnectionsIsolated() async throws {
@@ -686,7 +847,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   func testTransientEWSActionRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
-    client.remainingActionFailuresByConnectionId[definition.connectionId] = 1
+    client.remainingOfflineFailuresByConnectionId[definition.connectionId] = 1
     client.folders = [
       EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
     ]
@@ -734,7 +895,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertNil(retryError)
     XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
-    XCTAssertEqual(client.remainingActionFailuresByConnectionId[connection.id], 0)
+    XCTAssertEqual(client.remainingOfflineFailuresByConnectionId[connection.id], 0)
   }
 
   func testAuthenticationRejectedBlocksPendingEWSActionForUserIntervention() async throws {
@@ -1266,6 +1427,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var loadedBodyItemId: String?
   var pages: [String: EWSMessagePage] = [:]
   var performedActions: [PerformedAction] = []
+  var remainingOfflineFailuresByConnectionId: [MailboxConnectionId: Int] = [:]
   var remainingActionFailuresByConnectionId: [MailboxConnectionId: Int] = [:]
   var requestedPages: [String] = []
   var sentMessages: [OutgoingMessage] = []
@@ -1311,6 +1473,10 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       throw error
     }
     let connectionId = authorization.definition.connectionId
+    if let failures = remainingOfflineFailuresByConnectionId[connectionId], failures > 0 {
+      remainingOfflineFailuresByConnectionId[connectionId] = failures - 1
+      throw URLError(.notConnectedToInternet)
+    }
     if let failures = remainingActionFailuresByConnectionId[connectionId], failures > 0 {
       remainingActionFailuresByConnectionId[connectionId] = failures - 1
       throw EWSServiceError.response(code: "HTTP 503", message: "Temporarily unavailable")
@@ -1334,6 +1500,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefinitionSyncing,
   @unchecked Sendable
 {
+  var defaultSendingConnectionId: MailboxConnectionId?
   var loadSnapshotError: Error?
   var providerAccessLoads = 0
   var removedConnectionIds: [MailboxConnectionId] = []
@@ -1366,7 +1533,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   private func snapshot() -> MailboxConnectionSyncSnapshot {
     MailboxConnectionSyncSnapshot(
       connections: savedDefinitions,
-      defaultSendingConnectionId: nil,
+      defaultSendingConnectionId: defaultSendingConnectionId,
       removedConnectionIds: removedConnectionIds,
       updatedAt: nil
     )
@@ -1420,13 +1587,8 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     _ connectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    let snapshot = snapshot()
-    return MailboxConnectionSyncSnapshot(
-      connections: snapshot.connections,
-      defaultSendingConnectionId: connectionId,
-      removedConnectionIds: snapshot.removedConnectionIds,
-      updatedAt: snapshot.updatedAt
-    )
+    defaultSendingConnectionId = connectionId
+    return snapshot()
   }
 }
 

@@ -540,6 +540,7 @@ struct EWSSetupService {
       throw EWSSetupError.missingRequiredMailboxRole
     }
     guard isSessionCurrent(session) else { throw CancellationError() }
+    try Task.checkCancellation()
 
     let previous = try authorizationStore.load(
       productAccountId: session.productAccountId,
@@ -550,7 +551,7 @@ struct EWSSetupService {
       _ = try await definitionSyncService.saveDefinition(
         definition.synchronizedDefinition(
           connectedAt: Int64(now().timeIntervalSince1970 * 1_000),
-          displayName: account.displayName
+          displayName: account.primaryEmailAddress
         ),
         session: session
       )
@@ -571,7 +572,7 @@ struct EWSSetupService {
       authorizationState: .authorized,
       capabilities: .exchangeWebServices,
       connectedAt: timestamp,
-      displayName: account.displayName,
+      displayName: account.primaryEmailAddress,
       id: definition.connectionId,
       lastVerifiedAt: timestamp,
       productAccountId: ProductAccountId(session.productAccountId),
@@ -1894,6 +1895,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           if error.code == .cancelled || Task.isCancelled {
             throw CancellationError()
           }
+          if Self.isDefinitePreDeliveryNetworkFailure(error) {
+            throw error
+          }
           throw EWSAmbiguousProviderActionError()
         } catch EWSServiceError.invalidResponse {
           throw EWSAmbiguousProviderActionError()
@@ -2021,16 +2025,17 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       recentPagesByFolderId[folder.id] = page
       upsert(page.messages, into: &snapshot.messages)
-      snapshot.reconciliationMessageIdsByFolderId[folder.id] =
-        Set(page.messages.map(\.stableProviderId))
-      if let nextOffset = page.nextOffset {
-        snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
-      } else {
-        snapshot.nextOffsetsByFolderId[folder.id] = nil
-        finishReconciliation(for: folder.id, snapshot: &snapshot)
-      }
-      if snapshot.folders.allSatisfy({ $0.id != folder.id }), page.nextOffset != nil {
-        snapshot.nextOffsetsByFolderId[folder.id] = page.nextOffset
+      let scanIsInProgress =
+        snapshot.nextOffsetsByFolderId[folder.id] != nil
+        || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
+      if !scanIsInProgress {
+        snapshot.reconciliationMessageIdsByFolderId[folder.id] =
+          Set(page.messages.map(\.stableProviderId))
+        if let nextOffset = page.nextOffset {
+          snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
+        } else {
+          finishReconciliation(for: folder.id, snapshot: &snapshot)
+        }
       }
     }
     let activeFolderIds = Set(folders.map(\.id))
@@ -2061,6 +2066,15 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       connectionId: connection.id
     )
     return snapshot
+  }
+
+  private static func isDefinitePreDeliveryNetworkFailure(_ error: URLError) -> Bool {
+    switch error.code {
+    case .notConnectedToInternet, .dataNotAllowed, .internationalRoamingOff, .callIsActive:
+      return true
+    default:
+      return false
+    }
   }
 
   private func finishReconciliation(

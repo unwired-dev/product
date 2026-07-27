@@ -6,6 +6,7 @@ final class EWSSetupViewModel {
   var authorizationMethod = MailAuthorizationMethod.password
   private(set) var connections: [MailboxConnection] = []
   var credential = ""
+  private(set) var defaultSendingConnectionId: MailboxConnectionId?
   var emailAddress = ""
   var endpoint = ""
   var errorMessage: String?
@@ -45,6 +46,7 @@ final class EWSSetupViewModel {
           $0.ewsDefinition.map { ($0.connectionId, $0) }
         }
       )
+      defaultSendingConnectionId = snapshot.defaultSendingConnectionId
       connections = try await adapter.loadConnections(session: session)
       errorMessage = nil
     } catch {
@@ -103,6 +105,19 @@ final class EWSSetupViewModel {
     }
   }
 
+  func setDefaultSendingConnection(_ connection: MailboxConnection) async {
+    guard !isWorking, isSessionCurrent(session) else { return }
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      try await adapter.setDefaultSendingConnection(connection, session: session)
+      defaultSendingConnectionId = connection.id
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   private func remove(
     _ connection: MailboxConnection,
     operation: () async throws -> Void
@@ -129,6 +144,7 @@ final class EWSSetupViewModel {
         $0.ewsDefinition.map { ($0.connectionId, $0) }
       }
     )
+    defaultSendingConnectionId = snapshot.defaultSendingConnectionId
     self.connections = connections
   }
 }
@@ -175,6 +191,10 @@ struct EWSSetupPanel: View {
           .buttonStyle(.plain)
           Menu("Manage") {
             if connection.authorizationState == .authorized {
+              Button("Set as Default Sending Connection") {
+                Task { await viewModel.setDefaultSendingConnection(connection) }
+              }
+              .disabled(viewModel.defaultSendingConnectionId == connection.id)
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
                   await cancelBodyPrefetch()
