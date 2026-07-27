@@ -243,6 +243,7 @@ enum MailboxMessageCollection: Hashable, Sendable {
     "CATEGORY_UPDATES",
     "CHAT",
     "DRAFT",
+    "EWS_ARCHIVE_HIERARCHY",
     "IMPORTANT",
     "INBOX",
     "SENT",

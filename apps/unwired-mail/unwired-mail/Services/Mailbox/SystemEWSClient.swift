@@ -98,10 +98,11 @@ struct SystemEWSClient: EWSClient {
       knownFolders: knownFolders,
       authorization: authorization
     )
-    return try await markArchiveTrashHierarchy(
+    let foldersWithArchiveTrash = try await markArchiveTrashHierarchy(
       resolvedFolders,
       authorization: authorization
-    ).filter(\.isMailFolder)
+    )
+    return markArchiveSentHierarchy(foldersWithArchiveTrash).filter(\.isMailFolder)
   }
 
   private func loadFolderHierarchy(
@@ -131,6 +132,7 @@ struct SystemEWSClient: EWSClient {
           id: parsed.id,
           isArchiveHierarchy: isArchiveHierarchy,
           isSearchFolder: parsed.isSearchFolder,
+          isSentHierarchy: parsed.isSentHierarchy,
           isTrashHierarchy: parsed.isTrashHierarchy,
           parentFolderId: parsed.parentFolderId,
           role: parsed.role
@@ -167,6 +169,7 @@ struct SystemEWSClient: EWSClient {
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          isSentHierarchy: role == .sent || folders[index].isSentHierarchy == true,
           isTrashHierarchy: folders[index].isTrashHierarchy,
           parentFolderId: folders[index].parentFolderId,
           role: role
@@ -195,6 +198,7 @@ struct SystemEWSClient: EWSClient {
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          isSentHierarchy: role == .sent || folders[index].isSentHierarchy == true,
           isTrashHierarchy: folders[index].isTrashHierarchy,
           parentFolderId: folders[index].parentFolderId,
           role: role
@@ -237,6 +241,7 @@ struct SystemEWSClient: EWSClient {
         id: folder.id,
         isArchiveHierarchy: true,
         isSearchFolder: folder.isSearchFolder,
+        isSentHierarchy: folder.isSentHierarchy,
         isTrashHierarchy: true,
         parentFolderId: folder.parentFolderId,
         role: folder.role
@@ -245,6 +250,31 @@ struct SystemEWSClient: EWSClient {
       folders.append(archiveTrash)
     }
     return folders
+  }
+
+  private func markArchiveSentHierarchy(_ discoveredFolders: [EWSFolder]) -> [EWSFolder] {
+    guard let sentFolder = discoveredFolders.first(where: { $0.role == .sent }) else {
+      return discoveredFolders
+    }
+    return discoveredFolders.map { folder in
+      guard
+        folder.isArchiveHierarchy == true,
+        folder.role == nil,
+        folder.displayName.localizedCaseInsensitiveCompare(sentFolder.displayName) == .orderedSame
+      else { return folder }
+      return EWSFolder(
+        changeKey: folder.changeKey,
+        displayName: folder.displayName,
+        folderClass: folder.folderClass,
+        id: folder.id,
+        isArchiveHierarchy: true,
+        isSearchFolder: folder.isSearchFolder,
+        isSentHierarchy: true,
+        isTrashHierarchy: folder.isTrashHierarchy,
+        parentFolderId: folder.parentFolderId,
+        role: nil
+      )
+    }
   }
 
   private func loadFolderPage(
@@ -281,12 +311,11 @@ struct SystemEWSClient: EWSClient {
     pageSize: Int,
     authorization: DeviceLocalEWSAuthorization
   ) async throws -> EWSMessagePage {
+    let prefersSentDate = folder.role == .sent || folder.isSentHierarchy == true
     let sortField =
-      switch folder.role {
-      case .drafts: "item:LastModifiedTime"
-      case .sent: "item:DateTimeSent"
-      default: "item:DateTimeReceived"
-      }
+      folder.role == .drafts
+      ? "item:LastModifiedTime"
+      : (prefersSentDate ? "item:DateTimeSent" : "item:DateTimeReceived")
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
@@ -327,10 +356,9 @@ struct SystemEWSClient: EWSClient {
       document,
       folderId: folder.id,
       offset: offset,
-      prefersSentDate: folder.role == .sent
+      prefersSentDate: prefersSentDate
     )
   }
-
   private func messagePage(
     _ document: EWSXMLNode,
     folderId: String,
@@ -709,6 +737,7 @@ struct SystemEWSClient: EWSClient {
       id: value.id,
       isArchiveHierarchy: isArchiveHierarchy,
       isSearchFolder: value.isSearchFolder,
+      isSentHierarchy: role == .sent,
       isTrashHierarchy: isTrashHierarchy,
       parentFolderId: value.parentFolderId,
       role: role

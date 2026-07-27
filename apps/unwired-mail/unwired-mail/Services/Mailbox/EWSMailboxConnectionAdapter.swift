@@ -729,6 +729,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let id: String
   let isArchiveHierarchy: Bool?
   let isSearchFolder: Bool?
+  let isSentHierarchy: Bool?
   let isTrashHierarchy: Bool?
   let parentFolderId: String?
   let role: EWSFolderRole?
@@ -740,6 +741,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     id: String,
     isArchiveHierarchy: Bool? = nil,
     isSearchFolder: Bool? = nil,
+    isSentHierarchy: Bool? = nil,
     isTrashHierarchy: Bool? = nil,
     parentFolderId: String? = nil,
     role: EWSFolderRole?
@@ -750,6 +752,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     self.id = id
     self.isArchiveHierarchy = isArchiveHierarchy
     self.isSearchFolder = isSearchFolder
+    self.isSentHierarchy = isSentHierarchy
     self.isTrashHierarchy = isTrashHierarchy
     self.parentFolderId = parentFolderId
     self.role = role
@@ -829,6 +832,9 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     if !isRead { states.append("UNREAD") }
     if isFlagged { states.append("STARRED") }
     if isDraft { states.append("DRAFT") }
+    if folder?.isArchiveHierarchy == true {
+      states.append(Self.archiveHierarchyStateId)
+    }
     if let role = folder?.role {
       states.append(Self.providerStateId(role.mailboxRole))
     } else {
@@ -873,6 +879,8 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
     case .trash: return "TRASH"
     }
   }
+
+  static let archiveHierarchyStateId = "EWS_ARCHIVE_HIERARCHY"
 
   static func customFolderStateId(_ id: String) -> String {
     let encoded = Data(id.utf8).base64EncodedString()
@@ -1979,6 +1987,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ = try await authorizationForProviderAccess(connection, session: session)
     if action == .move, targetProviderMailboxId == nil {
       throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+    }
+    if [.move, .restore, .spam].contains(action),
+      messages.contains(where: {
+        $0.providerStateIds?.contains(EWSProviderMessage.archiveHierarchyStateId) == true
+      })
+    {
+      throw MailboxConnectionAdapterError.unsupportedCapability
     }
     try await pendingActionService.enqueue(
       action,

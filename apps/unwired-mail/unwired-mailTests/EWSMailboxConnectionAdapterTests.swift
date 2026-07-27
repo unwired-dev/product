@@ -1051,7 +1051,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(
       Set(metadata.providerStateIds ?? []),
-      ["ARCHIVE", "UNREAD", EWSProviderMessage.customFolderStateId("archive-projects")]
+      [
+        "ARCHIVE", "UNREAD", EWSProviderMessage.archiveHierarchyStateId,
+        EWSProviderMessage.customFolderStateId("archive-projects"),
+      ]
     )
     XCTAssertTrue(
       MailboxMessageCollection.role(.archive).contains(
@@ -1144,6 +1147,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       Set(metadata.providerStateIds ?? []),
       [
         "ARCHIVE", "TRASH", "UNREAD",
+        EWSProviderMessage.archiveHierarchyStateId,
         EWSProviderMessage.customFolderStateId("archive-deleted-projects"),
       ]
     )
@@ -1232,13 +1236,33 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testSystemClientMarksArchiveDeletedItemsHierarchy() async throws {
+    var archiveSentRequestBody = ""
     EWSURLProtocol.requestHandler = { request in
       let body = try Self.requestBody(request)
+      if body.contains("<m:FindItem") {
+        archiveSentRequestBody = body
+      }
       let response =
-        if body.contains(#"Id="archivemsgfolderroot""#) {
+        if body.contains("<m:FindItem") {
+          Self.findItemResponse.replacingOccurrences(
+            of: "<t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>",
+            with: "<t:DateTimeSent>2026-07-27T12:34:56.123Z</t:DateTimeSent>"
+          )
+        } else if body.contains(#"Id="archivemsgfolderroot""#) {
           Self.findFolderResponse(offset: 100)
             .replacingOccurrences(of: "custom-100", with: "archive-deleted-id")
             .replacingOccurrences(of: "Custom 100", with: "Deleted Items")
+            .replacingOccurrences(
+              of: "</t:Folders>",
+              with: """
+                <t:Folder>
+                  <t:FolderId Id="archive-sent-id" ChangeKey="archive-sent-key"/>
+                  <t:DisplayName>Sent Items</t:DisplayName>
+                  <t:FolderClass>IPF.Note</t:FolderClass>
+                </t:Folder>
+                </t:Folders>
+                """
+            )
         } else if body.contains(#"Id="archivedeleteditems""#) {
           Self.getFolderResponse
             .replacingOccurrences(of: "inbox-id", with: "archive-deleted-id")
@@ -1247,6 +1271,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
               of: "</t:DisplayName>",
               with: "</t:DisplayName><t:FolderClass>IPF.Note</t:FolderClass>"
             )
+        } else if body.contains(#"Id="sentitems""#) {
+          Self.getFolderResponse
+            .replacingOccurrences(of: "inbox-id", with: "sent-id")
+            .replacingOccurrences(of: "Inbox", with: "Sent Items")
         } else if body.contains("<m:FindFolder") {
           Self.findFolderResponse(offset: 100)
         } else {
@@ -1277,6 +1305,21 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(archiveDeletedItems.isArchiveHierarchy, true)
     XCTAssertEqual(archiveDeletedItems.isTrashHierarchy, true)
     XCTAssertEqual(archiveDeletedItems.folderClass, "IPF.Note")
+    let archiveSent = try XCTUnwrap(folders.first(where: { $0.id == "archive-sent-id" }))
+    XCTAssertEqual(archiveSent.isArchiveHierarchy, true)
+    XCTAssertEqual(archiveSent.isSentHierarchy, true)
+    XCTAssertNil(archiveSent.role)
+
+    _ = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: archiveSent,
+      offset: 0,
+      pageSize: 50,
+      authorization: DeviceLocalEWSAuthorization(
+        credential: "password",
+        definition: makeEWSDefinition()
+      )
+    )
+    XCTAssertTrue(archiveSentRequestBody.contains(#"FieldURI="item:DateTimeSent""#))
   }
 
   func testSystemClientRejectsMalformedDiscoveredFolder() async throws {
@@ -1717,6 +1760,71 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(retryError)
     XCTAssertEqual(client.performedActions.last?.action, .delete)
     XCTAssertEqual(client.performedActions.last?.targetFolderId, "archive-deleted-id")
+  }
+
+  func testArchiveStoreCrossMailboxActionsAreRejectedBeforeEnqueue() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let archiveMessage = ewsMessage(
+      1,
+      folderId: "archive-projects-id",
+      conversationId: "conversation-1"
+    )
+    client.folders.append(
+      EWSFolder(
+        changeKey: "archive-projects-key",
+        displayName: "Archive Projects",
+        id: "archive-projects-id",
+        isArchiveHierarchy: true,
+        role: nil
+      )
+    )
+    client.pages["archive-projects-id|0"] = EWSMessagePage(
+      messages: [archiveMessage],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore())
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let archiveProjects = try await adapter.loadMailbox(
+      .providerMailbox(EWSProviderMessage.customFolderStateId("archive-projects-id")),
+      connection: connection,
+      session: session
+    )
+    let message = try XCTUnwrap(archiveProjects.messages.first)
+
+    for action in [ProviderMailAction.move, .restore, .spam] {
+      do {
+        try await adapter.perform(
+          action,
+          targetProviderMailboxId: EWSProviderMessage.customFolderStateId("inbox-id"),
+          messages: [message],
+          connection: connection,
+          session: session
+        )
+        XCTFail("Expected \(action) to be rejected for an archive-store message")
+      } catch {
+        XCTAssertEqual(error as? MailboxConnectionAdapterError, .unsupportedCapability)
+      }
+    }
+    XCTAssertTrue(client.performedActions.isEmpty)
   }
 
   func testHistoricalBackfillResumesAndDrainsEveryPendingPage() async throws {

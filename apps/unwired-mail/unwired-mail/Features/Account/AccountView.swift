@@ -3202,6 +3202,11 @@ struct MailShellConversationReader: View {
     {
       actions.remove(.spam)
     }
+    if messages.contains(where: {
+      $0.providerStateIds?.contains(EWSProviderMessage.archiveHierarchyStateId) == true
+    }) {
+      actions.subtract([.move, .restore, .spam])
+    }
     return actions
   }
 

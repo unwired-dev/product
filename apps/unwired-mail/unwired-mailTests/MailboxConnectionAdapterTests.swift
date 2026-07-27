@@ -1976,6 +1976,32 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(
       MailShellConversationReader.allowsMoveFromProviderMailbox(.exchangeWebServices)
     )
+
+    let archiveMessage = mailShellMessage(
+      providerMessageId: "archive-message",
+      providerThreadId: "archive-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "ARCHIVE",
+        EWSProviderMessage.archiveHierarchyStateId,
+        EWSProviderMessage.customFolderStateId("archive-projects"),
+      ]
+    )
+    let archiveActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.delete, .move, .restore, .spam],
+      messages: [archiveMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("archive-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(archiveActions, [.delete])
+    XCTAssertEqual(
+      MailboxMessageCollection.providerMailboxIds(in: [archiveMessage]),
+      [EWSProviderMessage.customFolderStateId("archive-projects")]
+    )
   }
 
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
