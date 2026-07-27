@@ -683,6 +683,15 @@ struct SystemEWSClient: EWSClient {
     } else {
       throw EWSServiceError.invalidResponse
     }
+    let archiveFolders = try await loadFolderHierarchy(
+      rootDistinguishedId: "archivemsgfolderroot",
+      isArchiveHierarchy: true,
+      authorization: authorization
+    )
+    guard !archiveFolders.isEmpty else { throw EWSServiceError.invalidResponse }
+    let parentFolderIds = archiveFolders.map {
+      #"<t:FolderId Id="\#(xmlAttribute($0.id))"/>"#
+    }.joined()
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
@@ -693,9 +702,7 @@ struct SystemEWSClient: EWSClient {
             Value="\(xmlAttribute(value))"/>
           </t:FieldURIOrConstant>
         </t:IsEqualTo></m:Restriction>
-        <m:ParentFolderIds><t:DistinguishedFolderId Id="archiveinbox">
-          \(mailboxXML(authorization))
-        </t:DistinguishedFolderId></m:ParentFolderIds>
+        <m:ParentFolderIds>\(parentFolderIds)</m:ParentFolderIds>
       </m:FindItem>
       """,
       authorization: authorization

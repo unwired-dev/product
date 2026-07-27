@@ -953,6 +953,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       let payload =
         if body.contains("<m:GetItem>") {
           Self.getItemResponse
+        } else if body.contains("<m:FindFolder") {
+          Self.archiveFolderResponse
         } else if body.contains("<m:FindItem") {
           Self.findItemResponse
         } else if body.contains("<m:ArchiveItem>") {
@@ -1034,8 +1036,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(requestBodies[2].contains("<m:ArchiveSourceFolderId>"))
     XCTAssertTrue(requestBodies[2].contains(#"Id="inbox-id""#))
     XCTAssertFalse(requestBodies[2].contains("<m:MoveItem>"))
-    XCTAssertTrue(requestBodies[3].contains(#"Id="archiveinbox""#))
-    XCTAssertTrue(requestBodies[3].contains(message.stableProviderId))
+    XCTAssertTrue(requestBodies[3].contains(#"Id="archivemsgfolderroot""#))
+    XCTAssertTrue(requestBodies[4].contains(#"Id="archive-sent-id""#))
+    XCTAssertTrue(requestBodies[4].contains(#"Id="archive-custom-id""#))
+    XCTAssertTrue(requestBodies[4].contains(message.stableProviderId))
     XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
     XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
     XCTAssertFalse(requestBodies.last?.contains("<m:DeleteItem") == true)
@@ -1229,6 +1233,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       nextOffset: nil
     )
     let authorizations = InMemoryEWSAuthorizationStore()
+    var now = Date(timeIntervalSince1970: 2_000_000_000)
     try authorizations.save(
       DeviceLocalEWSAuthorization(credential: "password", definition: definition),
       productAccountId: session.productAccountId
@@ -1242,7 +1247,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           displayName: definition.emailAddress
         )
       ),
-      metadataStore: InMemoryEWSMetadataStore()
+      metadataStore: InMemoryEWSMetadataStore(),
+      now: { now }
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -1283,6 +1289,26 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       throughHistoryId: nil,
       shouldPersist: { true }
     )
+    let throttled = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(client.requestedPages.count, 7)
+    XCTAssertFalse(
+      try XCTUnwrap(
+        throttled.messages.first(where: { $0.providerMessageId == "ews-stable-2" })?
+          .providerStateIds
+      ).contains("UNREAD")
+    )
+    now.addTimeInterval(EWSMailboxConnectionAdapter.completedReconciliationInterval)
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
     let reconciled = try await adapter.continueHistoricalBackfill(
       connection: connection,
       session: session
@@ -1303,7 +1329,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       client.requestedPages,
       [
         "inbox-id|0", "inbox-id|50", "inbox-id|100", "inbox-id|0", "inbox-id|50",
-        "inbox-id|100", "inbox-id|0", "inbox-id|50", "inbox-id|100",
+        "inbox-id|100", "inbox-id|0", "inbox-id|0", "inbox-id|50", "inbox-id|100",
       ]
     )
   }
@@ -1558,6 +1584,60 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(retryError)
     XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
     XCTAssertEqual(client.remainingOfflineFailuresByConnectionId[connection.id], 0)
+  }
+
+  func testPreMutationInvalidIdentityResponseRetriesThroughSharedQueue() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.remainingInvalidIdentityRefreshes = 1
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(
+        maximumAttempts: 2,
+        retryDelayNanoseconds: { _ in 1_000_000 },
+        store: EWSActionStore()
+      )
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+
+    try await adapter.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    let retryError = await adapter.waitForPendingActionRetries(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(retryError)
+    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+    XCTAssertEqual(client.remainingInvalidIdentityRefreshes, 0)
   }
 
   func testArchiveFromSentRefreshesIdentityAndRunsProviderAction() async throws {
@@ -1987,6 +2067,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       DeviceLocalEWSAuthorization(credential: "password", definition: definition),
       productAccountId: session.productAccountId
     )
+    var now = Date(timeIntervalSince1970: 2_000_000_000)
     let adapter = EWSMailboxConnectionAdapter(
       authorizationStore: authorizations,
       client: client,
@@ -1996,7 +2077,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           displayName: definition.emailAddress
         )
       ),
-      metadataStore: InMemoryEWSMetadataStore()
+      metadataStore: InMemoryEWSMetadataStore(),
+      now: { now }
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
@@ -2028,6 +2110,37 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       Set(reconciled.messages.map(\.providerMessageId)),
       ["ews-stable-1", "ews-stable-2"]
+    )
+
+    now.addTimeInterval(EWSMailboxConnectionAdapter.completedReconciliationInterval)
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+    _ = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+    let deletionReconciled = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      Set(deletionReconciled.messages.map(\.providerMessageId)),
+      ["ews-stable-2"]
     )
   }
 
@@ -2156,6 +2269,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           <m:Items/>
         </m:ArchiveItemResponseMessage>
       </m:ResponseMessages></m:ArchiveItemResponse></s:Body>
+    </s:Envelope>
+    """
+
+  private static let archiveFolderResponse = """
+    <?xml version="1.0" encoding="utf-8"?>
+    <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
+      xmlns:m="http://schemas.microsoft.com/exchange/services/2006/messages"
+      xmlns:t="http://schemas.microsoft.com/exchange/services/2006/types">
+      <s:Body><m:FindFolderResponse><m:ResponseMessages>
+        <m:FindFolderResponseMessage ResponseClass="Success">
+          <m:ResponseCode>NoError</m:ResponseCode>
+          <m:RootFolder IncludesLastItemInRange="true">
+            <t:Folders>
+              <t:Folder>
+                <t:FolderId Id="archive-sent-id" ChangeKey="archive-sent-key"/>
+                <t:DisplayName>Sent Items</t:DisplayName>
+              </t:Folder>
+              <t:Folder>
+                <t:FolderId Id="archive-custom-id" ChangeKey="archive-custom-key"/>
+                <t:DisplayName>Projects</t:DisplayName>
+              </t:Folder>
+            </t:Folders>
+          </m:RootFolder>
+        </m:FindFolderResponseMessage>
+      </m:ResponseMessages></m:FindFolderResponse></s:Body>
     </s:Envelope>
     """
 
@@ -2355,6 +2493,11 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     lock.withLock { storedPerformedMessageChangeKeys }
   }
   var refreshedMessagesByStableId: [String: EWSProviderMessage] = [:]
+  private var storedRemainingInvalidIdentityRefreshes = 0
+  var remainingInvalidIdentityRefreshes: Int {
+    get { lock.withLock { storedRemainingInvalidIdentityRefreshes } }
+    set { lock.withLock { storedRemainingInvalidIdentityRefreshes = newValue } }
+  }
   private var storedOfflineFailures: [MailboxConnectionId: Int] = [:]
   var remainingOfflineFailuresByConnectionId: [MailboxConnectionId: Int] {
     get { lock.withLock { storedOfflineFailures } }
@@ -2415,7 +2558,13 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     _ messages: [EWSProviderMessage],
     authorization _: DeviceLocalEWSAuthorization
   ) async throws -> [EWSProviderMessage] {
-    messages.map { refreshedMessagesByStableId[$0.stableProviderId] ?? $0 }
+    let shouldFail = lock.withLock {
+      guard storedRemainingInvalidIdentityRefreshes > 0 else { return false }
+      storedRemainingInvalidIdentityRefreshes -= 1
+      return true
+    }
+    if shouldFail { throw EWSServiceError.invalidResponse }
+    return messages.map { refreshedMessagesByStableId[$0.stableProviderId] ?? $0 }
   }
 
   func perform(

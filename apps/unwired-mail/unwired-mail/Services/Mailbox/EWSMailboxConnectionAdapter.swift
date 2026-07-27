@@ -900,10 +900,12 @@ struct EWSMovedItemIdentity: Equatable, Sendable {
 /// ```
 struct EWSMetadataSnapshot: Codable, Equatable, Sendable {
   var completedHistoricalBackfillFolderIds: Set<String>? = []
+  var reconciliationAtByFolderId: [String: Int64]? = [:]
   var folders: [EWSFolder]
   var messages: [EWSProviderMessage]
   var nextOffsetsByFolderId: [String: Int]
   var pendingVerificationFolderIds: Set<String>? = []
+  var deletionCandidatesByFolderId: [String: Set<String>]? = [:]
   var reconciliationMessageIdsByFolderId: [String: Set<String>] = [:]
   var hasInitialMailboxAvailability: Bool
 
@@ -1296,12 +1298,14 @@ private typealias EWSBodyCandidate = (MailboxMessageMetadata, EWSProviderMessage
 // swiftlint:disable:next type_body_length
 struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   static let initialPageSize = 50
+  static let completedReconciliationInterval: TimeInterval = 24 * 60 * 60
 
   private let authorizationStore: EWSAuthorizationPersisting
   private let bodyService: EWSMessageBodyService
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let metadataStore: EWSMetadataPersisting
+  private let now: () -> Date
   private let outboxService: OutboxDeliveryService
   private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
@@ -1313,6 +1317,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
+    now: @escaping () -> Date = Date.init,
     outboxService: OutboxDeliveryService = .shared,
     pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared,
@@ -1328,6 +1333,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.client = client
     self.definitionSyncService = definitionSyncService
     self.metadataStore = metadataStore
+    self.now = now
     self.outboxService = outboxService
     self.pendingActionService = pendingActionService
     self.syncGate = syncGate
@@ -1572,11 +1578,22 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
             finishReconciliation(
               for: folder.id,
               snapshot: &snapshot,
-              deleteUnobserved: false
+              deleteUnobserved: true
             )
           } else {
             // Offset paging is mutable while messages move or disappear. Keep
-            // this pass, then require one bounded verification scan.
+            // deletion candidates from this pass, then require one bounded
+            // verification scan before removing anything.
+            let storedIds = Set(
+              snapshot.messages.lazy
+                .filter { $0.parentFolderId == folder.id }
+                .map(\.stableProviderId)
+            )
+            var candidates = snapshot.deletionCandidatesByFolderId ?? [:]
+            candidates[folder.id] = storedIds.subtracting(
+              snapshot.reconciliationMessageIdsByFolderId[folder.id] ?? []
+            )
+            snapshot.deletionCandidatesByFolderId = candidates
             pendingVerification.insert(folder.id)
             snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
           }
@@ -2087,11 +2104,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session,
           isWithinSyncGate: true
         )
-        let refreshedSnapshot = try await refreshRecentSnapshot(
-          connection,
-          authorization: authorization,
-          session: session
-        )
+        let refreshedSnapshot: EWSMetadataSnapshot
+        do {
+          refreshedSnapshot = try await refreshRecentSnapshot(
+            connection,
+            authorization: authorization,
+            session: session
+          )
+        } catch EWSServiceError.invalidResponse {
+          throw URLError(.badServerResponse)
+        }
         if actionIsConfirmed(
           action,
           targetFolderId: targetFolderId,
@@ -2106,10 +2128,15 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         guard messages.count == messageIds.count else {
           throw MailboxConnectionAdapterError.connectionRemoved
         }
-        let currentMessages = try await client.refreshMessageIdentities(
-          messages,
-          authorization: authorization
-        )
+        let currentMessages: [EWSProviderMessage]
+        do {
+          currentMessages = try await client.refreshMessageIdentities(
+            messages,
+            authorization: authorization
+          )
+        } catch EWSServiceError.invalidResponse {
+          throw URLError(.badServerResponse)
+        }
         let movedItems: [EWSMovedItemIdentity]
         do {
           movedItems = try await client.perform(
@@ -2273,7 +2300,16 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let scanIsInProgress =
         snapshot.nextOffsetsByFolderId[folder.id] != nil
         || snapshot.reconciliationMessageIdsByFolderId[folder.id] != nil
-      if !scanIsInProgress {
+      let lastCompletedAt =
+        snapshot.reconciliationAtByFolderId?[folder.id]
+      let reconciliationIsDue =
+        lastCompletedAt.map {
+          now().timeIntervalSince1970 * 1_000 - Double($0)
+            >= Self.completedReconciliationInterval * 1_000
+        } ?? true
+      if !scanIsInProgress
+        && (!snapshot.completedFolderIds.contains(folder.id) || reconciliationIsDue)
+      {
         snapshot.reconciliationMessageIdsByFolderId[folder.id] = observedIds
         if let nextOffset = page.nextOffset {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
@@ -2303,6 +2339,14 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
     snapshot.reconciliationMessageIdsByFolderId =
       snapshot.reconciliationMessageIdsByFolderId.filter {
+        activeFolderIds.contains($0.key)
+      }
+    snapshot.deletionCandidatesByFolderId =
+      snapshot.deletionCandidatesByFolderId?.filter {
+        activeFolderIds.contains($0.key)
+      }
+    snapshot.reconciliationAtByFolderId =
+      snapshot.reconciliationAtByFolderId?.filter {
         activeFolderIds.contains($0.key)
       }
     snapshot.pendingVerificationFolderIds =
@@ -2345,13 +2389,20 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       return
     }
     if deleteUnobserved {
+      let candidates = snapshot.deletionCandidatesByFolderId?[folderId]
       snapshot.messages.removeAll {
-        $0.parentFolderId == folderId && !observedIds.contains($0.stableProviderId)
+        $0.parentFolderId == folderId
+          && !observedIds.contains($0.stableProviderId)
+          && (candidates?.contains($0.stableProviderId) ?? true)
       }
     }
     var completedFolderIds = snapshot.completedFolderIds
     completedFolderIds.insert(folderId)
     snapshot.completedHistoricalBackfillFolderIds = completedFolderIds
+    var completedAt = snapshot.reconciliationAtByFolderId ?? [:]
+    completedAt[folderId] = Int64(now().timeIntervalSince1970 * 1_000)
+    snapshot.reconciliationAtByFolderId = completedAt
+    snapshot.deletionCandidatesByFolderId?[folderId] = nil
     snapshot.reconciliationMessageIdsByFolderId[folderId] = nil
   }
 
