@@ -892,6 +892,12 @@ private final class RecordingGmailProviderConnecting:
     _ = session
     return []
   }
+
+  func loadStoredConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    []
+  }
 }
 
 private final class RecordingDevicePushUnregisterer: DevicePushUnregistering {
@@ -971,6 +977,12 @@ private struct SuspendingGmailProviderConnecting:
   }
 
   func loadConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    []
+  }
+
+  func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     []

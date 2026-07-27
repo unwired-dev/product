@@ -908,6 +908,27 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(pushConnectionStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  func testClearConnectionPreservesOwnershipWhenWatchCleanupFails() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let pushWatchStore = RecordingPushWatchStore()
+    pushWatchStore.clearError = GmailProviderConnectionTestError.watchStopFailed
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: pushWatchStore,
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(transport.status, session: session)
+      XCTFail("Expected push watch cleanup failure")
+    } catch GmailProviderConnectionTestError.watchStopFailed {
+      XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testClearLocalConnectionAttemptsMetadataCleanupWhenTokenCleanupFails() async throws {
     let tokenStore = FailingClearGmailProviderTokenStore()
     let metadataStore = RecordingGmailProviderMetadataStore()
@@ -1697,10 +1718,12 @@ private final class RecordingPushWatchStopper: GmailPushWatchStopping {
 }
 
 private final class RecordingPushWatchStore: GmailPushWatchPersisting {
+  var clearError: Error?
   var clearedKeys: [String] = []
   var clearedAllProductAccountIds: [String] = []
 
   func clearAll(productAccountId: String) throws {
+    if let clearError { throw clearError }
     clearedAllProductAccountIds.append(productAccountId)
   }
 
@@ -1708,6 +1731,7 @@ private final class RecordingPushWatchStore: GmailPushWatchPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws {
+    if let clearError { throw clearError }
     clearedKeys.append("\(productAccountId):\(providerAccountIdentifier)")
   }
 

@@ -407,7 +407,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(transport.unregisteredSession, session)
   }
 
-  func testPushConnectionStoreDoesNotReplaceScopedConnectionWithLegacyDuplicate() throws {
+  func testPushConnectionStoreRecordsLegacyOwnershipForScopedConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
     let legacyAccount =
@@ -424,7 +424,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let legacyJSON = try XCTUnwrap(
       String(data: JSONEncoder().encode(connection), encoding: .utf8)
     )
-    let store = KeychainGmailPushConnectionStore()
+    let ownershipStore = InMemoryLegacyWatchOwnerStore()
+    let store = KeychainGmailPushConnectionStore(
+      legacyWatchOwnershipStore: ownershipStore
+    )
     defer {
       try? store.clearAll(productAccountId: productAccountId)
       try? KeychainStore.delete(service: service, account: legacyAccount)
@@ -433,7 +436,11 @@ final class GmailPushRelayServiceTests: XCTestCase {
     try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
 
     XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [current])
-    XCTAssertNotNil(try KeychainStore.readString(service: service, account: legacyAccount))
+    XCTAssertEqual(
+      try ownershipStore.load(productAccountId: productAccountId),
+      connection.providerAccountIdentifier
+    )
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
   func testPushConnectionStoreClearRemovesMatchingLegacyDuplicate() throws {

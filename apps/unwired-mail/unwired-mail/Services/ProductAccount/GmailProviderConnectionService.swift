@@ -174,6 +174,10 @@ protocol GmailProviderConnecting {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
+
+  func loadStoredConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus]
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -418,6 +422,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     )
   }
 
+  func loadStoredConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+  }
+
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -451,15 +461,19 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    var didClearPushWatchStore = false
     do {
       try pushWatchStore.clearAll(productAccountId: session.productAccountId)
+      didClearPushWatchStore = true
     } catch {
       cleanupError = cleanupError ?? error
     }
-    do {
-      try pushConnectionStore.clearAll(productAccountId: session.productAccountId)
-    } catch {
-      cleanupError = cleanupError ?? error
+    if didClearPushWatchStore {
+      do {
+        try pushConnectionStore.clearAll(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
     }
     if let cleanupError {
       throw cleanupError
@@ -528,21 +542,25 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
+    var didClearPushWatchStore = false
     do {
       try pushWatchStore.clear(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
+      didClearPushWatchStore = true
     } catch {
       cleanupError = cleanupError ?? error
     }
-    do {
-      try pushConnectionStore.clear(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      )
-    } catch {
-      cleanupError = cleanupError ?? error
+    if didClearPushWatchStore {
+      do {
+        try pushConnectionStore.clear(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
     }
     clearGmailPushNotificationState(
       productAccountId: session.productAccountId,

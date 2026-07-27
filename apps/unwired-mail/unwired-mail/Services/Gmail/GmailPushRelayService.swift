@@ -672,16 +672,19 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
     var connections = identifiers.compactMap {
       try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
     }
-    guard
-      let legacyConnection = try legacyConnection(productAccountId: productAccountId),
-      !identifiers.contains(legacyConnection.providerAccountIdentifier)
-    else {
+    guard let legacyConnection = try legacyConnection(productAccountId: productAccountId) else {
       return connections
     }
     try legacyWatchOwnershipStore.save(
       providerAccountIdentifier: legacyConnection.providerAccountIdentifier,
       productAccountId: productAccountId
     )
+    if identifiers.contains(legacyConnection.providerAccountIdentifier) {
+      for account in legacyKeys(productAccountId) {
+        try? KeychainStore.delete(service: service, account: account)
+      }
+      return connections
+    }
     try save(legacyConnection, productAccountId: productAccountId)
     for account in legacyKeys(productAccountId) {
       try? KeychainStore.delete(service: service, account: account)
