@@ -1299,10 +1299,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isStillCurrent: @escaping @MainActor () -> Bool
   ) async throws {
-    let connectionIds = try await connectionService.loadConnections(session: session)
+    let connectionIds =
+      (try? await connectionService.loadConnections(session: session))?
       .map {
         $0.mailboxConnection(productAccountId: session.productAccountId).id
-      }
+      } ?? []
     try await syncGate.withLocks(connectionIds) {
       var firstError: Error?
       do {

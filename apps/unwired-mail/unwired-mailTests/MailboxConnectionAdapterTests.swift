@@ -856,6 +856,23 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connectionService.statuses.isEmpty)
   }
 
+  func testGmailAccountCleanupContinuesWhenConnectionEnumerationFails() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    connectionService.loadError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
+    let events = await eventLog.snapshot()
+
+    XCTAssertEqual(events, ["local-state-cleared"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
   func testGmailRemoteRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -3482,6 +3499,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var completedAccount: VerifiedGmailAccount?
   var clearedConnection: GmailProviderConnectionStatus?
   var clearedProviderAccountIdentifiers: [String] = []
+  var loadError: Error?
   var statuses = [RecordingAdapterConnectionService.status]
   private let lifecycleEventLog: AdapterLifecycleEventLog?
 
@@ -3530,7 +3548,8 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   func loadConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
-    statuses
+    if let loadError { throw loadError }
+    return statuses
   }
 }
 
