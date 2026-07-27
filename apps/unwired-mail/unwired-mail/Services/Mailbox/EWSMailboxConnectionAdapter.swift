@@ -882,6 +882,12 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       ) {
         states.append(Self.providerStateId(.trash))
       }
+      if Self.isSpamHierarchy(
+        folderId: parentFolderId,
+        foldersById: foldersById
+      ) {
+        states.append(Self.providerStateId(.spam))
+      }
       states.append(Self.customFolderStateId(parentFolderId))
     }
     return MailboxMessageMetadata(
@@ -936,6 +942,22 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       let folder = foldersById[candidateId]
     {
       if folder.role == .trash || folder.isTrashHierarchy == true { return true }
+      currentFolderId = folder.parentFolderId
+    }
+    return false
+  }
+
+  private static func isSpamHierarchy(
+    folderId: String,
+    foldersById: [String: EWSFolder]
+  ) -> Bool {
+    var currentFolderId: String? = folderId
+    var visitedFolderIds: Set<String> = []
+    while let candidateId = currentFolderId,
+      visitedFolderIds.insert(candidateId).inserted,
+      let folder = foldersById[candidateId]
+    {
+      if folder.role == .spam { return true }
       currentFolderId = folder.parentFolderId
     }
     return false

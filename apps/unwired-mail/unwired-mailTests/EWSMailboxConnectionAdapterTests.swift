@@ -1269,6 +1269,55 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testJunkDescendantsKeepSpamAndCustomFolderMembership() throws {
+    let connection = makeEWSDefinition().synchronizedDefinition(
+      connectedAt: 1_781_200_000_000,
+      displayName: "Junk Projects"
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let message = ewsMessage(
+      1,
+      folderId: "junk-projects",
+      conversationId: "conversation-1"
+    )
+
+    let metadata = message.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "junk-email": EWSFolder(
+          changeKey: "junk-key",
+          displayName: "Junk Email",
+          id: "junk-email",
+          role: .spam
+        ),
+        "junk-projects": EWSFolder(
+          changeKey: "projects-key",
+          displayName: "Projects",
+          id: "junk-projects",
+          parentFolderId: "junk-email",
+          role: nil
+        ),
+      ]
+    )
+
+    XCTAssertEqual(
+      Set(metadata.providerStateIds ?? []),
+      ["SPAM", "UNREAD", EWSProviderMessage.customFolderStateId("junk-projects")]
+    )
+    XCTAssertTrue(
+      MailboxMessageCollection.role(.spam).contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+    XCTAssertFalse(
+      MailboxMessageCollection.allMail.contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+  }
+
   func testArchiveDeletedItemsDescendantsKeepTrashMembership() throws {
     let connection = makeEWSDefinition().synchronizedDefinition(
       connectedAt: 1_781_200_000_000,
