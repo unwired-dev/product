@@ -1,5 +1,7 @@
 import { httpRouter } from 'convex/server';
 
+import type { ActionCtx } from './_generated/server.js';
+
 import { internal } from './_generated/api.js';
 import { httpAction } from './_generated/server.js';
 import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
@@ -79,6 +81,64 @@ async function sha256Hex(value: string): Promise<string> {
     .join('');
 }
 
+function microsoftGraphValidationResponse(
+  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
+): Response | null {
+  const validationToken = url.searchParams.get('validationToken');
+  if (validationToken === null) {
+    return null;
+  }
+  return new Response(validationToken, {
+    headers: { 'content-type': 'text/plain' },
+    status: 200,
+  });
+}
+
+function microsoftGraphRouteId(
+  url: URL, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- URL is inspected but not mutated.
+): string | null {
+  const routeId = url.searchParams.get('routeId');
+  return routeId?.length === 0 ? null : routeId;
+}
+
+async function enqueueMicrosoftGraphNotifications(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  routeId: string,
+  notifications: readonly MicrosoftGraphNotification[],
+): Promise<void> {
+  await Promise.all(
+    notifications.map(async (notification) =>
+      ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
+        clientStateDigest: await sha256Hex(notification.clientState),
+        routeId,
+        subscriptionId: notification.subscriptionId,
+      }),
+    ),
+  );
+}
+
+async function microsoftGraphPushResponse(
+  ctx: ActionCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is mutated by design.
+  request: Request, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Request is inspected but not mutated.
+): Promise<Response> {
+  const url = new URL(request.url);
+  const validationResponse = microsoftGraphValidationResponse(url);
+  if (validationResponse !== null) {
+    return validationResponse;
+  }
+  const routeId = microsoftGraphRouteId(url);
+  if (routeId === null) {
+    return new Response('Microsoft Graph route required', { status: 400 });
+  }
+  const payload: unknown = await request.json().catch(() => null);
+  const notifications = microsoftGraphNotifications(payload);
+  if (notifications.length === 0) {
+    return new Response('Invalid Microsoft Graph push', { status: 400 });
+  }
+  await enqueueMicrosoftGraphNotifications(ctx, routeId, notifications);
+  return new Response(null, { status: 202 });
+}
+
 http.route({
   path: '/gmail/push',
   method: 'POST',
@@ -104,36 +164,7 @@ http.route({
 http.route({
   path: '/microsoft-graph/push',
   method: 'POST',
-  handler: httpAction(async (ctx, request) => {
-    const url = new URL(request.url);
-    const validationToken = url.searchParams.get('validationToken');
-    if (validationToken !== null) {
-      return new Response(validationToken, {
-        headers: { 'content-type': 'text/plain' },
-        status: 200,
-      });
-    }
-
-    const routeId = url.searchParams.get('routeId');
-    if (routeId === null || routeId.length === 0) {
-      return new Response('Microsoft Graph route required', { status: 400 });
-    }
-    const payload: unknown = await request.json().catch(() => null);
-    const notifications = microsoftGraphNotifications(payload);
-    if (notifications.length === 0) {
-      return new Response('Invalid Microsoft Graph push', { status: 400 });
-    }
-    await Promise.all(
-      notifications.map(async (notification) =>
-        ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
-          clientStateDigest: await sha256Hex(notification.clientState),
-          routeId,
-          subscriptionId: notification.subscriptionId,
-        }),
-      ),
-    );
-    return new Response(null, { status: 202 });
-  }),
+  handler: httpAction(microsoftGraphPushResponse),
 });
 
 export default http;
