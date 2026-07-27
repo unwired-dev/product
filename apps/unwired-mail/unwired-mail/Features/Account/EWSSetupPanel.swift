@@ -105,16 +105,18 @@ final class EWSSetupViewModel {
     }
   }
 
-  func setDefaultSendingConnection(_ connection: MailboxConnection) async {
-    guard !isWorking, isSessionCurrent(session) else { return }
+  func setDefaultSendingConnection(_ connection: MailboxConnection) async -> Bool {
+    guard !isWorking, isSessionCurrent(session) else { return false }
     isWorking = true
     defer { isWorking = false }
     do {
       try await adapter.setDefaultSendingConnection(connection, session: session)
       defaultSendingConnectionId = connection.id
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -192,7 +194,11 @@ struct EWSSetupPanel: View {
           Menu("Manage") {
             if connection.authorizationState == .authorized {
               Button("Set as Default Sending Connection") {
-                Task { await viewModel.setDefaultSendingConnection(connection) }
+                Task {
+                  if await viewModel.setDefaultSendingConnection(connection) {
+                    connectionsDidChange()
+                  }
+                }
               }
               .disabled(viewModel.defaultSendingConnectionId == connection.id)
               Button("Remove Device Authorization", role: .destructive) {

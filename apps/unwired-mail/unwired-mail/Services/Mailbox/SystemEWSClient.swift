@@ -107,6 +107,7 @@ struct SystemEWSClient: EWSClient {
           changeKey: folders[index].changeKey,
           displayName: folders[index].displayName,
           id: folders[index].id,
+          isSearchFolder: folders[index].isSearchFolder,
           role: role
         )
       } else {
@@ -154,6 +155,7 @@ struct SystemEWSClient: EWSClient {
             <t:FieldURI FieldURI="message:InternetMessageId"/>
             <t:FieldURI FieldURI="item:ParentFolderId"/>
             <t:FieldURI FieldURI="item:ConversationId"/>
+            <t:FieldURI FieldURI="item:DateTimeCreated"/>
             <t:FieldURI FieldURI="item:DateTimeReceived"/>
             <t:FieldURI FieldURI="item:DisplayCc"/>
             <t:FieldURI FieldURI="message:From"/>
@@ -264,11 +266,12 @@ struct SystemEWSClient: EWSClient {
         authorization: authorization
       )
     case .archive:
+      var identities: [EWSMovedItemIdentity] = []
       for (sourceFolderId, sourceMessages) in Dictionary(
         grouping: messages,
         by: \.parentFolderId
       ) {
-        _ = try await request(
+        let document = try await request(
           """
           <m:ArchiveItem>
             <m:ArchiveSourceFolderId><t:FolderId Id="\(xmlAttribute(sourceFolderId))"/>
@@ -278,8 +281,18 @@ struct SystemEWSClient: EWSClient {
           """,
           authorization: authorization
         )
+        let returnedItemIds = document.descendants.filter { $0.localName == "ItemId" }
+        if returnedItemIds.count == sourceMessages.count {
+          identities += try movedIdentities(sourceMessages, itemIds: returnedItemIds)
+        } else {
+          for message in sourceMessages {
+            identities.append(
+              try await resolveArchivedIdentity(for: message, authorization: authorization)
+            )
+          }
+        }
       }
-      return []
+      return identities
     case .delete, .move, .notSpam, .restore, .spam:
       let destination =
         targetFolderId.map { #"<t:FolderId Id="\#(xmlAttribute($0))"/>"# }
@@ -305,17 +318,7 @@ struct SystemEWSClient: EWSClient {
       guard itemIds.count == messages.count else {
         throw EWSServiceError.invalidResponse
       }
-      return try zip(messages, itemIds).map { message, itemId in
-        guard
-          let id = itemId.attributes["Id"],
-          let changeKey = itemId.attributes["ChangeKey"]
-        else { throw EWSServiceError.invalidResponse }
-        return EWSMovedItemIdentity(
-          changeKey: changeKey,
-          itemId: id,
-          stableProviderId: message.stableProviderId
-        )
-      }
+      return try movedIdentities(messages, itemIds: itemIds)
     }
   }
   // swiftlint:enable function_body_length
@@ -483,6 +486,7 @@ struct SystemEWSClient: EWSClient {
       changeKey: idNode.attributes["ChangeKey"],
       displayName: node.child(named: "DisplayName")?.text.nonEmpty ?? id,
       id: id,
+      isSearchFolder: node.localName == "SearchFolder",
       role: nil
     )
   }
@@ -497,7 +501,9 @@ struct SystemEWSClient: EWSClient {
     let internetMessageId = node.child(named: "InternetMessageId")?.text.nonEmpty
     let searchKey = node.children.first(where: { $0.localName == "ExtendedProperty" })?
       .child(named: "Value")?.text.nonEmpty
-    let dateText: String? = node.child(named: "DateTimeReceived")?.text
+    let dateText: String? =
+      node.child(named: "DateTimeReceived")?.text
+      ?? node.child(named: "DateTimeCreated")?.text
     let date = dateText.flatMap(Self.date)
     let parentFolderId =
       node.child(named: "ParentFolderId")?.attributes["Id"] ?? defaultFolderId
@@ -526,6 +532,57 @@ struct SystemEWSClient: EWSClient {
     let fractional = ISO8601DateFormatter()
     fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
+  }
+
+  private func resolveArchivedIdentity(
+    for message: EWSProviderMessage,
+    authorization: DeviceLocalEWSAuthorization
+  ) async throws -> EWSMovedItemIdentity {
+    let property: String
+    if message.stableProviderId == message.internetMessageId {
+      property = #"<t:FieldURI FieldURI="message:InternetMessageId"/>"#
+    } else if message.stableProviderId != message.itemId {
+      property = #"<t:ExtendedFieldURI PropertyTag="0x300B" PropertyType="Binary"/>"#
+    } else {
+      throw EWSServiceError.invalidResponse
+    }
+    let document = try await request(
+      """
+      <m:FindItem Traversal="Shallow">
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+        <m:Restriction><t:IsEqualTo>
+          \(property)
+          <t:FieldURIOrConstant><t:Constant
+            Value="\(xmlAttribute(message.stableProviderId))"/>
+          </t:FieldURIOrConstant>
+        </t:IsEqualTo></m:Restriction>
+        <m:ParentFolderIds><t:DistinguishedFolderId Id="archiveinbox">
+          \(mailboxXML(authorization))
+        </t:DistinguishedFolderId></m:ParentFolderIds>
+      </m:FindItem>
+      """,
+      authorization: authorization
+    )
+    let itemIds = document.descendants.filter { $0.localName == "ItemId" }
+    guard itemIds.count == 1 else { throw EWSServiceError.invalidResponse }
+    return try movedIdentities([message], itemIds: itemIds)[0]
+  }
+
+  private func movedIdentities(
+    _ messages: [EWSProviderMessage],
+    itemIds: [EWSXMLNode]
+  ) throws -> [EWSMovedItemIdentity] {
+    try zip(messages, itemIds).map { message, itemId in
+      guard
+        let id = itemId.attributes["Id"],
+        let changeKey = itemId.attributes["ChangeKey"]
+      else { throw EWSServiceError.invalidResponse }
+      return EWSMovedItemIdentity(
+        changeKey: changeKey,
+        itemId: id,
+        stableProviderId: message.stableProviderId
+      )
+    }
   }
 
   private func updateBoolean(

@@ -230,8 +230,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     await viewModel.load()
     let connection = try XCTUnwrap(viewModel.connections.first)
-    await viewModel.setDefaultSendingConnection(connection)
+    let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
 
+    XCTAssertTrue(didSetDefault)
     XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
   }
@@ -459,6 +460,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       "message:ToRecipients",
       "message:CcRecipients",
       "message:BccRecipients",
+      "item:DateTimeCreated",
       "item:Preview",
     ] {
       XCTAssertTrue(metadataBody.contains(#"FieldURI="\#(field)""#))
@@ -468,6 +470,44 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(
       deliveryBody.contains(#"FieldURI="message:InternetMessageId""#)
     )
+  }
+
+  func testSystemClientUsesCreatedTimestampWhenReceivedTimestampIsMissing() async throws {
+    EWSURLProtocol.requestHandler = { request in
+      (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(
+          Self.findItemResponse.replacingOccurrences(
+            of: "DateTimeReceived",
+            with: "DateTimeCreated"
+          ).utf8
+        )
+      )
+    }
+    defer { EWSURLProtocol.requestHandler = nil }
+    let authorization = DeviceLocalEWSAuthorization(
+      credential: "password",
+      definition: makeEWSDefinition()
+    )
+
+    let page = try await SystemEWSClient(session: makeEWSURLSession()).loadMessagePage(
+      folder: EWSFolder(
+        changeKey: nil,
+        displayName: "Drafts",
+        id: "drafts-id",
+        role: .drafts
+      ),
+      offset: 0,
+      pageSize: 50,
+      authorization: authorization
+    )
+
+    XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
   }
 
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
@@ -509,6 +549,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(findFolderOffsets, [0, 100])
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
+    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
+    XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
   }
 
   func testSystemClientParsesItemBodyFractionalTimestampAndMovedIdentity() async throws {
@@ -575,7 +617,16 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(body, "Rendered message body")
     XCTAssertEqual(page.messages.first?.receivedAtMilliseconds, 1_785_155_696_123)
-    XCTAssertTrue(archived.isEmpty)
+    XCTAssertEqual(
+      archived,
+      [
+        EWSMovedItemIdentity(
+          changeKey: "change-key",
+          itemId: "item-id",
+          stableProviderId: message.stableProviderId
+        )
+      ]
+    )
     XCTAssertEqual(
       moved,
       [
@@ -591,6 +642,8 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(requestBodies[2].contains("<m:ArchiveSourceFolderId>"))
     XCTAssertTrue(requestBodies[2].contains(#"Id="inbox-id""#))
     XCTAssertFalse(requestBodies[2].contains("<m:MoveItem>"))
+    XCTAssertTrue(requestBodies[3].contains(#"Id="archiveinbox""#))
+    XCTAssertTrue(requestBodies[3].contains(message.stableProviderId))
     XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
     XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
     XCTAssertFalse(requestBodies.last?.contains("<m:DeleteItem") == true)
@@ -711,6 +764,53 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       client.requestedPages,
       ["inbox-id|0", "sent-id|0", "inbox-id|0", "inbox-id|2"]
     )
+  }
+
+  func testSearchFoldersAreExcludedFromMoveDestinations() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.folders = [
+      EWSFolder(
+        changeKey: "regular-key",
+        displayName: "Projects",
+        id: "projects-id",
+        isSearchFolder: false,
+        role: nil
+      ),
+      EWSFolder(
+        changeKey: "search-key",
+        displayName: "Unread Mail",
+        id: "unread-id",
+        isSearchFolder: true,
+        role: nil
+      ),
+    ]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+
+    let mailboxes = try await adapter.loadProviderMailboxes(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(mailboxes.map(\.title), ["Projects"])
   }
 
   func testHistoricalBackfillRestartsAndDrainsEveryPendingPage() async throws {
@@ -1149,7 +1249,9 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.providerAccessLoads, 1)
   }
 
-  func testRecentSyncReconcilesChangedEWSItemIdentityWithoutDuplicatingMessage() async throws {
+  func testPersistedSyncRefreshesChangedEWSItemIdentityWithoutDuplicatingMessage()
+    async throws
+  {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     let inboxFolder = EWSFolder(
@@ -1187,14 +1289,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     changed.isRead = true
     client.pages["inbox-id|0"] = EWSMessagePage(messages: [changed], nextOffset: nil)
 
-    let result = try await adapter.syncRecentInbox(
-      connection: connection,
-      includingHistoryCandidates: false,
-      session: session,
-      sinceHistoryId: nil,
-      throughHistoryId: nil,
-      shouldPersist: { true }
-    )
+    let result = try await adapter.syncInbox(connection: connection, session: session)
 
     XCTAssertEqual(result.messages.map(\.providerMessageId), ["ews-stable-1"])
     XCTAssertFalse(result.messages[0].providerStateIds?.contains("UNREAD") == true)
@@ -1267,7 +1362,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testCompletedRefreshBackfillReconcilesHistoricalDeletion() async throws {
+  func testOffsetBackfillDoesNotDestructivelyReconcileHistoricalDeletion() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
     client.folders = [
@@ -1320,7 +1415,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       session: session
     )
 
-    XCTAssertEqual(reconciled.messages.map(\.providerMessageId), ["ews-stable-2"])
+    XCTAssertEqual(
+      Set(reconciled.messages.map(\.providerMessageId)),
+      ["ews-stable-1", "ews-stable-2"]
+    )
   }
 
   private func snapshot(message: EWSProviderMessage) -> EWSMetadataSnapshot {
@@ -1469,6 +1567,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
   private static func findFolderResponse(offset: Int) -> String {
     let includesLast = offset == 100
+    let folderType = offset == 100 ? "SearchFolder" : "Folder"
     return """
       <?xml version="1.0" encoding="utf-8"?>
       <s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"
@@ -1479,10 +1578,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
             <m:ResponseCode>NoError</m:ResponseCode>
             <m:RootFolder IncludesLastItemInRange="\(includesLast)"
               IndexedPagingOffset="\(offset + 100)">
-              <t:Folders><t:Folder>
+              <t:Folders><t:\(folderType)>
                 <t:FolderId Id="custom-\(offset)" ChangeKey="key-\(offset)"/>
                 <t:DisplayName>Custom \(offset)</t:DisplayName>
-              </t:Folder></t:Folders>
+              </t:\(folderType)></t:Folders>
             </m:RootFolder>
           </m:FindFolderResponseMessage>
         </m:ResponseMessages></m:FindFolderResponse></s:Body>

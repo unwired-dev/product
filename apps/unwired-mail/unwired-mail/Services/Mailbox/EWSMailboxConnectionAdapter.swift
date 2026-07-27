@@ -607,7 +607,22 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let changeKey: String?
   let displayName: String
   let id: String
+  let isSearchFolder: Bool?
   let role: EWSFolderRole?
+
+  init(
+    changeKey: String?,
+    displayName: String,
+    id: String,
+    isSearchFolder: Bool? = nil,
+    role: EWSFolderRole?
+  ) {
+    self.changeKey = changeKey
+    self.displayName = displayName
+    self.id = id
+    self.isSearchFolder = isSearchFolder
+    self.role = role
+  }
 }
 
 struct EWSProviderMessage: Codable, Equatable, Sendable {
@@ -1349,7 +1364,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       productAccountId: session.productAccountId,
       connectionId: connection.id
     )?.folders.compactMap {
-      guard $0.role == nil else { return nil }
+      guard $0.role == nil, $0.isSearchFolder != true else { return nil }
       return ProviderMailbox(
         id: EWSProviderMessage.customFolderStateId($0.id),
         title: $0.displayName
@@ -1409,7 +1424,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.nextOffsetsByFolderId[folder.id] = nextOffset
         } else {
           snapshot.nextOffsetsByFolderId[folder.id] = nil
-          finishReconciliation(for: folder.id, snapshot: &snapshot)
+          snapshot.reconciliationMessageIdsByFolderId[folder.id] = nil
         }
         try metadataStore.save(
           snapshot,
@@ -1451,10 +1466,22 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session,
       isWithinSyncGate: true
     )
-    if let snapshot = try metadataStore.load(
+    if try metadataStore.load(
       productAccountId: session.productAccountId,
       connectionId: connection.id
-    ) {
+    ) != nil {
+      let snapshot = try await refreshRecentSnapshot(
+        connection,
+        authorization: authorization,
+        session: session,
+        shouldPersist: shouldPersist
+      )
+      let rawResult = try result(snapshot, .allObserved, connection: connection)
+      try await pendingActionService.reconcileProviderSync(
+        messages: rawResult.messages,
+        connection: connection,
+        session: session
+      )
       return try await projectedResult(
         snapshot,
         .role(.inbox),
