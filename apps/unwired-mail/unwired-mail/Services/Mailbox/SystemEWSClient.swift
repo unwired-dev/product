@@ -668,6 +668,7 @@ struct SystemEWSClient: EWSClient {
     return fractional.date(from: value) ?? ISO8601DateFormatter().date(from: value)
   }
 
+  // swiftlint:disable:next function_body_length
   private func resolveArchivedIdentity(
     for message: EWSProviderMessage,
     authorization: DeviceLocalEWSAuthorization
@@ -696,7 +697,11 @@ struct SystemEWSClient: EWSClient {
     let document = try await request(
       """
       <m:FindItem Traversal="Shallow">
-        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape></m:ItemShape>
+        <m:ItemShape><t:BaseShape>IdOnly</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="item:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:ItemShape>
         <m:Restriction><t:IsEqualTo>
           \(property)
           <t:FieldURIOrConstant><t:Constant
@@ -709,8 +714,22 @@ struct SystemEWSClient: EWSClient {
       authorization: authorization
     )
     let itemIds = document.descendants.filter { $0.localName == "ItemId" }
-    guard itemIds.count == 1 else { throw EWSServiceError.invalidResponse }
-    return try movedIdentities([message], itemIds: itemIds)[0]
+    let responseParentFolderIds = document.descendants.filter {
+      $0.localName == "ParentFolderId"
+    }
+    guard
+      itemIds.count == 1,
+      responseParentFolderIds.count == 1,
+      let id = itemIds[0].attributes["Id"],
+      let changeKey = itemIds[0].attributes["ChangeKey"],
+      let destinationFolderId = responseParentFolderIds[0].attributes["Id"]
+    else { throw EWSServiceError.invalidResponse }
+    return EWSMovedItemIdentity(
+      changeKey: changeKey,
+      destinationFolderId: destinationFolderId,
+      itemId: id,
+      stableProviderId: message.stableProviderId
+    )
   }
 
   private func movedIdentities(

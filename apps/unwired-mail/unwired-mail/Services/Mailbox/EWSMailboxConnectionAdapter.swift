@@ -887,8 +887,21 @@ struct EWSMessagePage: Equatable, Sendable {
 
 struct EWSMovedItemIdentity: Equatable, Sendable {
   let changeKey: String
+  let destinationFolderId: String?
   let itemId: String
   let stableProviderId: String
+
+  init(
+    changeKey: String,
+    destinationFolderId: String? = nil,
+    itemId: String,
+    stableProviderId: String
+  ) {
+    self.changeKey = changeKey
+    self.destinationFolderId = destinationFolderId
+    self.itemId = itemId
+    self.stableProviderId = stableProviderId
+  }
 }
 
 /// Captures connection-scoped EWS metadata and resumable full-scan reconciliation state.
@@ -902,6 +915,7 @@ struct EWSMetadataSnapshot: Codable, Equatable, Sendable {
   var reconciliationAtByFolderId: [String: Int64]? = [:]
   var folders: [EWSFolder]
   var messages: [EWSProviderMessage]
+  var missingFolderIds: Set<String>? = []
   var nextOffsetsByFolderId: [String: Int]
   var pendingVerificationFolderIds: Set<String>? = []
   var deletionCandidatesByFolderId: [String: Set<String>]? = [:]
@@ -2244,9 +2258,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
     for index in snapshot.messages.indices
     where messageIds.contains(snapshot.messages[index].stableProviderId) {
-      if let moved = movedItems.first(where: {
+      let moved = movedItems.first(where: {
         $0.stableProviderId == snapshot.messages[index].stableProviderId
-      }) {
+      })
+      if let moved {
         snapshot.messages[index].itemId = moved.itemId
         snapshot.messages[index].changeKey = moved.changeKey
       }
@@ -2260,7 +2275,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       case .unstar:
         snapshot.messages[index].isFlagged = false
       case .archive, .delete, .move, .notSpam, .restore, .spam:
-        if let destinationId {
+        if let destinationId = moved?.destinationFolderId ?? destinationId {
           snapshot.messages[index].parentFolderId = destinationId
         }
       }
@@ -2280,13 +2295,25 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     shouldPersist: () -> Bool = { true }
   ) async throws -> EWSMetadataSnapshot {
     var snapshot = try requiredSnapshot(connection, session: session)
-    let folders = try await client.loadFolders(
+    let loadedFolders = try await client.loadFolders(
       authorization: authorization,
       knownFolders: snapshot.folders
     ).filter { $0.isSearchFolder != true }
+    let loadedFolderIds = Set(loadedFolders.map(\.id))
+    let previouslyMissingFolderIds = snapshot.missingFolderIds ?? []
+    let missingFolders = snapshot.folders.filter {
+      !loadedFolderIds.contains($0.id)
+    }
+    let confirmedMissingFolderIds = Set(missingFolders.map(\.id))
+      .intersection(previouslyMissingFolderIds)
+    let retainedMissingFolders = missingFolders.filter {
+      !confirmedMissingFolderIds.contains($0.id)
+    }
+    let folders = loadedFolders + retainedMissingFolders
+    snapshot.missingFolderIds = Set(retainedMissingFolders.map(\.id))
     var recentPagesByFolderId: [String: EWSMessagePage] = [:]
     var recentObservedIdsByFolderId: [String: Set<String>] = [:]
-    for folder in folders {
+    for folder in loadedFolders {
       try Task.checkCancellation()
       guard shouldPersist() else { throw CancellationError() }
       let page = try await client.loadMessagePage(

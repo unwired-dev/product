@@ -1122,6 +1122,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       [
         EWSMovedItemIdentity(
           changeKey: "change-key",
+          destinationFolderId: "archive-custom-id",
           itemId: "item-id",
           stableProviderId: message.stableProviderId
         )
@@ -1146,6 +1147,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(requestBodies[4].contains(#"Id="archive-sent-id""#))
     XCTAssertTrue(requestBodies[4].contains(#"Id="archive-custom-id""#))
     XCTAssertFalse(requestBodies[4].contains(#"Id="archive-search-id""#))
+    XCTAssertTrue(requestBodies[4].contains(#"FieldURI="item:ParentFolderId""#))
     XCTAssertTrue(requestBodies[4].contains(message.stableProviderId))
     XCTAssertTrue(requestBodies.last?.contains("<m:MoveItem>") == true)
     XCTAssertTrue(requestBodies.last?.contains(#"Id="deleteditems""#) == true)
@@ -1693,6 +1695,59 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.remainingOfflineFailuresByConnectionId[connection.id], 0)
   }
 
+  func testTransientEWSServerResponseRetriesThroughSharedQueue() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.remainingActionFailuresByConnectionId[definition.connectionId] = 1
+    client.actionFailureCode = "ErrorADUnavailable"
+    client.folders = [
+      EWSFolder(changeKey: "inbox-key", displayName: "Inbox", id: "inbox-id", role: .inbox)
+    ]
+    client.pages["inbox-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "inbox-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      pendingActionService: PendingProviderActionService(
+        maximumAttempts: 2,
+        retryDelayNanoseconds: { _ in 1_000_000 },
+        store: EWSActionStore()
+      )
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+
+    try await adapter.perform(
+      .markRead,
+      messages: [try XCTUnwrap(inbox.messages.first)],
+      connection: connection,
+      session: session
+    )
+    _ = await adapter.resumePendingActions(connection: connection, session: session)
+    let retryError = await adapter.waitForPendingActionRetries(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertNil(retryError)
+    XCTAssertEqual(client.performedActions.map(\.action), [.markRead])
+  }
+
   func testPreMutationInvalidIdentityResponseRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -2150,6 +2205,70 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testRecentSyncConfirmsMissingFolderBeforeDeletingItsMessages() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    let inboxFolder = EWSFolder(
+      changeKey: "inbox-key",
+      displayName: "Inbox",
+      id: "inbox-id",
+      role: .inbox
+    )
+    let projectsFolder = EWSFolder(
+      changeKey: "projects-key",
+      displayName: "Projects",
+      id: "projects-id",
+      role: nil
+    )
+    client.folders = [inboxFolder, projectsFolder]
+    client.pages["inbox-id|0"] = EWSMessagePage(messages: [], nextOffset: nil)
+    client.pages["projects-id|0"] = EWSMessagePage(
+      messages: [ewsMessage(1, folderId: "projects-id", conversationId: "conversation-1")],
+      nextOffset: nil
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadataStore = InMemoryEWSMetadataStore()
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadataStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    client.folders = [inboxFolder]
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let afterFirstMiss = try XCTUnwrap(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    XCTAssertEqual(afterFirstMiss.messages.map(\.stableProviderId), ["ews-stable-1"])
+    XCTAssertEqual(afterFirstMiss.missingFolderIds, ["projects-id"])
+
+    _ = try await adapter.syncInbox(connection: connection, session: session)
+    let afterConfirmedMiss = try XCTUnwrap(
+      try metadataStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    )
+    XCTAssertTrue(afterConfirmedMiss.messages.isEmpty)
+    XCTAssertTrue(afterConfirmedMiss.missingFolderIds?.isEmpty == true)
+  }
+
   func testRecentInitialSyncDoesNotPersistAfterSessionBecomesStale() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -2391,6 +2510,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
           <m:RootFolder IncludesLastItemInRange="true">
             <t:Items><t:Message>
               <t:ItemId Id="item-id" ChangeKey="change-key"/>
+              <t:ParentFolderId Id="archive-custom-id"/>
               <t:DateTimeReceived>2026-07-27T12:34:56.123Z</t:DateTimeReceived>
             </t:Message></t:Items>
           </m:RootFolder>
@@ -2625,6 +2745,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   }
 
   var actionErrorsByConnectionId: [MailboxConnectionId: Error] = [:]
+  var actionFailureCode = "HTTP 503"
   var account = EWSAccount(
     displayName: "On-Prem Reader",
     primaryEmailAddress: "reader@corp.example",
@@ -2759,7 +2880,10 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
       return true
     }
     if shouldFailAction {
-      throw EWSServiceError.response(code: "HTTP 503", message: "Temporarily unavailable")
+      throw EWSServiceError.response(
+        code: actionFailureCode,
+        message: "Temporarily unavailable"
+      )
     }
     lock.withLock {
       storedPerformedActions.append(

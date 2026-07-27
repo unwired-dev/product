@@ -148,6 +148,8 @@ private let defaultFailureDisposition:
           || status.map({ $0 >= 500 }) == true
           || [
             "ErrorExceededConnectionCount",
+            "ErrorADUnavailable",
+            "ErrorInternalServerTransientError",
             "ErrorInvalidChangeKey",
             "ErrorIrresolvableConflict",
             "ErrorMailboxStoreUnavailable",
