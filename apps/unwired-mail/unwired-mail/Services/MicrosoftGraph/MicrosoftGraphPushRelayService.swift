@@ -547,9 +547,9 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     accessTokensByProviderAccountIdentifier: [String: String],
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
+    let initialStatuses = try statusStore.loadAll(productAccountId: session.productAccountId)
     let persistedProviderAccountIdentifiers = Set(
-      statuses.map(\.providerAccountIdentifier)
+      initialStatuses.map(\.providerAccountIdentifier)
     )
     let providerAccountIdentifiers =
       persistedProviderAccountIdentifiers
@@ -566,6 +566,7 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
       }
       .sorted { $0.rawValue < $1.rawValue }
     try await withRegistrationLocks(connectionIds[...]) {
+      let statuses = try statusStore.loadAll(productAccountId: session.productAccountId)
       try await clearAllLocked(
         accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
         providerAccountIdentifiers: providerAccountIdentifiers,
