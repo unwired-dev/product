@@ -45,13 +45,18 @@ struct SystemEWSClient: EWSClient {
       """,
       authorization: authorization
     )
-    guard document.descendants.contains(where: Self.isFolderNode) else {
+    guard
+      let inbox = document.descendants.first(where: Self.isFolderNode),
+      let providerMailboxIdentifier = inbox.child(named: "FolderId")?.attributes["Id"],
+      !providerMailboxIdentifier.isEmpty
+    else {
       throw EWSSetupError.invalidMailboxIdentity
     }
     let primaryEmail = authorization.definition.emailAddress
     return EWSAccount(
       displayName: primaryEmail,
       primaryEmailAddress: primaryEmail,
+      providerMailboxIdentifier: providerMailboxIdentifier,
       serverVersion: try serverVersion(document)
     )
   }

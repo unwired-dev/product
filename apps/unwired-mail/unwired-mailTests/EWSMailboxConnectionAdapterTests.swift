@@ -39,19 +39,48 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   func testConnectionIdentityIncludesEffectiveEndpointPort() throws {
     let standard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
       endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
-      primaryEmailAddress: "reader@corp.example"
+      mailboxIdentifier: "mailbox-id"
     )
     let explicitStandard = try EWSConnectionDefinition.stableProviderAccountIdentifier(
       endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:443/EWS/Exchange.asmx")),
-      primaryEmailAddress: "reader@corp.example"
+      mailboxIdentifier: "mailbox-id"
     )
     let alternate = try EWSConnectionDefinition.stableProviderAccountIdentifier(
       endpoint: XCTUnwrap(URL(string: "https://mail.corp.example:8443/EWS/Exchange.asmx")),
-      primaryEmailAddress: "reader@corp.example"
+      mailboxIdentifier: "mailbox-id"
     )
 
     XCTAssertEqual(standard, explicitStandard)
     XCTAssertNotEqual(standard, alternate)
+  }
+
+  func testSetupUsesVerifiedMailboxIdentityAcrossAliases() async throws {
+    let client = RecordingEWSClient()
+    let service = EWSSetupService(
+      authorizationStore: InMemoryEWSAuthorizationStore(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService()
+    )
+    let first = try await service.connect(
+      authorizationMethod: .password,
+      credential: "password",
+      emailAddress: "reader@corp.example",
+      endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      username: #"CORP\reader"#,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+    let second = try await service.connect(
+      authorizationMethod: .password,
+      credential: "password",
+      emailAddress: "alias@corp.example",
+      endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      username: #"CORP\reader"#,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+
+    XCTAssertEqual(first.id, second.id)
   }
 
   func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
@@ -209,6 +238,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         client.account = EWSAccount(
           displayName: "On-Prem Reader",
           primaryEmailAddress: "reader-\(index)@corp.example",
+          providerMailboxIdentifier: "mailbox-\(index)",
           serverVersion: version
         )
         let definitions = RecordingEWSDefinitionSyncService()
@@ -369,6 +399,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(account.serverVersion, .exchange2019)
     XCTAssertEqual(account.primaryEmailAddress, "reader@corp.example")
+    XCTAssertEqual(account.providerMailboxIdentifier, "inbox-id")
     XCTAssertEqual(requests.count, 1)
     XCTAssertNil(requests[0].value(forHTTPHeaderField: "Authorization"))
     XCTAssertTrue(
@@ -1805,6 +1836,74 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.bodyRequestCount, 1)
   }
 
+  func testBodyCacheInvalidatesWhenDraftChangeKeyChanges() async throws {
+    let definition = makeEWSDefinition()
+    let client = RecordingEWSClient()
+    client.body = "Original draft"
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let metadata = InMemoryEWSMetadataStore()
+    var storedMessage = ewsMessage(
+      1,
+      folderId: "drafts-id",
+      conversationId: "conversation-1",
+      isDraft: true
+    )
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      cache: RecordingEWSBodyCache(),
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: metadata,
+      keyMaterialStore: keyStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let message = storedMessage.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "drafts-id": EWSFolder(
+          changeKey: "drafts-key",
+          displayName: "Drafts",
+          id: "drafts-id",
+          role: .drafts
+        )
+      ]
+    )
+
+    let original = try await adapter.loadMessageBody(message: message, session: session)
+    storedMessage.changeKey = "edited-draft"
+    try metadata.save(
+      snapshot(message: storedMessage),
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+    client.body = "Edited draft"
+    let updated = try await adapter.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(original.text, "Original draft")
+    XCTAssertEqual(updated.text, "Edited draft")
+    XCTAssertEqual(client.bodyRequestCount, 2)
+  }
+
   func testPreDeliveryHostFailureRetriesThroughSharedQueue() async throws {
     let definition = makeEWSDefinition()
     let client = RecordingEWSClient()
@@ -2843,6 +2942,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     _ number: Int,
     folderId: String,
     conversationId: String,
+    isDraft: Bool = false,
     isRead: Bool? = nil,
     receivedAtMilliseconds: Int64? = nil
   ) -> EWSProviderMessage {
@@ -2853,7 +2953,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       conversationId: conversationId,
       from: "Sender <sender@example.com>",
       internetMessageId: "<message-\(number)@example.com>",
-      isDraft: false,
+      isDraft: isDraft,
       isRead: isRead ?? number.isMultiple(of: 2),
       itemId: "ews-current-\(number)",
       parentFolderId: folderId,
@@ -2929,6 +3029,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
   var account = EWSAccount(
     displayName: "On-Prem Reader",
     primaryEmailAddress: "reader@corp.example",
+    providerMailboxIdentifier: "mailbox-id",
     serverVersion: .exchange2019
   )
   var body = ""

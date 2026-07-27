@@ -56,6 +56,7 @@ enum EWSServerVersion: String, Codable, CaseIterable, Equatable, Sendable {
 struct EWSAccount: Equatable, Sendable {
   let displayName: String
   let primaryEmailAddress: String
+  let providerMailboxIdentifier: String
   let serverVersion: EWSServerVersion
 }
 
@@ -102,12 +103,12 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
 
   static func stableProviderAccountIdentifier(
     endpoint: URL,
-    primaryEmailAddress: String
+    mailboxIdentifier: String
   ) throws -> String {
     guard
       let host = endpoint.host?.lowercased(),
       !host.isEmpty,
-      !primaryEmailAddress.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      !mailboxIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     else {
       throw EWSSetupError.invalidMailboxIdentity
     }
@@ -115,7 +116,7 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
       host,
       String(effectivePort(endpoint) ?? 443),
       endpoint.path,
-      primaryEmailAddress.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+      mailboxIdentifier.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
     ].joined(separator: "\0")
     return Data(SHA256.hash(data: Data(identityInput.utf8)))
       .base64EncodedString()
@@ -609,7 +610,7 @@ struct EWSSetupService {
 
     let provisionalIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
       endpoint: endpoint,
-      primaryEmailAddress: emailAddress
+      mailboxIdentifier: emailAddress
     )
     let provisionalDefinition = EWSConnectionDefinition(
       authorizationMethod: authorizationMethod,
@@ -630,7 +631,7 @@ struct EWSSetupService {
     let providerAccountIdentifier =
       try EWSConnectionDefinition.stableProviderAccountIdentifier(
         endpoint: endpoint,
-        primaryEmailAddress: account.primaryEmailAddress
+        mailboxIdentifier: account.providerMailboxIdentifier
       )
     let definition = EWSConnectionDefinition(
       authorizationMethod: authorizationMethod,
@@ -1231,7 +1232,7 @@ struct EWSMessageBodyService {
       try? cache.saveMessageBody(
         material.encryptPayload(
           Data(text.utf8),
-          associatedData: associatedData(message.stableProviderMessageId)
+          associatedData: associatedData(message, providerMessage: providerMessage)
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
@@ -1280,7 +1281,7 @@ struct EWSMessageBodyService {
           isProtected: true,
           payload: material.encryptPayload(
             Data(text.utf8),
-            associatedData: associatedData(message.stableProviderMessageId)
+            associatedData: associatedData(message, providerMessage: providerMessage)
           ),
           retention: .prefetched
         ),
@@ -1315,7 +1316,7 @@ struct EWSMessageBodyService {
     do {
       let data = try material.decryptPayload(
         payload,
-        associatedData: associatedData(message.stableProviderMessageId)
+        associatedData: associatedData(message, providerMessage: providerMessage)
       )
       guard let text = String(data: data, encoding: .utf8) else { return nil }
       return MailboxMessageBody(text: text)
@@ -1328,8 +1329,14 @@ struct EWSMessageBodyService {
     }
   }
 
-  private func associatedData(_ stableProviderMessageId: String) -> Data {
-    Data("exchange-web-services-body-cache:\(stableProviderMessageId)".utf8)
+  private func associatedData(
+    _ message: MailboxMessageMetadata,
+    providerMessage: EWSProviderMessage
+  ) -> Data {
+    let draftVersion = providerMessage.isDraft ? ":\(providerMessage.changeKey)" : ""
+    return Data(
+      "exchange-web-services-body-cache:\(message.stableProviderMessageId)\(draftVersion)".utf8
+    )
   }
 }
 
