@@ -511,7 +511,8 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
     session: ProductAccountSessionSnapshot
   ) async throws {
     var firstError: Error?
-    for status in try statusStore.loadAll(productAccountId: session.productAccountId) {
+    let statuses = (try? statusStore.loadAll(productAccountId: session.productAccountId)) ?? []
+    for status in statuses {
       if let accessToken =
         accessTokensByProviderAccountIdentifier[status.providerAccountIdentifier]
       {

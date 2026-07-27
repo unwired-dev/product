@@ -756,6 +756,77 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(actions.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGraphArchiveReconciliationRequiresArchiveState() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      failureDisposition: { _ in .userActionRequired },
+      store: store
+    )
+    let graphConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .microsoftGraph,
+      connectedAt: 1_781_200_000_000,
+      displayName: "reader@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .microsoftGraph,
+          value: "graph-user-001"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-graph-archive",
+      providerStateIds: ["INBOX"],
+      connectionId: graphConnection.id
+    )
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: graphConnection,
+        session: session
+      ) { _, _, _ in
+        throw PendingProviderActionTestError.rejected
+      }
+      XCTFail("Expected ambiguous archive failure")
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
+
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: message.providerMessageId,
+          providerStateIds: []
+        )
+      ],
+      connection: graphConnection,
+      session: session
+    )
+    var actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
+
+    try await service.reconcileProviderSync(
+      messages: [
+        pendingActionMessage(
+          providerMessageId: message.providerMessageId,
+          providerStateIds: ["ARCHIVE"]
+        )
+      ],
+      connection: graphConnection,
+      session: session
+    )
+    actions = try await service.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
   func testNonAuthoritativeSyncKeepsContradictedConfirmedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
@@ -1268,11 +1339,12 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
   private func pendingActionMessage(
     providerMessageId: String,
-    providerStateIds: [String]
+    providerStateIds: [String],
+    connectionId: MailboxConnectionId? = nil
   ) -> MailboxMessageMetadata {
     MailboxMessageMetadata(
       categoryId: nil,
-      connectionId: connection.id,
+      connectionId: connectionId ?? connection.id,
       from: "sender@example.com",
       isHistorical: false,
       providerInternalDateMilliseconds: 1_781_200_000_000,

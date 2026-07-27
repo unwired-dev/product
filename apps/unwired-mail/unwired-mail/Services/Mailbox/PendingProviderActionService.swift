@@ -459,7 +459,7 @@ actor PendingProviderActionService {
       actions.filter {
         $0.connectionId == connection.id.rawValue
           && ($0.state == .providerConfirmed || $0.state == .userActionRequired)
-          && $0.isConfirmed(in: messages)
+          && $0.isConfirmed(in: messages, providerId: connection.providerId)
       }.map(\.id)
     )
     let supersededActionIds = Set(
@@ -482,7 +482,7 @@ actor PendingProviderActionService {
           && action.messageIds.allSatisfy { messageId in
             messages.contains { $0.providerMessageId == messageId }
           }
-          && !action.isConfirmed(in: messages)
+          && !action.isConfirmed(in: messages, providerId: connection.providerId)
       }.map(\.id)
     )
     actions.removeAll {
@@ -746,7 +746,10 @@ actor PendingProviderActionService {
 
 extension PendingProviderAction {
   // swiftlint:disable:next cyclomatic_complexity
-  fileprivate func isConfirmed(in messages: [MailboxMessageMetadata]) -> Bool {
+  fileprivate func isConfirmed(
+    in messages: [MailboxMessageMetadata],
+    providerId: MailProviderId
+  ) -> Bool {
     messageIds.allSatisfy { messageId in
       guard let message = messages.first(where: { $0.providerMessageId == messageId }) else {
         return false
@@ -754,7 +757,9 @@ extension PendingProviderAction {
       let states = Set(message.providerStateIds ?? [])
       switch action {
       case .archive:
-        return !states.contains("INBOX")
+        return providerId == .microsoftGraph
+          ? states.contains("ARCHIVE")
+          : !states.contains("INBOX")
       case .delete:
         return states.contains("TRASH")
       case .markRead:

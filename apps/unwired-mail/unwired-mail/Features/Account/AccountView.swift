@@ -3150,8 +3150,15 @@ struct MailShellConversationReader: View {
     var actions = supported
     let collection = selection.selectedMailbox?.collection
     if collection != .role(.inbox) {
-      actions.subtract([.archive, .move])
-    } else if !allowsMove {
+      actions.remove(.archive)
+    }
+    let isProviderMailbox =
+      if case .some(.providerMailbox) = collection {
+        true
+      } else {
+        false
+      }
+    if !allowsMove || (collection != .role(.inbox) && !isProviderMailbox) {
       actions.remove(.move)
     }
     if collection != .role(.trash) {

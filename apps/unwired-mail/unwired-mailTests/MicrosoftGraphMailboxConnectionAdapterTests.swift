@@ -1939,6 +1939,26 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testPushCleanupClearsCorruptLocalStatus() async throws {
+    let defaultsName = "MicrosoftGraphCorruptPushCleanupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let key = "microsoft-graph-push.\(session.productAccountId)"
+    defaults.set(Data("not-json".utf8), forKey: key)
+    let service = MicrosoftGraphPushSubscriptionService(
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      subscriptionClient: RecordingMicrosoftGraphSubscriptionClient(),
+      transport: RecordingMicrosoftGraphPushRouteTransport()
+    )
+
+    try await service.clearAll(
+      accessTokensByProviderAccountIdentifier: [:],
+      session: session
+    )
+
+    XCTAssertNil(defaults.object(forKey: key))
+  }
+
   private func authorizedAdapter(
     assignmentSync: MessageCategoryAssignmentSyncing = RecordingGraphCategoryAssignmentSync(),
     bodyCache: GmailMessageBodyCaching = RecordingMicrosoftGraphBodyCache(),
