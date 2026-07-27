@@ -105,17 +105,20 @@ async function enqueueMicrosoftGraphNotifications(
   routeId: string,
   notifications: readonly MicrosoftGraphNotification[],
 ): Promise<void> {
-  const uniqueNotifications = new Map<string, MicrosoftGraphNotification>();
+  const uniqueNotifications = new Map<
+    string,
+    { clientStateDigest: string; subscriptionId: string }
+  >();
   for (const notification of notifications) {
     const digest = await sha256Hex(notification.clientState);
     uniqueNotifications.set(`${notification.subscriptionId}:${digest}`, {
-      clientState: digest,
+      clientStateDigest: digest,
       subscriptionId: notification.subscriptionId,
     });
   }
   for (const notification of uniqueNotifications.values()) {
     await ctx.runMutation(internal.pushRelay.enqueueMicrosoftGraphWakeup, {
-      clientStateDigest: notification.clientState,
+      clientStateDigest: notification.clientStateDigest,
       routeId,
       subscriptionId: notification.subscriptionId,
     });
