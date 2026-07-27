@@ -740,7 +740,6 @@ final class PendingProviderActionServiceTests: XCTestCase {
         return XCTFail("Expected retry-limit failure")
       }
     }
-
     try await service.reconcileProviderSync(
       messages: [
         pendingActionMessage(
@@ -799,6 +798,19 @@ final class PendingProviderActionServiceTests: XCTestCase {
         return XCTFail("Expected retry-limit failure")
       }
     }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: graphConnection,
+      session: session
+    )
+    XCTAssertEqual(Set(try XCTUnwrap(projected.messages.first?.providerStateIds)), ["ARCHIVE"])
 
     try await service.reconcileProviderSync(
       messages: [

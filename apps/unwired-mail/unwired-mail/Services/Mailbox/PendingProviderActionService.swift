@@ -311,6 +311,7 @@ actor PendingProviderActionService {
         guard pendingAction.applies(to: current) else { return current }
         return current.applying(
           pendingAction.action,
+          providerId: connection.providerId,
           targetProviderMailboxId: pendingAction.targetProviderMailboxId
         )
       }
@@ -819,15 +820,19 @@ extension ProviderMailAction {
 }
 
 extension MailboxMessageMetadata {
-  // swiftlint:disable:next cyclomatic_complexity
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   fileprivate func applying(
     _ action: ProviderMailAction,
+    providerId: MailProviderId,
     targetProviderMailboxId: String?
   ) -> MailboxMessageMetadata {
     var states = Set(providerStateIds ?? ["INBOX"])
     switch action {
     case .archive:
       states.remove("INBOX")
+      if providerId == .microsoftGraph {
+        states.insert("ARCHIVE")
+      }
     case .delete:
       states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
       states.insert("TRASH")

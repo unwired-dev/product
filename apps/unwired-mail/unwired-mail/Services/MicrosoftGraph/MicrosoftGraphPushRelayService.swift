@@ -473,18 +473,19 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
         session: session
       )
     } catch {
-      if let createdSubscriptionId {
+      let rolledBack =
+        (try? await transport.rollbackMicrosoftGraphPushRoute(
+          clientStateDigest: clientStateDigest,
+          identityToken: session.identityToken,
+          routeId: route.routeId,
+          trustedDeviceId: session.trustedDeviceId
+        )) == true
+      if rolledBack, let createdSubscriptionId {
         try? await subscriptionClient.delete(
           accessToken: accessToken,
           subscriptionId: createdSubscriptionId
         )
       }
-      _ = try? await transport.rollbackMicrosoftGraphPushRoute(
-        clientStateDigest: clientStateDigest,
-        identityToken: session.identityToken,
-        routeId: route.routeId,
-        trustedDeviceId: session.trustedDeviceId
-      )
       throw error
     }
   }

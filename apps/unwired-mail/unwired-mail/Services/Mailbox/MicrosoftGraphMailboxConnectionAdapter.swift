@@ -1839,24 +1839,6 @@ struct MicrosoftGraphMetadataService {
         connectionId: connection.id
       )
     }
-    guard state.historicalMetadataBackfillIsComplete else {
-      let recentInboxPage = try await client.loadMetadataPage(
-        folder: state.folders[0].folder,
-        continuationURL: nil,
-        pageSize: Self.initialPageSize,
-        accessToken: accessToken
-      )
-      guard shouldPersist() else { throw CancellationError() }
-      try store.savePage(
-        recentInboxPage.messages,
-        folderId: state.folders[0].folder.id,
-        state: state,
-        productAccountId: productAccountId,
-        connectionId: connection.id
-      )
-      return try load(connection: connection, productAccountId: productAccountId)
-        .limitedInitialPage(to: Self.initialPageSize)
-    }
     do {
       for index in state.folders.indices {
         guard let deltaLink = state.folders[index].deltaLink else { continue }
@@ -1881,6 +1863,26 @@ struct MicrosoftGraphMetadataService {
           )
           continuation = page.nextLink
         } while continuation != nil
+      }
+      guard state.historicalMetadataBackfillIsComplete else {
+        if state.folders[0].deltaLink == nil {
+          let recentInboxPage = try await client.loadMetadataPage(
+            folder: state.folders[0].folder,
+            continuationURL: nil,
+            pageSize: Self.initialPageSize,
+            accessToken: accessToken
+          )
+          guard shouldPersist() else { throw CancellationError() }
+          try store.savePage(
+            recentInboxPage.messages,
+            folderId: state.folders[0].folder.id,
+            state: state,
+            productAccountId: productAccountId,
+            connectionId: connection.id
+          )
+        }
+        return try load(connection: connection, productAccountId: productAccountId)
+          .limitedInitialPage(to: Self.initialPageSize)
       }
       return try load(connection: connection, productAccountId: productAccountId)
     } catch MicrosoftGraphClientError.deltaTokenExpired {
@@ -1931,19 +1933,23 @@ struct MicrosoftGraphMetadataService {
           state.folders[index].nextLink = page.nextLink
           state.folders[index].deltaLink = page.deltaLink
           let folderId = state.folders[index].folder.id
-          var observedByFolder = state.initialCrawlMessageIdsByFolderId ?? [:]
-          observedByFolder[folderId, default: []].formUnion(
-            page.messages.compactMap { message in
-              !message.removed && message.parentFolderId == folderId ? message.id : nil
-            }
-          )
-          state.initialCrawlMessageIdsByFolderId = observedByFolder
+          if state.seededMessageIdsByFolderId?[folderId] != nil {
+            var observedByFolder = state.initialCrawlMessageIdsByFolderId ?? [:]
+            observedByFolder[folderId, default: []].formUnion(
+              page.messages.compactMap { message in
+                !message.removed && message.parentFolderId == folderId ? message.id : nil
+              }
+            )
+            state.initialCrawlMessageIdsByFolderId = observedByFolder
+          }
           var removingMessageIds: Set<String> = []
           if page.deltaLink != nil,
             let seededMessageIds = state.seededMessageIdsByFolderId?[folderId]
           {
             removingMessageIds =
-              seededMessageIds.subtracting(observedByFolder[folderId, default: []])
+              seededMessageIds.subtracting(
+                state.initialCrawlMessageIdsByFolderId?[folderId] ?? []
+              )
             state.seededMessageIdsByFolderId?[folderId] = nil
             state.initialCrawlMessageIdsByFolderId?[folderId] = nil
           }
@@ -2405,10 +2411,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         {
           do {
             accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
-              try tokenStore.load(
+              try await accessTokenForCleanup(
                 productAccountId: session.productAccountId,
                 providerAccountIdentifier: providerAccountIdentifier
-              )?.accessToken
+              )
           } catch {
             firstError = firstError ?? error
           }
@@ -2500,10 +2506,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       var firstError: Error?
       let accessToken: String?
       do {
-        accessToken = try tokenStore.load(
+        accessToken = try await accessTokenForCleanup(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: connection.providerMailboxIdentity.value
-        )?.accessToken
+        )
       } catch {
         accessToken = nil
         firstError = error
@@ -3548,6 +3554,33 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerAccountIdentifier: connection.providerMailboxIdentity.value
       )
     }
+    return tokens.accessToken
+  }
+
+  private func accessTokenForCleanup(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) async throws -> String? {
+    guard
+      var tokens = try tokenStore.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+    else { return nil }
+    let refreshBoundary = Int64(now().addingTimeInterval(60).timeIntervalSince1970 * 1_000)
+    guard tokens.expiresAtMilliseconds <= refreshBoundary else {
+      return tokens.accessToken
+    }
+    do {
+      tokens = try await authorizer.refresh(tokens)
+    } catch MicrosoftGraphOAuthError.authorizationRejected {
+      return nil
+    }
+    try tokenStore.save(
+      tokens,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     return tokens.accessToken
   }
 

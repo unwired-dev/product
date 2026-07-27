@@ -894,6 +894,12 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(complete.messages.count, 75)
     XCTAssertEqual(complete.messages.last?.subject, "Message 1")
     XCTAssertEqual(client.requestedContinuations.last, "https://graph.microsoft.test/inbox/page-2")
+    XCTAssertNil(
+      try store.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )?.initialCrawlMessageIdsByFolderId?["inbox-id"]
+    )
   }
 
   func testInitialAvailabilityAccumulatesShortProviderPagesToFifty() async throws {
@@ -1017,6 +1023,48 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(initial.messages.contains { $0.providerMessageId == "immutable-message-100" })
     XCTAssertFalse(complete.messages.contains { $0.providerMessageId == "immutable-message-100" })
     XCTAssertTrue(complete.historicalMetadataBackfillIsComplete)
+  }
+
+  func testRecentSyncConsumesCompletedFolderDeltaWhileBackfillIsIncomplete() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [
+      graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      graphFolder(id: "sent-id", displayName: "Sent Items", wellKnownName: "sentitems"),
+    ]
+    let inboxDelta = "https://graph.microsoft.test/inbox/delta-1"
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: inboxDelta)
+    )
+    client.pages["sent-id|recent"] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(2, folderId: "sent-id")],
+      nextLink: nil,
+      deltaLink: nil
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    client.pages[pageKey(folderId: "inbox-id", continuation: inboxDelta)] =
+      MicrosoftGraphMetadataPage(
+        messages: [graphMessage(3)],
+        nextLink: nil,
+        deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta-2")
+      )
+
+    let refreshed = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertEqual(client.requestedContinuations.last, inboxDelta)
+    XCTAssertTrue(refreshed.messages.contains { $0.providerMessageId == "immutable-message-3" })
   }
 
   func testInitialAvailabilityFindsNewerMessagesAfterFirstFolderHasFifty() async throws {
@@ -2048,6 +2096,40 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       ])
   }
 
+  func testPushRegistrationPreservesSubscriptionWhenConfirmationRollbackIsRejected()
+    async throws
+  {
+    let client = RecordingMicrosoftGraphClient()
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let routeTransport = RecordingMicrosoftGraphPushRouteTransport()
+    routeTransport.confirmError = URLError(.networkConnectionLost)
+    routeTransport.rollbackResult = false
+    let subscriptionClient = RecordingMicrosoftGraphSubscriptionClient()
+    let defaultsName = "MicrosoftGraphPushAmbiguousConfirmationTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let service = MicrosoftGraphPushSubscriptionService(
+      siteURL: URL(string: "https://deployment.convex.site"),
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults),
+      subscriptionClient: subscriptionClient,
+      transport: routeTransport
+    )
+
+    do {
+      try await service.registerOrRenew(
+        connection: connection,
+        accessToken: "provider-access-token",
+        session: session
+      )
+      XCTFail("Expected route confirmation failure")
+    } catch {}
+
+    XCTAssertEqual(routeTransport.rolledBackClientStateDigests.count, 1)
+    XCTAssertTrue(subscriptionClient.deletedSubscriptionIds.isEmpty)
+  }
+
   func testPushRegistrationRollsBackRouteWhenSubscriptionCreationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
@@ -2164,6 +2246,73 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerMailboxIdentity.value
       )
+    )
+  }
+
+  func testConnectionCleanupRefreshesExpiredTokenBeforeDeletingSubscription() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "expired-token",
+        expiresAtMilliseconds: 1,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      now: { Date(timeIntervalSince1970: 2_000_000_000) },
+      pushRegistrar: push,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    try await adapter.clearLocalConnection(connection, session: session)
+
+    XCTAssertEqual(authorizer.refreshedTokens, 1)
+    XCTAssertEqual(push.clearedAccessTokens, [authorizer.refreshResult.accessToken])
+  }
+
+  func testAccountCleanupRefreshesExpiredTokensBeforeDeletingSubscriptions() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "expired-token",
+        expiresAtMilliseconds: 1,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      now: { Date(timeIntervalSince1970: 2_000_000_000) },
+      pushRegistrar: push,
+      tokenStore: tokenStore
+    )
+
+    try await adapter.clearLocalConnection(session: session)
+
+    XCTAssertEqual(authorizer.refreshedTokens, 1)
+    XCTAssertEqual(
+      push.clearedAllAccessTokens,
+      [[graphAccount.id: authorizer.refreshResult.accessToken]]
     )
   }
 
@@ -2763,6 +2912,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
   var confirmError: Error?
   private(set) var prepared: [PreparedCall] = []
   private(set) var removedOpaqueConnectionIds: [String] = []
+  var rollbackResult = true
   private(set) var rolledBackClientStateDigests: [String] = []
 
   func prepareMicrosoftGraphPushRoute(
@@ -2816,7 +2966,7 @@ private final class RecordingMicrosoftGraphPushRouteTransport:
     trustedDeviceId _: String
   ) async throws -> Bool {
     rolledBackClientStateDigests.append(clientStateDigest)
-    return true
+    return rollbackResult
   }
 }
 
