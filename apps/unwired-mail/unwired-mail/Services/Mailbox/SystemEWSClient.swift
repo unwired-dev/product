@@ -128,6 +128,7 @@ struct SystemEWSClient: EWSClient {
           id: parsed.id,
           isArchiveHierarchy: isArchiveHierarchy,
           isSearchFolder: parsed.isSearchFolder,
+          parentFolderId: parsed.parentFolderId,
           role: parsed.role
         )
       }
@@ -160,6 +161,7 @@ struct SystemEWSClient: EWSClient {
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          parentFolderId: folders[index].parentFolderId,
           role: role
         )
         continue
@@ -185,6 +187,7 @@ struct SystemEWSClient: EWSClient {
           id: folders[index].id,
           isArchiveHierarchy: folders[index].isArchiveHierarchy,
           isSearchFolder: folders[index].isSearchFolder,
+          parentFolderId: folders[index].parentFolderId,
           role: role
         )
       } else {
@@ -205,7 +208,12 @@ struct SystemEWSClient: EWSClient {
     try await request(
       """
       <m:FindFolder Traversal="Deep">
-        <m:FolderShape><t:BaseShape>Default</t:BaseShape></m:FolderShape>
+        <m:FolderShape>
+          <t:BaseShape>Default</t:BaseShape>
+          <t:AdditionalProperties>
+            <t:FieldURI FieldURI="folder:ParentFolderId"/>
+          </t:AdditionalProperties>
+        </m:FolderShape>
         <m:IndexedPageFolderView MaxEntriesReturned="\(pageSize)" Offset="\(offset)"
           BasePoint="Beginning"/>
         <m:ParentFolderIds><t:DistinguishedFolderId Id="\(rootDistinguishedId)">
@@ -606,6 +614,7 @@ struct SystemEWSClient: EWSClient {
       changeKey: value.changeKey,
       displayName: value.displayName,
       id: value.id,
+      parentFolderId: value.parentFolderId,
       role: role
     )
   }
@@ -619,6 +628,7 @@ struct SystemEWSClient: EWSClient {
       displayName: node.child(named: "DisplayName")?.text.nonEmpty ?? id,
       id: id,
       isSearchFolder: node.localName == "SearchFolder",
+      parentFolderId: node.child(named: "ParentFolderId")?.attributes["Id"],
       role: nil
     )
   }

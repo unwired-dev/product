@@ -918,6 +918,50 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testDeletedItemsDescendantsKeepTrashAndCustomFolderMembership() throws {
+    let connection = makeEWSDefinition().synchronizedDefinition(
+      connectedAt: 1_781_200_000_000,
+      displayName: "Deleted Projects"
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let message = ewsMessage(
+      1,
+      folderId: "deleted-projects",
+      conversationId: "conversation-1"
+    )
+
+    let metadata = message.mailboxMetadata(
+      connection: connection,
+      foldersById: [
+        "deleted-items": EWSFolder(
+          changeKey: "deleted-key",
+          displayName: "Deleted Items",
+          id: "deleted-items",
+          role: .trash
+        ),
+        "deleted-projects": EWSFolder(
+          changeKey: "projects-key",
+          displayName: "Projects",
+          id: "deleted-projects",
+          parentFolderId: "deleted-items",
+          role: nil
+        ),
+      ]
+    )
+
+    XCTAssertEqual(
+      Set(metadata.providerStateIds ?? []),
+      ["TRASH", "UNREAD", EWSProviderMessage.customFolderStateId("deleted-projects")]
+    )
+    XCTAssertTrue(
+      MailboxMessageCollection.role(.trash).contains(
+        providerStateIds: metadata.providerStateIds
+      )
+    )
+  }
+
   func testSystemClientPaginatesDeepFolderDiscovery() async throws {
     var findFolderOffsets: [Int] = []
     var requestedArchiveHierarchy = false
@@ -973,6 +1017,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(Set(folders.map(\.id)), ["custom-0", "custom-100"])
     XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.isSearchFolder, false)
     XCTAssertEqual(folders.first(where: { $0.id == "custom-100" })?.isSearchFolder, true)
+    XCTAssertEqual(folders.first(where: { $0.id == "custom-0" })?.parentFolderId, "parent-0")
+    XCTAssertEqual(
+      folders.first(where: { $0.id == "custom-100" })?.parentFolderId,
+      "parent-100"
+    )
   }
 
   func testSystemClientRejectsMalformedDiscoveredFolder() async throws {
@@ -2608,6 +2657,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
               IndexedPagingOffset="\(offset + 100)">
               <t:Folders><t:\(folderType)>
                 <t:FolderId Id="custom-\(offset)" ChangeKey="key-\(offset)"/>
+                <t:ParentFolderId Id="parent-\(offset)"/>
                 <t:DisplayName>Custom \(offset)</t:DisplayName>
               </t:\(folderType)></t:Folders>
             </m:RootFolder>

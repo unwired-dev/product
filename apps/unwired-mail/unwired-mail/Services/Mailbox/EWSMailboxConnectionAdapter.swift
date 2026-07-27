@@ -727,6 +727,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
   let id: String
   let isArchiveHierarchy: Bool?
   let isSearchFolder: Bool?
+  let parentFolderId: String?
   let role: EWSFolderRole?
 
   init(
@@ -735,6 +736,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     id: String,
     isArchiveHierarchy: Bool? = nil,
     isSearchFolder: Bool? = nil,
+    parentFolderId: String? = nil,
     role: EWSFolderRole?
   ) {
     self.changeKey = changeKey
@@ -742,6 +744,7 @@ struct EWSFolder: Codable, Equatable, Hashable, Sendable {
     self.id = id
     self.isArchiveHierarchy = isArchiveHierarchy
     self.isSearchFolder = isSearchFolder
+    self.parentFolderId = parentFolderId
     self.role = role
   }
 }
@@ -821,6 +824,13 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       if folder?.isArchiveHierarchy == true {
         states.append(Self.providerStateId(.archive))
       }
+      if Self.isDescendant(
+        of: .trash,
+        folderId: parentFolderId,
+        foldersById: foldersById
+      ) {
+        states.append(Self.providerStateId(.trash))
+      }
       states.append(Self.customFolderStateId(parentFolderId))
     }
     return MailboxMessageMetadata(
@@ -860,6 +870,23 @@ struct EWSProviderMessage: Codable, Equatable, Sendable {
       .replacingOccurrences(of: "/", with: "_")
       .replacingOccurrences(of: "=", with: "")
     return "ews-folder:\(encoded)"
+  }
+
+  private static func isDescendant(
+    of role: EWSFolderRole,
+    folderId: String,
+    foldersById: [String: EWSFolder]
+  ) -> Bool {
+    var currentFolderId: String? = folderId
+    var visitedFolderIds: Set<String> = []
+    while let candidateId = currentFolderId,
+      visitedFolderIds.insert(candidateId).inserted,
+      let folder = foldersById[candidateId]
+    {
+      if folder.role == role { return true }
+      currentFolderId = folder.parentFolderId
+    }
+    return false
   }
 
   static func folderId(fromProviderStateId stateId: String) -> String? {

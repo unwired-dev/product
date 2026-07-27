@@ -239,7 +239,9 @@ private let defaultOutboxFailureDisposition: @Sendable (Error) -> OutboxDelivery
         }
         if status == 429
           || [
+            "ErrorADUnavailable",
             "ErrorExceededConnectionCount",
+            "ErrorInternalServerTransientError",
             "ErrorMailboxStoreUnavailable",
             "ErrorServerBusy",
           ].contains(code)

@@ -583,31 +583,38 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
   }
 
-  func testEWSServerBusyRetriesWithoutReconciliation() async throws {
-    let reconciliations = DeliveryCounter()
-    let service = OutboxDeliveryService(
-      handoffDelayNanoseconds: immediateHandoffDelay,
-      retryDelayNanoseconds: { _ in 60_000_000_000 },
-      store: InMemoryOutboxDeliveryStore()
-    )
+  func testEWSTransientServerResponsesRetryWithoutReconciliation() async throws {
+    for code in [
+      "ErrorADUnavailable",
+      "ErrorInternalServerTransientError",
+      "ErrorServerBusy",
+    ] {
+      let reconciliations = DeliveryCounter()
+      let service = OutboxDeliveryService(
+        handoffDelayNanoseconds: immediateHandoffDelay,
+        retryDelayNanoseconds: { _ in 60_000_000_000 },
+        store: InMemoryOutboxDeliveryStore()
+      )
 
-    _ = try await service.enqueue(
-      message,
-      connection: connection,
-      session: session,
-      provider: { _, _, _ in
-        throw EWSServiceError.response(code: "ErrorServerBusy", message: "Busy")
-      },
-      reconcile: { _, _ in
-        await reconciliations.increment()
-        return .unknown
-      }
-    )
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in
+          throw EWSServiceError.response(code: code, message: "Temporarily unavailable")
+        },
+        reconcile: { _, _ in
+          await reconciliations.increment()
+          return .unknown
+        }
+      )
 
-    let attempts = try await service.items(session: session)
-    let reconciliationCount = await reconciliations.currentValue()
-    XCTAssertEqual(reconciliationCount, 0)
-    XCTAssertEqual(attempts.first?.state, .retrying)
+      let attempts = try await service.items(session: session)
+      let reconciliationCount = await reconciliations.currentValue()
+      XCTAssertEqual(reconciliationCount, 0, code)
+      XCTAssertEqual(attempts.first?.state, .retrying, code)
+      try await service.clear(session: session)
+    }
   }
 
   func testEWSAmbiguousResponsesAlwaysReconcileBeforeRetrying() async throws {
