@@ -355,6 +355,46 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.credential, "")
   }
 
+  func testEWSSetupInvalidationPreventsInFlightCredentialPersistence() async throws {
+    let gate = EWSVerificationGate()
+    let client = RecordingEWSClient()
+    client.beforeVerifyReturn = {
+      await gate.waitForRelease()
+    }
+    let definitions = RecordingEWSDefinitionSyncService()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let viewModel = EWSSetupViewModel(
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      service: EWSSetupService(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions
+      ),
+      session: session
+    )
+    viewModel.credential = "password"
+    viewModel.emailAddress = "reader@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    viewModel.username = #"CORP\reader"#
+
+    let connectionTask = Task { await viewModel.connect() }
+    await gate.waitUntilStarted()
+    viewModel.invalidate()
+    await gate.release()
+    let connection = await connectionTask.value
+
+    XCTAssertNil(connection)
+    XCTAssertNil(definitions.savedDefinition)
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: makeEWSDefinition().connectionId
+      )
+    )
+  }
+
   func testSynchronizedMailboxAliasChangePreservesDeviceAuthorization() async throws {
     let localDefinition = makeEWSDefinition()
     let synchronizedDefinition = EWSConnectionDefinition(
@@ -3774,6 +3814,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     serverVersion: .exchange2019
   )
   var body = ""
+  var beforeVerifyReturn: (() async -> Void)?
   var didLoadMessagePage: (() -> Void)?
   var failPageLoadsAfterAction = false
   private var storedBodyRequestCount = 0
@@ -3826,6 +3867,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 
   func verify(_ authorization: DeviceLocalEWSAuthorization) async throws -> EWSAccount {
     verifiedAuthorization = authorization
+    await beforeVerifyReturn?()
     return account
   }
 
@@ -3927,6 +3969,36 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     authorization _: DeviceLocalEWSAuthorization
   ) async throws {
     lock.withLock { storedSentMessages.append(message) }
+  }
+}
+
+private actor EWSVerificationGate {
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
   }
 }
 

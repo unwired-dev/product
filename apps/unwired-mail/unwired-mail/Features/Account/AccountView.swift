@@ -1344,6 +1344,7 @@ extension AccountView {
           SmokeView(service: ConvexBackendHealthService())
 
           Button("Sign Out", role: .destructive) {
+            ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
             mailboxFreshnessViewModel.cancelAll()
             mailboxFreshnessViewModel.clearPersistedState()

@@ -18,6 +18,7 @@ final class EWSSetupViewModel {
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private var isValid = true
   private let service: EWSSetupService
   private let session: ProductAccountSessionSnapshot
 
@@ -59,7 +60,7 @@ final class EWSSetupViewModel {
   }
 
   func connect() async -> MailboxConnection? {
-    guard !isWorking, isSessionCurrent(session) else { return nil }
+    guard !isWorking, isValid, isSessionCurrent(session) else { return nil }
     isWorking = true
     defer { isWorking = false }
     do {
@@ -70,7 +71,7 @@ final class EWSSetupViewModel {
         endpoint: endpoint,
         username: username,
         session: session,
-        isSessionCurrent: isSessionCurrent
+        isSessionCurrent: { self.isValid && self.isSessionCurrent($0) }
       )
       credential = ""
       try await reloadAfterMutation()
@@ -82,6 +83,10 @@ final class EWSSetupViewModel {
       errorMessage = error.localizedDescription
       return nil
     }
+  }
+
+  func invalidate() {
+    isValid = false
   }
 
   func select(_ connection: MailboxConnection) async {
