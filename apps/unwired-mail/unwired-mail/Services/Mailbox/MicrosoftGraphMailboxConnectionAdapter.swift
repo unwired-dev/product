@@ -2401,11 +2401,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      let accessToken = try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerMailboxIdentity.value
-      )?.accessToken
       var firstError: Error?
+      let accessToken: String?
+      do {
+        accessToken = try tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerMailboxIdentity.value
+        )?.accessToken
+      } catch {
+        accessToken = nil
+        firstError = error
+      }
       do {
         try await pushRegistrar.clear(
           accessToken: accessToken,
@@ -2413,7 +2419,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session
         )
       } catch {
-        firstError = error
+        firstError = firstError ?? error
       }
       do {
         try clearLocalConnectionWithoutLock(connection, session: session)

@@ -451,6 +451,11 @@ struct MicrosoftGraphPushSubscriptionService: MicrosoftGraphPushRegistering {
           subscriptionId: createdSubscriptionId
         )
       }
+      _ = try? await transport.removeMicrosoftGraphPushRoute(
+        identityToken: session.identityToken,
+        opaqueConnectionId: connectionOpaqueId,
+        trustedDeviceId: session.trustedDeviceId
+      )
       throw error
     }
   }

@@ -3488,7 +3488,7 @@ describe('gmail push relay', () => {
   });
 
   it('isolates and coalesces Microsoft Graph routes without forwarding provider data', async () => {
-    expect.assertions(6);
+    expect.assertions(7);
 
     vi.useFakeTimers();
     apnsMock.connections.length = 0;
@@ -3616,6 +3616,16 @@ describe('gmail push relay', () => {
         retainedWakeupCount: 1,
         retryWasRescheduled: true,
       });
+
+      await t.fetch(pushURL, {
+        body: JSON.stringify({ value: [notification] }),
+        headers: { 'content-type': 'application/json' },
+        method: 'POST',
+      });
+      const refreshedWakeup = await t.run((ctx) =>
+        ctx.db.query('microsoftGraphWakeupStates').unique(),
+      );
+      expect(refreshedWakeup?.attemptCount).toBe(0);
 
       apnsMock.status = 200;
       await t.finishAllScheduledFunctions(vi.runAllTimers);

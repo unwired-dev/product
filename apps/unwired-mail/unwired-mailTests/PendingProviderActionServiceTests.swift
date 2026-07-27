@@ -847,6 +847,41 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(pendingActions.isEmpty)
   }
 
+  func testOptimisticGraphMoveRemovesThePreviousFolder() async throws {
+    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let message = pendingActionMessage(
+      providerMessageId: "message-graph-move",
+      providerStateIds: ["graph-folder:source", "UNREAD"]
+    )
+
+    try await service.perform(
+      .move,
+      targetProviderMailboxId: "graph-folder:destination",
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message]),
+        hasInitialMailboxAvailability: true,
+        historicalMetadataBackfillIsComplete: true
+      ),
+      collection: .providerMailbox("graph-folder:destination"),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      projected.messages.first?.providerStateIds,
+      ["UNREAD", "graph-folder:destination"]
+    )
+  }
+
   func testProviderSyncRemovesSupersededConfirmedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)

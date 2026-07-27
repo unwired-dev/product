@@ -1707,10 +1707,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(subscriptionClient.deletedSubscriptionIds, ["subscription-1"])
     XCTAssertEqual(subscriptionClient.deleteAccessTokens, ["provider-access-token"])
-    XCTAssertTrue(routeTransport.removedOpaqueConnectionIds.isEmpty)
+    XCTAssertEqual(
+      routeTransport.removedOpaqueConnectionIds,
+      [try XCTUnwrap(routeTransport.prepared.first?.opaqueConnectionId)]
+    )
   }
 
-  func testPushRegistrationPreservesPreparedRouteWhenSubscriptionCreationFails() async throws {
+  func testPushRegistrationRemovesPreparedRouteWhenSubscriptionCreationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
     let connections = try await adapter.loadConnections(session: session)
@@ -1737,7 +1740,10 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected subscription creation failure")
     } catch {}
 
-    XCTAssertTrue(routeTransport.removedOpaqueConnectionIds.isEmpty)
+    XCTAssertEqual(
+      routeTransport.removedOpaqueConnectionIds,
+      [try XCTUnwrap(routeTransport.prepared.first?.opaqueConnectionId)]
+    )
     XCTAssertTrue(subscriptionClient.deletedSubscriptionIds.isEmpty)
   }
 

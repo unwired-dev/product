@@ -2478,7 +2478,7 @@ async function enqueueMicrosoftGraphWakeupForRoute(
   const existing = await microsoftGraphWakeupState(ctx, routeId);
   if (existing !== null) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existing._id, { pendingAt: now });
+    await ctx.db.patch(existing._id, { attemptCount: 0, pendingAt: now });
     return { accepted: true };
   }
   await ctx.db.insert('microsoftGraphWakeupStates', {
