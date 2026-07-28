@@ -24,6 +24,7 @@ private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
   let provider: String
   let providerAccountIdentifier: String
   let removedAt: Int64
+  let tombstoneIdentifier: String?
 
   var connectionId: MailboxConnectionId {
     MailboxConnectionId(
@@ -35,7 +36,11 @@ private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
   }
 
   var observation: MailboxConnectionRemovalObservation {
-    MailboxConnectionRemovalObservation(connectionId: connectionId, removedAt: removedAt)
+    MailboxConnectionRemovalObservation(
+      connectionId: connectionId,
+      removedAt: removedAt,
+      tombstoneIdentifier: tombstoneIdentifier
+    )
   }
 }
 
@@ -77,6 +82,7 @@ private struct MailboxConnectionSyncPayload: Codable, Equatable, Sendable {
   }
 }
 
+// swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
 
@@ -171,7 +177,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         MailboxConnectionRemovalTombstone(
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
-          removedAt: clock()
+          removedAt: clock(),
+          tombstoneIdentifier: UUID().uuidString
         )
       )
       if payload.defaultSendingConnectionId == connectionId {
@@ -229,7 +236,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     for attempt in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await loadRemotePayload(session: session)
       var payload = try decrypt(remotePayload, session: session)
-      guard try mutation(&payload) else {
+      let changed: Bool
+      do {
+        changed = try mutation(&payload)
+      } catch {
+        try? refreshCache(remotePayload, productAccountId: session.productAccountId)
+        throw error
+      }
+      guard changed else {
         try refreshCache(remotePayload, productAccountId: session.productAccountId)
         return snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }
@@ -349,10 +363,17 @@ extension MailboxConnectionSyncService {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await update(session: session) { payload in
-      if let removal = payload.removals.first(where: { $0.connectionId == definition.id }) {
-        guard removal.observation == removalObservation else {
-          throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
+      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
+      else {
+        guard removalObservation == nil else {
+          throw MailboxConnectionSyncError.concurrentModification
         }
+        payload.connections.removeAll { $0.id == definition.id }
+        payload.connections.append(definition)
+        return true
+      }
+      guard removal.observation == removalObservation else {
+        throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
       }
       payload.connections.removeAll { $0.id == definition.id }
       payload.connections.append(definition)

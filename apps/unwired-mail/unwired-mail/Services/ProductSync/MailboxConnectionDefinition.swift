@@ -136,6 +136,17 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
 struct MailboxConnectionRemovalObservation: Equatable, Sendable {
   let connectionId: MailboxConnectionId
   let removedAt: Int64
+  let tombstoneIdentifier: String?
+
+  init(
+    connectionId: MailboxConnectionId,
+    removedAt: Int64,
+    tombstoneIdentifier: String? = nil
+  ) {
+    self.connectionId = connectionId
+    self.removedAt = removedAt
+    self.tombstoneIdentifier = tombstoneIdentifier
+  }
 }
 
 enum MailboxConnectionDefinitionSaveIntent: Equatable, Sendable {

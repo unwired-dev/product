@@ -213,7 +213,7 @@ final class GenericMailSetupViewModel {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
     } catch let error as MailboxConnectionSyncError {
-      handleSyncError(error)
+      await handleSyncError(error)
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -318,11 +318,12 @@ final class GenericMailSetupViewModel {
     )
   }
 
-  private func handleSyncError(_ error: MailboxConnectionSyncError) {
+  private func handleSyncError(_ error: MailboxConnectionSyncError) async {
     if case .connectionRemoved(let observation) = error {
       locallyLoadedConnectionId = nil
       removalObservation = observation
       selectedSyncedConnectionId = nil
+      await loadSyncedDefinitions()
     }
     errorMessage = error.localizedDescription
   }

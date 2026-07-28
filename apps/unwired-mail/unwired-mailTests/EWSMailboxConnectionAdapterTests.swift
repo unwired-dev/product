@@ -107,7 +107,20 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       removedAt: 1_781_200_000_500
     )
     definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    definitions.removedConnectionIds = [removalObservation.connectionId]
     let authorizations = InMemoryEWSAuthorizationStore()
+    let localDefinition = EWSConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@corp.example",
+      endpoint: URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!,
+      providerAccountIdentifier: providerAccountIdentifier,
+      serverVersion: client.account.serverVersion,
+      username: #"CORP\reader"#
+    )
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "old-password", definition: localDefinition),
+      productAccountId: session.productAccountId
+    )
     let service = EWSSetupService(
       authorizationStore: authorizations,
       client: client,
@@ -137,6 +150,12 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(viewModel.isConfirmingRecreation)
     XCTAssertEqual(definitions.recreateDefinitionCount, 1)
     XCTAssertNil(definitions.recreationObservation)
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: removalObservation.connectionId
+      )
+    )
 
     definitions.recreateError = nil
     viewModel.credential = "new-password"
@@ -4148,7 +4167,14 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     recreationObservation = removalObservation
     if let recreateError { throw recreateError }
     recreatedDefinition = definition
-    return try await saveDefinition(definition, session: session)
+    let snapshot = try await saveDefinition(definition, session: session)
+    removedConnectionIds.removeAll { $0 == definition.id }
+    return MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: removedConnectionIds,
+      updatedAt: snapshot.updatedAt
+    )
   }
 
   func saveConnection(

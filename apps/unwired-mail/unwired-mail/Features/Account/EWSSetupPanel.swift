@@ -91,6 +91,7 @@ final class EWSSetupViewModel {
       if case .connectionRemoved(let observation) = error {
         removalObservation = observation
         selectedConnectionId = nil
+        try? await reloadAfterMutation()
       }
       errorMessage = error.localizedDescription
       return nil

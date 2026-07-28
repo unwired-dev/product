@@ -210,6 +210,108 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
+  func testRecreationRejectsARepeatedTombstoneWithTheSameRemovalTime() async throws {
+    let services = try makeServices(clock: { 1_781_200_000_500 })
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let firstObservation = try await observedRemoval(using: services.secondDevice)
+    _ = try await services.firstDevice.recreateDefinition(
+      Self.connection.definition,
+      after: firstObservation,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+
+    do {
+      _ = try await services.secondDevice.recreateDefinition(
+        Self.connection.definition,
+        after: firstObservation,
+        session: secondDeviceSession
+      )
+      XCTFail("Expected the stale observation to reject the repeated tombstone")
+    } catch let error as MailboxConnectionSyncError {
+      guard case .connectionRemoved(let currentObservation) = error else {
+        return XCTFail("Unexpected Mailbox Connection sync error: \(error)")
+      }
+      XCTAssertEqual(currentObservation.removedAt, firstObservation.removedAt)
+      XCTAssertNotEqual(
+        currentObservation.tombstoneIdentifier,
+        firstObservation.tombstoneIdentifier
+      )
+    }
+  }
+
+  func testRecreationRejectsAnObservationAfterAnotherDeviceAlreadyRecreated() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let observation = try await observedRemoval(using: services.secondDevice)
+    _ = try await services.firstDevice.recreateDefinition(
+      Self.connection.definition,
+      after: observation,
+      session: firstDeviceSession
+    )
+
+    do {
+      _ = try await services.secondDevice.recreateDefinition(
+        Self.connection.definition,
+        after: observation,
+        session: secondDeviceSession
+      )
+      XCTFail("Expected the stale recreation confirmation to be rejected")
+    } catch let error as MailboxConnectionSyncError {
+      XCTAssertEqual(error, .concurrentModification)
+    }
+  }
+
+  func testRemovedDefinitionRefreshesProviderAccessCacheBeforeReportingRemoval() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+
+    do {
+      _ = try await services.secondDevice.saveDefinition(
+        Self.connection.definition,
+        session: secondDeviceSession
+      )
+      XCTFail("Expected the stale definition save to report the removal")
+    } catch let error as MailboxConnectionSyncError {
+      guard case .connectionRemoved = error else {
+        return XCTFail("Unexpected Mailbox Connection sync error: \(error)")
+      }
+    }
+    services.transport.loadError = MailboxConnectionSyncTestError.unavailable
+
+    let snapshot = try await services.secondDevice.loadSnapshotForProviderAccess(
+      session: secondDeviceSession
+    )
+
+    XCTAssertTrue(snapshot.connections.isEmpty)
+    XCTAssertEqual(snapshot.removedConnectionIds, [Self.connection.id])
+  }
+
   func testRemovingDefaultConnectionClearsDefaultWithoutSubstitution() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
@@ -266,7 +368,27 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
-  private func makeServices() throws -> Services {
+  private func observedRemoval(
+    using service: MailboxConnectionSyncService
+  ) async throws -> MailboxConnectionRemovalObservation {
+    do {
+      _ = try await service.recreateDefinition(
+        Self.connection.definition,
+        after: nil,
+        session: secondDeviceSession
+      )
+      throw MailboxConnectionSyncTestError.expectedRemoval
+    } catch let error as MailboxConnectionSyncError {
+      guard case .connectionRemoved(let observation) = error else { throw error }
+      return observation
+    }
+  }
+
+  private func makeServices(
+    clock: @escaping () -> Int64 = {
+      Int64(Date().timeIntervalSince1970 * 1_000)
+    }
+  ) throws -> Services {
     let keyMaterial = try ProductSyncKeyMaterial.create(
       accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
       recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
@@ -279,11 +401,13 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     return Services(
       firstDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+        clock: clock,
         keyMaterialStore: firstStore,
         transport: transport
       ),
       secondDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+        clock: clock,
         keyMaterialStore: secondStore,
         transport: transport
       ),
@@ -447,5 +571,6 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 }
 
 private enum MailboxConnectionSyncTestError: Error {
+  case expectedRemoval
   case unavailable
 }

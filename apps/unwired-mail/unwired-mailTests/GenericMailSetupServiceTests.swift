@@ -146,6 +146,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  // swiftlint:disable:next function_body_length
   func testStaleLocalReauthorizationRequiresASecondExplicitRecreationAction() async {
     let draft = manualDraft()
     let store = RecordingGenericMailAuthorizationStore()
@@ -161,7 +162,9 @@ final class GenericMailSetupServiceTests: XCTestCase {
       credential: "old-secret",
       definition: localDefinition
     )
-    let sync = RecordingGenericSyncService()
+    let sync = RecordingGenericSyncService(
+      removedConnectionIds: [localDefinition.connectionId]
+    )
     let removalObservation = MailboxConnectionRemovalObservation(
       connectionId: localDefinition.connectionId,
       removedAt: 1_781_200_000_500
@@ -191,6 +194,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     XCTAssertTrue(viewModel.isConfirmingRecreation)
     XCTAssertNil(sync.recreatedDefinition)
+    XCTAssertNil(store.authorization)
 
     sync.saveError = nil
     viewModel.credential = "new-secret"
@@ -1729,7 +1733,14 @@ private final class RecordingGenericSyncService:
   ) async throws -> MailboxConnectionSyncSnapshot {
     recreatedDefinition = definition
     recreationObservation = removalObservation
-    return try await saveDefinition(definition, session: session)
+    _ = try await saveDefinition(definition, session: session)
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds.filter { $0 != definition.id },
+      updatedAt: snapshot.updatedAt
+    )
+    return snapshot
   }
 
   func saveConnection(
