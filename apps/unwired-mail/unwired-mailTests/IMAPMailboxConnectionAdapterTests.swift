@@ -927,13 +927,14 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
   }
 
   func replaceSnapshot(
+    authorizationGeneration: Int = 0,
     definitions: [GenericMailConnectionDefinition],
     removedConnectionIds: [MailboxConnectionId]
   ) {
     snapshot = MailboxConnectionSyncSnapshot(
       connections: definitions.enumerated().map {
         $0.element.synchronizedDefinition(
-          authorizationGeneration: 0,
+          authorizationGeneration: authorizationGeneration,
           connectedAt: Int64($0.offset + 1)
         )
       },

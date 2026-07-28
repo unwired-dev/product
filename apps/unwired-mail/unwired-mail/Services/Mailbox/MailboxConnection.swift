@@ -1554,16 +1554,17 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       }
 
+      let completedAccount = VerifiedGmailAccount(
+        emailAddress: verifiedAccount.emailAddress,
+        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+        tokens: GmailProviderTokens(
+          accessToken: verifiedAccount.tokens.accessToken,
+          refreshToken: verifiedAccount.tokens.refreshToken,
+          idToken: authorizedTokens.idToken
+        )
+      )
       var status = try await connectionService.completeConnection(
-        verifiedAccount: VerifiedGmailAccount(
-          emailAddress: verifiedAccount.emailAddress,
-          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
-          tokens: GmailProviderTokens(
-            accessToken: verifiedAccount.tokens.accessToken,
-            refreshToken: verifiedAccount.tokens.refreshToken,
-            idToken: authorizedTokens.idToken
-          )
-        ),
+        verifiedAccount: completedAccount,
         session: session
       )
       if let existingStatus, !requiresPriorGenerationCleanup {
@@ -1583,6 +1584,22 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.connections.first(where: { $0.id == connection.id })?
           .authorizationGeneration
           ?? connection.authorizationGeneration
+        if !requiresPriorGenerationCleanup,
+          snapshot.requiresLocalCleanup(
+            connection.id,
+            localAuthorizationGeneration: existingStatus?.authorizationGeneration
+          )
+        {
+          try await performLocalCleanup(
+            localStatus: status,
+            connection: connection,
+            session: session
+          )
+          status = try await connectionService.completeConnection(
+            verifiedAccount: completedAccount,
+            session: session
+          )
+        }
         let boundStatus = try connectionService.bindAuthorizationGeneration(
           authorizationGeneration,
           to: status,

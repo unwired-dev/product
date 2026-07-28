@@ -177,6 +177,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.authorizationGeneration, 1)
   }
 
+  func testGmailReauthorizationUsesPostSaveSnapshotForCleanup() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let staleConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [staleConnection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: staleConnection.updatedAt
+      ),
+      authorizationCleanupConnectionIdsOnSave: [staleConnection.id]
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connection = try await adapter.connect(
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    XCTAssertEqual(connectionService.completeConnectionCallCount, 2)
+    XCTAssertEqual(connection?.authorizationState, .authorized)
+  }
+
   func testGmailConnectionCleanupFencesConcurrentConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let clearGate = AdapterLifecycleOperationGate()
@@ -5051,6 +5086,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   )
 
   var completedAccount: VerifiedGmailAccount?
+  var completeConnectionCallCount = 0
   var authorizationRequiredIdentifiers: Set<String> = []
   var clearedConnection: GmailProviderConnectionStatus?
   var clearErrors: [Error] = []
@@ -5123,6 +5159,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     if let completionGate {
       await completionGate.waitForRelease()
     }
+    completeConnectionCallCount += 1
     completedAccount = verifiedAccount
     let status = GmailProviderConnectionStatus(
       connectedAt: Self.status.connectedAt,
@@ -5221,14 +5258,17 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   var removedConnectionIds: [MailboxConnectionId] = []
   var removeError: Error?
   var saveError: Error?
+  private let authorizationCleanupConnectionIdsOnSave: [MailboxConnectionId]
   private let reconcileGate: AdapterLifecycleOperationGate?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   init(
     snapshot: MailboxConnectionSyncSnapshot,
+    authorizationCleanupConnectionIdsOnSave: [MailboxConnectionId] = [],
     reconcileGate: AdapterLifecycleOperationGate? = nil
   ) {
     self.snapshot = snapshot
+    self.authorizationCleanupConnectionIdsOnSave = authorizationCleanupConnectionIdsOnSave
     self.reconcileGate = reconcileGate
   }
 
@@ -5301,7 +5341,8 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
       removedConnectionIds: snapshot.removedConnectionIds.filter { $0 != definition.id },
       updatedAt: snapshot.updatedAt,
-      authorizationCleanupConnectionIds: snapshot.authorizationCleanupConnectionIds
+      authorizationCleanupConnectionIds:
+        snapshot.authorizationCleanupConnectionIds + authorizationCleanupConnectionIdsOnSave
     )
     return snapshot
   }

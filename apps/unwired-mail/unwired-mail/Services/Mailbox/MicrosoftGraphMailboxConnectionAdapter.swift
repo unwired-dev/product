@@ -2642,7 +2642,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           productAccountId: session.productAccountId,
           providerAccountIdentifier: account.id
         )?.authorizationGeneration
-      if snapshot.requiresLocalCleanup(
+      if savedSnapshot.requiresLocalCleanup(
         connection.id,
         localAuthorizationGeneration: localAuthorizationGeneration
       ) {
