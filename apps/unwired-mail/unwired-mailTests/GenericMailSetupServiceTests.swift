@@ -216,10 +216,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
     let saveStarted = XCTestExpectation(description: "definition save started")
-    let saveRelease = DispatchSemaphore(value: 0)
+    let saveGate = GenericMailSetupAsyncGate()
     sync.onSave = {
       saveStarted.fulfill()
-      saveRelease.wait()
+      try await saveGate.wait(timeout: .seconds(1))
     }
     sync.saveError = GenericMailSetupTestError.syncUnavailable
     let service = GenericMailSetupService(
@@ -254,7 +254,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     } catch {
       XCTFail("Unexpected cleanup error: \(error)")
     }
-    saveRelease.signal()
+    await saveGate.open()
 
     do {
       _ = try await replacement.value
@@ -1015,7 +1015,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
         productAccountId: productAccountId
       )
     }
-    await authorizationCoordinator.waitUntilContended(productAccountId: productAccountId)
+    try await authorizationCoordinator.waitUntilContended(productAccountId: productAccountId)
     cancelledAuthorization.cancel()
     store.resumeLoad()
 
@@ -1611,7 +1611,7 @@ private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing
 private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
-  var onSave: (() -> Void)?
+  var onSave: (() async throws -> Void)?
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
@@ -1673,7 +1673,7 @@ private final class RecordingGenericSyncService:
     _ definition: MailboxConnectionDefinition,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    onSave?()
+    try await onSave?()
     if let saveError { throw saveError }
     savedDefinition = definition
     snapshot = replacingConnections(
@@ -1707,10 +1707,65 @@ private final class RecordingGenericSyncService:
   }
 }
 
+private actor GenericMailSetupAsyncGate {
+  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Bool, Never>)
+
+  private var isOpen = false
+  private var waiters: [Waiter] = []
+
+  func wait(timeout: Duration) async throws {
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask {
+        guard await self.wait() else { throw CancellationError() }
+      }
+      group.addTask {
+        try await Task.sleep(for: timeout)
+        throw GenericMailSetupTestError.timeout
+      }
+      guard let result = await group.nextResult() else { return }
+      group.cancelAll()
+      while await group.nextResult() != nil {}
+      try result.get()
+    }
+  }
+
+  func open() {
+    isOpen = true
+    let continuations = waiters.map(\.continuation)
+    waiters.removeAll()
+    for continuation in continuations {
+      continuation.resume(returning: true)
+    }
+  }
+
+  private func wait() async -> Bool {
+    guard !isOpen else { return true }
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
+        waiters.append((waiterId, continuation))
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId) }
+    }
+  }
+
+  private func cancelWaiter(_ waiterId: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
+    let waiter = waiters.remove(at: index)
+    waiter.continuation.resume(returning: false)
+  }
+}
+
 private enum GenericMailSetupTestError: Error {
   case cleanupUnavailable
   case invalidCertificate
   case syncUnavailable
+  case timeout
 }
 
 private enum GenericMailStreamEvent: Equatable {

@@ -224,10 +224,20 @@ private struct GenericMailAuthorizationLease: Sendable {
 private actor GenericMailAuthorizationGate {
   private struct Entry {
     var cleanupGeneration: UInt64 = 0
-    var contentionObservers: [CheckedContinuation<Void, Never>] = []
     var isLocked = false
     var retainCount = 0
     var waiters: [CheckedContinuation<Void, Never>] = []
+    #if DEBUG
+      var contentionObservers: [UUID: CheckedContinuation<Bool, Never>] = [:]
+    #endif
+
+    var hasContentionObservers: Bool {
+      #if DEBUG
+        !contentionObservers.isEmpty
+      #else
+        false
+      #endif
+    }
   }
 
   private var entries: [ProductAccountId: Entry] = [:]
@@ -256,12 +266,16 @@ private actor GenericMailAuthorizationGate {
 
     await withCheckedContinuation { continuation in
       entry.waiters.append(continuation)
-      let observers = entry.contentionObservers
-      entry.contentionObservers.removeAll()
+      #if DEBUG
+        let observers = entry.contentionObservers.values
+        entry.contentionObservers.removeAll()
+      #endif
       entries[lease.productAccountId] = entry
-      for observer in observers {
-        observer.resume()
-      }
+      #if DEBUG
+        for observer in observers {
+          observer.resume(returning: true)
+        }
+      #endif
     }
     return entries[lease.productAccountId]?.cleanupGeneration ?? 0
   }
@@ -285,14 +299,47 @@ private actor GenericMailAuthorizationGate {
     }
   }
 
-  func waitUntilContended(productAccountId: ProductAccountId) async {
-    if let entry = entries[productAccountId], !entry.waiters.isEmpty { return }
-    await withCheckedContinuation { continuation in
-      var entry = entries[productAccountId, default: Entry()]
-      entry.contentionObservers.append(continuation)
-      entries[productAccountId] = entry
+  #if DEBUG
+    func waitUntilContended(productAccountId: ProductAccountId) async throws {
+      let observerId = UUID()
+      let didContend = await withTaskCancellationHandler {
+        await withCheckedContinuation { continuation in
+          guard !Task.isCancelled else {
+            continuation.resume(returning: false)
+            return
+          }
+          if let entry = entries[productAccountId], !entry.waiters.isEmpty {
+            continuation.resume(returning: true)
+            return
+          }
+          var entry = entries[productAccountId, default: Entry()]
+          entry.contentionObservers[observerId] = continuation
+          entries[productAccountId] = entry
+        }
+      } onCancel: {
+        Task {
+          await self.cancelContentionObserver(
+            observerId,
+            productAccountId: productAccountId
+          )
+        }
+      }
+      guard didContend else { throw CancellationError() }
     }
-  }
+
+    private func cancelContentionObserver(
+      _ observerId: UUID,
+      productAccountId: ProductAccountId
+    ) {
+      guard
+        var entry = entries[productAccountId],
+        let observer = entry.contentionObservers.removeValue(forKey: observerId)
+      else { return }
+      entries[productAccountId] = entry
+      removeEntryIfIdle(productAccountId: productAccountId)
+      observer.resume(returning: false)
+    }
+  #endif
 
   private func removeEntryIfIdle(productAccountId: ProductAccountId) {
     guard
@@ -300,7 +347,7 @@ private actor GenericMailAuthorizationGate {
       entry.retainCount == 0,
       !entry.isLocked,
       entry.waiters.isEmpty,
-      entry.contentionObservers.isEmpty
+      !entry.hasContentionObservers
     else { return }
     entries.removeValue(forKey: productAccountId)
   }
@@ -360,9 +407,11 @@ final class GenericMailAuthorizationCoordinator: Sendable {
     }
   }
 
-  func waitUntilContended(productAccountId: ProductAccountId) async {
-    await gate.waitUntilContended(productAccountId: productAccountId)
-  }
+  #if DEBUG
+    func waitUntilContended(productAccountId: ProductAccountId) async throws {
+      try await gate.waitUntilContended(productAccountId: productAccountId)
+    }
+  #endif
 }
 
 struct GenericMailSetupService {
