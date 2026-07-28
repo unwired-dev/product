@@ -728,6 +728,8 @@ struct MicrosoftGraphPushRenewalHandler {
       do {
         try await pushService.registerOrRenewPush(connection: connection, session: session)
         completedRenewal = true
+      } catch is CancellationError {
+        throw CancellationError()
       } catch {
         firstError = firstError ?? error
       }

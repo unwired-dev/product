@@ -2100,6 +2100,58 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(push.connectionIds.isEmpty)
   }
 
+  func testBackgroundFetchStopsRenewingAfterCancellation() async throws {
+    let secondAccount = MicrosoftGraphAccount(
+      displayName: "Second Graph Reader",
+      emailAddress: "second@example.com",
+      id: "graph-user-002"
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    for account in [graphAccount, secondAccount] {
+      try tokenStore.save(
+        MicrosoftGraphTokens(
+          accessToken: "access-\(account.id)",
+          expiresAtMilliseconds: 4_000_000_000_000,
+          grantedScopes: fullGraphMailScopes,
+          refreshToken: "refresh-\(account.id)"
+        ),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: account.id
+      )
+    }
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [
+          graphConnectionDefinition,
+          makeGraphConnectionDefinition(account: secondAccount),
+        ]
+      ),
+      tokenStore: tokenStore
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    push.error = CancellationError()
+    let defaultsName = "MicrosoftGraphCancelledBackgroundRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: adapter,
+      pushService: push,
+      sessionStore: sessionStore,
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    )
+
+    do {
+      _ = try await handler.handle()
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    }
+
+    XCTAssertEqual(push.connectionIds.count, 1)
+  }
+
   func testPushRegistrationDeletesNewSubscriptionWhenConfirmationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
