@@ -645,6 +645,44 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSwiftDataMetadataStoreMigratesExistingFileMetadataBeforeInboxLoad() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString
+    )
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let legacyStore = FileGmailMessageMetadataStore(rootDirectory: rootDirectory)
+    var message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 1
+    )
+    message.providerLabelIds = ["INBOX"]
+    try legacyStore.saveMessages(
+      [message],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+    let store = try SwiftDataGmailMessageMetadataStore.inMemory(
+      legacyStore: legacyStore
+    )
+
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [message]
+    )
+    XCTAssertEqual(
+      try legacyStore.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      []
+    )
+  }
+
   func testSyncInboxStoresMetadataWithStableProviderIdentityAndNoCategory() async throws {
     let fixture = try makeSyncFixture()
 

@@ -771,11 +771,16 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     return messages.sorted(by: Self.messagesAreOrdered)
   }
 
+  // swiftlint:disable:next function_body_length
   func loadInboxThreadMessages(
     additionalProviderMessageIds: Set<String>,
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> [GmailMessageMetadata] {
+    try migrateLegacyMessagesIfNeeded(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     let context = try makeContext()
     guard
       try rebuildOneInboxIndexBatch(
