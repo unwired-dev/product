@@ -1505,6 +1505,74 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
+  func testGmailMailboxRemovalWaitsForCredentialWritingProviderReads() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let providerReadsStarted = expectation(description: "provider reads start")
+    providerReadsStarted.expectedFulfillmentCount = 3
+    let providerService = DelayedAdapterProviderReadService(
+      eventLog: eventLog,
+      started: providerReadsStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: providerService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      searchService: providerService,
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let mailboxesTask = Task {
+      try await adapter.loadProviderMailboxes(connection: connection, session: session)
+    }
+    let searchTask = Task {
+      try await adapter.searchProvider(
+        query: "private phrase",
+        connection: connection,
+        session: session
+      )
+    }
+    let deliveryTask = Task {
+      try await adapter.deliveryStatus(
+        idempotencyKey: "unwired-attempt-001",
+        connection: connection,
+        session: session
+      )
+    }
+    await fulfillment(of: [providerReadsStarted], timeout: 1)
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await providerService.release()
+    _ = try await mailboxesTask.value
+    _ = try await searchTask.value
+    _ = try await deliveryTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+
+    XCTAssertEqual(events.last, "local-state-cleared")
+    XCTAssertEqual(
+      Set(events.dropLast()),
+      ["provider-mailboxes-loaded", "provider-search-finished", "delivery-status-loaded"]
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
   func testPendingActionsResumeIndependentlyAcrossConnections() async throws {
     let firstStarted = expectation(description: "first connection started")
     let secondPerformed = expectation(description: "second connection performed")
@@ -4256,6 +4324,88 @@ private final class RecordingAdapterSearchService: GmailMessageSearching {
   ) async throws -> [GmailMessageMetadata] {
     self.query = query
     return [adapterGmailMessage]
+  }
+}
+
+private final class DelayedAdapterProviderReadService:
+  GmailMessageMetadataSyncing, GmailMessageSearching
+{
+  private let eventLog: AdapterLifecycleEventLog
+  private let gate = AdapterLifecycleOperationGate()
+  private let started: XCTestExpectation
+
+  init(eventLog: AdapterLifecycleEventLog, started: XCTestExpectation) {
+    self.eventLog = eventLog
+    self.started = started
+  }
+
+  func categorizeHistorical(
+    scope _: GmailHistoricalCategorizationScope,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    GmailMetadataSyncResult(messages: [], threads: [])
+  }
+
+  func loadInbox(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    GmailMetadataSyncResult(messages: [], threads: [])
+  }
+
+  func loadProviderMailboxes(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    started.fulfill()
+    await gate.waitForRelease()
+    await eventLog.record("provider-mailboxes-loaded")
+    return []
+  }
+
+  func searchProvider(
+    query: String,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailMessageMetadata] {
+    started.fulfill()
+    await gate.waitForRelease()
+    await eventLog.record(
+      query.hasPrefix("in:sent ") ? "delivery-status-loaded" : "provider-search-finished"
+    )
+    return []
+  }
+
+  func syncInbox(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    GmailMetadataSyncResult(messages: [], threads: [])
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: GmailProviderConnectionStatus,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> GmailMetadataSyncResult {
+    GmailMetadataSyncResult(messages: [], threads: [])
+  }
+
+  func overrideCategory(
+    _ categoryId: String,
+    for message: GmailMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMessageMetadata {
+    message.assigningCategory(categoryId)
+  }
+
+  func release() async {
+    await gate.release()
   }
 }
 

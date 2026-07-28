@@ -1736,14 +1736,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox] {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    return try await metadataService.loadProviderMailboxes(
-      connection: gmailConnection,
-      session: session
-    )
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      try await metadataService.loadProviderMailboxes(
+        connection: gmailConnection,
+        session: session
+      )
+    }
   }
 
   func continueHistoricalBackfill(
@@ -1873,15 +1871,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxMessageMetadata] {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    return try await searchService.searchProvider(
-      query: query,
-      connection: gmailConnection,
-      session: session
-    ).map { $0.mailboxMetadata(connectionId: connection.id) }
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      try await searchService.searchProvider(
+        query: query,
+        connection: gmailConnection,
+        session: session
+      ).map { $0.mailboxMetadata(connectionId: connection.id) }
+    }
   }
 
   func clearCachedMessageBodies(session: ProductAccountSessionSnapshot) throws {
@@ -2265,17 +2261,37 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let rfcMessageId = OutgoingMessage.rfcMessageId(for: idempotencyKey)
-    let messages = try await searchService.searchProvider(
-      query: "in:sent rfc822msgid:\(rfcMessageId)",
-      connection: gmailConnection,
-      session: session
-    )
-    return messages.isEmpty ? .unknown : .sent
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      let rfcMessageId = OutgoingMessage.rfcMessageId(for: idempotencyKey)
+      let messages = try await searchService.searchProvider(
+        query: "in:sent rfc822msgid:\(rfcMessageId)",
+        connection: gmailConnection,
+        session: session
+      )
+      return messages.isEmpty ? .unknown : .sent
+    }
+  }
+
+  private func withSharedProviderAccess<T>(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    operation: (GmailProviderConnectionStatus) async throws -> T
+  ) async throws -> T {
+    do {
+      return try await syncGate.withSharedLock(connection.id) {
+        let gmailConnection = try await gmailConnectionForProviderAccess(
+          connection,
+          session: session,
+          clearsRemovedConnection: false
+        )
+        return try await operation(gmailConnection)
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(connection.id) {
+        try await clearRemovedConnectionState(connection.id, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
   }
 
   private func gmailConnectionForProviderAccess(
