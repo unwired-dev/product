@@ -1767,13 +1767,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
+    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+      return cached
+    }
     _ = try await authorizationForProviderAccess(
       connection: connection(id: message.connectionId, session: session),
       session: session
     )
-    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
-      return cached
-    }
     return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 

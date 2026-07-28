@@ -555,7 +555,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
+  func testCachedBodyRemainsReadableWithStaleAuthorizationGeneration() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
@@ -595,9 +595,66 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
 
+    let cached = try await staleAdapter.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(cached.text, "Private body")
+    XCTAssertNotNil(
+      try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connection.id
+      )
+    )
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    )
+    XCTAssertEqual(client.bodyRequestCount, 1)
+  }
+
+  func testUncachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    client.bodyByUID[1] = "Private body"
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    let staleAdapter = try makeAdapter(
+      authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+
     do {
       _ = try await staleAdapter.loadMessageBody(message: message, session: session)
-      XCTFail("Expected stale authorization to reject the cached body")
+      XCTFail("Expected stale authorization to reject an uncached body fetch")
     } catch {
       XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
     }
@@ -608,13 +665,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         connectionId: connection.id
       )
     )
-    XCTAssertNil(
-      try cache.loadMessageBody(
-        productAccountId: session.productAccountId,
-        stableProviderMessageId: message.stableProviderMessageId
-      )
-    )
-    XCTAssertEqual(client.bodyRequestCount, 1)
+    XCTAssertEqual(client.bodyRequestCount, 0)
   }
 
   func testRepresentativeServerListTranscripts() async throws {
