@@ -651,6 +651,7 @@ struct AccountView: View {
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var inboxViewModel: GmailInboxViewModel
   @State private var inboxLoadTask: Task<Void, Never>?
+  @State private var mailboxObserversAreActive = false
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
@@ -784,6 +785,7 @@ struct AccountView: View {
         }
       }
       .onChange(of: gmailViewModel.connection?.id) { _, _ in
+        guard mailboxObserversAreActive else { return }
         guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
         guard let connection = gmailViewModel.connection else {
           mailShellSelection.clearSelection()
@@ -806,6 +808,7 @@ struct AccountView: View {
           gmailViewModel.connections,
           prunesPersistedState: false
         )
+        guard mailboxObserversAreActive else { return }
         Task {
           await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
         }
@@ -819,6 +822,7 @@ struct AccountView: View {
           }
         }
         guard mailShellSelection.selectedMailbox?.isUnified != true else { return }
+        guard mailboxObserversAreActive else { return }
         guard
           let connection = gmailViewModel.connection,
           authorizationState == .authorized
@@ -982,17 +986,19 @@ struct AccountView: View {
         if let connection = gmailViewModel.connection {
           mailShellSelection.selectMailbox(connectionId: connection.id)
         }
-        if let connection = gmailViewModel.connection,
-          connection.authorizationState == .authorized
-        {
-          await inboxViewModel.loadInitialInboxThenNavigation(
-            connection: connection,
-            connections: gmailViewModel.connections
-          )
-        }
-      } else if mailShellSelection.selectedMailbox?.isUnified == true {
-        loadUnifiedMailbox(synchronizes: false)
       }
+      if mailShellSelection.selectedMailbox?.isUnified == true {
+        loadUnifiedMailbox(synchronizes: false)
+      } else if let connection = selectedConnection,
+        connection.authorizationState == .authorized
+      {
+        await inboxViewModel.loadInitialMailboxThenNavigation(
+          connection: connection,
+          collection: mailShellSelection.selectedMailbox?.collection ?? .role(.inbox),
+          connections: gmailViewModel.connections
+        )
+      }
+      mailboxObserversAreActive = true
       await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
@@ -4649,11 +4655,16 @@ final class GmailInboxViewModel {
     )
   }
 
-  func loadInitialInboxThenNavigation(
+  func loadInitialMailboxThenNavigation(
     connection: MailboxConnection,
+    collection: MailboxMessageCollection,
     connections: [MailboxConnection]
   ) async {
-    await loadAfterConnectionChange(connection: connection, synchronizes: false)
+    await loadAfterConnectionChange(
+      connection: connection,
+      collection: collection,
+      synchronizes: false
+    )
     await loadNavigation(connections: connections)
   }
 
@@ -5050,7 +5061,6 @@ final class GmailInboxViewModel {
         session: session
       ), !hasSignedOut, currentConnectionId == connection.id {
         threads = result.threads
-        await refreshNavigationSnapshot(for: connection)
       }
       errorMessage = syncErrorMessage
       return false

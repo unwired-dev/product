@@ -1765,7 +1765,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     XCTAssertEqual(viewModel.errorMessage, "Provider unavailable.")
     let callCounts = await service.callCounts
-    XCTAssertGreaterThanOrEqual(callCounts.loadInbox, 2)
+    let navigationCallCounts = await service.navigationCallCounts
+    XCTAssertEqual(callCounts.loadInbox, 2)
+    XCTAssertEqual(navigationCallCounts.loadNavigation, 0)
+    XCTAssertEqual(navigationCallCounts.loadProviderMailboxes, 0)
     XCTAssertEqual(callCounts.syncInbox, 1)
   }
 
@@ -1788,8 +1791,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
 
-    await viewModel.loadInitialInboxThenNavigation(
+    await viewModel.loadInitialMailboxThenNavigation(
       connection: mailboxConnection,
+      collection: .role(.inbox),
       connections: [mailboxConnection]
     )
 
@@ -4477,10 +4481,16 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
   let cachedMessage: GmailMessageMetadata
   private var hasCompletedIndexUpgrade = false
   private var loadInboxCallCount = 0
+  private var loadNavigationCallCount = 0
+  private var loadProviderMailboxesCallCount = 0
   private var syncInboxCallCount = 0
 
   var callCounts: (loadInbox: Int, syncInbox: Int) {
     (loadInboxCallCount, syncInboxCallCount)
+  }
+
+  var navigationCallCounts: (loadNavigation: Int, loadProviderMailboxes: Int) {
+    (loadNavigationCallCount, loadProviderMailboxesCallCount)
   }
 
   init(cachedMessage: GmailMessageMetadata) {
@@ -4511,6 +4521,26 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
       providerCursorIsExpired: false,
       threads: MailboxThread.group([message])
     )
+  }
+
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    if collection == .role(.inbox) {
+      return try await loadInbox(connection: connection, session: session)
+    }
+    loadNavigationCallCount += 1
+    return .empty
+  }
+
+  func loadProviderMailboxes(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [ProviderMailbox] {
+    loadProviderMailboxesCallCount += 1
+    throw OfflineUpgradeSyncError()
   }
 
   func syncInbox(
