@@ -111,6 +111,18 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       current.connections.contains(where: { $0.id == connectionId })
         || !current.removedConnectionIds.contains(connectionId)
     else {
+      if let removalGeneration = try await publishedRemovalGeneration(
+        connectionId,
+        session: session
+      ) {
+        _ = try await retainGenerationFloor(
+          connectionId,
+          minimumGeneration: removalGeneration,
+          isCommitted: true,
+          commitsOnlyMinimumGeneration: true,
+          session: session
+        )
+      }
       return current
     }
     let currentGeneration =
@@ -163,6 +175,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       connectionId,
       minimumGeneration: finalGeneration,
       isCommitted: true,
+      commitsOnlyMinimumGeneration: true,
       session: session
     )
     return snapshot
@@ -297,10 +310,28 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     )
   }
 
+  private func publishedRemovalGeneration(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Int? {
+    let remotePayload = try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
+    )
+    let payload = try payloadCodec.decrypt(remotePayload, session: session)
+    guard !payload.connections.contains(where: { $0.id == connectionId }) else {
+      return nil
+    }
+    return payload.removals.first {
+      $0.connectionId == connectionId
+    }?.authorizationGeneration
+  }
+
   private func retainGenerationFloor(
     _ connectionId: MailboxConnectionId,
     minimumGeneration: Int,
     isCommitted: Bool = true,
+    commitsOnlyMinimumGeneration: Bool = false,
     session: ProductAccountSessionSnapshot
   ) async throws -> Int {
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
@@ -318,11 +349,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       let retainsExistingCommitment =
         existingFloor?.authorizationGeneration == generation
         && existingFloor?.isCommitted == true
+      let commitsRetainedGeneration =
+        isCommitted
+        && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
       ledger.floors.removeAll { $0.connectionId == connectionId }
       ledger.floors.append(
         MailboxAuthorizationGenerationFloor(
           authorizationGeneration: generation,
-          isCommitted: retainsExistingCommitment || isCommitted,
+          isCommitted: retainsExistingCommitment || commitsRetainedGeneration,
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value
         )

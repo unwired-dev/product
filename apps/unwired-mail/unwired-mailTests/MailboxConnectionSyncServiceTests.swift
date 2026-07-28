@@ -482,6 +482,102 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
+  func testRetryingPublishedRemovalCommitsItsPendingGenerationFloor() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    services.transport.generationWriteError = MailboxConnectionSyncTestError.unavailable
+    services.transport.generationWriteFailureCountdown = 3
+
+    do {
+      _ = try await services.firstDevice.removeConnection(
+        Self.connection.id,
+        session: firstDeviceSession
+      )
+      XCTFail("Expected generation-floor finalization to fail")
+    } catch MailboxConnectionSyncTestError.unavailable {
+      // Expected.
+    }
+
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let definition = Self.connection.definition
+    let legacyPayload: [String: Any] = [
+      "connections": [
+        [
+          "connectedAt": definition.connectedAt,
+          "displayName": definition.displayName,
+          "provider": definition.provider,
+          "providerAccountIdentifier": definition.providerAccountIdentifier,
+          "stableProviderConnectionKey": definition.stableProviderConnectionKey,
+        ]
+      ],
+      "removals": [],
+      "schemaVersion": 1,
+    ]
+    let encryptedLegacyPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: legacyPayload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: secondDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedLegacyPayload,
+      trustedDeviceId: secondDeviceSession.trustedDeviceId
+    )
+
+    let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
+  }
+
+  func testStaleRemovalFinalizerLeavesNewerGenerationFloorPending() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    let finalizerGate = TestRendezvous()
+    services.transport.beforeGenerationFloorWrite = { writeCount in
+      if writeCount == 3 {
+        await finalizerGate.hold()
+      }
+    }
+
+    let firstRemoval = Task {
+      try await services.firstDevice.removeConnection(
+        Self.connection.id,
+        session: self.firstDeviceSession
+      )
+    }
+    await finalizerGate.waitUntilHeld()
+    _ = try await services.secondDevice.saveConnection(
+      Self.connection,
+      session: secondDeviceSession
+    )
+    services.transport.primaryWriteError = MailboxConnectionSyncTestError.unavailable
+    do {
+      _ = try await services.secondDevice.removeConnection(
+        Self.connection.id,
+        session: secondDeviceSession
+      )
+      XCTFail("Expected the newer removal publication to fail")
+    } catch MailboxConnectionSyncTestError.unavailable {
+      // Expected.
+    }
+    services.transport.primaryWriteError = nil
+    await finalizerGate.release()
+    _ = try await firstRemoval.value
+
+    let snapshot = try await services.firstDevice.loadSnapshot(session: firstDeviceSession)
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
+  }
+
   func testActiveDefinitionCanBeRemovedWhenRetainedTombstoneSharesItsIdentity() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
@@ -696,6 +792,9 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
   var afterGenerationFloorWrite: (() async throws -> Void)?
+  var beforeGenerationFloorWrite: ((Int) async throws -> Void)?
+  var generationWriteError: Error?
+  var generationWriteFailureCountdown: Int?
   var loadError: Error?
   var payloadLoadErrors: [String: Error] = [:]
   var primaryWriteError: Error?
@@ -703,6 +802,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     payloads["mailbox-connections-primary"]
   }
   private var payloads: [String: EncryptedProductSyncPayload] = [:]
+  private var generationWriteCount = 0
   private var updatedAt: Int64 = 1_781_200_000_000
 
   func listEncryptedProductSyncPayloads(
@@ -761,6 +861,17 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
   ) async throws -> EncryptedProductSyncPayload {
     if payloadIdentifier == "mailbox-connections-primary", let primaryWriteError {
       throw primaryWriteError
+    }
+    if payloadIdentifier == "mailbox-authorization-generations-v1" {
+      generationWriteCount += 1
+      if let remaining = generationWriteFailureCountdown {
+        if remaining == 1, let generationWriteError {
+          generationWriteFailureCountdown = nil
+          throw generationWriteError
+        }
+        generationWriteFailureCountdown = remaining - 1
+      }
+      try await beforeGenerationFloorWrite?(generationWriteCount)
     }
     let existing = payloads[payloadIdentifier]
     guard existing?.updatedAt == expectedUpdatedAt else {
