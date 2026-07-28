@@ -24,7 +24,8 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       updatedAt: 1_781_200_000_200
     )
 
-    let connection = status.mailboxConnection(productAccountId: session.productAccountId)
+    let connection = status.mailboxConnection(
+      productAccountId: session.productAccountId, authorizationState: .authorized)
 
     XCTAssertEqual(connection.productAccountId, ProductAccountId(session.productAccountId))
     XCTAssertEqual(connection.providerId, .gmail)
@@ -619,15 +620,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(statuses, [transport.status])
   }
 
-  func testLoadConnectionsRequiresLocalTokens() async throws {
+  func testLoadConnectionsKeepsTokenlessDeviceStatusVisibleForRemoval() async throws {
+    let status = RecordingGmailConnectionTransport().status
     let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(connection: status),
       tokenStore: InMemoryGmailProviderTokenStore(),
       transport: RecordingGmailConnectionTransport()
     )
 
     let statuses = try await service.loadConnections(session: session)
 
-    XCTAssertTrue(statuses.isEmpty)
+    XCTAssertEqual(statuses, [status])
   }
 
   func testLoadConnectionsPropagatesTokenLoadFailure() async throws {
@@ -960,8 +963,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
         providerAccountIdentifier: transport.status.providerAccountIdentifier
       )
     )
-    let authorizedStatuses = try await service.loadConnections(session: session)
-    XCTAssertTrue(authorizedStatuses.isEmpty)
+    let visibleStatuses = try await service.loadConnections(session: session)
+    XCTAssertEqual(visibleStatuses, [transport.status])
+    XCTAssertFalse(
+      try service.hasLocalAuthorization(transport.status, session: session)
+    )
     let retryStatus = try XCTUnwrap(
       service.loadConnectionForCleanup(
         providerAccountIdentifier: transport.status.providerAccountIdentifier,

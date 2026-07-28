@@ -14,7 +14,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     providerAccountIdentifier: "gmail-user-001",
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
-  ).mailboxConnection(productAccountId: "product-account-001")
+  ).mailboxConnection(productAccountId: "product-account-001", authorizationState: .authorized)
 
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -1281,7 +1281,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerAccountIdentifier: "gmail-user-002",
       trustedDeviceId: session.trustedDeviceId,
       updatedAt: 1_781_200_000_200
-    ).mailboxConnection(productAccountId: session.productAccountId)
+    ).mailboxConnection(productAccountId: session.productAccountId, authorizationState: .authorized)
     do {
       try await service.enqueue(
         .archive,
@@ -1316,7 +1316,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerAccountIdentifier: connection.providerMailboxIdentity.value,
       trustedDeviceId: connection.trustedDeviceId,
       updatedAt: connection.updatedAt
-    ).mailboxConnection(productAccountId: otherSession.productAccountId)
+    ).mailboxConnection(
+      productAccountId: otherSession.productAccountId, authorizationState: .authorized)
     let recorder = PendingProviderActionRecorder()
     try await service.perform(
       .archive,
@@ -1446,7 +1447,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerAccountIdentifier: "gmail-user-002",
       trustedDeviceId: "trusted-device-001",
       updatedAt: 1_781_200_000_200
-    ).mailboxConnection(productAccountId: session.productAccountId)
+    ).mailboxConnection(productAccountId: session.productAccountId, authorizationState: .authorized)
 
     let gate = PendingProviderActionGate()
     async let firstAction: Void = service.perform(

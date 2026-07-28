@@ -344,22 +344,28 @@ struct MailboxConnection: Equatable, Identifiable, Sendable {
 }
 
 extension GmailProviderConnectionStatus {
-  func mailboxConnection(productAccountId: String) -> MailboxConnection {
-    let providerId = MailProviderId(rawValue: provider)
-    let providerMailboxIdentity = StableProviderMailboxIdentity(
-      providerId: providerId,
-      value: providerAccountIdentifier
+  var mailboxConnectionId: MailboxConnectionId {
+    MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: MailProviderId(rawValue: provider),
+        value: providerAccountIdentifier
+      )
     )
+  }
+
+  func mailboxConnection(
+    productAccountId: String,
+    authorizationState: MailboxAuthorizationState
+  ) -> MailboxConnection {
+    let providerId = MailProviderId(rawValue: provider)
     return MailboxConnection(
-      authorizationState: .authorized,
-      capabilities: providerId == .gmail
+      authorizationState: authorizationState,
+      capabilities: authorizationState == .authorized && providerId == .gmail
         ? .gmail
         : .none,
       connectedAt: connectedAt,
       displayName: emailAddress,
-      id: MailboxConnectionId(
-        providerMailboxIdentity: providerMailboxIdentity
-      ),
+      id: mailboxConnectionId,
       lastVerifiedAt: lastVerifiedAt,
       productAccountId: ProductAccountId(productAccountId),
       trustedDeviceId: trustedDeviceId,
@@ -1334,10 +1340,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let expectedConnectionId, expectedConnectionId != verifiedConnectionId {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
-    let hadExistingConnection = try await connectionService.loadConnections(session: session)
-      .contains {
-        $0.mailboxConnection(productAccountId: session.productAccountId).id == verifiedConnectionId
-      }
+    let existingStatuses = try await connectionService.loadConnections(session: session)
+    let hadExistingConnection = try existingStatuses.contains { status in
+      guard
+        status.mailboxConnectionId == verifiedConnectionId
+      else { return false }
+      return try connectionService.hasLocalAuthorization(status, session: session)
+    }
 
     let status = try await connectionService.completeConnection(
       verifiedAccount: VerifiedGmailAccount(
@@ -1351,7 +1360,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       ),
       session: session
     )
-    let connection = status.mailboxConnection(productAccountId: session.productAccountId)
+    let connection = status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
     do {
       _ = try await definitionSyncService.saveConnection(connection, session: session)
       return connection
@@ -1368,13 +1380,21 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
     let localStatuses = try await connectionService.loadConnections(session: session)
-    let localConnections = localStatuses.map {
-      $0.mailboxConnection(productAccountId: session.productAccountId)
+    let localConnections = try localStatuses.map { status in
+      status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: try connectionService.hasLocalAuthorization(status, session: session)
+          ? .authorized : .required
+      )
     }
+    let localConnectionsById = Dictionary(
+      localConnections.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
     let localStatusesById = Dictionary(
       localStatuses.map { status in
         (
-          status.mailboxConnection(productAccountId: session.productAccountId).id,
+          status.mailboxConnectionId,
           status
         )
       },
@@ -1392,7 +1412,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     {
       let localStatus = try localStatusForCleanup(
         id: removedConnectionId,
-        authorizedStatusesById: localStatusesById,
+        localStatusesById: localStatusesById,
         session: session
       )
       let removedConnection = removedMailboxConnection(
@@ -1416,8 +1436,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       definitions
       .filter { $0.provider == MailProviderId.gmail.rawValue }
       .map { definition in
-        if let localStatus = localStatusesById[definition.id] {
-          return localStatus.mailboxConnection(productAccountId: session.productAccountId)
+        if let localConnection = localConnectionsById[definition.id] {
+          return localConnection
         }
         return definition.mailboxConnection(
           productAccountId: session.productAccountId,
@@ -1428,11 +1448,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func localStatusForCleanup(
     id: MailboxConnectionId,
-    authorizedStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
     session: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? {
-    if let authorizedStatus = authorizedStatusesById[id] {
-      return authorizedStatus
+    if let localStatus = localStatusesById[id] {
+      return localStatus
     }
     return try connectionService.loadConnectionForCleanup(
       providerAccountIdentifier: id.providerMailboxIdentity.value,
@@ -1446,7 +1466,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) -> MailboxConnection {
     if let localStatus {
-      return localStatus.mailboxConnection(productAccountId: session.productAccountId)
+      return localStatus.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .required
+      )
     }
     return MailboxConnection(
       authorizationState: .required,
@@ -2244,5 +2267,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     case .unstar:
       return .unstar
     }
+  }
+}
+
+extension GmailMailboxConnectionAdapter: GmailConnectionAuthorizationChecking {
+  func hasLocalAuthorization(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    try connectionService.hasLocalAuthorization(connection, session: session)
   }
 }

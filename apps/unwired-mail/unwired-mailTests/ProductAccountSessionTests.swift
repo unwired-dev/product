@@ -892,6 +892,11 @@ private final class RecordingGmailProviderConnecting:
     _ = session
     return []
   }
+
+  func hasLocalAuthorization(
+    _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Bool { true }
 }
 
 private final class RecordingDevicePushUnregisterer: DevicePushUnregistering {
@@ -975,6 +980,11 @@ private struct SuspendingGmailProviderConnecting:
   ) async throws -> [GmailProviderConnectionStatus] {
     []
   }
+
+  func hasLocalAuthorization(
+    _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Bool { true }
 }
 
 private struct FailingGmailMessageReader: GmailMessageReading {
