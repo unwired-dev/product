@@ -1386,7 +1386,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     else { return localConnections }
-    for removedConnectionId in snapshot.removedConnectionIds {
+    for removedConnectionId in snapshot.removedConnectionIds
+    where removedConnectionId.providerId
+      == .gmail
+    {
       let localStatus = try localStatusForCleanup(
         id: removedConnectionId,
         authorizedStatusesById: localStatusesById,

@@ -523,6 +523,39 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGmailRemovalIgnoresOtherProviderTombstoneWithMatchingIdentity() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [
+          MailboxConnectionId(
+            providerMailboxIdentity: StableProviderMailboxIdentity(
+              providerId: .imapSMTP,
+              value: RecordingAdapterConnectionService.status.providerAccountIdentifier
+            )
+          )
+        ],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertTrue(connections.isEmpty)
+    XCTAssertTrue(connectionService.clearedProviderAccountIdentifiers.isEmpty)
+    XCTAssertEqual(
+      connectionService.cleanupStatuses,
+      [RecordingAdapterConnectionService.status]
+    )
+  }
+
   func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(
