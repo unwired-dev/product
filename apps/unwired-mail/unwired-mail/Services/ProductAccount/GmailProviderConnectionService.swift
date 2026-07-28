@@ -704,7 +704,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? {
     guard
-      let status = try pushConnectionStore.load(
+      let status = try? pushConnectionStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: providerAccountIdentifier
       ),

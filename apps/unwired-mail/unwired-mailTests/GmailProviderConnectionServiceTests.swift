@@ -981,6 +981,22 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
+  func testLoadConnectionForCleanupIsolatesUnreadableConnectionStatus() throws {
+    let pushConnectionStore = RecordingPushConnectionStore()
+    pushConnectionStore.loadError = GmailProviderConnectionTestError.pushConnectionLoadFailed
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    XCTAssertNil(
+      try service.loadConnectionForCleanup(
+        providerAccountIdentifier: "gmail-user-001",
+        session: session
+      )
+    )
+  }
+
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       if request.url?.path == "/token" {
@@ -1465,6 +1481,7 @@ private enum GmailProviderConnectionTestError: Error {
   case bodyCacheCleanupFailed
   case bundleCreationFailed
   case metadataCleanupFailed
+  case pushConnectionLoadFailed
   case registrationFailed
   case tokenCleanupFailed
   case tokenLoadFailed
@@ -1676,6 +1693,7 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
   var clearedProviderAccountIdentifiers: [String] = []
   var connections: [GmailProviderConnectionStatus]
   var loadedProductAccountId: String?
+  var loadError: Error?
   var connection: GmailProviderConnectionStatus? { connections.first }
 
   init(connection: GmailProviderConnectionStatus? = nil) {
@@ -1700,7 +1718,10 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
     productAccountId _: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderConnectionStatus? {
-    connection?.providerAccountIdentifier == providerAccountIdentifier ? connection : nil
+    if let loadError {
+      throw loadError
+    }
+    return connection?.providerAccountIdentifier == providerAccountIdentifier ? connection : nil
   }
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
