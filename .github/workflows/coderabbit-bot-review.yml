@@ -26,7 +26,7 @@ jobs:
     # Required to post the CodeRabbit trigger through the pull request's Issues API.
     permissions:
       issues: write # Required to create the pull request conversation comment.
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-2vcpu-ubuntu-2404
     steps:
       - name: Ask CodeRabbit to review
         env:
