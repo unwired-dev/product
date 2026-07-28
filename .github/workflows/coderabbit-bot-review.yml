@@ -23,9 +23,9 @@ jobs:
       !contains(github.event.pull_request.title, '[WIP]') &&
       !contains(github.event.pull_request.title, '[skip review]') &&
       !contains(github.event.pull_request.labels.*.name, 'do-not-review')
-    # Pull request conversation comments use the Issues API.
+    # Required to post the CodeRabbit trigger through the pull request's Issues API.
     permissions:
-      issues: write
+      issues: write # Required to create the pull request conversation comment.
     runs-on: ubuntu-latest
     steps:
       - name: Ask CodeRabbit to review
