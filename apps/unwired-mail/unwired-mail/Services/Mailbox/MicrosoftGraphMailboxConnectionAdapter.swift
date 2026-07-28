@@ -3630,16 +3630,26 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> String {
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    guard !snapshot.removedConnectionIds.contains(connection.id) else {
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })
+    else { throw MailboxConnectionAdapterError.connectionRemoved }
     guard
       let tokens = try tokenStore.load(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerMailboxIdentity.value
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
+    guard tokens.authorizationGeneration == definition.authorizationGeneration else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     let refreshed: MicrosoftGraphTokens
     do {
       refreshed = try await authorizer.refresh(tokens)
-        .withAuthorizationGeneration(tokens.authorizationGeneration)
+        .withAuthorizationGeneration(definition.authorizationGeneration)
     } catch MicrosoftGraphOAuthError.authorizationRejected {
       try tokenStore.clear(
         productAccountId: session.productAccountId,

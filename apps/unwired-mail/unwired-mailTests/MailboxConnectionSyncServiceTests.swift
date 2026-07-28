@@ -170,6 +170,56 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(convergedSnapshot.removedConnectionIds.isEmpty)
   }
 
+  func testLegacyWriterCannotResetRetainedAuthorizationGeneration() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    let definition = Self.connection.definition
+    let legacyPayload: [String: Any] = [
+      "connections": [
+        [
+          "connectedAt": definition.connectedAt,
+          "displayName": definition.displayName,
+          "provider": definition.provider,
+          "providerAccountIdentifier": definition.providerAccountIdentifier,
+          "stableProviderConnectionKey": definition.stableProviderConnectionKey,
+        ]
+      ],
+      "removals": [],
+      "schemaVersion": 1,
+    ]
+    let encryptedLegacyPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: legacyPayload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: secondDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedLegacyPayload,
+      trustedDeviceId: secondDeviceSession.trustedDeviceId
+    )
+
+    let snapshot = try await services.firstDevice.loadSnapshot(session: firstDeviceSession)
+    services.transport.loadError = MailboxConnectionSyncTestError.unavailable
+    let offlineSnapshot = try await services.firstDevice.loadSnapshotForProviderAccess(
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
+    XCTAssertEqual(offlineSnapshot.connections.first?.authorizationGeneration, 1)
+    XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
+  }
+
   func testRemovingDefaultConnectionClearsDefaultWithoutSubstitution() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
@@ -242,6 +292,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
         keyMaterialStore: firstStore,
         transport: transport
       ),
+      keyMaterial: keyMaterial,
       secondDevice: MailboxConnectionSyncService(
         cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
         keyMaterialStore: secondStore,
@@ -253,6 +304,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
   private struct Services {
     let firstDevice: MailboxConnectionSyncService
+    let keyMaterial: ProductSyncKeyMaterial
     let secondDevice: MailboxConnectionSyncService
     let transport: RecordingMailboxConnectionSyncTransport
   }
@@ -334,14 +386,17 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
   var loadError: Error?
-  var payload: EncryptedProductSyncPayload?
+  var payload: EncryptedProductSyncPayload? {
+    payloads["mailbox-connections-primary"]
+  }
+  private var payloads: [String: EncryptedProductSyncPayload] = [:]
   private var updatedAt: Int64 = 1_781_200_000_000
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
     payloadIdentifierPrefix _: String?
   ) async throws -> [EncryptedProductSyncPayload] {
-    additionalPayloads + (payload.map { [$0] } ?? [])
+    additionalPayloads + payloads.values
   }
 
   func getEncryptedProductSyncPayload(
@@ -349,15 +404,14 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
     if let loadError { throw loadError }
-    return payload?.payloadIdentifier == payloadIdentifier ? payload : nil
+    return payloads[payloadIdentifier]
   }
 
   func getEncryptedProductSyncPayloads(
     identityToken _: String,
     payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    guard let payload, payloadIdentifiers.contains(payload.payloadIdentifier) else { return [] }
-    return [payload]
+    payloadIdentifiers.compactMap { payloads[$0] }
   }
 
   func putEncryptedProductSyncPayload(
@@ -375,7 +429,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     encryptedPayload: ProductSyncEncryptedPayload,
     trustedDeviceId _: String
   ) async throws -> EncryptedProductSyncPayload {
-    payload ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+    payloads[payloadIdentifier]
+      ?? write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
   }
 
   func putEncryptedProductSyncPayloadIfUnchanged(
@@ -385,8 +440,9 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
-    guard payload?.updatedAt == expectedUpdatedAt else {
-      return try XCTUnwrap(payload)
+    let existing = payloads[payloadIdentifier]
+    guard existing?.updatedAt == expectedUpdatedAt else {
+      return try XCTUnwrap(existing)
     }
     return write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
   }
@@ -401,7 +457,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
       payloadIdentifier: payloadIdentifier,
       updatedAt: updatedAt
     )
-    self.payload = payload
+    payloads[payloadIdentifier] = payload
     return payload
   }
 }

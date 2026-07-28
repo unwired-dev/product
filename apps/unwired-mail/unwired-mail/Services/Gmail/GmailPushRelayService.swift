@@ -1450,6 +1450,17 @@ struct GmailPushWakeupHandler {
         productAccountId: productSession.productAccountId
       )
       return false
+    } catch MailboxConnectionAdapterError.authorizationRequired {
+      try watchStore.clear(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
+      return false
     } catch {
       publishSyncStatus(
         .failure(for: error),

@@ -1562,6 +1562,49 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.accessTokens.last, authorizer.refreshResult.accessToken)
   }
 
+  func testRejectedAccessTokenDoesNotRefreshAfterAuthorizationGenerationAdvances()
+    async throws
+  {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let client = RecordingMicrosoftGraphClient()
+    client.rejectedAccessTokens = ["access-token"]
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    client.onRejectedAccessToken = {
+      definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
+    }
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: client,
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      _ = try await adapter.syncInbox(connection: connection, session: session)
+      XCTFail("Expected authorization to be required")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertEqual(authorizer.refreshedTokens, 0)
+    XCTAssertEqual(client.accessTokens, ["access-token"])
+  }
+
   func testWrappedSendUnauthorizedErrorRefreshesAndRetries() async throws {
     let authorizer = RecordingMicrosoftGraphAuthorizer()
     let client = RecordingMicrosoftGraphClient()
@@ -2748,6 +2791,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var metadataPageDidLoad: (() -> Void)?
   var moveAttempts = 0
   var moveErrors: [Error] = []
+  var onRejectedAccessToken: (() -> Void)?
   var pages: [String: MicrosoftGraphMetadataPage] = [:]
   var rejectedAccessTokens: Set<String> = []
   var requestedContinuations: [String?] = []
@@ -2861,6 +2905,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
 
   private func validate(_ accessToken: String) throws {
     if rejectedAccessTokens.contains(accessToken) {
+      onRejectedAccessToken?()
       throw MicrosoftGraphClientError.requestFailed(401)
     }
   }
