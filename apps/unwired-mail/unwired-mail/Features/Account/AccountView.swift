@@ -985,9 +985,9 @@ struct AccountView: View {
         if let connection = gmailViewModel.connection,
           connection.authorizationState == .authorized
         {
-          await inboxViewModel.loadAfterConnectionChange(
+          await inboxViewModel.loadInitialInboxThenNavigation(
             connection: connection,
-            synchronizes: false
+            connections: gmailViewModel.connections
           )
         }
       } else if mailShellSelection.selectedMailbox?.isUnified == true {
@@ -1065,11 +1065,9 @@ struct AccountView: View {
       gmailViewModel.connections,
       prunesPersistedState: connectionsAreAuthoritative
     )
-    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
     updateProductMailboxState()
     showsBlockedActionAlert = mailActionViewModel.pendingFailureConnectionId != nil
-    await inboxViewModel.loadNavigation(connections: gmailViewModel.connections)
     await genericMailSetupViewModel.loadSyncedDefinitions()
   }
 }
@@ -4649,6 +4647,14 @@ final class GmailInboxViewModel {
       providerMailboxesByConnection: providerMailboxesByConnection,
       loadId: loadId
     )
+  }
+
+  func loadInitialInboxThenNavigation(
+    connection: MailboxConnection,
+    connections: [MailboxConnection]
+  ) async {
+    await loadAfterConnectionChange(connection: connection, synchronizes: false)
+    await loadNavigation(connections: connections)
   }
 
   private func loadNavigation(

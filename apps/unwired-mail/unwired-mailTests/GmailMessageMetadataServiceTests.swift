@@ -1770,6 +1770,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelLoadsInitialInboxBeforeNavigationMetadata() async {
+    let service = RecordingMailboxFreshnessService(
+      outcomes: [],
+      suspendsSync: false,
+      suspendsBackfill: false,
+      completesBackfill: true,
+      failsBackfill: false
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: RecordingGmailMessageSearchService(messages: []),
+      session: session
+    )
+
+    await viewModel.loadInitialInboxThenNavigation(
+      connection: mailboxConnection,
+      connections: [mailboxConnection]
+    )
+
+    let loadedCollections = await service.loadedCollections()
+    XCTAssertEqual(loadedCollections, [.role(.inbox), .allObserved, .allObserved])
+  }
+
+  @MainActor
   func testInboxViewModelDistinguishesLocalAndProviderSearchResults() async {
     let localMessage = metadata(
       messageId: "message-001",
@@ -4013,6 +4041,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   private var backfillContinuation: CheckedContinuation<Void, Never>?
   private var backfillStartContinuations: [CheckedContinuation<Void, Never>] = []
   private var connectionIds: [MailboxConnectionId] = []
+  private var collections: [MailboxMessageCollection] = []
   private var outcomes: [Outcome]
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
   private var syncContinuation: CheckedContinuation<Void, Error>?
@@ -4048,6 +4077,15 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     .empty
+  }
+
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    collections.append(collection)
+    return .empty
   }
 
   func syncInbox(
@@ -4144,6 +4182,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
 
   func syncCallCount() -> Int {
     connectionIds.count
+  }
+
+  func loadedCollections() -> [MailboxMessageCollection] {
+    collections
   }
 
   func syncedConnectionIds() -> [MailboxConnectionId] {
