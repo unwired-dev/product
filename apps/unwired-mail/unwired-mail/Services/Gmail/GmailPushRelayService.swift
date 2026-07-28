@@ -629,13 +629,18 @@ private struct NoopGmailPushEligibilityStore: GmailPushEligibilityPersisting {
 
 struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   private let service = "private-email.gmail-push-connection"
+  private let readString: (String, String) throws -> String?
   private let legacyWatchOwnershipStore: GmailLegacyPushWatchOwnershipPersisting
 
   init(
     legacyWatchOwnershipStore: GmailLegacyPushWatchOwnershipPersisting =
-      KeychainGmailLegacyWatchOwnerStore()
+      KeychainGmailLegacyWatchOwnerStore(),
+    readString: @escaping (String, String) throws -> String? = { service, account in
+      try KeychainStore.readString(service: service, account: account)
+    }
   ) {
     self.legacyWatchOwnershipStore = legacyWatchOwnershipStore
+    self.readString = readString
   }
 
   func clear(
@@ -678,7 +683,12 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
     try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
     do {
       _ = try legacyConnection(productAccountId: productAccountId)
-    } catch {
+    } catch is DecodingError {
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
+      try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+    } catch KeychainStoreError.unexpectedData {
       for account in legacyKeys(productAccountId) {
         try KeychainStore.delete(service: service, account: account)
       }
@@ -821,10 +831,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   private func providerAccountIdentifiers(productAccountId: String) throws -> Set<String> {
     guard
-      let json = try KeychainStore.readString(
-        service: service,
-        account: manifestKey(productAccountId)
-      ),
+      let json = try readString(service, manifestKey(productAccountId)),
       let data = json.data(using: .utf8)
     else {
       return []
@@ -834,7 +841,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   private func connection(account: String) throws -> GmailProviderConnectionStatus? {
     guard
-      let json = try KeychainStore.readString(service: service, account: account),
+      let json = try readString(service, account),
       let data = json.data(using: .utf8)
     else {
       return nil

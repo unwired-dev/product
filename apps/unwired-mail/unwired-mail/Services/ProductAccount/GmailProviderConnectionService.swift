@@ -166,6 +166,12 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup: Bool
+  ) async throws
+
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
     session: ProductAccountSessionSnapshot

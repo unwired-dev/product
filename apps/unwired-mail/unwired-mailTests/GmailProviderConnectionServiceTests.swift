@@ -807,6 +807,32 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
+  func testScopedCleanupModeDispatchesThroughProviderProtocol() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    let bodyReader = RecordingGmailMessageReader()
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let provider: GmailProviderConnecting = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: bodyReader,
+      pushConnectionStore: RecordingPushConnectionStore(connection: transport.status),
+      pushWatchStore: RecordingPushWatchStore(),
+      metadataStore: metadataStore,
+      tokenStore: InMemoryGmailProviderTokenStore(),
+      transport: transport
+    )
+
+    try await provider.clearLocalConnection(
+      transport.status,
+      session: session,
+      allowsAccountWideCleanup: false
+    )
+
+    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
+    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
+    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+  }
+
   func testClearLastLocalConnectionDeletesLegacyCredential() async throws {
     let productAccountId = "legacy-cleanup-\(UUID().uuidString)"
     let legacyAccount = "gmail-\(productAccountId)"
