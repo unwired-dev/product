@@ -893,6 +893,12 @@ private final class RecordingGmailProviderConnecting:
     return []
   }
 
+  func loadStoredConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    []
+  }
+
   func hasLocalAuthorization(
     _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
@@ -976,6 +982,12 @@ private struct SuspendingGmailProviderConnecting:
   }
 
   func loadConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    []
+  }
+
+  func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     []

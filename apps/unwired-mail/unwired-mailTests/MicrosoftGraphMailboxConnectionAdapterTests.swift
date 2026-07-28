@@ -805,6 +805,46 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(tokenStore.clearAllCallCount, 1)
   }
 
+  func testAccountCleanupWaitsForEveryActiveConnection() async throws {
+    let syncGate = MailboxConnectionSyncGate()
+    let push = RecordingMicrosoftGraphPushRegistrar()
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      pushRegistrar: push,
+      syncGate: syncGate,
+      tokenStore: InMemoryMicrosoftGraphAuthorizationStore()
+    )
+    let unrelatedConnectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-001"
+      )
+    )
+    let blocker = MicrosoftGraphCleanupGateBlocker()
+    let activeConnection = Task {
+      try await syncGate.withLock(unrelatedConnectionId) {
+        await blocker.hold()
+      }
+    }
+    await blocker.waitUntilHeld()
+    let cleanupInvoked = expectation(description: "account cleanup invoked")
+    let cleanup = Task {
+      cleanupInvoked.fulfill()
+      try await adapter.clearLocalConnection(session: session)
+    }
+    await fulfillment(of: [cleanupInvoked], timeout: 1)
+
+    XCTAssertTrue(push.clearedAllAccessTokens.isEmpty)
+
+    await blocker.release()
+    try await activeConnection.value
+    try await cleanup.value
+    XCTAssertEqual(push.clearedAllAccessTokens, [[:]])
+  }
+
   func testConnectionRemovalContinuesWhenPushCleanupFails() async throws {
     let push = RecordingMicrosoftGraphPushRegistrar()
     push.clearError = URLError(.networkConnectionLost)
@@ -2490,6 +2530,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     ),
     pushRegistrar: MicrosoftGraphPushRegistering = RecordingMicrosoftGraphPushRegistrar(),
     shouldContinueHistoricalBackfill: @escaping () -> Bool = { true },
+    syncGate: MailboxConnectionSyncGate = .shared,
     tokenStore: MicrosoftGraphAuthorizationPersisting
   ) throws -> MicrosoftGraphMailboxConnectionAdapter {
     let resolvedMetadataStore: MicrosoftGraphMetadataPersisting
@@ -2511,6 +2552,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: pendingActionService,
       pushRegistrar: pushRegistrar,
       shouldContinueHistoricalBackfill: shouldContinueHistoricalBackfill,
+      syncGate: syncGate,
       tokenStore: tokenStore
     )
   }
@@ -2800,6 +2842,31 @@ private final class InMemoryGraphPendingActionStore:
 
 private enum GraphTokenStoreTestError: Error {
   case cannotDecode
+}
+
+private actor MicrosoftGraphCleanupGateBlocker {
+  private var holdContinuation: CheckedContinuation<Void, Never>?
+  private var heldContinuation: CheckedContinuation<Void, Never>?
+
+  func hold() async {
+    heldContinuation?.resume()
+    heldContinuation = nil
+    await withCheckedContinuation { continuation in
+      holdContinuation = continuation
+    }
+  }
+
+  func waitUntilHeld() async {
+    guard holdContinuation == nil else { return }
+    await withCheckedContinuation { continuation in
+      heldContinuation = continuation
+    }
+  }
+
+  func release() {
+    holdContinuation?.resume()
+    holdContinuation = nil
+  }
 }
 
 private final class FailingLoadMicrosoftGraphAuthorizationStore:

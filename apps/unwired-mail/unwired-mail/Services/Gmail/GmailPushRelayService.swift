@@ -72,6 +72,12 @@ protocol GmailPushWatchPersisting {
   ) throws
 }
 
+protocol GmailLegacyPushWatchOwnershipPersisting {
+  func clear(productAccountId: String) throws
+  func load(productAccountId: String) throws -> String?
+  func save(providerAccountIdentifier: String, productAccountId: String) throws
+}
+
 extension GmailPushWatchPersisting {
   func clearAll(productAccountId _: String) throws {}
 }
@@ -82,6 +88,11 @@ protocol GmailPushConnectionPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
+  func clearScoped(productAccountId: String) throws
+  func hasLegacyOwnership(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Bool
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -91,6 +102,17 @@ protocol GmailPushConnectionPersisting {
     _ connection: GmailProviderConnectionStatus,
     productAccountId: String
   ) throws
+}
+
+extension GmailPushConnectionPersisting {
+  func clearScoped(productAccountId: String) throws {
+    try clearAll(productAccountId: productAccountId)
+  }
+
+  func hasLegacyOwnership(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Bool { false }
 }
 
 @MainActor
@@ -193,11 +215,42 @@ protocol GmailProviderTokenRefreshing {
   ) async throws -> GmailProviderTokens
 }
 
+struct KeychainGmailLegacyWatchOwnerStore: GmailLegacyPushWatchOwnershipPersisting {
+  private let service = "private-email.gmail-push-watch-legacy-owner"
+
+  func clear(productAccountId: String) throws {
+    try KeychainStore.delete(service: service, account: account(productAccountId))
+  }
+
+  func load(productAccountId: String) throws -> String? {
+    try KeychainStore.readString(service: service, account: account(productAccountId))
+  }
+
+  func save(providerAccountIdentifier: String, productAccountId: String) throws {
+    try KeychainStore.writeString(
+      providerAccountIdentifier,
+      service: service,
+      account: account(productAccountId),
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    )
+  }
+
+  private func account(_ productAccountId: String) -> String {
+    "gmail-push-watch-owner.\(gmailSafeFileComponent(productAccountId))"
+  }
+}
+
 struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
   private let defaults: UserDefaults
+  private let legacyOwnershipStore: GmailLegacyPushWatchOwnershipPersisting
 
-  init(defaults: UserDefaults = .standard) {
+  init(
+    defaults: UserDefaults = .standard,
+    legacyOwnershipStore: GmailLegacyPushWatchOwnershipPersisting =
+      KeychainGmailLegacyWatchOwnerStore()
+  ) {
     self.defaults = defaults
+    self.legacyOwnershipStore = legacyOwnershipStore
   }
 
   func clear(
@@ -205,17 +258,23 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
     providerAccountIdentifier: String
   ) throws {
     defaults.removeObject(forKey: key(productAccountId, providerAccountIdentifier))
-    defaults.removeObject(forKey: legacyKey(productAccountId, providerAccountIdentifier))
+    if try legacyOwnershipStore.load(productAccountId: productAccountId)
+      == providerAccountIdentifier
+    {
+      defaults.removeObject(forKey: legacyKey(productAccountId, providerAccountIdentifier))
+      try legacyOwnershipStore.clear(productAccountId: productAccountId)
+    }
   }
 
   func clearAll(productAccountId: String) throws {
-    let prefixes = [
-      "gmail-push-watch.\(gmailSafeFileComponent(productAccountId)).",
-      "gmail-push-watch.\(legacyGmailSafeFileComponent(productAccountId)).",
-    ]
+    let prefix = "gmail-push-watch.\(gmailSafeFileComponent(productAccountId))."
     for key in defaults.dictionaryRepresentation().keys
-    where prefixes.contains(where: { key.hasPrefix($0) }) {
+    where key.hasPrefix(prefix) {
       defaults.removeObject(forKey: key)
+    }
+    if let legacyOwner = try legacyOwnershipStore.load(productAccountId: productAccountId) {
+      defaults.removeObject(forKey: legacyKey(productAccountId, legacyOwner))
+      try legacyOwnershipStore.clear(productAccountId: productAccountId)
     }
   }
 
@@ -226,6 +285,12 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
     let scopedKey = key(productAccountId, providerAccountIdentifier)
     if let data = defaults.data(forKey: scopedKey) {
       return try JSONDecoder().decode(GmailPushWatchStatus.self, from: data)
+    }
+    guard
+      try legacyOwnershipStore.load(productAccountId: productAccountId)
+        == providerAccountIdentifier
+    else {
+      return nil
     }
     let previousKey = legacyKey(productAccountId, providerAccountIdentifier)
     guard let data = defaults.data(forKey: previousKey) else {
@@ -238,6 +303,7 @@ struct UserDefaultsGmailPushWatchStore: GmailPushWatchPersisting {
       providerAccountIdentifier: providerAccountIdentifier
     )
     defaults.removeObject(forKey: previousKey)
+    try? legacyOwnershipStore.clear(productAccountId: productAccountId)
     return status
   }
 
@@ -563,6 +629,19 @@ private struct NoopGmailPushEligibilityStore: GmailPushEligibilityPersisting {
 
 struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   private let service = "private-email.gmail-push-connection"
+  private let readString: (String, String) throws -> String?
+  private let legacyWatchOwnershipStore: GmailLegacyPushWatchOwnershipPersisting
+
+  init(
+    legacyWatchOwnershipStore: GmailLegacyPushWatchOwnershipPersisting =
+      KeychainGmailLegacyWatchOwnerStore(),
+    readString: @escaping (String, String) throws -> String? = { service, account in
+      try KeychainStore.readString(service: service, account: account)
+    }
+  ) {
+    self.legacyWatchOwnershipStore = legacyWatchOwnershipStore
+    self.readString = readString
+  }
 
   func clear(
     productAccountId: String,
@@ -575,6 +654,11 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
         try KeychainStore.delete(service: service, account: account)
       }
     }
+    if try legacyWatchOwnershipStore.load(productAccountId: productAccountId)
+      == providerAccountIdentifier
+    {
+      try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+    }
     try KeychainStore.delete(
       service: service,
       account: key(productAccountId, providerAccountIdentifier)
@@ -585,33 +669,96 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   }
 
   func clearAll(productAccountId: String) throws {
+    try clearScoped(productAccountId: productAccountId)
+    for account in legacyKeys(productAccountId) {
+      try KeychainStore.delete(service: service, account: account)
+    }
+    try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+  }
+
+  func clearScoped(productAccountId: String) throws {
     for identifier in try providerAccountIdentifiers(productAccountId: productAccountId) {
       try KeychainStore.delete(service: service, account: key(productAccountId, identifier))
     }
     try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
-    for account in legacyKeys(productAccountId) {
-      try KeychainStore.delete(service: service, account: account)
+    do {
+      _ = try legacyConnection(productAccountId: productAccountId)
+    } catch is DecodingError {
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
+      try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+    } catch KeychainStoreError.unexpectedData {
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
+      try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
     }
+  }
+
+  func hasLegacyOwnership(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Bool {
+    if try legacyWatchOwnershipStore.load(productAccountId: productAccountId)
+      == providerAccountIdentifier
+    {
+      return true
+    }
+    return try legacyConnection(productAccountId: productAccountId)?
+      .providerAccountIdentifier == providerAccountIdentifier
   }
 
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderConnectionStatus? {
-    try connection(
+    let scopedConnection = try connection(
       account: key(productAccountId, providerAccountIdentifier)
     )
+    guard
+      let legacyConnection = try? legacyConnection(productAccountId: productAccountId),
+      legacyConnection.providerAccountIdentifier == providerAccountIdentifier
+    else {
+      return scopedConnection
+    }
+    try legacyWatchOwnershipStore.save(
+      providerAccountIdentifier: providerAccountIdentifier,
+      productAccountId: productAccountId
+    )
+    if scopedConnection == nil {
+      try save(legacyConnection, productAccountId: productAccountId)
+    }
+    for account in legacyKeys(productAccountId) {
+      try? KeychainStore.delete(service: service, account: account)
+    }
+    return scopedConnection ?? legacyConnection
   }
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     let identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
-    var connections = identifiers.compactMap {
-      try? load(productAccountId: productAccountId, providerAccountIdentifier: $0)
+    var connections: [GmailProviderConnectionStatus] = []
+    for identifier in identifiers {
+      if let connection = try? load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: identifier
+      ) {
+        connections.append(connection)
+      }
     }
-    guard
-      let legacyConnection = try legacyConnection(productAccountId: productAccountId),
-      !identifiers.contains(legacyConnection.providerAccountIdentifier)
-    else {
+    guard let legacyConnection = try legacyConnection(productAccountId: productAccountId) else {
+      return connections
+    }
+    try legacyWatchOwnershipStore.save(
+      providerAccountIdentifier: legacyConnection.providerAccountIdentifier,
+      productAccountId: productAccountId
+    )
+    if connections.contains(where: {
+      $0.providerAccountIdentifier == legacyConnection.providerAccountIdentifier
+    }) {
+      for account in legacyKeys(productAccountId) {
+        try? KeychainStore.delete(service: service, account: account)
+      }
       return connections
     }
     try save(legacyConnection, productAccountId: productAccountId)
@@ -684,10 +831,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   private func providerAccountIdentifiers(productAccountId: String) throws -> Set<String> {
     guard
-      let json = try KeychainStore.readString(
-        service: service,
-        account: manifestKey(productAccountId)
-      ),
+      let json = try readString(service, manifestKey(productAccountId)),
       let data = json.data(using: .utf8)
     else {
       return []
@@ -697,7 +841,7 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   private func connection(account: String) throws -> GmailProviderConnectionStatus? {
     guard
-      let json = try KeychainStore.readString(service: service, account: account),
+      let json = try readString(service, account),
       let data = json.data(using: .utf8)
     else {
       return nil

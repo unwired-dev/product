@@ -2379,81 +2379,56 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   // swiftlint:disable:next function_body_length
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
-    try await syncGate.withLock(accountCleanupLockId(session: session)) {
-      var connectionIds = Set(
-        try tokenStore.providerAccountIdentifiers(productAccountId: session.productAccountId)
-          .map { providerAccountIdentifier in
-            MailboxConnectionId(
-              providerMailboxIdentity: StableProviderMailboxIdentity(
-                providerId: .microsoftGraph,
-                value: providerAccountIdentifier
-              )
+    try await syncGate.withAllConnectionsLocked {
+      var firstError: Error?
+      var accessTokensByProviderAccountIdentifier: [String: String] = [:]
+      for providerAccountIdentifier in try tokenStore.providerAccountIdentifiers(
+        productAccountId: session.productAccountId)
+      {
+        do {
+          accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
+            try await accessTokenForCleanup(
+              productAccountId: session.productAccountId,
+              providerAccountIdentifier: providerAccountIdentifier
             )
-          }
-      )
-      if let snapshot = try? await definitionSyncService.loadSnapshotForProviderAccess(
-        session: session
-      ) {
-        connectionIds.formUnion(
-          snapshot.connections.compactMap { definition in
-            definition.provider == MailProviderId.microsoftGraph.rawValue ? definition.id : nil
-          }
-        )
-        connectionIds.formUnion(
-          snapshot.removedConnectionIds.filter { $0.providerId == .microsoftGraph }
-        )
+        } catch {
+          firstError = firstError ?? error
+        }
       }
-      try await withLocks(connectionIds.sorted { $0.rawValue < $1.rawValue }) {
-        var firstError: Error?
-        var accessTokensByProviderAccountIdentifier: [String: String] = [:]
-        for providerAccountIdentifier in try tokenStore.providerAccountIdentifiers(
-          productAccountId: session.productAccountId)
-        {
-          do {
-            accessTokensByProviderAccountIdentifier[providerAccountIdentifier] =
-              try await accessTokenForCleanup(
-                productAccountId: session.productAccountId,
-                providerAccountIdentifier: providerAccountIdentifier
-              )
-          } catch {
-            firstError = firstError ?? error
-          }
-        }
-        do {
-          try await pushRegistrar.clearAll(
-            accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
-            session: session
-          )
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try tokenStore.clearAll(productAccountId: session.productAccountId)
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try metadataStore.clear(productAccountId: session.productAccountId)
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try bodyService.clear(session: session)
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try await pendingActionService.clear(session: session)
-        } catch {
-          firstError = firstError ?? error
-        }
-        do {
-          try await outboxService.clear(session: session)
-        } catch {
-          firstError = firstError ?? error
-        }
-        if let firstError { throw firstError }
+      do {
+        try await pushRegistrar.clearAll(
+          accessTokensByProviderAccountIdentifier: accessTokensByProviderAccountIdentifier,
+          session: session
+        )
+      } catch {
+        firstError = firstError ?? error
       }
+      do {
+        try tokenStore.clearAll(productAccountId: session.productAccountId)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try metadataStore.clear(productAccountId: session.productAccountId)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try bodyService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await pendingActionService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      do {
+        try await outboxService.clear(session: session)
+      } catch {
+        firstError = firstError ?? error
+      }
+      if let firstError { throw firstError }
     }
   }
 
@@ -2466,23 +2441,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         value: "account-cleanup:\(session.productAccountId)"
       )
     )
-  }
-
-  private func withLocks<T>(
-    _ connectionIds: ArraySlice<MailboxConnectionId>,
-    operation: @escaping () async throws -> T
-  ) async throws -> T {
-    guard let connectionId = connectionIds.first else { return try await operation() }
-    return try await syncGate.withLock(connectionId) {
-      try await withLocks(connectionIds.dropFirst(), operation: operation)
-    }
-  }
-
-  private func withLocks<T>(
-    _ connectionIds: [MailboxConnectionId],
-    operation: @escaping () async throws -> T
-  ) async throws -> T {
-    try await withLocks(connectionIds[...], operation: operation)
   }
 
   func clearLocalConnection(

@@ -166,6 +166,12 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup: Bool
+  ) async throws
+
   func completeConnection(
     verifiedAccount: VerifiedGmailAccount,
     session: ProductAccountSessionSnapshot
@@ -174,6 +180,20 @@ protocol GmailProviderConnecting {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
+
+  func loadStoredConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus]
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus?
+
+  func hasLocalAuthorization(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool
 
   func hasLocalAuthorization(
     _ connection: GmailProviderConnectionStatus,
@@ -187,10 +207,31 @@ protocol GmailProviderConnecting {
 }
 
 extension GmailProviderConnecting {
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup _: Bool
+  ) async throws {
+    try await clearLocalConnection(connection, session: session)
+  }
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    try await loadStoredConnections(session: session)
+      .first { $0.providerAccountIdentifier == providerAccountIdentifier }
+  }
+
   func loadConnectionForCleanup(
     providerAccountIdentifier _: String,
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? { nil }
+
+  func hasLocalAuthorization(
+    providerAccountIdentifier _: String,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Bool { false }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -362,9 +403,9 @@ private func clearGmailProviderTokens(
   _ tokenStore: GmailProviderTokenPersisting,
   productAccountId: String,
   providerAccountIdentifier: String,
-  hasRemainingGmailConnections: Bool
+  hasRemainingGmailState: Bool
 ) throws {
-  if hasRemainingGmailConnections {
+  if hasRemainingGmailState {
     try tokenStore.clear(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
@@ -435,6 +476,39 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     )
   }
 
+  func loadStoredConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+  }
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    try pushConnectionStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  }
+
+  func hasLocalAuthorization(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    if try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    ) != nil {
+      return true
+    }
+    return try tokenStore.loadLegacy(productAccountId: session.productAccountId) != nil
+      && pushConnectionStore.hasLegacyOwnership(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
+  }
+
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -445,8 +519,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = cleanupError ?? error
     }
     var connections: [GmailProviderConnectionStatus] = []
+    var didLoadConnections = false
     do {
       connections = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+      didLoadConnections = true
     } catch {
       cleanupError = cleanupError ?? error
     }
@@ -470,11 +546,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     do {
       try pushWatchStore.clearAll(productAccountId: session.productAccountId)
-    } catch {
-      cleanupError = cleanupError ?? error
-    }
-    do {
-      try pushConnectionStore.clearAll(productAccountId: session.productAccountId)
+      try clearPushConnectionsAfterAccountCleanup(
+        productAccountId: session.productAccountId,
+        didLoadConnections: didLoadConnections
+      )
     } catch {
       cleanupError = cleanupError ?? error
     }
@@ -483,34 +558,135 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  private func clearPushConnectionsAfterAccountCleanup(
+    productAccountId: String,
+    didLoadConnections: Bool
+  ) throws {
+    if didLoadConnections {
+      try pushConnectionStore.clearAll(productAccountId: productAccountId)
+    } else {
+      try pushConnectionStore.clearScoped(productAccountId: productAccountId)
+    }
+  }
+
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await clearLocalConnection(
+      connection,
+      session: session,
+      allowsAccountWideCleanup: true
+    )
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup: Bool
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
     try backgroundContextCacheStore.clear(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let hasRemainingGmailConnections = try await transport.removeGmailConnection(
-      identityToken: session.identityToken,
-      opaqueConnectionId: opaqueGmailConnectionId(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      trustedDeviceId: session.trustedDeviceId
-    )
+    var cleanupError: Error?
+    let hasRemainingGmailConnections: Bool
+    do {
+      hasRemainingGmailConnections = try await transport.removeGmailConnection(
+        identityToken: session.identityToken,
+        opaqueConnectionId: opaqueGmailConnectionId(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ),
+        trustedDeviceId: session.trustedDeviceId
+      )
+    } catch {
+      cleanupError = error
+      hasRemainingGmailConnections = true
+    }
+    let hasRemainingLocalGmailState: Bool
+    var shouldClearMatchingLegacyCredential = false
+    do {
+      let targetIdentifier = connection.providerAccountIdentifier
+      var hasRemainingState = false
+      for (storedIdentifier, tokens) in try tokenStore.loadAll(
+        productAccountId: session.productAccountId
+      ) where storedIdentifier != targetIdentifier {
+        let verifiedAccount: VerifiedGmailAccount
+        do {
+          verifiedAccount = try await credentialVerifier.verify(
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken
+          )
+        } catch {
+          hasRemainingState = true
+          continue
+        }
+        if verifiedAccount.providerAccountIdentifier == targetIdentifier {
+          do {
+            try tokenStore.clear(
+              productAccountId: session.productAccountId,
+              providerAccountIdentifier: storedIdentifier
+            )
+          } catch {
+            cleanupError = cleanupError ?? error
+            hasRemainingState = true
+          }
+        } else {
+          hasRemainingState = true
+        }
+      }
+      let hasRemainingPushConnection = try pushConnectionStore.loadAll(
+        productAccountId: session.productAccountId
+      ).contains {
+        $0.providerAccountIdentifier != targetIdentifier
+      }
+      hasRemainingState = hasRemainingState || hasRemainingPushConnection
+      if let legacyTokens = try tokenStore.loadLegacy(
+        productAccountId: session.productAccountId
+      ) {
+        do {
+          let legacyAccount = try await credentialVerifier.verify(
+            accessToken: legacyTokens.accessToken,
+            refreshToken: legacyTokens.refreshToken
+          )
+          if legacyAccount.providerAccountIdentifier == targetIdentifier {
+            shouldClearMatchingLegacyCredential = true
+          } else {
+            hasRemainingState = true
+          }
+        } catch {
+          if (try? pushConnectionStore.hasLegacyOwnership(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: targetIdentifier
+          )) == true {
+            shouldClearMatchingLegacyCredential = true
+          } else {
+            // Unverifiable legacy credentials with unproven ownership must be preserved.
+            hasRemainingState = true
+          }
+        }
+      }
+      hasRemainingLocalGmailState = hasRemainingState
+    } catch {
+      // Failed enumeration cannot prove this is the last local Gmail identity.
+      hasRemainingLocalGmailState = true
+    }
+    let hasRemainingGmailState =
+      !allowsAccountWideCleanup
+      || hasRemainingGmailConnections
+      || hasRemainingLocalGmailState
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
-    var cleanupError: Error?
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if !hasRemainingGmailConnections {
+    if !hasRemainingGmailState {
       do {
         try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
       } catch {
@@ -527,12 +703,19 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         cleanupError = cleanupError ?? error
       }
     }
+    if shouldClearMatchingLegacyCredential {
+      do {
+        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+    }
     do {
       try clearGmailProviderTokens(
         tokenStore,
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier,
-        hasRemainingGmailConnections: hasRemainingGmailConnections
+        hasRemainingGmailState: hasRemainingGmailState
       )
     } catch {
       cleanupError = cleanupError ?? error

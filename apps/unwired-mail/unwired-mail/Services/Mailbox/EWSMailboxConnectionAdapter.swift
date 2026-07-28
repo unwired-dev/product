@@ -1481,7 +1481,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     ).sorted {
       $0.rawValue < $1.rawValue
     }
-    try await withSyncLocks(connectionIds[...]) {
+    try await syncGate.withLocks(connectionIds) {
       try authorizationStore.clearAll(productAccountId: session.productAccountId)
       try metadataStore.clear(productAccountId: session.productAccountId)
       try await pendingActionService.clear(session: session)
@@ -1505,18 +1505,6 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await clearLocalConnectionWithoutLock(connection.id, session: session)
-  }
-
-  private func withSyncLocks<T>(
-    _ connectionIds: ArraySlice<MailboxConnectionId>,
-    operation: () async throws -> T
-  ) async throws -> T {
-    guard let connectionId = connectionIds.first else {
-      return try await operation()
-    }
-    return try await syncGate.withLock(connectionId) {
-      try await withSyncLocks(connectionIds.dropFirst(), operation: operation)
-    }
   }
 
   private func clearLocalConnectionWithoutLock(
