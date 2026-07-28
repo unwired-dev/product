@@ -632,6 +632,18 @@ final class MailboxFreshnessViewModel {
 }
 // swiftlint:enable type_body_length
 
+@MainActor
+func waitForCurrentMailboxLoad(
+  _ currentLoad: () -> (task: Task<Void, Never>?, generation: Int)
+) async {
+  while true {
+    let load = currentLoad()
+    guard let task = load.task else { return }
+    await task.value
+    guard currentLoad().generation != load.generation else { return }
+  }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -650,6 +662,7 @@ struct AccountView: View {
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
   @State private var mailboxFreshnessViewModel: MailboxFreshnessViewModel
   @State private var inboxViewModel: GmailInboxViewModel
+  @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
   @State private var mailboxObserversAreActive = false
   @State private var mailActionViewModel: GmailMailActionViewModel
@@ -1001,9 +1014,11 @@ struct AccountView: View {
             connections: connections
           )
         }
+        inboxLoadGeneration += 1
         inboxLoadTask = initialLoadTask
-        await initialLoadTask.value
-        await inboxLoadTask?.value
+        await waitForCurrentMailboxLoad {
+          (inboxLoadTask, inboxLoadGeneration)
+        }
       }
       mailboxObserversAreActive = true
       await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
@@ -1162,6 +1177,7 @@ extension AccountView {
   ) {
     inboxLoadTask?.cancel()
     let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
+    inboxLoadGeneration += 1
     inboxLoadTask = Task {
       await inboxViewModel.loadAfterConnectionChange(
         connection: connection,
@@ -1175,6 +1191,7 @@ extension AccountView {
     guard case .unified(let mailbox) = mailShellSelection.selectedMailbox else { return }
     inboxLoadTask?.cancel()
     let connections = gmailViewModel.connections
+    inboxLoadGeneration += 1
     inboxLoadTask = Task {
       await inboxViewModel.loadUnifiedMailbox(
         mailbox,

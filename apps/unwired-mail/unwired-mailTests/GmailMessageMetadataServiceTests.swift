@@ -1895,6 +1895,40 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testStartupWaitsForEveryReplacementMailboxLoad() async {
+    let firstLoad = OverrideGate()
+    let secondLoad = OverrideGate()
+    var generation = 1
+    var currentTask: Task<Void, Never>? = Task {
+      await firstLoad.waitForRelease()
+    }
+    var didFinishWaiting = false
+    let waitTask = Task {
+      await waitForCurrentMailboxLoad {
+        (currentTask, generation)
+      }
+      didFinishWaiting = true
+    }
+    await firstLoad.waitUntilStarted()
+    currentTask?.cancel()
+    generation += 1
+    currentTask = Task {
+      await secondLoad.waitForRelease()
+    }
+
+    await firstLoad.release()
+    await secondLoad.waitUntilStarted()
+    await Task.yield()
+
+    XCTAssertFalse(didFinishWaiting)
+
+    await secondLoad.release()
+    await waitTask.value
+
+    XCTAssertTrue(didFinishWaiting)
+  }
+
+  @MainActor
   func testInboxViewModelRetriesInitialInboxAfterNavigationCompletesIndexUpgrade() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
