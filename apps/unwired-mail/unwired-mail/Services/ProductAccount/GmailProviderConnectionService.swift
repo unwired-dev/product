@@ -189,6 +189,11 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) throws -> Bool
 
+  func hasLocalAuthorization(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool
+
   func loadConnectionForCleanup(
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
@@ -823,10 +828,17 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         // A stale legacy credential must not hide connections with valid scoped tokens.
       }
     }
-    return statuses.filter { status in
-      guard status.trustedDeviceId == session.trustedDeviceId else { return false }
-      return tokensByIdentifier[status.providerAccountIdentifier] != nil
-    }
+    return statuses.filter { $0.trustedDeviceId == session.trustedDeviceId }
+  }
+
+  func hasLocalAuthorization(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    ) != nil
   }
 
   func loadConnectionForCleanup(

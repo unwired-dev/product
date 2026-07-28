@@ -235,7 +235,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     providerAccountIdentifier: "gmail-user-001",
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_200
-  ).mailboxConnection(productAccountId: "product-account-001")
+  ).mailboxConnection(productAccountId: "product-account-001", authorizationState: .authorized)
 
   private static let otherConnection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_300,
@@ -245,7 +245,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     providerAccountIdentifier: "gmail-user-002",
     trustedDeviceId: "trusted-device-001",
     updatedAt: 1_781_200_000_500
-  ).mailboxConnection(productAccountId: "product-account-001")
+  ).mailboxConnection(productAccountId: "product-account-001", authorizationState: .authorized)
 
   private static let genericMailDefinition = GenericMailConnectionDefinition(
     authorizationMethod: .password,

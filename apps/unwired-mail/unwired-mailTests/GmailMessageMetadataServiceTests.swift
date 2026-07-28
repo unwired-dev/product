@@ -1016,7 +1016,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       trustedDeviceId: connection.trustedDeviceId,
       updatedAt: connection.updatedAt
     )
-    .mailboxConnection(productAccountId: session.productAccountId)
+    .mailboxConnection(productAccountId: session.productAccountId, authorizationState: .authorized)
     .definition
     .mailboxConnection(
       productAccountId: session.productAccountId,
@@ -1383,7 +1383,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let gate = MailboxConnectionSyncGate()
     let probe = MailboxSyncGateProbe()
     let connectionId = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     ).id
     let initialAcquired = await gate.acquire(connectionId)
     XCTAssertTrue(initialAcquired)
@@ -1413,7 +1414,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let gate = MailboxConnectionSyncGate()
     let probe = MailboxSyncGateProbe()
     let connectionId = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     ).id
     let initialAcquired = await gate.acquire(connectionId)
     XCTAssertTrue(initialAcquired)
@@ -1489,7 +1491,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     await viewModel.loadAfterConnectionChange(
-      connection: connection.mailboxConnection(productAccountId: session.productAccountId)
+      connection: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
 
     let overrideTask = Task {
@@ -1500,7 +1503,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await service.waitUntilOverrideStarts()
     await viewModel.loadAfterConnectionChange(
-      connection: switchedConnection.mailboxConnection(productAccountId: session.productAccountId)
+      connection: switchedConnection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
     await service.releaseOverride()
     await overrideTask.value
@@ -1537,7 +1541,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
@@ -1589,7 +1594,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     await viewModel.loadAfterConnectionChange(
-      connection: connection.mailboxConnection(productAccountId: session.productAccountId)
+      connection: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
 
     XCTAssertEqual(
@@ -1620,7 +1626,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     let pinnedMessageId = StableProviderMessageIdentity(
       connectionId: mailboxConnection.id,
@@ -1680,10 +1687,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     let otherMailboxConnection = otherConnection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
 
     await viewModel.loadNavigation(connections: [mailboxConnection, otherMailboxConnection])
@@ -1732,7 +1741,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     let pinnedMessageId = StableProviderMessageIdentity(
       connectionId: mailboxConnection.id,
@@ -1768,7 +1778,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     let pinnedMessageId = StableProviderMessageIdentity(
       connectionId: mailboxConnection.id,
@@ -1815,7 +1826,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       searchService: service,
       session: session
     )
-    let mailboxConnection = connection.mailboxConnection(productAccountId: session.productAccountId)
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId, authorizationState: .authorized)
 
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
     await service.waitUntilHistoricalBackfillStarts()
@@ -1851,7 +1863,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       threadId: "thread-001",
       internalDateMilliseconds: 10
     ).mailboxMetadata(
-      connectionId: connection.mailboxConnection(productAccountId: session.productAccountId).id
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
     )
 
     let loadTask = Task {
@@ -1883,7 +1897,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
@@ -1918,7 +1933,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
 
@@ -1933,7 +1949,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await service.waitUntilHistoricalCategorizationStarts()
     await viewModel.loadAfterConnectionChange(
-      connection: switchedConnection.mailboxConnection(productAccountId: session.productAccountId)
+      connection: switchedConnection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
     await service.releaseHistoricalCategorization()
     await categorizationTask.value
@@ -3574,8 +3591,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
     return UnifiedInboxViewModelFixture(
       connections: [
-        connection.mailboxConnection(productAccountId: session.productAccountId),
-        secondConnection.mailboxConnection(productAccountId: session.productAccountId),
+        connection.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized),
+        secondConnection.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized),
       ],
       service: service,
       viewModel: GmailInboxViewModel(service: service, searchService: service, session: session)
@@ -3612,8 +3631,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let successStore = InMemoryMailboxSyncSuccessStore()
     return MailboxFreshnessFixture(
       connections: [
-        connection.mailboxConnection(productAccountId: session.productAccountId),
-        secondConnection.mailboxConnection(productAccountId: session.productAccountId),
+        connection.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized),
+        secondConnection.mailboxConnection(
+          productAccountId: session.productAccountId, authorizationState: .authorized),
       ],
       now: now,
       sessionState: sessionState,

@@ -793,7 +793,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let connectionStore = RecordingGmailPushConnectionStore(connection: connection)
     let syncService = RecordingPushGmailMetadataSyncService()
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: session.productAccountId
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
     )
     let suiteName = "MailboxSyncSuccessStoreTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
@@ -873,6 +874,34 @@ final class GmailPushRelayServiceTests: XCTestCase {
     )
   }
 
+  func testGmailWakeupRejectsTokenlessConnectionBeforeMailboxSync() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.localAuthorizationAvailable = false
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: RecordingGmailPushWatchStore(
+        status: GmailPushWatchStatus(
+          expirationMilliseconds: 1_781_400_000_000,
+          historyId: "123",
+          routeId: "route-001"
+        )
+      )
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertNil(syncService.syncedConnection)
+  }
+
   func testGmailWakeupRoutesToMatchingMailboxWhenTwoConnectionsExist() async throws {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
@@ -915,7 +944,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(handled)
     XCTAssertEqual(
       syncService.syncedConnection,
-      second.mailboxConnection(productAccountId: session.productAccountId)
+      second.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
     XCTAssertEqual(syncService.sinceHistoryId, "456")
   }
@@ -960,7 +990,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(handled)
     XCTAssertEqual(
       syncService.syncedConnection,
-      second.mailboxConnection(productAccountId: session.productAccountId)
+      second.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
   }
 
@@ -1294,7 +1325,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     let syncService = RecordingPushGmailMetadataSyncService()
     syncService.historyIsExpired = true
     let notificationDelivery = RecordingNotificationDelivery()
-    let mailboxConnection = connection.mailboxConnection(productAccountId: session.productAccountId)
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId, authorizationState: .authorized)
     let statusPublished = expectation(description: "expired history status published")
     let observer = NotificationCenter.default.addObserver(
       forName: .mailboxMetadataDidSynchronize,
@@ -1528,7 +1560,8 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(watchStore.savedStatus)
     XCTAssertEqual(
       syncService.syncedConnection,
-      connection.mailboxConnection(productAccountId: session.productAccountId)
+      connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized)
     )
   }
 
@@ -3126,7 +3159,9 @@ private final class RecordingDevicePushRegistrationTransport: DevicePushRegistra
   }
 }
 
-private final class RecordingPushGmailMetadataSyncService: MailboxMetadataSyncing {
+private final class RecordingPushGmailMetadataSyncService:
+  GmailConnectionAuthorizationChecking, MailboxMetadataSyncing
+{
   var existingMessages: [GmailMessageMetadata] = []
   var historyIsExpired = false
   var onSync: (() -> Void)?
@@ -3135,11 +3170,19 @@ private final class RecordingPushGmailMetadataSyncService: MailboxMetadataSyncin
   var syncedMessages: [GmailMessageMetadata] = []
   var hasUnlistedNewMessages = false
   var includesHistoryCandidates: Bool?
+  var localAuthorizationAvailable = true
   var newMessageIds: Set<String>?
   var syncedConnection: MailboxConnection?
   var syncedSession: ProductAccountSessionSnapshot?
   var syncError: Error?
   var usesUnavailableHistoryDelta = false
+
+  func hasLocalAuthorization(
+    _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    localAuthorizationAvailable
+  }
 
   func categorizeHistorical(
     scope _: HistoricalCategorizationScope,
