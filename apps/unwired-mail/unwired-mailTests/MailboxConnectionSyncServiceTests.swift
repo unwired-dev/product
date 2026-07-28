@@ -220,6 +220,81 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
+  func testProviderAccessDoesNotDiscardFreshGenerationWhenIndividualLedgerLoadFails()
+    async throws
+  {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    services.transport.payloadLoadErrors["mailbox-authorization-generations-v1"] =
+      MailboxConnectionSyncTestError.unavailable
+
+    let snapshot = try await services.secondDevice.loadSnapshotForProviderAccess(
+      session: secondDeviceSession
+    )
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
+  }
+
+  func testRetainedTombstoneRemainsVisibleUntilReauthorizationSupersedesIt() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let removedPayload = try XCTUnwrap(services.transport.payload)
+    let plaintext = try services.keyMaterial.decryptPayload(
+      removedPayload.encryptedPayload,
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    var payload = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: plaintext) as? [String: Any]
+    )
+    payload["connections"] = [
+      try XCTUnwrap(
+        JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.connection.definition))
+          as? [String: Any]
+      )
+    ]
+    let encryptedPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: payload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: firstDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
+
+    let retainedSnapshot = try await services.firstDevice.loadSnapshot(
+      session: firstDeviceSession
+    )
+    let reauthorizedSnapshot = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(retainedSnapshot.connections.count, 1)
+    XCTAssertEqual(retainedSnapshot.removedConnectionIds, [Self.connection.id])
+    XCTAssertTrue(reauthorizedSnapshot.removedConnectionIds.isEmpty)
+  }
+
   func testRemovingDefaultConnectionClearsDefaultWithoutSubstitution() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
@@ -386,6 +461,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
   var loadError: Error?
+  var payloadLoadErrors: [String: Error] = [:]
   var payload: EncryptedProductSyncPayload? {
     payloads["mailbox-connections-primary"]
   }
@@ -404,6 +480,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     payloadIdentifier: String
   ) async throws -> EncryptedProductSyncPayload? {
     if let loadError { throw loadError }
+    if let error = payloadLoadErrors[payloadIdentifier] { throw error }
     return payloads[payloadIdentifier]
   }
 

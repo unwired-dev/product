@@ -192,8 +192,19 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     let remotePayload: EncryptedProductSyncPayload?
     let generationPayload: EncryptedProductSyncPayload?
     do {
-      remotePayload = try await loadRemotePayload(session: session)
-      generationPayload = try await loadGenerationRemotePayload(session: session)
+      let payloads = try await transport.getEncryptedProductSyncPayloads(
+        identityToken: session.identityToken,
+        payloadIdentifiers: [
+          MailboxConnectionSyncPayload.primaryIdentifier,
+          MailboxAuthorizationGenerationLedger.primaryIdentifier,
+        ]
+      )
+      remotePayload = payloads.first {
+        $0.payloadIdentifier == MailboxConnectionSyncPayload.primaryIdentifier
+      }
+      generationPayload = payloads.first {
+        $0.payloadIdentifier == MailboxAuthorizationGenerationLedger.primaryIdentifier
+      }
     } catch is CancellationError {
       throw CancellationError()
     } catch {
@@ -302,6 +313,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         ?? removalGeneration
         ?? definition.authorizationGeneration
       payload.connections.removeAll { $0.id == definition.id }
+      payload.removals.removeAll { $0.connectionId == definition.id }
       payload.connections.append(definition.withAuthorizationGeneration(generation))
       return true
     }
@@ -559,13 +571,11 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ payload: MailboxConnectionSyncPayload,
     updatedAt: Int64?
   ) -> MailboxConnectionSyncSnapshot {
-    let activeIds = Set(payload.connections.map(\.id))
     return MailboxConnectionSyncSnapshot(
       connections: payload.connections.sorted { $0.id.rawValue < $1.id.rawValue },
       defaultSendingConnectionId: payload.defaultSendingConnectionId,
       removedConnectionIds:
         payload.removals.map(\.connectionId)
-        .filter { !activeIds.contains($0) }
         .sorted { $0.rawValue < $1.rawValue },
       updatedAt: updatedAt
     )
