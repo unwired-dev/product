@@ -1928,6 +1928,40 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertTrue(didFinishWaiting)
   }
 
+  func testStartupDefersFailedActionReloadsUntilMailboxObserversAreActive() {
+    let oldIds = [
+      MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "gmail-user-001"
+        )
+      )
+    ]
+    let newlyFailedId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "gmail-user-002"
+      )
+    )
+    let newIds = oldIds + [newlyFailedId]
+
+    XCTAssertTrue(
+      newlyFailedConnectionIds(
+        from: oldIds,
+        to: newIds,
+        mailboxObserversAreActive: false
+      ).isEmpty
+    )
+    XCTAssertEqual(
+      newlyFailedConnectionIds(
+        from: oldIds,
+        to: newIds,
+        mailboxObserversAreActive: true
+      ),
+      [newlyFailedId]
+    )
+  }
+
   @MainActor
   func testInboxViewModelRetriesInitialInboxAfterNavigationCompletesIndexUpgrade() async {
     let cachedMessage = metadata(

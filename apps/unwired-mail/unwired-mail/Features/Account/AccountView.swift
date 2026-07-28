@@ -644,6 +644,15 @@ func waitForCurrentMailboxLoad(
   }
 }
 
+func newlyFailedConnectionIds(
+  from oldIds: [MailboxConnectionId],
+  to newIds: [MailboxConnectionId],
+  mailboxObserversAreActive: Bool
+) -> [MailboxConnectionId] {
+  guard mailboxObserversAreActive else { return [] }
+  return newIds.filter { !oldIds.contains($0) }
+}
+
 // swiftlint:disable:next type_body_length
 struct AccountView: View {
   let session: ProductAccountSession
@@ -784,7 +793,11 @@ struct AccountView: View {
         showsBlockedActionAlert = connectionId != nil
       }
       .onChange(of: mailActionViewModel.failedConnectionIds) { oldIds, newIds in
-        let newlyFailedIds = newIds.filter { !oldIds.contains($0) }
+        let newlyFailedIds = newlyFailedConnectionIds(
+          from: oldIds,
+          to: newIds,
+          mailboxObserversAreActive: mailboxObserversAreActive
+        )
         guard !newlyFailedIds.isEmpty else { return }
         Task {
           for connectionId in newlyFailedIds {
@@ -1002,6 +1015,9 @@ struct AccountView: View {
       }
       if mailShellSelection.selectedMailbox?.isUnified == true {
         loadUnifiedMailbox(synchronizes: false)
+        await waitForCurrentMailboxLoad {
+          (inboxLoadTask, inboxLoadGeneration)
+        }
       } else if let connection = selectedConnection,
         connection.authorizationState == .authorized
       {
