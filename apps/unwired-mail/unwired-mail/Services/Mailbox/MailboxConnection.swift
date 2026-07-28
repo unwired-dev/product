@@ -1363,6 +1363,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
@@ -1385,8 +1386,15 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     else { return localConnections }
-    for removedConnectionId in snapshot.removedConnectionIds {
-      let localStatus = localStatusesById[removedConnectionId]
+    for removedConnectionId in snapshot.removedConnectionIds
+    where removedConnectionId.providerId
+      == .gmail
+    {
+      let localStatus = try localStatusForCleanup(
+        id: removedConnectionId,
+        authorizedStatusesById: localStatusesById,
+        session: session
+      )
       let removedConnection = removedMailboxConnection(
         id: removedConnectionId,
         localStatus: localStatus,
@@ -1416,6 +1424,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func localStatusForCleanup(
+    id: MailboxConnectionId,
+    authorizedStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? {
+    if let authorizedStatus = authorizedStatusesById[id] {
+      return authorizedStatus
+    }
+    return try connectionService.loadConnectionForCleanup(
+      providerAccountIdentifier: id.providerMailboxIdentity.value,
+      session: session
+    )
   }
 
   private func removedMailboxConnection(
@@ -1476,9 +1498,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     let gmailStatus = try gmailConnection(
       connection, session: session, requiresAuthorization: false)
-    try await connectionService.clearLocalConnection(gmailStatus, session: session)
     _ = try await definitionSyncService.removeConnection(connection.id, session: session)
     try await clearRemovedConnection(connection, session: session)
+    try await connectionService.clearLocalConnection(gmailStatus, session: session)
   }
 
   private func clearRemovedConnection(
