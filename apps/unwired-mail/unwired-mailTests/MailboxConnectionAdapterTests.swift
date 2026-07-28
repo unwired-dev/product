@@ -571,7 +571,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
-  func testGmailSendCleansUpSynchronizedRemovalBeforeReturningFailure() async throws {
+  func testGmailAdapterClearsLocalAuthorizationWhenSendFindsSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let mailActionService = RecordingAdapterMailActionService()
     let pendingActionStore = AdapterPendingActionStore()
@@ -598,12 +598,12 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       body: "Hello",
       recipient: "reader@example.com",
       subject: "Subject",
-      idempotencyKey: "removed-send"
+      idempotencyKey: "unwired-attempt-001"
     )
 
     do {
       try await adapter.send(message, connection: connection, session: session)
-      XCTFail("Expected synchronized removal")
+      XCTFail("Expected synchronized removal to fence send")
     } catch let error as MailboxConnectionAdapterError {
       XCTAssertEqual(error, .connectionRemoved)
     }
@@ -613,7 +613,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(outboxStore.saveCallCount, 1)
   }
 
-  func testGmailRemovalCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
+  func testGmailTombstoneCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadStoredConnectionsError = AdapterTestError.unavailable
     let adapter = GmailMailboxConnectionAdapter(
@@ -4022,8 +4022,8 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
-    if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     if let loadError { throw loadError }
+    if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     return statuses
   }
 

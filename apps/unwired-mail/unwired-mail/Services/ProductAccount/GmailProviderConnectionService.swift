@@ -190,9 +190,8 @@ extension GmailProviderConnecting {
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus? {
-    try await loadStoredConnections(session: session).first {
-      $0.providerAccountIdentifier == providerAccountIdentifier
-    }
+    try await loadStoredConnections(session: session)
+      .first { $0.providerAccountIdentifier == providerAccountIdentifier }
   }
 }
 
