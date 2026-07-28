@@ -992,11 +992,18 @@ struct AccountView: View {
       } else if let connection = selectedConnection,
         connection.authorizationState == .authorized
       {
-        await inboxViewModel.loadInitialMailboxThenNavigation(
-          connection: connection,
-          collection: mailShellSelection.selectedMailbox?.collection ?? .role(.inbox),
-          connections: gmailViewModel.connections
-        )
+        let collection = mailShellSelection.selectedMailbox?.collection ?? .role(.inbox)
+        let connections = gmailViewModel.connections
+        let initialLoadTask = Task {
+          await inboxViewModel.loadInitialMailboxThenNavigation(
+            connection: connection,
+            collection: collection,
+            connections: connections
+          )
+        }
+        inboxLoadTask = initialLoadTask
+        await initialLoadTask.value
+        await inboxLoadTask?.value
       }
       mailboxObserversAreActive = true
       await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
@@ -1226,14 +1233,15 @@ extension AccountView {
 
   private func selectConnection(
     _ connection: MailboxConnection,
-    collection: MailboxMessageCollection = .role(.inbox)
+    collection: MailboxMessageCollection = .role(.inbox),
+    synchronizes: Bool = true
   ) {
     gmailViewModel.selectedConnectionId = connection.id
     microsoftGraphViewModel.selectedConnectionId = connection.id
     inboxViewModel.clear()
     mailShellSelection.selectMailbox(connectionId: connection.id, collection: collection)
     guard connection.authorizationState == .authorized else { return }
-    loadMailbox(for: connection)
+    loadMailbox(for: connection, synchronizes: synchronizes)
   }
 
   private func selectSearchResult(_ message: MailboxMessageMetadata) {
@@ -1278,7 +1286,15 @@ extension AccountView {
           mailShellSelection.selectMailbox(connectionId: connectionId, collection: collection)
         }
         gmailViewModel.selectedConnectionId = connectionId
-        guard isCurrentConnection else { return }
+        if !isCurrentConnection {
+          guard
+            !mailboxObserversAreActive,
+            let connection = gmailViewModel.connection,
+            connection.id == connectionId
+          else { return }
+          selectConnection(connection, collection: collection, synchronizes: false)
+          return
+        }
         guard let connection = gmailViewModel.connection,
           connection.id == connectionId
         else { return }
@@ -4665,9 +4681,10 @@ final class GmailInboxViewModel {
       collection: collection,
       synchronizes: false
     )
+    guard !Task.isCancelled else { return }
     let retriesInitialMailbox = errorMessage != nil
     await loadNavigation(connections: connections)
-    if retriesInitialMailbox {
+    if retriesInitialMailbox, !Task.isCancelled {
       await loadAfterConnectionChange(
         connection: connection,
         collection: collection,
@@ -4939,6 +4956,9 @@ final class GmailInboxViewModel {
       }
     } catch is CancellationError {
     } catch {
+      guard !Task.isCancelled, !hasSignedOut, currentConnectionId == connection.id else {
+        return
+      }
       errorMessage = error.localizedDescription
     }
   }
@@ -5021,6 +5041,7 @@ final class GmailInboxViewModel {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func sync(connection: MailboxConnection) async -> Bool {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
@@ -5067,8 +5088,11 @@ final class GmailInboxViewModel {
         currentCollection,
         connection: connection,
         session: session
-      ), !hasSignedOut, currentConnectionId == connection.id {
+      ), !Task.isCancelled, !hasSignedOut, currentConnectionId == connection.id {
         threads = result.threads
+      }
+      guard !Task.isCancelled, !hasSignedOut, currentConnectionId == connection.id else {
+        return false
       }
       errorMessage = syncErrorMessage
       return false

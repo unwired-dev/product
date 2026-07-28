@@ -1811,6 +1811,61 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelDiscardsSyncErrorAfterConnectionChangesDuringCacheRecovery() async {
+    let switchedConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    let switchedMessage = metadata(
+      messageId: "message-switched",
+      threadId: "thread-switched",
+      internalDateMilliseconds: 2,
+      providerAccountIdentifier: switchedConnection.providerAccountIdentifier
+    )
+    let service = StaleSyncRecoveryMailboxService(
+      originalProviderAccountIdentifier: connection.providerAccountIdentifier,
+      switchedMessage: switchedMessage
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let originalMailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let switchedMailboxConnection = switchedConnection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+
+    let originalLoad = Task {
+      await viewModel.loadAfterConnectionChange(connection: originalMailboxConnection)
+    }
+    await service.waitUntilRecoveryStarts()
+    await viewModel.loadAfterConnectionChange(
+      connection: switchedMailboxConnection,
+      synchronizes: false
+    )
+    await service.releaseRecovery()
+    await originalLoad.value
+
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        switchedMessage.mailboxMetadata(connectionId: switchedMailboxConnection.id)
+      ])
+    )
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  @MainActor
   func testInboxViewModelLoadsInitialInboxBeforeNavigationMetadata() async {
     let service = RecordingMailboxFreshnessService(
       outcomes: [],
@@ -4553,6 +4608,103 @@ private enum MailboxSwitchingError: Error {
 
 private struct OfflineUpgradeSyncError: LocalizedError {
   var errorDescription: String? { "Provider unavailable." }
+}
+
+private actor StaleSyncRecoveryMailboxService:
+  MailboxMetadataSyncing, MailboxMessageSearching
+{
+  let originalProviderAccountIdentifier: String
+  let switchedMessage: GmailMessageMetadata
+  private let recoveryGate = OverrideGate()
+  private var originalLoadCount = 0
+
+  init(
+    originalProviderAccountIdentifier: String,
+    switchedMessage: GmailMessageMetadata
+  ) {
+    self.originalProviderAccountIdentifier = originalProviderAccountIdentifier
+    self.switchedMessage = switchedMessage
+  }
+
+  func loadInbox(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await loadMailbox(.role(.inbox), connection: connection, session: session)
+  }
+
+  func loadMailbox(
+    _: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    guard connection.providerMailboxIdentity.value == originalProviderAccountIdentifier else {
+      let message = switchedMessage.mailboxMetadata(connectionId: connection.id)
+      return MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      )
+    }
+    originalLoadCount += 1
+    if originalLoadCount > 1 {
+      await recoveryGate.waitForRelease()
+    }
+    return .empty
+  }
+
+  func syncInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw OfflineUpgradeSyncError()
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: MailboxConnection,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func categorizeHistorical(
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func overrideCategory(
+    _: String,
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxMessageMetadata] {
+    []
+  }
+
+  func waitUntilRecoveryStarts() async {
+    await recoveryGate.waitUntilStarted()
+  }
+
+  func releaseRecovery() async {
+    await recoveryGate.release()
+  }
 }
 
 private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessageSearching {
