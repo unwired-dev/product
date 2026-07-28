@@ -88,6 +88,11 @@ protocol GmailPushConnectionPersisting {
     providerAccountIdentifier: String
   ) throws
   func clearAll(productAccountId: String) throws
+  func clearScoped(productAccountId: String) throws
+  func hasLegacyOwnership(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Bool
   func load(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -97,6 +102,17 @@ protocol GmailPushConnectionPersisting {
     _ connection: GmailProviderConnectionStatus,
     productAccountId: String
   ) throws
+}
+
+extension GmailPushConnectionPersisting {
+  func clearScoped(productAccountId: String) throws {
+    try clearAll(productAccountId: productAccountId)
+  }
+
+  func hasLegacyOwnership(
+    productAccountId _: String,
+    providerAccountIdentifier _: String
+  ) throws -> Bool { false }
 }
 
 @MainActor
@@ -648,14 +664,31 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
   }
 
   func clearAll(productAccountId: String) throws {
-    for identifier in try providerAccountIdentifiers(productAccountId: productAccountId) {
-      try KeychainStore.delete(service: service, account: key(productAccountId, identifier))
-    }
-    try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
+    try clearScoped(productAccountId: productAccountId)
     for account in legacyKeys(productAccountId) {
       try KeychainStore.delete(service: service, account: account)
     }
     try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+  }
+
+  func clearScoped(productAccountId: String) throws {
+    for identifier in try providerAccountIdentifiers(productAccountId: productAccountId) {
+      try KeychainStore.delete(service: service, account: key(productAccountId, identifier))
+    }
+    try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
+  }
+
+  func hasLegacyOwnership(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> Bool {
+    if try legacyWatchOwnershipStore.load(productAccountId: productAccountId)
+      == providerAccountIdentifier
+    {
+      return true
+    }
+    return try legacyConnection(productAccountId: productAccountId)?
+      .providerAccountIdentifier == providerAccountIdentifier
   }
 
   func load(

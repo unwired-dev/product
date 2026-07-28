@@ -490,10 +490,17 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
   ) throws -> Bool {
-    try tokenStore.load(
+    if try tokenStore.load(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
-    ) != nil
+    ) != nil {
+      return true
+    }
+    return try tokenStore.loadLegacy(productAccountId: session.productAccountId) != nil
+      && pushConnectionStore.hasLegacyOwnership(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      )
   }
 
   func clearLocalConnection(
@@ -531,22 +538,28 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    var didClearPushWatchStore = false
     do {
       try pushWatchStore.clearAll(productAccountId: session.productAccountId)
-      didClearPushWatchStore = true
+      try clearPushConnectionsAfterAccountCleanup(
+        productAccountId: session.productAccountId,
+        didLoadConnections: didLoadConnections
+      )
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if didClearPushWatchStore && didLoadConnections {
-      do {
-        try pushConnectionStore.clearAll(productAccountId: session.productAccountId)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
-    }
     if let cleanupError {
       throw cleanupError
+    }
+  }
+
+  private func clearPushConnectionsAfterAccountCleanup(
+    productAccountId: String,
+    didLoadConnections: Bool
+  ) throws {
+    if didLoadConnections {
+      try pushConnectionStore.clearAll(productAccountId: productAccountId)
+    } else {
+      try pushConnectionStore.clearScoped(productAccountId: productAccountId)
     }
   }
 
@@ -591,13 +604,33 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     var shouldClearMatchingLegacyCredential = false
     do {
       let targetIdentifier = connection.providerAccountIdentifier
-      var hasRemainingState =
-        try tokenStore.loadAll(productAccountId: session.productAccountId).keys.contains {
-          $0 != targetIdentifier
+      var hasRemainingState = false
+      for (storedIdentifier, tokens) in try tokenStore.loadAll(
+        productAccountId: session.productAccountId
+      ) where storedIdentifier != targetIdentifier {
+        do {
+          let verifiedAccount = try await credentialVerifier.verify(
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken
+          )
+          if verifiedAccount.providerAccountIdentifier == targetIdentifier {
+            try tokenStore.clear(
+              productAccountId: session.productAccountId,
+              providerAccountIdentifier: storedIdentifier
+            )
+          } else {
+            hasRemainingState = true
+          }
+        } catch {
+          hasRemainingState = true
         }
-        || pushConnectionStore.loadAll(productAccountId: session.productAccountId).contains {
-          $0.providerAccountIdentifier != targetIdentifier
-        }
+      }
+      let hasRemainingPushConnection = try pushConnectionStore.loadAll(
+        productAccountId: session.productAccountId
+      ).contains {
+        $0.providerAccountIdentifier != targetIdentifier
+      }
+      hasRemainingState = hasRemainingState || hasRemainingPushConnection
       if let legacyTokens = try tokenStore.loadLegacy(
         productAccountId: session.productAccountId
       ) {

@@ -988,6 +988,73 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
+  func testClearLocalConnectionDeletesScopedAliasForRemovedMailbox() async throws {
+    let removedConnection = RecordingGmailConnectionTransport().status
+    let obsoleteIdentifier = "obsolete-gmail-user"
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "alias-access", refreshToken: "alias-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: obsoleteIdentifier
+    )
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: removedConnection)
+    let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport(),
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: removedConnection.emailAddress,
+          providerAccountIdentifier: removedConnection.providerAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "alias-refresh"
+          )
+        )
+      )
+    )
+
+    try await service.clearLocalConnection(removedConnection, session: session)
+
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: obsoleteIdentifier
+      )
+    )
+    XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
+  }
+
+  func testHasLocalAuthorizationRecognizesMatchingLegacyOwnership() throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let pushConnectionStore = RecordingPushConnectionStore()
+    pushConnectionStore.legacyOwnedIdentifiers = ["gmail-user-001"]
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    XCTAssertTrue(
+      try service.hasLocalAuthorization(
+        providerAccountIdentifier: "gmail-user-001",
+        session: session
+      )
+    )
+    XCTAssertFalse(
+      try service.hasLocalAuthorization(
+        providerAccountIdentifier: "gmail-user-002",
+        session: session
+      )
+    )
+  }
+
   func testClearLocalConnectionPreservesUnrelatedLegacyOnlyMailbox() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let tokenStore = InMemoryGmailProviderTokenStore()
@@ -1103,7 +1170,7 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
-  func testAccountCleanupRetainsPushConnectionsWhenEnumerationFails() async throws {
+  func testAccountCleanupClearsScopedPushConnectionsWhenEnumerationFails() async throws {
     let pushConnectionStore = RecordingPushConnectionStore(
       connection: RecordingGmailConnectionTransport().status
     )
@@ -1126,6 +1193,10 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
 
     XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
     XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
+    XCTAssertEqual(
+      pushConnectionStore.clearedScopedProductAccountIds,
+      [session.productAccountId]
+    )
   }
 
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
@@ -2009,8 +2080,10 @@ private final class FailingLoadGmailProviderTokenStore: GmailProviderTokenPersis
 
 private final class RecordingPushConnectionStore: GmailPushConnectionPersisting {
   var clearedProductAccountIds: [String] = []
+  var clearedScopedProductAccountIds: [String] = []
   var clearedProviderAccountIdentifiers: [String] = []
   var connections: [GmailProviderConnectionStatus]
+  var legacyOwnedIdentifiers: Set<String> = []
   var loadedProductAccountId: String?
   var loadError: Error?
   var loadAllError: Error?
@@ -2022,6 +2095,17 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
 
   func clearAll(productAccountId: String) throws {
     clearedProductAccountIds.append(productAccountId)
+  }
+
+  func clearScoped(productAccountId: String) throws {
+    clearedScopedProductAccountIds.append(productAccountId)
+  }
+
+  func hasLegacyOwnership(
+    productAccountId _: String,
+    providerAccountIdentifier: String
+  ) throws -> Bool {
+    legacyOwnedIdentifiers.contains(providerAccountIdentifier)
   }
 
   func clear(

@@ -567,6 +567,32 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertThrowsError(try store.loadAll(productAccountId: productAccountId))
   }
 
+  func testPushConnectionStoreClearScopedPreservesLegacyConnection() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let safeProductAccountId = gmailSafeFileComponent(productAccountId)
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let scopedAccount =
+      "gmail-push-connection.\(safeProductAccountId)."
+      + gmailSafeFileComponent(connection.providerAccountIdentifier)
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let store = KeychainGmailPushConnectionStore()
+    defer { try? store.clearAll(productAccountId: productAccountId) }
+    try store.save(connection, productAccountId: productAccountId)
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    try store.clearScoped(productAccountId: productAccountId)
+
+    XCTAssertNil(try KeychainStore.readString(service: service, account: scopedAccount))
+    XCTAssertEqual(
+      try KeychainStore.readString(service: service, account: legacyAccount),
+      legacyJSON
+    )
+  }
+
   func testNotificationStoresPreserveLegacyStateForAnotherMailbox() throws {
     let suiteName = "PushNotificationMigrationTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: suiteName))
