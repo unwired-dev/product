@@ -365,7 +365,7 @@ extension MailboxConnectionSyncService {
     try await update(session: session) { payload in
       guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
       else {
-        guard removalObservation == nil else {
+        guard removalObservation?.connectionId != definition.id else {
           throw MailboxConnectionSyncError.concurrentModification
         }
         payload.connections.removeAll { $0.id == definition.id }

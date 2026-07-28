@@ -143,6 +143,34 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connectionService.statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
   }
 
+  func testGmailConnectClearsExistingAuthorizationWhenRecreationIsRejected() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: adapterConnectionId,
+      removedAt: 1_781_200_000_500
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.recreateError =
+      MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
+      XCTFail("Expected synchronized recreation to report the removal")
+    } catch let error as MailboxConnectionSyncError {
+      XCTAssertEqual(error, .connectionRemoved(removalObservation))
+    }
+
+    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+  }
+
   func testGmailConnectionCleanupFencesConcurrentConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let clearGate = AdapterLifecycleOperationGate()

@@ -1518,7 +1518,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         }
         return connection
       } catch {
-        if !hadExistingConnection {
+        var shouldClearLocalConnection = !hadExistingConnection
+        if let syncError = error as? MailboxConnectionSyncError,
+          case .connectionRemoved = syncError
+        {
+          shouldClearLocalConnection = true
+        }
+        if shouldClearLocalConnection {
           try await connectionService.clearLocalConnection(
             status,
             session: session,

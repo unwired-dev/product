@@ -279,6 +279,28 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     }
   }
 
+  func testRecreationIgnoresAnObservationForAnotherConnection() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let observation = try await observedRemoval(using: services.secondDevice)
+
+    let snapshot = try await services.secondDevice.recreateDefinition(
+      Self.otherConnection.definition,
+      after: observation,
+      session: secondDeviceSession
+    )
+
+    XCTAssertEqual(snapshot.connections, [Self.otherConnection.definition])
+    XCTAssertEqual(snapshot.removedConnectionIds, [Self.connection.id])
+  }
+
   func testRemovedDefinitionRefreshesProviderAccessCacheBeforeReportingRemoval() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
