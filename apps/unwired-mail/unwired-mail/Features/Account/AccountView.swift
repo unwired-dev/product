@@ -644,6 +644,7 @@ struct AccountView: View {
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
   @State private var compositionDraft: MailShellCompositionDraft?
+  @State private var ewsSetupViewModel: EWSSetupViewModel
   @State private var genericMailSetupViewModel: GenericMailSetupViewModel
   @State private var gmailViewModel: MailboxProviderConnectionViewModel
   @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
@@ -690,6 +691,12 @@ struct AccountView: View {
         },
         isSessionCurrent: { session.isCurrent(snapshot) },
         syncSession: snapshot
+      )
+    )
+    _ewsSetupViewModel = State(
+      initialValue: EWSSetupViewModel(
+        isSessionCurrent: { session.isCurrent($0) },
+        session: snapshot
       )
     )
     _gmailViewModel = State(
@@ -1322,11 +1329,22 @@ extension AccountView {
             viewModel: microsoftGraphViewModel
           )
 
+          EWSSetupPanel(
+            viewModel: ewsSetupViewModel,
+            cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+            connectionDidConnect: { selectConnection($0) },
+            connectionsDidChange: {
+              Task { _ = await gmailViewModel.load() }
+            },
+            isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+          )
+
           GenericMailSetupPanel(viewModel: genericMailSetupViewModel)
 
           SmokeView(service: ConvexBackendHealthService())
 
           Button("Sign Out", role: .destructive) {
+            ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
             mailboxFreshnessViewModel.cancelAll()
             mailboxFreshnessViewModel.clearPersistedState()
@@ -1560,15 +1578,18 @@ struct MailboxBulkActionBatch: Equatable, Sendable {
   let connection: MailboxConnection
   let messages: [MailboxMessageMetadata]
   let targetProviderMailboxId: String?
+  let targetProviderStateIds: Set<String>
 
   init(
     connection: MailboxConnection,
     messages: [MailboxMessageMetadata],
-    targetProviderMailboxId: String? = nil
+    targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = []
   ) {
     self.connection = connection
     self.messages = messages
     self.targetProviderMailboxId = targetProviderMailboxId
+    self.targetProviderStateIds = targetProviderStateIds
   }
 }
 
@@ -1579,6 +1600,7 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
 
   let id: Identity
   let providerMailboxIdsByConnection: [MailboxConnectionId: String]
+  let providerStateIdsByConnection: [MailboxConnectionId: Set<String>]
   let title: String
 
   static func shared(
@@ -1611,6 +1633,13 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
       return MailboxBulkMoveDestination(
         id: id,
         providerMailboxIdsByConnection: providerIds,
+        providerStateIdsByConnection: Dictionary(
+          uniqueKeysWithValues: connectionIds.compactMap { connectionId in
+            mailboxesByConnection[connectionId]?[id].map {
+              (connectionId, $0.providerStateIds)
+            }
+          }
+        ),
         title: firstMailbox.title
       )
     }
@@ -1630,7 +1659,8 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
         MailboxBulkActionBatch(
           connection: batch.connection,
           messages: batch.messages,
-          targetProviderMailboxId: providerMailboxId
+          targetProviderMailboxId: providerMailboxId,
+          targetProviderStateIds: providerStateIdsByConnection[batch.connection.id] ?? []
         )
       )
     }
@@ -2804,7 +2834,7 @@ private struct MailShellThreadRow: View {
 private struct ProviderMailActionButtons: View {
   let actions: Set<ProviderMailAction>
   let moveDestinations: [ProviderMailbox]
-  let perform: (ProviderMailAction, String?) -> Void
+  let perform: (ProviderMailAction, ProviderMailbox?) -> Void
 
   @ViewBuilder
   var body: some View {
@@ -2820,7 +2850,7 @@ private struct ProviderMailActionButtons: View {
     if actions.contains(.move), !moveDestinations.isEmpty {
       Menu("Move to") {
         ForEach(moveDestinations, id: \.id) { mailbox in
-          Button(mailbox.title) { perform(.move, mailbox.id) }
+          Button(mailbox.title) { perform(.move, mailbox) }
         }
       }
     }
@@ -3079,7 +3109,7 @@ struct MailShellConversationReader: View {
       collection: selection.selectedMailbox?.collection,
       allowsMove: !moveDestinations.isEmpty,
       allowsProviderMailboxMove: batches.allSatisfy {
-        $0.connection.providerId == .microsoftGraph
+        Self.allowsMoveFromProviderMailbox($0.connection.providerId)
       }
     )
     if !actions.isEmpty {
@@ -3115,25 +3145,32 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) -> some View {
+    let messages = selection.selectedMailboxMessages(
+      in: thread,
+      pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+    )
     let actions = Self.contextualProviderActions(
       supported: connection.capabilities.providerActions,
-      messages: thread.messages,
+      messages: messages,
       collection: selection.selectedMailbox?.collection,
       allowsMove: true,
-      allowsProviderMailboxMove: connection.providerId == .microsoftGraph
+      allowsProviderMailboxMove: Self.allowsMoveFromProviderMailbox(connection.providerId)
     )
     if !actions.isEmpty {
       Menu {
         let providerMailboxes = inboxViewModel.navigationSnapshot.providerMailboxes(
           for: connection.id
-        ).filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+        ).filter {
+          $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+        }
         ProviderMailActionButtons(
           actions: actions,
           moveDestinations: providerMailboxes
-        ) { action, targetProviderMailboxId in
+        ) { action, targetProviderMailbox in
           perform(
             action,
-            targetProviderMailboxId: targetProviderMailboxId,
+            targetProviderMailboxId: targetProviderMailbox?.id,
+            targetProviderStateIds: targetProviderMailbox?.providerStateIds ?? [],
             thread: thread,
             connection: connection
           )
@@ -3171,19 +3208,33 @@ struct MailShellConversationReader: View {
     {
       actions.remove(.move)
     }
-    if collection != .role(.trash) {
+    let messagesAreTrash =
+      !messages.isEmpty && messages.allSatisfy { $0.belongs(to: .trash) }
+    let messagesAreSpam =
+      !messages.isEmpty && messages.allSatisfy { $0.belongs(to: .spam) }
+    if collection != .role(.trash) && !messagesAreTrash {
       actions.remove(.restore)
     }
-    if collection != .role(.spam) {
+    if collection != .role(.spam) && !messagesAreSpam {
       actions.remove(.notSpam)
     }
-    if collection == .role(.trash) || collection == .role(.spam)
+    if collection == .role(.trash) || collection == .role(.spam) || messagesAreTrash
+      || messagesAreSpam
       || collection == .role(.sent)
       || messages.contains(where: { $0.belongs(to: .drafts) || $0.belongs(to: .sent) })
     {
       actions.remove(.spam)
     }
+    if messages.contains(where: {
+      $0.providerStateIds?.contains(EWSProviderMessage.archiveHierarchyStateId) == true
+    }) {
+      actions.subtract([.move, .restore, .spam])
+    }
     return actions
+  }
+
+  static func allowsMoveFromProviderMailbox(_ providerId: MailProviderId) -> Bool {
+    providerId == .microsoftGraph || providerId == .exchangeWebServices
   }
 
   private func bulkMoveDestinations(
@@ -3195,7 +3246,9 @@ struct MailShellConversationReader: View {
         (
           connectionId,
           inboxViewModel.navigationSnapshot.providerMailboxes(for: connectionId)
-            .filter { MailboxMessageCollection.isProviderMailboxId($0.id) }
+            .filter {
+              $0.isMoveDestination && MailboxMessageCollection.isProviderMailboxId($0.id)
+            }
         )
       }
     )
@@ -3208,6 +3261,7 @@ struct MailShellConversationReader: View {
   private func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = [],
     thread: MailboxThread,
     connection: MailboxConnection
   ) {
@@ -3215,6 +3269,7 @@ struct MailShellConversationReader: View {
       let didPerform = await mailActionViewModel.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
         for: selection.selectedMailboxMessages(
           in: thread,
           pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
@@ -3917,6 +3972,7 @@ final class GmailMailActionViewModel {
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String> = [],
     for messages: [MailboxMessageMetadata],
     connection: MailboxConnection
   ) async -> Bool {
@@ -3929,6 +3985,7 @@ final class GmailMailActionViewModel {
       try await service.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
         messages: messages,
         connection: connection,
         session: session
@@ -4337,6 +4394,7 @@ extension GmailMailActionViewModel {
       try await service.perform(
         action,
         targetProviderMailboxId: batch.targetProviderMailboxId,
+        targetProviderStateIds: batch.targetProviderStateIds,
         messages: batch.messages,
         connection: batch.connection,
         session: session

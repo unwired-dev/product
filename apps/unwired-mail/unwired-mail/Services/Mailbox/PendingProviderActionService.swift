@@ -22,6 +22,7 @@ struct PendingProviderAction: Codable, Equatable, Identifiable, Sendable {
   let sequence: UInt64
   var state: PendingProviderActionState
   let targetProviderMailboxId: String?
+  let targetProviderStateIds: Set<String>?
 
   var mailboxConnectionId: MailboxConnectionId {
     MailboxConnectionId(
@@ -142,6 +143,34 @@ private let defaultFailureDisposition:
     if error is URLError {
       return .transient
     }
+    if error is EWSAmbiguousProviderActionError {
+      return .userActionRequired
+    }
+    if let serviceError = error as? EWSServiceError {
+      switch serviceError {
+      case .authenticationRejected:
+        return .userActionRequired
+      case .invalidResponse:
+        return .userActionRequired
+      case .response(let code, _):
+        let status = code.split(separator: " ").last.flatMap { Int($0) }
+        if status == 408 || status == 409 || status == 425 || status == 429
+          || status.map({ $0 >= 500 }) == true
+          || [
+            "ErrorExceededConnectionCount",
+            "ErrorADUnavailable",
+            "ErrorInternalServerTransientError",
+            "ErrorInvalidChangeKey",
+            "ErrorIrresolvableConflict",
+            "ErrorMailboxStoreUnavailable",
+            "ErrorServerBusy",
+            "ErrorTimeoutExpired",
+          ].contains(code)
+        {
+          return .transient
+        }
+      }
+    }
     if let metadataError = error as? GmailMessageMetadataSyncError {
       switch metadataError {
       case .insufficientGmailScope, .missingLocalGmailTokens,
@@ -253,6 +282,7 @@ actor PendingProviderActionService {
   func enqueue(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String? = nil,
+    targetProviderStateIds: Set<String>? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -280,7 +310,8 @@ actor PendingProviderActionService {
           providerMailboxIdentity: connection.providerMailboxIdentity.value,
           sequence: nextSequence,
           state: .pending,
-          targetProviderMailboxId: targetProviderMailboxId
+          targetProviderMailboxId: targetProviderMailboxId,
+          targetProviderStateIds: targetProviderStateIds
         )
       )
       nextSequence += 1
@@ -312,7 +343,8 @@ actor PendingProviderActionService {
         return current.applying(
           pendingAction.action,
           providerId: connection.providerId,
-          targetProviderMailboxId: pendingAction.targetProviderMailboxId
+          targetProviderMailboxId: pendingAction.targetProviderMailboxId,
+          targetProviderStateIds: pendingAction.targetProviderStateIds
         )
       }
     }
@@ -459,14 +491,29 @@ actor PendingProviderActionService {
     messages: [MailboxMessageMetadata],
     removesContradictedActions: Bool = true,
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    isConfirmed: (
+      (
+        _ action: ProviderMailAction,
+        _ targetProviderMailboxId: String?,
+        _ messageIds: [String]
+      ) -> Bool
+    )? = nil
   ) throws {
     var actions = try store.load(productAccountId: session.productAccountId)
+    let actionIsConfirmed: (PendingProviderAction) -> Bool = { pendingAction in
+      isConfirmed?(
+        pendingAction.action,
+        pendingAction.targetProviderMailboxId,
+        pendingAction.messageIds
+      ) ?? pendingAction.isConfirmed(in: messages, providerId: connection.providerId)
+    }
     let confirmedActionIds = Set(
-      actions.filter {
-        $0.connectionId == connection.id.rawValue
-          && ($0.state == .providerConfirmed || $0.state == .userActionRequired)
-          && $0.isConfirmed(in: messages, providerId: connection.providerId)
+      actions.filter { pendingAction in
+        return pendingAction.connectionId == connection.id.rawValue
+          && (pendingAction.state == .providerConfirmed
+            || pendingAction.state == .userActionRequired)
+          && actionIsConfirmed(pendingAction)
       }.map(\.id)
     )
     let supersededActionIds = Set(
@@ -489,7 +536,7 @@ actor PendingProviderActionService {
           && action.messageIds.allSatisfy { messageId in
             messages.contains { $0.providerMessageId == messageId }
           }
-          && !action.isConfirmed(in: messages, providerId: connection.providerId)
+          && !actionIsConfirmed(action)
       }.map(\.id)
     )
     actions.removeAll {
@@ -824,17 +871,25 @@ extension MailboxMessageMetadata {
   fileprivate func applying(
     _ action: ProviderMailAction,
     providerId: MailProviderId,
-    targetProviderMailboxId: String?
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>?
   ) -> MailboxMessageMetadata {
     var states = Set(providerStateIds ?? ["INBOX"])
     switch action {
     case .archive:
       states.remove("INBOX")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       if providerId == .microsoftGraph {
         states.insert("ARCHIVE")
+      } else if providerId == .exchangeWebServices {
+        states.insert("ARCHIVE")
+        states.insert(EWSProviderMessage.archiveHierarchyStateId)
       }
     case .delete:
-      states = states.filter { ["IMPORTANT", "STARRED", "UNREAD"].contains($0) }
+      states = states.filter {
+        ["IMPORTANT", "STARRED", "UNREAD", EWSProviderMessage.archiveHierarchyStateId]
+          .contains($0)
+      }
       states.insert("TRASH")
     case .markRead:
       states.remove("UNREAD")
@@ -842,16 +897,27 @@ extension MailboxMessageMetadata {
       states.insert("UNREAD")
     case .move:
       states.remove("INBOX")
-      states = states.filter { !$0.hasPrefix("graph-folder:") }
+      states = states.filter {
+        !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
+      }
+      if providerId == .exchangeWebServices {
+        states.remove("SPAM")
+        states.remove("TRASH")
+        states.formUnion(targetProviderStateIds ?? [])
+      }
     case .notSpam:
       states.remove("SPAM")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       states.insert("INBOX")
     case .restore:
       states.remove("TRASH")
+      states = states.filter { !$0.hasPrefix("ews-folder:") }
       states.insert("INBOX")
     case .spam:
       states.remove("INBOX")
-      states = states.filter { !$0.hasPrefix("graph-folder:") }
+      states = states.filter {
+        !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
+      }
       states.insert("SPAM")
     case .star:
       states.insert("STARRED")

@@ -209,7 +209,8 @@ func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposit
   }
   if let urlError = error as? URLError {
     switch urlError.code {
-    case .dataNotAllowed, .internationalRoamingOff, .notConnectedToInternet:
+    case .cannotConnectToHost, .cannotFindHost, .dataNotAllowed, .dnsLookupFailed,
+      .internationalRoamingOff, .notConnectedToInternet:
       return .transient
     default:
       return .ambiguous
@@ -231,6 +232,33 @@ func outboxFailureDisposition(for error: Error) -> OutboxDeliveryFailureDisposit
   }
   if error as? MailboxConnectionAdapterError == .authorizationRequired {
     return .userActionRequired
+  }
+  if let ewsError = error as? EWSServiceError {
+    switch ewsError {
+    case .authenticationRejected:
+      return .userActionRequired
+    case .invalidResponse:
+      return .ambiguous
+    case .response(let code, _):
+      let status = code.split(separator: " ").last.flatMap { Int($0) }
+      if status.map({ $0 >= 500 }) == true
+        || status == 408 || status == 409 || status == 425
+        || code == "ErrorTimeoutExpired"
+      {
+        return .ambiguous
+      }
+      if status == 429
+        || [
+          "ErrorADUnavailable",
+          "ErrorExceededConnectionCount",
+          "ErrorInternalServerTransientError",
+          "ErrorMailboxStoreUnavailable",
+          "ErrorServerBusy",
+        ].contains(code)
+      {
+        return .transient
+      }
+    }
   }
   if case .tokenExchangeFailed(let status) = error as? MicrosoftGraphOAuthError,
     let status,

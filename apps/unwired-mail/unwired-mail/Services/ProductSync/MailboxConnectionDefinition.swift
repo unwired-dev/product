@@ -4,6 +4,7 @@ import Foundation
 struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
   let connectedAt: Int64
   let displayName: String
+  let ewsDefinition: EWSConnectionDefinition?
   let genericMailDefinition: GenericMailConnectionDefinition?
   let provider: String
   let providerAccountIdentifier: String
@@ -14,6 +15,7 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
   init(
     connectedAt: Int64,
     displayName: String,
+    ewsDefinition: EWSConnectionDefinition? = nil,
     genericMailDefinition: GenericMailConnectionDefinition? = nil,
     provider: String,
     providerAccountIdentifier: String,
@@ -21,6 +23,7 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
   ) {
     self.connectedAt = connectedAt
     self.displayName = displayName
+    self.ewsDefinition = ewsDefinition
     self.genericMailDefinition = genericMailDefinition
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
@@ -58,6 +61,25 @@ extension GenericMailConnectionDefinition {
       connectedAt: connectedAt,
       displayName: emailAddress,
       genericMailDefinition: self,
+      provider: connectionId.providerId.rawValue,
+      providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+      stableProviderConnectionKey: stableMailboxConnectionKey(
+        provider: connectionId.providerId.rawValue,
+        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+      )
+    )
+  }
+}
+
+extension EWSConnectionDefinition {
+  func synchronizedDefinition(
+    connectedAt: Int64,
+    displayName: String
+  ) -> MailboxConnectionDefinition {
+    MailboxConnectionDefinition(
+      connectedAt: connectedAt,
+      displayName: displayName,
+      ewsDefinition: self,
       provider: connectionId.providerId.rawValue,
       providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
       stableProviderConnectionKey: stableMailboxConnectionKey(
