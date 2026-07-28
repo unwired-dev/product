@@ -1807,13 +1807,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
-    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
-      return cached
-    }
     _ = try await authorizationForProviderAccess(
       connection: connection(id: message.connectionId, session: session),
       session: session
     )
+    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+      return cached
+    }
     return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
@@ -1912,7 +1912,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       connectionId: connection.id,
       localAuthorizationGeneration: authorization.authorizationGeneration,
       session: session
-    ) || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration {
+    )
+      || connection.authorizationGeneration != synchronizedDefinition.authorizationGeneration
+      || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration
+    {
       if isWithinSyncGate {
         try await performLocalCleanupWithoutLock(connection, session: session)
       } else {

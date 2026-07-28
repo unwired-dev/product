@@ -68,6 +68,15 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(staleConnection.authorizationState, .required)
     XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    do {
+      _ = try await adapter.syncInbox(
+        connection: authorizedConnection.withAuthorizationGeneration(0),
+        session: session
+      )
+      XCTFail("Expected a stale operation generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   func testLoadConnectionsReturnsConcurrentReaddObservedDuringRemovalCleanup() async throws {
@@ -578,7 +587,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
-  func testCachedBodyRemainsReadableWithStaleAuthorizationGeneration() async throws {
+  func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
     let client = RecordingIMAPClient()
@@ -618,16 +627,19 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       store: store
     )
 
-    let cached = try await staleAdapter.loadMessageBody(message: message, session: session)
-
-    XCTAssertEqual(cached.text, "Private body")
-    XCTAssertNotNil(
+    do {
+      _ = try await staleAdapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected stale authorization to reject a cached body fetch")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertNil(
       try authorizationStore.load(
         productAccountId: ProductAccountId(session.productAccountId),
         connectionId: connection.id
       )
     )
-    XCTAssertNotNil(
+    XCTAssertNil(
       try cache.loadMessageBody(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
