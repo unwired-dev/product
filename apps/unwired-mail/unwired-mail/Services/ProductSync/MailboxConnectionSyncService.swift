@@ -227,7 +227,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ connections: [MailboxConnectionDefinition],
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    return try await update(session: session) { payload in
+    return try await update(session: session) { payload, _ in
       var changed = false
       let activeIds = Set(payload.connections.map(\.id))
       let removedIds = Set(
@@ -262,23 +262,29 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       minimumGeneration: currentGeneration + 1,
       session: session
     )
-    return try await update(session: session) { payload in
+    return try await update(session: session) { payload, storedPayload in
       let connection = payload.connections.first { $0.id == connectionId }
+      let storedConnection = storedPayload.connections.first { $0.id == connectionId }
       let removal = payload.removals.first { $0.connectionId == connectionId }
       let hadConnection = connection != nil
       let hadRemoval = removal != nil
       guard hadConnection || !hadRemoval else { return false }
 
+      let retainedGeneration = try await retainGenerationFloor(
+        connectionId,
+        minimumGeneration: max(
+          generation,
+          (storedConnection?.authorizationGeneration ?? 0) + 1
+        ),
+        session: session
+      )
       payload.connections.removeAll { $0.id == connectionId }
       payload.removals.removeAll { $0.connectionId == connectionId }
       payload.removals.append(
         MailboxConnectionRemovalTombstone(
           authorizationGeneration: max(
-            generation,
-            max(
-              connection?.authorizationGeneration ?? generation,
-              removal?.authorizationGeneration ?? generation
-            )
+            retainedGeneration,
+            removal?.authorizationGeneration ?? retainedGeneration
           ),
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
@@ -304,7 +310,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ definition: MailboxConnectionDefinition,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    return try await update(session: session) { payload in
+    return try await update(session: session) { payload, _ in
       let existingGeneration = payload.connections.first {
         $0.id == definition.id
       }?.authorizationGeneration
@@ -333,7 +339,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ connectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    try await update(session: session) { payload in
+    try await update(session: session) { payload, _ in
       if let connectionId,
         !payload.connections.contains(where: { $0.id == connectionId })
       {
@@ -349,16 +355,18 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private func update(
     session: ProductAccountSessionSnapshot,
-    mutation: (inout MailboxConnectionSyncPayload) async throws -> Bool
+    mutation:
+      (inout MailboxConnectionSyncPayload, MailboxConnectionSyncPayload) async throws -> Bool
   ) async throws -> MailboxConnectionSyncSnapshot {
     for attempt in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await loadRemotePayload(session: session)
       let generationPayload = try await loadGenerationRemotePayload(session: session)
+      let storedPayload = try decrypt(remotePayload, session: session)
       var payload = applyGenerationFloors(
-        try decrypt(remotePayload, session: session),
+        storedPayload,
         ledger: try decryptGenerationLedger(generationPayload, session: session)
       )
-      guard try await mutation(&payload) else {
+      guard try await mutation(&payload, storedPayload) else {
         try refreshCache(payload, remotePayload: remotePayload, session: session)
         return snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }

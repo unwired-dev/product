@@ -170,6 +170,31 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(convergedSnapshot.removedConnectionIds.isEmpty)
   }
 
+  func testRemovalAdvancesGenerationBeyondConcurrentReauthorization() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    services.transport.afterGenerationFloorWrite = {
+      _ = try await services.secondDevice.saveConnection(
+        Self.connection,
+        session: self.secondDeviceSession
+      )
+    }
+
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let recreatedSnapshot = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(recreatedSnapshot.connections.first?.authorizationGeneration, 2)
+  }
+
   func testLegacyWriterCannotResetRetainedAuthorizationGeneration() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
@@ -570,6 +595,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
 private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadTransport {
   var additionalPayloads: [EncryptedProductSyncPayload] = []
+  var afterGenerationFloorWrite: (() async throws -> Void)?
   var loadError: Error?
   var payloadLoadErrors: [String: Error] = [:]
   var payload: EncryptedProductSyncPayload? {
@@ -631,7 +657,14 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     guard existing?.updatedAt == expectedUpdatedAt else {
       return try XCTUnwrap(existing)
     }
-    return write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+    let payload = write(payloadIdentifier: payloadIdentifier, encryptedPayload: encryptedPayload)
+    if payloadIdentifier == "mailbox-authorization-generations-v1",
+      let afterGenerationFloorWrite
+    {
+      self.afterGenerationFloorWrite = nil
+      try await afterGenerationFloorWrite()
+    }
+    return payload
   }
 
   private func write(
