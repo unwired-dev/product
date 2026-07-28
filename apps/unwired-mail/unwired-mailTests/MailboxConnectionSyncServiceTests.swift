@@ -3,7 +3,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable type_body_length
+// swiftlint:disable file_length type_body_length
 final class MailboxConnectionSyncServiceTests: XCTestCase {
   private let firstDeviceSession = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
@@ -138,6 +138,36 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     XCTAssertTrue(convergedSnapshot.connections.isEmpty)
     XCTAssertEqual(convergedSnapshot.removedConnectionIds, [Self.connection.id])
+  }
+
+  func testReaddedConnectionAdvancesGenerationBeforeOfflineDeviceReconciles() async throws {
+    let services = try makeServices()
+    let originalSnapshot = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    let offlineDefinition = try XCTUnwrap(originalSnapshot.connections.first)
+
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    let recreatedSnapshot = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.secondDevice.reconcileConnections(
+      [offlineDefinition],
+      session: secondDeviceSession
+    )
+    let convergedSnapshot = try await services.firstDevice.loadSnapshot(
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(offlineDefinition.authorizationGeneration, 0)
+    XCTAssertEqual(recreatedSnapshot.connections.first?.authorizationGeneration, 1)
+    XCTAssertEqual(convergedSnapshot.connections.first?.authorizationGeneration, 1)
+    XCTAssertTrue(convergedSnapshot.removedConnectionIds.isEmpty)
   }
 
   func testRemovingDefaultConnectionClearsDefaultWithoutSubstitution() async throws {

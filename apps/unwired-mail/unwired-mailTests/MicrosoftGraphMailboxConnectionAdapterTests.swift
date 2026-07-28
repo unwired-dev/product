@@ -126,6 +126,49 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertFalse(tokens.hasFullMailAccess)
+    XCTAssertEqual(tokens.authorizationGeneration, 0)
+  }
+
+  func testGraphConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition.withAuthorizationGeneration(1)]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        authorizationGeneration: 0,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+
+    let staleConnections = try await adapter.loadConnections(session: session)
+    let staleConnection = try XCTUnwrap(staleConnections.first)
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        authorizationGeneration: 1,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let authorizedConnections = try await adapter.loadConnections(session: session)
+    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+
+    XCTAssertEqual(staleConnection.authorizationState, .required)
+    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
   }
 
   // swiftlint:disable:next function_body_length

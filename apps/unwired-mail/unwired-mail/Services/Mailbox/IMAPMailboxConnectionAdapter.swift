@@ -1539,9 +1539,11 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       let isAuthorized =
         authorization.map {
-          hasMatchingCredentials($0.definition, genericDefinition)
+          $0.authorizationGeneration == definition.authorizationGeneration
+            && hasMatchingCredentials($0.definition, genericDefinition)
         } ?? false
       return MailboxConnection(
+        authorizationGeneration: definition.authorizationGeneration,
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities: isAuthorized ? .imapRead : .none,
         connectedAt: definition.connectedAt,
@@ -1820,15 +1822,20 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
     guard
-      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-        .genericMailDefinition
+      let synchronizedDefinition = snapshot.connections.first(where: { $0.id == connection.id }),
+      let definition = synchronizedDefinition.genericMailDefinition
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    guard hasMatchingCredentials(authorization.definition, definition) else {
+    guard
+      authorization.authorizationGeneration
+        == synchronizedDefinition.authorizationGeneration,
+      hasMatchingCredentials(authorization.definition, definition)
+    else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: authorization.authorizationGeneration,
       credential: authorization.credential,
       definition: definition
     )

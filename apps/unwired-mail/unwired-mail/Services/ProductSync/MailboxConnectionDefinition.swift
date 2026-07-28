@@ -2,6 +2,7 @@ import CryptoKit
 import Foundation
 
 struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
+  let authorizationGeneration: Int
   let connectedAt: Int64
   let displayName: String
   let ewsDefinition: EWSConnectionDefinition?
@@ -13,6 +14,7 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
   let stableProviderConnectionKey: String
 
   init(
+    authorizationGeneration: Int = 0,
     connectedAt: Int64,
     displayName: String,
     ewsDefinition: EWSConnectionDefinition? = nil,
@@ -21,6 +23,7 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
     providerAccountIdentifier: String,
     stableProviderConnectionKey: String
   ) {
+    self.authorizationGeneration = authorizationGeneration
     self.connectedAt = connectedAt
     self.displayName = displayName
     self.ewsDefinition = ewsDefinition
@@ -28,6 +31,31 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
     self.stableProviderConnectionKey = stableProviderConnectionKey
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    connectedAt = try container.decode(Int64.self, forKey: .connectedAt)
+    displayName = try container.decode(String.self, forKey: .displayName)
+    ewsDefinition = try container.decodeIfPresent(
+      EWSConnectionDefinition.self,
+      forKey: .ewsDefinition
+    )
+    genericMailDefinition = try container.decodeIfPresent(
+      GenericMailConnectionDefinition.self,
+      forKey: .genericMailDefinition
+    )
+    provider = try container.decode(String.self, forKey: .provider)
+    providerAccountIdentifier = try container.decode(
+      String.self,
+      forKey: .providerAccountIdentifier
+    )
+    stableProviderConnectionKey = try container.decode(
+      String.self,
+      forKey: .stableProviderConnectionKey
+    )
   }
 
   var id: MailboxConnectionId {
@@ -38,11 +66,36 @@ struct MailboxConnectionDefinition: Codable, Equatable, Identifiable, Sendable {
       )
     )
   }
+
+  func withAuthorizationGeneration(_ authorizationGeneration: Int) -> Self {
+    MailboxConnectionDefinition(
+      authorizationGeneration: authorizationGeneration,
+      connectedAt: connectedAt,
+      displayName: displayName,
+      ewsDefinition: ewsDefinition,
+      genericMailDefinition: genericMailDefinition,
+      provider: provider,
+      providerAccountIdentifier: providerAccountIdentifier,
+      stableProviderConnectionKey: stableProviderConnectionKey
+    )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case authorizationGeneration
+    case connectedAt
+    case displayName
+    case ewsDefinition
+    case genericMailDefinition
+    case provider
+    case providerAccountIdentifier
+    case stableProviderConnectionKey
+  }
 }
 
 extension MailboxConnection {
   var definition: MailboxConnectionDefinition {
     return MailboxConnectionDefinition(
+      authorizationGeneration: authorizationGeneration,
       connectedAt: connectedAt,
       displayName: displayName,
       provider: providerId.rawValue,
@@ -56,8 +109,12 @@ extension MailboxConnection {
 }
 
 extension GenericMailConnectionDefinition {
-  func synchronizedDefinition(connectedAt: Int64) -> MailboxConnectionDefinition {
+  func synchronizedDefinition(
+    authorizationGeneration: Int = 0,
+    connectedAt: Int64
+  ) -> MailboxConnectionDefinition {
     MailboxConnectionDefinition(
+      authorizationGeneration: authorizationGeneration,
       connectedAt: connectedAt,
       displayName: emailAddress,
       genericMailDefinition: self,
@@ -73,10 +130,12 @@ extension GenericMailConnectionDefinition {
 
 extension EWSConnectionDefinition {
   func synchronizedDefinition(
+    authorizationGeneration: Int = 0,
     connectedAt: Int64,
     displayName: String
   ) -> MailboxConnectionDefinition {
     MailboxConnectionDefinition(
+      authorizationGeneration: authorizationGeneration,
       connectedAt: connectedAt,
       displayName: displayName,
       ewsDefinition: self,
@@ -109,6 +168,7 @@ extension MailboxConnectionDefinition {
     trustedDeviceId: String
   ) -> MailboxConnection {
     MailboxConnection(
+      authorizationGeneration: authorizationGeneration,
       authorizationState: .required,
       capabilities: .none,
       connectedAt: connectedAt,

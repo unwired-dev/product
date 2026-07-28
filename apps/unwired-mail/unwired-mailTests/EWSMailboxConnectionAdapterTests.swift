@@ -161,6 +161,48 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testEWSConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let definition = makeEWSDefinition()
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: 1,
+      connectedAt: 1_781_200_000_000,
+      displayName: definition.emailAddress
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        authorizationGeneration: 0,
+        credential: "password",
+        definition: definition
+      ),
+      productAccountId: session.productAccountId
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: synchronizedDefinition
+      ),
+      metadataStore: InMemoryEWSMetadataStore()
+    )
+
+    let staleConnections = try await adapter.loadConnections(session: session)
+    let staleConnection = try XCTUnwrap(staleConnections.first)
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        authorizationGeneration: 1,
+        credential: "password",
+        definition: definition
+      ),
+      productAccountId: session.productAccountId
+    )
+    let authorizedConnections = try await adapter.loadConnections(session: session)
+    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+
+    XCTAssertEqual(staleConnection.authorizationState, .required)
+    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+  }
+
   func testSetupCancellationBeforePersistenceLeavesNoConnection() async throws {
     let client = RecordingEWSClient()
     let definitions = RecordingEWSDefinitionSyncService()

@@ -123,8 +123,33 @@ struct GenericMailConnectionDefinition: Codable, Equatable, Sendable {
 }
 
 struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
+  let authorizationGeneration: Int
   let credential: String
   let definition: GenericMailConnectionDefinition
+
+  init(
+    authorizationGeneration: Int = 0,
+    credential: String,
+    definition: GenericMailConnectionDefinition
+  ) {
+    self.authorizationGeneration = authorizationGeneration
+    self.credential = credential
+    self.definition = definition
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    credential = try container.decode(String.self, forKey: .credential)
+    definition = try container.decode(GenericMailConnectionDefinition.self, forKey: .definition)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case authorizationGeneration
+    case credential
+    case definition
+  }
 }
 
 enum MailTransportVersion: Int, Equatable, Sendable {
@@ -687,6 +712,7 @@ struct GenericMailSetupService {
 }
 
 extension GenericMailSetupService {
+  // swiftlint:disable:next function_body_length
   fileprivate func persistAuthorizationAndDefinition(
     _ definition: GenericMailConnectionDefinition,
     credential: String,
@@ -706,17 +732,41 @@ extension GenericMailSetupService {
           connectionId: definition.connectionId
         )
         try authorizationStore.save(
-          DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
+          DeviceLocalGenericMailAuthorization(
+            authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+            credential: credential,
+            definition: definition
+          ),
           productAccountId: productAccountId
         )
         persistenceCleanupGeneration = cleanupGeneration
       }
       if let syncSession {
         do {
-          _ = try await definitionSyncService.saveDefinition(
-            definition.synchronizedDefinition(connectedAt: clock()),
+          let snapshot = try await definitionSyncService.saveDefinition(
+            definition.synchronizedDefinition(
+              authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+              connectedAt: clock()
+            ),
             session: syncSession
           )
+          let authorizationGeneration =
+            snapshot.connections.first(where: { $0.id == definition.connectionId })?
+            .authorizationGeneration
+            ?? 0
+          try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+            guard cleanupGeneration == persistenceCleanupGeneration else {
+              throw CancellationError()
+            }
+            try authorizationStore.save(
+              DeviceLocalGenericMailAuthorization(
+                authorizationGeneration: authorizationGeneration,
+                credential: credential,
+                definition: definition
+              ),
+              productAccountId: productAccountId
+            )
+          }
         } catch {
           await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
             guard cleanupGeneration == persistenceCleanupGeneration else { return }

@@ -314,6 +314,81 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(secondDeviceAfter.first?.trustedDeviceId, secondDeviceSession.trustedDeviceId)
   }
 
+  func testGmailAdapterRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let staleStatus = RecordingAdapterConnectionService.status
+    let recreatedDefinition = staleStatus.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    ).definition.withAuthorizationGeneration(1)
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [recreatedDefinition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let staleConnectionService = RecordingAdapterConnectionService()
+    staleConnectionService.statuses = [staleStatus]
+    let currentConnectionService = RecordingAdapterConnectionService()
+    currentConnectionService.statuses = [
+      GmailProviderConnectionStatus(
+        authorizationGeneration: 1,
+        connectedAt: staleStatus.connectedAt,
+        emailAddress: staleStatus.emailAddress,
+        lastVerifiedAt: staleStatus.lastVerifiedAt,
+        provider: staleStatus.provider,
+        providerAccountIdentifier: staleStatus.providerAccountIdentifier,
+        trustedDeviceId: staleStatus.trustedDeviceId,
+        updatedAt: staleStatus.updatedAt
+      )
+    ]
+    let staleAdapter = GmailMailboxConnectionAdapter(
+      connectionService: staleConnectionService,
+      definitionSyncService: definitionSyncService
+    )
+    let currentAdapter = GmailMailboxConnectionAdapter(
+      connectionService: currentConnectionService,
+      definitionSyncService: definitionSyncService
+    )
+
+    let staleConnections = try await staleAdapter.loadConnections(session: session)
+    let currentConnections = try await currentAdapter.loadConnections(session: session)
+
+    XCTAssertEqual(staleConnections.first?.authorizationState, .required)
+    XCTAssertEqual(currentConnections.first?.authorizationState, .authorized)
+  }
+
+  func testGmailProviderAccessRequiresPersistedAuthorizationGeneration() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    let bodyReader = RecordingAdapterMessageReader()
+    let adapter = GmailMailboxConnectionAdapter(
+      bodyReader: bodyReader,
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition.withAuthorizationGeneration(1)],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      )
+    )
+
+    do {
+      _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      XCTFail("Expected authorization to be required")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .authorizationRequired)
+    }
+    XCTAssertTrue(bodyReader.loadedProviderAccountIdentifiers.isEmpty)
+  }
+
   func testViewModelSelectsUnauthorizedSyncedDefaultWithoutSubstitution() async {
     let localStatus = GmailProviderConnectionStatus(
       connectedAt: 1_781_200_000_000,
@@ -4979,7 +5054,6 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     providerAccountIdentifier: String,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus? {
-    if let loadError { throw loadError }
     if let loadStoredConnectionError { throw loadStoredConnectionError }
     return statuses.first {
       $0.providerAccountIdentifier == providerAccountIdentifier

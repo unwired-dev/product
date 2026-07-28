@@ -364,6 +364,7 @@ _Avoid_: Password reset, support recovery
 - **Remove Device Authorization** affects only the current device and preserves the synchronized **Mailbox Connection**
 - **Remove Mailbox Connection Everywhere** removes synchronized connection and product-owned state from all trusted devices but never deletes provider mail
 - A trusted device that receives **Remove Mailbox Connection Everywhere** purges its **Mailbox Authorization** and cached mail for that connection before any later provider access or synchronization
+- Recreating a removed **Mailbox Connection** with the same **Stable Provider Mailbox Identity** advances a synchronized authorization generation; every device-local **Mailbox Authorization** is bound to one generation, so an offline credential from before removal requires reauthorization after reconciliation
 - After wake or reconnect, a trusted device processes synchronized connection-removal tombstones before it resumes any queued **Provider Mail Action** or **Outgoing Delivery Attempt** for that connection
 - **Delete Product Account** requires recent authentication and explicit confirmation, has no recovery grace period, and cannot be undone
 - **Delete Product Account** removes backend operational account data, encrypted Product Sync payloads, and push routes and instructs reachable devices to purge local product data and mailbox credentials

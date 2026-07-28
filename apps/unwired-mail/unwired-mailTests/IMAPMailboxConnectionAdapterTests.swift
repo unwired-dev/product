@@ -34,6 +34,41 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
+  func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = RecordingIMAPAuthorizationStore()
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 0,
+        credential: "secret",
+        definition: definition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let adapter = try makeAdapter(
+      authorizationGeneration: 1,
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [definition]
+    )
+
+    let staleConnections = try await adapter.loadConnections(session: session)
+    let staleConnection = try XCTUnwrap(staleConnections.first)
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 1,
+        credential: "secret",
+        definition: definition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let authorizedConnections = try await adapter.loadConnections(session: session)
+    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+
+    XCTAssertEqual(staleConnection.authorizationState, .required)
+    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+  }
+
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -639,6 +674,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   private func makeAdapter(
+    authorizationGeneration: Int = 0,
     authorizationStore: RecordingIMAPAuthorizationStore,
     cache: GmailMessageBodyCaching = RecordingIMAPBodyCache(),
     client: RecordingIMAPClient,
@@ -652,6 +688,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       cache: cache,
       client: client,
       definitionSyncService: RecordingIMAPDefinitionSyncService(
+        authorizationGeneration: authorizationGeneration,
         definitions: definitions
       ),
       keyMaterialStore: keyStore,
@@ -771,10 +808,16 @@ private final class RecordingIMAPAuthorizationStore: GenericMailAuthorizationPer
 private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   private var snapshot: MailboxConnectionSyncSnapshot
 
-  init(definitions: [GenericMailConnectionDefinition]) {
+  init(
+    authorizationGeneration: Int = 0,
+    definitions: [GenericMailConnectionDefinition]
+  ) {
     snapshot = MailboxConnectionSyncSnapshot(
       connections: definitions.enumerated().map {
-        $0.element.synchronizedDefinition(connectedAt: Int64($0.offset + 1))
+        $0.element.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: Int64($0.offset + 1)
+        )
       },
       defaultSendingConnectionId: nil,
       removedConnectionIds: [],

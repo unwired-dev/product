@@ -66,26 +66,57 @@ extension MailboxConnectionCapabilities {
 
 struct MicrosoftGraphTokens: Codable, Equatable, Sendable {
   let accessToken: String
+  let authorizationGeneration: Int
   let expiresAtMilliseconds: Int64
   let grantedScopes: Set<String>?
   let refreshToken: String
 
   init(
     accessToken: String,
+    authorizationGeneration: Int = 0,
     expiresAtMilliseconds: Int64,
     grantedScopes: Set<String>? = nil,
     refreshToken: String
   ) {
     self.accessToken = accessToken
+    self.authorizationGeneration = authorizationGeneration
     self.expiresAtMilliseconds = expiresAtMilliseconds
     self.grantedScopes = grantedScopes
     self.refreshToken = refreshToken
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    accessToken = try container.decode(String.self, forKey: .accessToken)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    expiresAtMilliseconds = try container.decode(Int64.self, forKey: .expiresAtMilliseconds)
+    grantedScopes = try container.decodeIfPresent(Set<String>.self, forKey: .grantedScopes)
+    refreshToken = try container.decode(String.self, forKey: .refreshToken)
   }
 
   var hasFullMailAccess: Bool {
     guard let grantedScopes else { return false }
     let normalized = Set(grantedScopes.map { $0.lowercased() })
     return normalized.contains("mail.readwrite") && normalized.contains("mail.send")
+  }
+
+  func withAuthorizationGeneration(_ authorizationGeneration: Int) -> Self {
+    MicrosoftGraphTokens(
+      accessToken: accessToken,
+      authorizationGeneration: authorizationGeneration,
+      expiresAtMilliseconds: expiresAtMilliseconds,
+      grantedScopes: grantedScopes,
+      refreshToken: refreshToken
+    )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case accessToken
+    case authorizationGeneration
+    case expiresAtMilliseconds
+    case grantedScopes
+    case refreshToken
   }
 }
 
@@ -2560,6 +2591,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           && definition.providerAccountIdentifier == account.id
       }
       let connection = MailboxConnection(
+        authorizationGeneration: previousDefinition?.authorizationGeneration ?? 0,
         authorizationState: .authorized,
         capabilities: .microsoftGraph,
         connectedAt: previousDefinition?.connectedAt ?? timestamp,
@@ -2573,7 +2605,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       let previousTokens = try savedTokens(for: account, session: session)
       guard isSessionCurrent(session) else { return nil }
       try tokenStore.save(
-        tokens,
+        tokens.withAuthorizationGeneration(connection.authorizationGeneration),
         productAccountId: session.productAccountId,
         providerAccountIdentifier: account.id
       )
@@ -2582,8 +2614,20 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           restore(previousTokens, for: account, session: session)
           return nil
         }
-        _ = try await definitionSyncService.saveConnection(connection, session: session)
-        return connection
+        let savedSnapshot = try await definitionSyncService.saveConnection(
+          connection,
+          session: session
+        )
+        let savedGeneration =
+          savedSnapshot.connections.first(where: { $0.id == connection.id })?
+          .authorizationGeneration
+          ?? connection.authorizationGeneration
+        try tokenStore.save(
+          tokens.withAuthorizationGeneration(savedGeneration),
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: account.id
+        )
+        return connection.withAuthorizationGeneration(savedGeneration)
       } catch {
         restore(previousTokens, for: account, session: session)
         throw error
@@ -2656,7 +2700,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         try tokenStore.load(
           productAccountId: session.productAccountId,
           providerAccountIdentifier: definition.providerAccountIdentifier
-        )?.hasFullMailAccess == true
+        ).map {
+          $0.hasFullMailAccess
+            && $0.authorizationGeneration == definition.authorizationGeneration
+        } == true
       return placeholderConnection(
         definition: definition,
         session: session,
@@ -3495,10 +3542,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerAccountIdentifier: connection.providerMailboxIdentity.value
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
+    guard
+      let definition = snapshot.connections.first(where: { $0.id == connection.id })
+    else { throw MailboxConnectionAdapterError.connectionRemoved }
+    guard tokens.authorizationGeneration == definition.authorizationGeneration else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     let refreshBoundary = Int64(now().addingTimeInterval(60).timeIntervalSince1970 * 1_000)
     if tokens.expiresAtMilliseconds <= refreshBoundary {
       do {
         tokens = try await authorizer.refresh(tokens)
+          .withAuthorizationGeneration(definition.authorizationGeneration)
       } catch MicrosoftGraphOAuthError.authorizationRejected {
         try tokenStore.clear(
           productAccountId: session.productAccountId,
@@ -3530,7 +3584,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       return tokens.accessToken
     }
     do {
+      let authorizationGeneration = tokens.authorizationGeneration
       tokens = try await authorizer.refresh(tokens)
+        .withAuthorizationGeneration(authorizationGeneration)
     } catch MicrosoftGraphOAuthError.authorizationRejected {
       return nil
     }
@@ -3583,6 +3639,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     let refreshed: MicrosoftGraphTokens
     do {
       refreshed = try await authorizer.refresh(tokens)
+        .withAuthorizationGeneration(tokens.authorizationGeneration)
     } catch MicrosoftGraphOAuthError.authorizationRejected {
       try tokenStore.clear(
         productAccountId: session.productAccountId,
@@ -3619,6 +3676,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectionId: definition.id
       )?.folders.map(\.folder)
     return MailboxConnection(
+      authorizationGeneration: definition.authorizationGeneration,
       authorizationState: authorized ? .authorized : .required,
       capabilities: authorized ? .microsoftGraph(folders: folders ?? []) : .none,
       connectedAt: definition.connectedAt,

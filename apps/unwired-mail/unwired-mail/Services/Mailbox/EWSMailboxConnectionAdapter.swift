@@ -173,18 +173,37 @@ struct EWSConnectionDefinition: Codable, Equatable, Sendable {
 /// try store.save(authorization, productAccountId: accountId)
 /// ```
 struct DeviceLocalEWSAuthorization: Codable, Equatable, Sendable {
+  let authorizationGeneration: Int
   let credential: String
   let definition: EWSConnectionDefinition
   let hasOnlineArchive: Bool?
 
   init(
+    authorizationGeneration: Int = 0,
     credential: String,
     definition: EWSConnectionDefinition,
     hasOnlineArchive: Bool? = nil
   ) {
+    self.authorizationGeneration = authorizationGeneration
     self.credential = credential
     self.definition = definition
     self.hasOnlineArchive = hasOnlineArchive
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    credential = try container.decode(String.self, forKey: .credential)
+    definition = try container.decode(EWSConnectionDefinition.self, forKey: .definition)
+    hasOnlineArchive = try container.decodeIfPresent(Bool.self, forKey: .hasOnlineArchive)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case authorizationGeneration
+    case credential
+    case definition
+    case hasOnlineArchive
   }
 }
 
@@ -690,23 +709,41 @@ struct EWSSetupService {
     let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
     guard isSessionCurrent(session) else { throw CancellationError() }
     let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
-    let connectedAt =
-      synchronizedSnapshot.connections
-      .first(where: { $0.id == definition.connectionId })?.connectedAt
-      ?? timestamp
+    let synchronizedDefinition = synchronizedSnapshot.connections
+      .first(where: { $0.id == definition.connectionId })
+    let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
+    let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
     let previous = try authorizationStore.load(
       productAccountId: session.productAccountId,
       connectionId: definition.connectionId
     )
+    authorization = DeviceLocalEWSAuthorization(
+      authorizationGeneration: authorizationGeneration,
+      credential: authorization.credential,
+      definition: authorization.definition,
+      hasOnlineArchive: authorization.hasOnlineArchive
+    )
     try authorizationStore.save(authorization, productAccountId: session.productAccountId)
     do {
-      _ = try await definitionSyncService.saveDefinition(
+      let savedSnapshot = try await definitionSyncService.saveDefinition(
         definition.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
           connectedAt: connectedAt,
           displayName: account.primaryEmailAddress
         ),
         session: session
       )
+      let savedGeneration =
+        savedSnapshot.connections.first(where: { $0.id == definition.connectionId })?
+        .authorizationGeneration
+        ?? authorizationGeneration
+      authorization = DeviceLocalEWSAuthorization(
+        authorizationGeneration: savedGeneration,
+        credential: authorization.credential,
+        definition: authorization.definition,
+        hasOnlineArchive: authorization.hasOnlineArchive
+      )
+      try authorizationStore.save(authorization, productAccountId: session.productAccountId)
     } catch {
       if let previous {
         try? authorizationStore.save(previous, productAccountId: session.productAccountId)
@@ -720,6 +757,7 @@ struct EWSSetupService {
     }
 
     return MailboxConnection(
+      authorizationGeneration: authorization.authorizationGeneration,
       authorizationState: .authorized,
       capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
       connectedAt: connectedAt,
@@ -1566,6 +1604,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let authorized =
         authorization?
         .definition.matchesAuthorizationScope(ewsDefinition) == true
+        && authorization?.authorizationGeneration == definition.authorizationGeneration
       let metadataSnapshot = try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: definition.id
@@ -1575,6 +1614,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         ?? authorization?.hasOnlineArchive
         ?? false
       return MailboxConnection(
+        authorizationGeneration: definition.authorizationGeneration,
         authorizationState: authorized ? .authorized : .required,
         capabilities: authorized
           ? .exchangeWebServices(hasOnlineArchive: hasOnlineArchive)
@@ -2670,13 +2710,19 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
     guard
-      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-        .ewsDefinition
+      let synchronizedDefinition = snapshot.connections.first(where: {
+        $0.id == connection.id
+      }),
+      let definition = synchronizedDefinition.ewsDefinition
     else { throw MailboxConnectionAdapterError.connectionRemoved }
-    guard authorization.definition.matchesAuthorizationScope(definition) else {
+    guard
+      authorization.authorizationGeneration == synchronizedDefinition.authorizationGeneration,
+      authorization.definition.matchesAuthorizationScope(definition)
+    else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return DeviceLocalEWSAuthorization(
+      authorizationGeneration: authorization.authorizationGeneration,
       credential: authorization.credential,
       definition: definition
     )
