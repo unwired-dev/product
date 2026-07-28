@@ -2790,10 +2790,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 }
 
 extension GmailMailboxConnectionAdapter: GmailConnectionAuthorizationChecking {
-  func hasLocalAuthorization(
+  func hasActiveAuthorization(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
-  ) throws -> Bool {
-    try connectionService.hasLocalAuthorization(connection, session: session)
+  ) async throws -> Bool {
+    guard try connectionService.hasLocalAuthorization(connection, session: session) else {
+      return false
+    }
+    do {
+      try await ensureConnectionIsActive(connection.mailboxConnectionId, session: session)
+      return true
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      return false
+    } catch MailboxConnectionAdapterError.authorizationRequired {
+      return false
+    }
   }
 }

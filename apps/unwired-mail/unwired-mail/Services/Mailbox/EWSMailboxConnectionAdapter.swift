@@ -704,7 +704,7 @@ struct EWSSetupService {
     self.syncGate = syncGate
   }
 
-  // swiftlint:disable function_body_length
+  // swiftlint:disable cyclomatic_complexity function_body_length
   /// Verifies the server, mailbox identity, version, and required roles before persisting setup.
   func connect(
     authorizationMethod: MailAuthorizationMethod,
@@ -836,8 +836,33 @@ struct EWSSetupService {
           session: session
         )
       }
+      let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+      guard
+        !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
+        let currentDefinition = currentSnapshot.connections.first(where: {
+          $0.id == definition.connectionId
+        })
+      else {
+        throw MailboxConnectionAdapterError.connectionRemoved
+      }
+      if try definitionSyncService.requiresLocalCleanup(
+        in: currentSnapshot,
+        connectionId: definition.connectionId,
+        localAuthorizationGeneration: savedGeneration,
+        session: session
+      ) {
+        try await localStateCleaner.clear(
+          connectionId: definition.connectionId,
+          session: session
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: currentSnapshot,
+          connectionId: definition.connectionId,
+          session: session
+        )
+      }
       let savedAuthorization = DeviceLocalEWSAuthorization(
-        authorizationGeneration: savedGeneration,
+        authorizationGeneration: currentDefinition.authorizationGeneration,
         credential: authorization.credential,
         definition: authorization.definition,
         hasOnlineArchive: authorization.hasOnlineArchive
@@ -857,7 +882,7 @@ struct EWSSetupService {
       )
     }
   }
-  // swiftlint:enable function_body_length
+  // swiftlint:enable cyclomatic_complexity function_body_length
 }
 
 enum EWSFolderRole: String, CaseIterable, Codable, Equatable, Hashable, Sendable {

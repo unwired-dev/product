@@ -1609,6 +1609,48 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
   }
 
+  func testGmailWakeupRejectsStaleGenerationBeforeBackgroundDeadlineFallback() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let notificationDelivery = RecordingNotificationDelivery()
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.localAuthorizationAvailable = false
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      hasProcessingTimeRemaining: { false },
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    XCTAssertEqual(watchStore.clearedProductAccountId, session.productAccountId)
+    XCTAssertEqual(
+      watchStore.clearedProviderAccountIdentifier,
+      connection.providerAccountIdentifier
+    )
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupDoesNotShowGenericFallbackAfterBackgroundDeadlineWithoutRules()
     async throws
   {
@@ -3387,10 +3429,10 @@ private final class RecordingPushGmailMetadataSyncService:
   var syncError: Error?
   var usesUnavailableHistoryDelta = false
 
-  func hasLocalAuthorization(
+  func hasActiveAuthorization(
     _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
-  ) throws -> Bool {
+  ) async throws -> Bool {
     localAuthorizationAvailable
   }
 

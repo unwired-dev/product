@@ -3158,24 +3158,24 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let observed = try await loadMailbox(.allObserved, connection: connection, session: session)
+    let recentCutoff = referenceDate.addingTimeInterval(-30 * 24 * 60 * 60)
+    let allowed = observed.messages.filter { message in
+      let states = Set(message.providerStateIds ?? [])
+      return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"])
+    }
+    let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
+    let recent = allowed.filter { message in
+      message.providerInternalDateMilliseconds
+        >= Int64(recentCutoff.timeIntervalSince1970 * 1_000)
+        && message.providerInternalDateMilliseconds
+          <= Int64(referenceDate.timeIntervalSince1970 * 1_000)
+        && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
+    }
+    let recentMessages = Array(recent.prefix(500))
+    let recentIds = Set(recentMessages.map(\.id))
+    let selected = pinned.filter { !recentIds.contains($0.id) } + recentMessages
     try await syncGate.withLock(connection.id) {
-      let observed = try await loadMailbox(.allObserved, connection: connection, session: session)
-      let recentCutoff = referenceDate.addingTimeInterval(-30 * 24 * 60 * 60)
-      let allowed = observed.messages.filter { message in
-        let states = Set(message.providerStateIds ?? [])
-        return states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"])
-      }
-      let pinned = allowed.filter { pinnedMessageIds.contains($0.id) }
-      let recent = allowed.filter { message in
-        message.providerInternalDateMilliseconds
-          >= Int64(recentCutoff.timeIntervalSince1970 * 1_000)
-          && message.providerInternalDateMilliseconds
-            <= Int64(referenceDate.timeIntervalSince1970 * 1_000)
-          && (message.providerStateIds ?? []).contains(where: { $0 == "INBOX" || $0 == "SENT" })
-      }
-      let recentMessages = Array(recent.prefix(500))
-      let recentIds = Set(recentMessages.map(\.id))
-      let selected = pinned.filter { !recentIds.contains($0.id) } + recentMessages
       try await withAccessTokenRetry(
         connection: connection,
         session: session,

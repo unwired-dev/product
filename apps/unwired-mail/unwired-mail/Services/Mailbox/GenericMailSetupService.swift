@@ -843,13 +843,40 @@ extension GenericMailSetupService {
               session: syncSession
             )
           }
+          let currentSnapshot = try await definitionSyncService.loadSnapshot(
+            session: syncSession
+          )
+          guard
+            !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
+            let currentDefinition = currentSnapshot.connections.first(where: {
+              $0.id == definition.connectionId
+            })
+          else {
+            throw MailboxConnectionAdapterError.connectionRemoved
+          }
+          if try definitionSyncService.requiresLocalCleanup(
+            in: currentSnapshot,
+            connectionId: definition.connectionId,
+            localAuthorizationGeneration: authorizationGeneration,
+            session: syncSession
+          ) {
+            try localStateCleaner.clear(
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+            try definitionSyncService.recordLocalCleanup(
+              in: currentSnapshot,
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+          }
           try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
             guard cleanupGeneration == persistenceCleanupGeneration else {
               throw CancellationError()
             }
             try authorizationStore.save(
               DeviceLocalGenericMailAuthorization(
-                authorizationGeneration: authorizationGeneration,
+                authorizationGeneration: currentDefinition.authorizationGeneration,
                 credential: credential,
                 definition: definition
               ),
