@@ -639,6 +639,32 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
   }
 
+  func testGmailTombstoneCleanupClearsConnectionWithoutStoredStatus() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [adapterConnectionId],
+          updatedAt: 1_781_200_000_300
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      XCTFail("Expected synchronized removal")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+  }
+
   func testGmailBodyReadPreservesRemovalSignalWhenCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.clearConnectionError = AdapterTestError.unavailable

@@ -2328,23 +2328,23 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
       session: session
     )
+    let removedConnection = removedMailboxConnection(
+      id: connectionId,
+      localStatus: localConnection,
+      session: session
+    )
     var cleanupError: Error?
-    if let localConnection {
-      do {
-        try await connectionService.clearLocalConnection(localConnection, session: session)
-      } catch {
-        cleanupError = error
-      }
-    }
     do {
-      try await clearRemovedConnection(
-        removedMailboxConnection(
-          id: connectionId,
-          localStatus: localConnection,
-          session: session
-        ),
+      try await connectionService.clearLocalConnection(
+        localConnection
+          ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
         session: session
       )
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try await clearRemovedConnection(removedConnection, session: session)
     } catch {
       cleanupError = cleanupError ?? error
     }
