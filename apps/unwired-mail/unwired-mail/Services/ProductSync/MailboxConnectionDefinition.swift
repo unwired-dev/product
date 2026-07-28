@@ -237,6 +237,7 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
 }
 
 protocol MailboxAuthorizationCleanupPersisting {
+  func clear(productAccountId: String)
   func clear(
     connectionId: MailboxConnectionId,
     productAccountId: String
@@ -257,6 +258,13 @@ struct UserDefaultsAuthorizationCleanupStore: MailboxAuthorizationCleanupPersist
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+  }
+
+  func clear(productAccountId: String) {
+    let prefix = "mailbox-authorization-cleanup.\(productAccountId)."
+    for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
+      defaults.removeObject(forKey: key)
+    }
   }
 
   func clear(

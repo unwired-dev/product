@@ -144,7 +144,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   func testSyncedReauthorizationWinsAgainstStaleAdapterCleanup() async throws {
-    let productAccountId = ProductAccountId("product-account-race")
+    let productAccountId = ProductAccountId("product-account-race-\(UUID().uuidString)")
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
     let syncGate = MailboxConnectionSyncGate()

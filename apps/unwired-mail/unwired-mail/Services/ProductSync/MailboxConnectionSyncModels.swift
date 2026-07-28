@@ -213,6 +213,7 @@ extension MailboxConnectionSyncPayload {
         payload.removals.removeAll { $0.connectionId == floor.connectionId }
         payload.removals.append(
           MailboxConnectionRemovalTombstone(
+            // Equality keeps the active connection in the local-cleanup set, not the removed set.
             authorizationGeneration: committedGeneration,
             provider: floor.provider,
             providerAccountIdentifier: floor.providerAccountIdentifier,

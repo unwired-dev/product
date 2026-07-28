@@ -17,6 +17,7 @@ struct ProductAccountId: Codable, Hashable, RawRepresentable, Sendable {
 struct MailProviderId: Codable, Hashable, RawRepresentable, Sendable {
   static let gmail = MailProviderId(rawValue: "gmail")
   static let imapSMTP = MailProviderId(rawValue: "imap-smtp")
+  static let pop3SMTP = MailProviderId(rawValue: "pop3-smtp")
 
   let rawValue: String
 }
@@ -1459,6 +1460,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch {
         firstError = firstError ?? error
       }
+      authorizationCleanupStore.clear(productAccountId: session.productAccountId)
       if let firstError {
         throw firstError
       }
@@ -1785,7 +1787,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
             requiresAuthorization: false
           ),
         session: session,
-        allowsAccountWideCleanup: true
+        allowsAccountWideCleanup: false
       )
     } catch {
       cleanupError = error
@@ -2612,7 +2614,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard let definition = snapshot.connections.first(where: { $0.id == connectionId }) else {
-      return
+      throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
       let localConnection = try await connectionService.loadStoredConnection(

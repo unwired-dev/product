@@ -726,9 +726,7 @@ extension GenericMailSetupService {
   ) async throws -> [SyncedGenericMailConnectionDefinition] {
     let snapshot = try await definitionSyncService.loadSnapshot(session: session)
     for connectionId in snapshot.connectionIdsRequiringLocalCleanup
-    where connectionId.providerId.rawValue == "imap-smtp"
-      || connectionId.providerId.rawValue == "pop3-smtp"
-    {
+    where connectionId.providerId == .imapSMTP || connectionId.providerId == .pop3SMTP {
       try await syncGate.withLock(connectionId) {
         let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
         let authorizationGeneration = try authorizationStore.load(
@@ -820,12 +818,16 @@ extension GenericMailSetupService {
             }
           }
           if requiresCleanup,
-            let connection = currentSnapshot.connections.first(where: {
-              $0.id == definition.connectionId
-            })?.mailboxConnection(
-              productAccountId: productAccountId.rawValue,
-              trustedDeviceId: syncSession.trustedDeviceId
-            )
+            let connection =
+              (currentSnapshot.connections.first(where: {
+                $0.id == definition.connectionId
+              })
+              ?? snapshot.connections.first(where: {
+                $0.id == definition.connectionId
+              }))?.mailboxConnection(
+                productAccountId: productAccountId.rawValue,
+                trustedDeviceId: syncSession.trustedDeviceId
+              )
           {
             try await pendingActionService.clear(connection: connection, session: syncSession)
             try await outboxService.clear(connection: connection, session: syncSession)

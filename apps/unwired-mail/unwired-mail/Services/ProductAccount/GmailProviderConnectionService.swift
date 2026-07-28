@@ -287,13 +287,6 @@ extension GmailProviderConnecting {
     session _: ProductAccountSessionSnapshot
   ) throws -> Bool { false }
 
-  func bindAuthorizationGeneration(
-    _ authorizationGeneration: Int,
-    to connection: GmailProviderConnectionStatus,
-    session _: ProductAccountSessionSnapshot
-  ) throws -> GmailProviderConnectionStatus {
-    connection.withAuthorizationGeneration(authorizationGeneration)
-  }
 }
 
 protocol GmailProviderCredentialVerifying {
