@@ -183,6 +183,11 @@ protocol GmailProviderConnecting {
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus?
+
+  func loadConnectionForCleanup(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus?
 }
 
 extension GmailProviderConnecting {
@@ -193,6 +198,11 @@ extension GmailProviderConnecting {
     try await loadStoredConnections(session: session)
       .first { $0.providerAccountIdentifier == providerAccountIdentifier }
   }
+
+  func loadConnectionForCleanup(
+    providerAccountIdentifier _: String,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? { nil }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -594,25 +604,13 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    var didClearPushWatchStore = false
     do {
       try pushWatchStore.clear(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
       )
-      didClearPushWatchStore = true
     } catch {
       cleanupError = cleanupError ?? error
-    }
-    if didClearPushWatchStore {
-      do {
-        try pushConnectionStore.clear(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        )
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
     }
     clearGmailPushNotificationState(
       productAccountId: session.productAccountId,
@@ -621,6 +619,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     if let cleanupError {
       throw cleanupError
     }
+    try pushConnectionStore.clear(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
   }
 
   private func stopPushWatchIfLastActiveRoute(
@@ -759,6 +761,20 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       guard status.trustedDeviceId == session.trustedDeviceId else { return false }
       return tokensByIdentifier[status.providerAccountIdentifier] != nil
     }
+  }
+
+  func loadConnectionForCleanup(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? {
+    guard
+      let status = try? pushConnectionStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      status.trustedDeviceId == session.trustedDeviceId
+    else { return nil }
+    return status
   }
 }
 extension GmailProviderConnectionService {

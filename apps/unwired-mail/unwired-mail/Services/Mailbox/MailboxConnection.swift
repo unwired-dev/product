@@ -1560,9 +1560,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
     session: ProductAccountSessionSnapshot
   ) async throws {
-    for removedConnectionId in removedConnectionIds {
+    for removedConnectionId in removedConnectionIds where removedConnectionId.providerId == .gmail {
       try await syncGate.withLock(removedConnectionId) {
-        let localStatus = localStatusesById[removedConnectionId]
+        let localStatus = try localStatusForCleanup(
+          id: removedConnectionId,
+          authorizedStatusesById: localStatusesById,
+          session: session
+        )
         let removedConnection = removedMailboxConnection(
           id: removedConnectionId,
           localStatus: localStatus,
@@ -1574,6 +1578,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         }
       }
     }
+  }
+
+  private func localStatusForCleanup(
+    id: MailboxConnectionId,
+    authorizedStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? {
+    if let authorizedStatus = authorizedStatusesById[id] {
+      return authorizedStatus
+    }
+    return try connectionService.loadConnectionForCleanup(
+      providerAccountIdentifier: id.providerMailboxIdentity.value,
+      session: session
+    )
   }
 
   private func removedMailboxConnection(
@@ -1635,9 +1653,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       let gmailStatus = try gmailConnection(
         connection, session: session, requiresAuthorization: false)
-      try await connectionService.clearLocalConnection(gmailStatus, session: session)
       _ = try await definitionSyncService.removeConnection(connection.id, session: session)
       try await clearRemovedConnection(connection, session: session)
+      try await connectionService.clearLocalConnection(gmailStatus, session: session)
     }
   }
 
