@@ -1069,6 +1069,13 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 }
 
 // swiftlint:disable type_body_length
+protocol GmailConnectionAuthorizationChecking {
+  func hasLocalAuthorization(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool
+}
+
 @MainActor
 struct GmailPushWakeupHandler {
   private enum CategoryNotificationDeliveryResult {
@@ -1078,6 +1085,7 @@ struct GmailPushWakeupHandler {
   }
 
   private let backgroundCategorizer: GmailMessageCategorizing
+  private let authorizationChecker: GmailConnectionAuthorizationChecking
   private let connectionStore: GmailPushConnectionPersisting
   private let genericNotificationDelivery: GenericNotificationDelivering
   private let genericNotificationFallbackStore: GenericNotificationFallbackPersisting
@@ -1112,10 +1120,12 @@ struct GmailPushWakeupHandler {
     notificationRuleSync: NotificationRuleSyncing = NotificationRuleSyncService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     successStore: MailboxSyncSuccessPersisting? = nil,
-    syncService: MailboxMetadataSyncing = GmailMailboxConnectionAdapter(),
+    syncService: MailboxMetadataSyncing & GmailConnectionAuthorizationChecking =
+      GmailMailboxConnectionAdapter(),
     watchStore: GmailPushWatchPersisting = UserDefaultsGmailPushWatchStore()
   ) {
     self.backgroundCategorizer = backgroundCategorizer
+    authorizationChecker = syncService
     self.connectionStore = connectionStore
     self.genericNotificationDelivery =
       genericNotificationDelivery
@@ -1175,7 +1185,8 @@ struct GmailPushWakeupHandler {
       gmailHistoryIdIsNewer(
         historyId,
         than: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId
-      )
+      ),
+      try authorizationChecker.hasLocalAuthorization(connection, session: productSession)
     else {
       return false
     }
@@ -1256,7 +1267,8 @@ struct GmailPushWakeupHandler {
     }
     guard currentWatchForRoute() != nil else { return false }
     let mailboxConnection = connection.mailboxConnection(
-      productAccountId: productSession.productAccountId
+      productAccountId: productSession.productAccountId,
+      authorizationState: .authorized
     )
     publishSyncStatus(
       .syncing,
