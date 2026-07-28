@@ -211,6 +211,61 @@ final class GenericMailSetupServiceTests: XCTestCase {
     }
   }
 
+  func testSyncFailureRollsBackWhenConcurrentAccountCleanupFails() async throws {
+    let productAccountId = ProductAccountId("product-account-cleanup-failure-\(UUID().uuidString)")
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let saveStarted = XCTestExpectation(description: "definition save started")
+    let saveGate = GenericMailSetupAsyncGate()
+    sync.onSave = {
+      saveStarted.fulfill()
+      try await saveGate.wait(timeout: .seconds(1))
+    }
+    sync.saveError = GenericMailSetupTestError.syncUnavailable
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let sessionState = LockedBoolean(true)
+
+    _ = try await service.authorize(
+      draft: manualDraft(),
+      credential: "previous-secret",
+      productAccountId: productAccountId
+    )
+    store.clearError = GenericMailSetupTestError.cleanupUnavailable
+    let replacement = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "replacement-secret",
+        productAccountId: productAccountId,
+        syncSession: session(productAccountId: productAccountId),
+        isSessionCurrent: { sessionState.value }
+      )
+    }
+    await fulfillment(of: [saveStarted], timeout: 1)
+    sessionState.value = false
+
+    do {
+      try await service.clearLocalAuthorizations(productAccountId: productAccountId)
+      XCTFail("Expected account cleanup failure")
+    } catch GenericMailSetupTestError.cleanupUnavailable {
+    } catch {
+      XCTFail("Unexpected cleanup error: \(error)")
+    }
+    await saveGate.open()
+
+    do {
+      _ = try await replacement.value
+      XCTFail("Expected Product Sync failure")
+    } catch GenericMailSetupTestError.syncUnavailable {
+      XCTAssertEqual(store.authorization?.credential, "previous-secret")
+    } catch {
+      XCTFail("Unexpected authorization error: \(error)")
+    }
+  }
+
   func testAuthenticatedUsernamesAtSameAddressAndEndpointsRemainDistinct() async throws {
     let service = GenericMailSetupService(
       authorizationStore: RecordingGenericMailAuthorizationStore(),
@@ -803,7 +858,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.showsMailboxRoles)
   }
 
-  func testAccountCleanupClearsEveryDeviceLocalGenericAuthorization() throws {
+  func testAccountCleanupClearsEveryDeviceLocalGenericAuthorization() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     store.authorization = DeviceLocalGenericMailAuthorization(
       credential: "secret",
@@ -821,7 +876,9 @@ final class GenericMailSetupServiceTests: XCTestCase {
       verifier: RecordingGenericMailEndpointVerifier()
     )
 
-    try service.clearLocalAuthorizations(productAccountId: ProductAccountId("product-account-001"))
+    try await service.clearLocalAuthorizations(
+      productAccountId: ProductAccountId("product-account-001")
+    )
 
     XCTAssertNil(store.authorization)
     XCTAssertEqual(
@@ -884,6 +941,94 @@ final class GenericMailSetupServiceTests: XCTestCase {
     }
 
     XCTAssertNil(store.authorization)
+  }
+
+  func testAccountCleanupRacingFinalAuthorizationPersistenceLeavesNoCredential() async throws {
+    let productAccountId = ProductAccountId("product-account-race-\(UUID().uuidString)")
+    let store = BlockingGenericMailAuthorizationStore()
+    let verifier = RecordingGenericMailEndpointVerifier()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      verifier: verifier
+    )
+    let cleanupStarted = XCTestExpectation(description: "account cleanup started")
+    let gmailConnection = RecordingMailboxConnectionClearer()
+    gmailConnection.onClear = {
+      cleanupStarted.fulfill()
+    }
+    let clearer = ProductAccountMailboxConnectionClearer(
+      backgroundContextCacheStore: RecordingBackgroundContextCacheStore(),
+      genericMailSetupService: service,
+      gmailConnection: gmailConnection
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "identity-token",
+      productAccountId: productAccountId.rawValue,
+      trustedDeviceId: "trusted-device-001"
+    )
+    let sessionState = LockedBoolean(true)
+
+    let authorization = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "secret",
+        productAccountId: productAccountId,
+        isSessionCurrent: { sessionState.value }
+      )
+    }
+    await fulfillment(of: [store.loadStarted], timeout: 1)
+    sessionState.value = false
+    let cleanup = Task {
+      try await clearer.clearLocalConnection(session: session)
+    }
+    await fulfillment(of: [cleanupStarted], timeout: 1)
+    store.resumeLoad()
+
+    _ = try await authorization.value
+    try await cleanup.value
+
+    XCTAssertNil(store.authorization)
+  }
+
+  func testCancellationWhileWaitingToPersistDoesNotReplaceAuthorization() async throws {
+    let productAccountId = ProductAccountId("product-account-cancellation-\(UUID().uuidString)")
+    let store = BlockingGenericMailAuthorizationStore()
+    let authorizationCoordinator = GenericMailAuthorizationCoordinator()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      authorizationCoordinator: authorizationCoordinator,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let firstAuthorization = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "first-secret",
+        productAccountId: productAccountId
+      )
+    }
+    await fulfillment(of: [store.loadStarted], timeout: 1)
+    let cancelledAuthorization = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "cancelled-secret",
+        productAccountId: productAccountId
+      )
+    }
+    try await authorizationCoordinator.waitUntilContended(productAccountId: productAccountId)
+    cancelledAuthorization.cancel()
+    store.resumeLoad()
+
+    _ = try await firstAuthorization.value
+    do {
+      _ = try await cancelledAuthorization.value
+      XCTFail("Expected cancellation while waiting to persist")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertEqual(store.authorization?.credential, "first-secret")
   }
 
   func testKeychainStoreRoundTripsAndClearsDeviceLocalAuthorization() throws {
@@ -1252,6 +1397,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
       username: "reader@example.com"
     )
   }
+
+  private func session(productAccountId: ProductAccountId) -> ProductAccountSessionSnapshot {
+    ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: productAccountId.rawValue,
+      trustedDeviceId: "trusted-device-001"
+    )
+  }
 }
 
 private final class RecordingGenericMailEndpointVerifier: GenericMailEndpointVerifying {
@@ -1286,10 +1440,12 @@ private final class RecordingGenericMailEndpointVerifier: GenericMailEndpointVer
 
 private final class RecordingGenericMailAuthorizationStore: GenericMailAuthorizationPersisting {
   var authorization: DeviceLocalGenericMailAuthorization?
+  var clearError: Error?
   var clearedProductAccountId: ProductAccountId?
   var productAccountId: ProductAccountId?
 
   func clearAll(productAccountId: ProductAccountId) throws {
+    if let clearError { throw clearError }
     authorization = nil
     clearedProductAccountId = productAccountId
   }
@@ -1325,6 +1481,91 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
   }
 }
 
+private final class BlockingGenericMailAuthorizationStore:
+  GenericMailAuthorizationPersisting, @unchecked Sendable
+{
+  let loadStarted = XCTestExpectation(description: "authorization load started")
+
+  private var storedAuthorization: DeviceLocalGenericMailAuthorization?
+  private let lock = NSLock()
+  private let loadRelease = DispatchSemaphore(value: 0)
+  private var shouldBlockLoad = true
+
+  var authorization: DeviceLocalGenericMailAuthorization? {
+    lock.withLock { storedAuthorization }
+  }
+
+  func clearAll(productAccountId _: ProductAccountId) throws {
+    lock.withLock {
+      storedAuthorization = nil
+    }
+  }
+
+  func load(
+    productAccountId _: ProductAccountId,
+    emailAddress _: String
+  ) throws -> DeviceLocalGenericMailAuthorization? {
+    authorization
+  }
+
+  func load(
+    productAccountId _: ProductAccountId,
+    connectionId _: MailboxConnectionId
+  ) throws -> DeviceLocalGenericMailAuthorization? {
+    let shouldBlock = lock.withLock {
+      defer { shouldBlockLoad = false }
+      return shouldBlockLoad
+    }
+    if shouldBlock {
+      loadStarted.fulfill()
+      loadRelease.wait()
+    }
+    return authorization
+  }
+
+  func remove(
+    productAccountId _: ProductAccountId,
+    connectionId _: MailboxConnectionId
+  ) throws {
+    lock.withLock {
+      storedAuthorization = nil
+    }
+  }
+
+  func save(
+    _ authorization: DeviceLocalGenericMailAuthorization,
+    productAccountId _: ProductAccountId
+  ) throws {
+    lock.withLock {
+      storedAuthorization = authorization
+    }
+  }
+
+  func resumeLoad() {
+    loadRelease.signal()
+  }
+}
+
+private final class LockedBoolean: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedValue: Bool
+
+  init(_ value: Bool) {
+    storedValue = value
+  }
+
+  var value: Bool {
+    get {
+      lock.withLock { storedValue }
+    }
+    set {
+      lock.withLock {
+        storedValue = newValue
+      }
+    }
+  }
+}
+
 private final class RecordingBackgroundContextCacheStore:
   BackgroundContextCachePersisting
 {
@@ -1352,8 +1593,10 @@ private final class RecordingBackgroundContextCacheStore:
 
 private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing {
   var clearedSession: ProductAccountSessionSnapshot?
+  var onClear: (() -> Void)?
 
   func clearLocalConnection(session: ProductAccountSessionSnapshot) async throws {
+    onClear?()
     clearedSession = session
   }
 
@@ -1368,6 +1611,7 @@ private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing
 private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
+  var onSave: (() async throws -> Void)?
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
@@ -1429,6 +1673,7 @@ private final class RecordingGenericSyncService:
     _ definition: MailboxConnectionDefinition,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    try await onSave?()
     if let saveError { throw saveError }
     savedDefinition = definition
     snapshot = replacingConnections(
@@ -1462,9 +1707,65 @@ private final class RecordingGenericSyncService:
   }
 }
 
+private actor GenericMailSetupAsyncGate {
+  private typealias Waiter = (id: UUID, continuation: CheckedContinuation<Bool, Never>)
+
+  private var isOpen = false
+  private var waiters: [Waiter] = []
+
+  func wait(timeout: Duration) async throws {
+    try await withThrowingTaskGroup(of: Void.self) { group in
+      group.addTask {
+        guard await self.wait() else { throw CancellationError() }
+      }
+      group.addTask {
+        try await Task.sleep(for: timeout)
+        throw GenericMailSetupTestError.timeout
+      }
+      guard let result = await group.nextResult() else { return }
+      group.cancelAll()
+      while await group.nextResult() != nil {}
+      try result.get()
+    }
+  }
+
+  func open() {
+    isOpen = true
+    let continuations = waiters.map(\.continuation)
+    waiters.removeAll()
+    for continuation in continuations {
+      continuation.resume(returning: true)
+    }
+  }
+
+  private func wait() async -> Bool {
+    guard !isOpen else { return true }
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
+        waiters.append((waiterId, continuation))
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId) }
+    }
+  }
+
+  private func cancelWaiter(_ waiterId: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
+    let waiter = waiters.remove(at: index)
+    waiter.continuation.resume(returning: false)
+  }
+}
+
 private enum GenericMailSetupTestError: Error {
+  case cleanupUnavailable
   case invalidCertificate
   case syncUnavailable
+  case timeout
 }
 
 private enum GenericMailStreamEvent: Equatable {
