@@ -65,6 +65,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connectionService.completedAccount?.tokens.idToken, "oauth-id-token")
     XCTAssertEqual(connection?.id.rawValue, "gmail:gmail-user-001")
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
+    XCTAssertEqual(definitionSyncService.recreatedDefinition?.id, connection?.id)
   }
 
   func testGmailAccountCleanupWaitsForInFlightConnect() async throws {
@@ -249,6 +250,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     do {
       _ = try await adapter.connect(
         expectedConnectionId: differentConnectionId,
+        removalObservation: nil,
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
@@ -259,6 +261,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func testTrustedDevicesAuthorizeSameSyncedDefinitionIndependently() async throws {
     let secondDeviceSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: session.appleUserIdentifier,
@@ -298,6 +301,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     _ = try await secondDeviceAdapter.connect(
       expectedConnectionId: adapterConnectionId,
+      removalObservation: nil,
       session: secondDeviceSession,
       isSessionCurrent: { $0 == secondDeviceSession }
     )
@@ -435,6 +439,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertTrue(viewModel.connections.isEmpty)
     XCTAssertNotNil(viewModel.errorMessage)
+  }
+
+  func testViewModelRequiresExplicitRetryToRecreateAnObservedRemoval() async {
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: adapterConnectionId,
+      removedAt: 1_781_200_000_500
+    )
+    definitionSyncService.recreateError =
+      MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    let firstAttempt = await viewModel.connect()
+
+    XCTAssertNil(firstAttempt)
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    XCTAssertEqual(definitionSyncService.recreateDefinitionCount, 1)
+    XCTAssertNil(definitionSyncService.recreationObservation)
+
+    definitionSyncService.recreateError = nil
+    let recreated = await viewModel.connect()
+
+    XCTAssertEqual(recreated?.id, adapterConnectionId)
+    XCTAssertEqual(definitionSyncService.recreationObservation, removalObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
   func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async throws {
@@ -1853,6 +1892,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     for _ in 0..<2 {
       _ = try await adapter.connect(
         expectedConnectionId: nil,
+        removalObservation: nil,
         session: session,
         isSessionCurrent: { $0 == self.session }
       )
@@ -5016,6 +5056,10 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 
 private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   var loadError: Error?
+  var recreateDefinitionCount = 0
+  var recreateError: Error?
+  var recreatedDefinition: MailboxConnectionDefinition?
+  var recreationObservation: MailboxConnectionRemovalObservation?
   var removedConnectionIds: [MailboxConnectionId] = []
   var removeError: Error?
   var saveError: Error?
@@ -5073,6 +5117,18 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
       updatedAt: snapshot.updatedAt
     )
     return snapshot
+  }
+
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    recreateDefinitionCount += 1
+    recreationObservation = removalObservation
+    if let recreateError { throw recreateError }
+    recreatedDefinition = definition
+    return try await saveDefinition(definition, session: session)
   }
 
   func saveConnection(

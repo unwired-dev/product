@@ -938,6 +938,7 @@ protocol MailboxConnectionManaging: MailboxConnectionClearing {
   @MainActor
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection?
@@ -969,6 +970,7 @@ extension MailboxConnectionManaging {
   ) async throws -> MailboxConnection? {
     try await connect(
       expectedConnectionId: nil,
+      removalObservation: nil,
       session: session,
       isSessionCurrent: isSessionCurrent
     )
@@ -1456,6 +1458,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -1504,7 +1507,15 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorizationState: .authorized
       )
       do {
-        _ = try await definitionSyncService.saveConnection(connection, session: session)
+        if expectedConnectionId == nil {
+          _ = try await definitionSyncService.recreateDefinition(
+            connection.definition,
+            after: removalObservation,
+            session: session
+          )
+        } else {
+          _ = try await definitionSyncService.saveConnection(connection, session: session)
+        }
         return connection
       } catch {
         if !hadExistingConnection {

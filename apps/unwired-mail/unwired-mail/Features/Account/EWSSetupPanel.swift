@@ -19,8 +19,12 @@ final class EWSSetupViewModel {
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var isValid = true
+  private var removalObservation: MailboxConnectionRemovalObservation?
+  private var selectedConnectionId: MailboxConnectionId?
   private let service: EWSSetupService
   private let session: ProductAccountSessionSnapshot
+
+  var isConfirmingRecreation: Bool { removalObservation != nil }
 
   init(
     adapter: EWSMailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
@@ -69,15 +73,26 @@ final class EWSSetupViewModel {
         credential: credential,
         emailAddress: emailAddress,
         endpoint: endpoint,
+        saveIntent: selectedConnectionId == nil
+          ? .add(after: removalObservation) : .authorizeExisting,
         username: username,
         session: session,
         isSessionCurrent: { self.isValid && self.isSessionCurrent($0) }
       )
+      removalObservation = nil
+      selectedConnectionId = connection.id
       credential = ""
       try await reloadAfterMutation()
       errorMessage = nil
       return connection
     } catch is CancellationError {
+      return nil
+    } catch let error as MailboxConnectionSyncError {
+      if case .connectionRemoved(let observation) = error {
+        removalObservation = observation
+        selectedConnectionId = nil
+      }
+      errorMessage = error.localizedDescription
       return nil
     } catch {
       errorMessage = error.localizedDescription
@@ -100,6 +115,8 @@ final class EWSSetupViewModel {
     authorizationMethod = definition.authorizationMethod
     emailAddress = definition.emailAddress
     endpoint = definition.endpoint.absoluteString
+    removalObservation = nil
+    selectedConnectionId = connection.id
     username = definition.username
   }
 
@@ -259,7 +276,11 @@ struct EWSSetupPanel: View {
           }
         }
       } label: {
-        Label("Verify and Save on This Device", systemImage: "lock.shield")
+        Label(
+          viewModel.isConfirmingRecreation
+            ? "Recreate Removed Mailbox Connection" : "Verify and Save on This Device",
+          systemImage: "lock.shield"
+        )
       }
       .buttonStyle(.borderedProminent)
       .disabled(viewModel.isWorking)

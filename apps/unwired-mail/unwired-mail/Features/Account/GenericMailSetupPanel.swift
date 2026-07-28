@@ -27,6 +27,8 @@ final class GenericMailSetupViewModel {
   var isConnecting = false
   var isLoadingSyncedDefinitions = false
   private var hasLoadedSyncedDefinitions = false
+  private var locallyLoadedConnectionId: MailboxConnectionId?
+  private var removalObservation: MailboxConnectionRemovalObservation?
   var outgoingHostname = ""
   var outgoingPort = "465"
   var outgoingSecurity = MailTransportSecurity.implicitTLS
@@ -87,6 +89,8 @@ final class GenericMailSetupViewModel {
 
   var credentialLabel: String { authorizationMethod.displayName }
 
+  var isConfirmingRecreation: Bool { removalObservation != nil }
+
   var showsMailboxRoles: Bool {
     incomingProtocol == .imap
       && roleMappingEmailAddress == normalizedEmailAddress
@@ -96,6 +100,8 @@ final class GenericMailSetupViewModel {
   func discover() {
     let trimmedEmail = emailAddress.trimmingCharacters(in: .whitespacesAndNewlines)
     connectedDefinition = nil
+    locallyLoadedConnectionId = nil
+    removalObservation = nil
     selectedSyncedConnectionId = nil
     credential = ""
     resetRoleMappingState()
@@ -145,6 +151,8 @@ final class GenericMailSetupViewModel {
       discoveredIncomingEndpoints = []
       apply(authorization.definition)
       connectedDefinition = authorization.definition
+      locallyLoadedConnectionId = authorization.definition.connectionId
+      removalObservation = nil
       selectedSyncedConnectionId = nil
       credential = ""
       discoverySource = "Loaded saved settings. Re-enter authorization to verify changes."
@@ -179,19 +187,7 @@ final class GenericMailSetupViewModel {
     if roleMappingEndpoint != incomingEndpoint {
       resetRoleMappingState()
     }
-    let draft = GenericMailSetupDraft(
-      authorizationMethod: authorizationMethod,
-      emailAddress: emailAddress,
-      incomingEndpoint: incomingEndpoint,
-      outgoingEndpoint: GenericMailEndpoint(
-        mailProtocol: .smtp,
-        hostname: outgoingHostname,
-        port: Int(outgoingPort) ?? 0,
-        security: outgoingSecurity
-      ),
-      roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
-      username: username
-    )
+    let draft = makeDraft(incomingEndpoint: incomingEndpoint)
     guard matchesSelectedSyncedConnection(draft) else { return }
     isConnecting = true
     defer { isConnecting = false }
@@ -201,10 +197,13 @@ final class GenericMailSetupViewModel {
         draft: draft,
         credential: credential,
         productAccountId: productAccountId,
+        saveIntent: saveIntent(for: draft),
         syncSession: syncSession,
         isSessionCurrent: { self.isValid && self.isSessionCurrent() }
       )
       connectedDefinition = definition
+      locallyLoadedConnectionId = nil
+      removalObservation = nil
       selectedSyncedConnectionId = definition.connectionId
       credential = ""
       rolesRequiringMapping = []
@@ -213,6 +212,8 @@ final class GenericMailSetupViewModel {
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
+    } catch let error as MailboxConnectionSyncError {
+      handleSyncError(error)
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -256,6 +257,8 @@ final class GenericMailSetupViewModel {
 
   private func clearLoadedSetup() {
     connectedDefinition = nil
+    locallyLoadedConnectionId = nil
+    removalObservation = nil
     selectedSyncedConnectionId = nil
     credential = ""
     discoveredIncomingEndpoints = []
@@ -285,6 +288,43 @@ final class GenericMailSetupViewModel {
       errorMessage = error.localizedDescription
       return false
     }
+  }
+
+  private func saveIntent(
+    for draft: GenericMailSetupDraft
+  ) -> MailboxConnectionDefinitionSaveIntent {
+    guard selectedSyncedConnectionId == nil else { return .authorizeExisting }
+    guard let locallyLoadedConnectionId else { return .add(after: removalObservation) }
+    guard let draftConnectionId = try? service.connectionId(for: draft) else {
+      return .authorizeExisting
+    }
+    return draftConnectionId == locallyLoadedConnectionId
+      ? .authorizeExisting : .add(after: removalObservation)
+  }
+
+  private func makeDraft(incomingEndpoint: GenericMailEndpoint) -> GenericMailSetupDraft {
+    GenericMailSetupDraft(
+      authorizationMethod: authorizationMethod,
+      emailAddress: emailAddress,
+      incomingEndpoint: incomingEndpoint,
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: outgoingHostname,
+        port: Int(outgoingPort) ?? 0,
+        security: outgoingSecurity
+      ),
+      roleMappings: roleMappingEmailAddress == normalizedEmailAddress ? roleMappings : [:],
+      username: username
+    )
+  }
+
+  private func handleSyncError(_ error: MailboxConnectionSyncError) {
+    if case .connectionRemoved(let observation) = error {
+      locallyLoadedConnectionId = nil
+      removalObservation = observation
+      selectedSyncedConnectionId = nil
+    }
+    errorMessage = error.localizedDescription
   }
 
   private func applyMissingRoleMappings(
@@ -411,6 +451,8 @@ extension GenericMailSetupViewModel {
   func selectSyncedDefinition(_ definition: GenericMailConnectionDefinition) {
     discoveredIncomingEndpoints = []
     apply(definition)
+    locallyLoadedConnectionId = nil
+    removalObservation = nil
     selectedSyncedConnectionId = definition.connectionId
     connectedDefinition = isAuthorized(definition) ? definition : nil
     credential = ""
@@ -573,8 +615,12 @@ struct GenericMailSetupPanel: View {
           await viewModel.connect()
         }
       } label: {
-        Label("Verify and Save on This Device", systemImage: "lock.shield")
-          .frame(minHeight: 32)
+        Label(
+          viewModel.isConfirmingRecreation
+            ? "Recreate Removed Mailbox Connection" : "Verify and Save on This Device",
+          systemImage: "lock.shield"
+        )
+        .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
       .disabled(viewModel.isConnecting)

@@ -71,6 +71,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(connection?.id, graphConnectionId)
     XCTAssertEqual(reconnected?.id, graphConnectionId)
+    XCTAssertEqual(definitions.recreatedDefinitionCount, 2)
     XCTAssertEqual(definitions.definitions.count, 1)
     XCTAssertEqual(connection?.authorizationState, .authorized)
     XCTAssertEqual(definitions.savedDefinition?.provider, MailProviderId.microsoftGraph.rawValue)
@@ -3222,6 +3223,7 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
   var defaultSendingConnectionId: MailboxConnectionId?
   var definitions: [MailboxConnectionDefinition]
   var removedConnectionIds: [MailboxConnectionId] = []
+  var recreatedDefinitionCount = 0
   var savedDefinition: MailboxConnectionDefinition?
 
   init(definitions: [MailboxConnectionDefinition] = []) {
@@ -3251,6 +3253,15 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
     definitions.removeAll { $0.id == connectionId }
     removedConnectionIds.append(connectionId)
     return snapshot
+  }
+
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after _: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    recreatedDefinitionCount += 1
+    return try await saveDefinition(definition, session: session)
   }
 
   func saveConnection(

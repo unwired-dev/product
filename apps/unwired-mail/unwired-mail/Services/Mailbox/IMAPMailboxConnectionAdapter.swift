@@ -1512,6 +1512,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   @MainActor
   func connect(
     expectedConnectionId _: MailboxConnectionId?,
+    removalObservation _: MailboxConnectionRemovalObservation?,
     session _: ProductAccountSessionSnapshot,
     isSessionCurrent _: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -1953,12 +1954,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   @MainActor
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
     let target = try expectedConnectionId.map(adapter(for:)) ?? gmail
     return try await target.connect(
       expectedConnectionId: expectedConnectionId,
+      removalObservation: removalObservation,
       session: session,
       isSessionCurrent: isSessionCurrent
     )

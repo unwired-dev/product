@@ -133,6 +133,16 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
   }
 }
 
+struct MailboxConnectionRemovalObservation: Equatable, Sendable {
+  let connectionId: MailboxConnectionId
+  let removedAt: Int64
+}
+
+enum MailboxConnectionDefinitionSaveIntent: Equatable, Sendable {
+  case add(after: MailboxConnectionRemovalObservation?)
+  case authorizeExisting
+}
+
 protocol MailboxConnectionDefinitionSyncing {
   func loadSnapshot(
     session: ProductAccountSessionSnapshot
@@ -151,6 +161,13 @@ protocol MailboxConnectionDefinitionSyncing {
   @discardableResult
   func removeConnection(
     _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot
+
+  @discardableResult
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
 

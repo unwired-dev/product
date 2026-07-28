@@ -5439,6 +5439,7 @@ final class MailboxProviderConnectionViewModel {
   var selectedConnectionId: MailboxConnectionId?
 
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
+  private var removalObservation: MailboxConnectionRemovalObservation?
   private let service: MailboxConnectionAdapter
   private let session: ProductAccountSessionSnapshot
   private var pushStatusMessages: [MailboxConnectionId: String] = [:]
@@ -5460,6 +5461,8 @@ final class MailboxProviderConnectionViewModel {
   var isEditingDisabled: Bool {
     isConnecting || isLoading || isRemoving || isRenewingPushWatch
   }
+
+  var isConfirmingRecreation: Bool { removalObservation != nil }
 
   var connection: MailboxConnection? {
     connections.first { $0.id == selectedConnectionId }
@@ -5530,17 +5533,26 @@ final class MailboxProviderConnectionViewModel {
     do {
       let connected = try await service.connect(
         expectedConnectionId: expectedConnection?.id,
+        removalObservation: expectedConnection == nil ? removalObservation : nil,
         session: session,
         isSessionCurrent: isSessionCurrent
       )
       errorMessage = nil
       if let connected {
+        removalObservation = nil
         try await refreshConnections()
         selectedConnectionId = connected.id
         await refreshPushWatch(connection: connected)
         return connected
       }
     } catch is CancellationError {
+    } catch let error as MailboxConnectionSyncError {
+      if case .connectionRemoved(let observation) = error {
+        removalObservation = observation
+        try? await refreshConnections()
+        restoreSelection()
+      }
+      errorMessage = error.localizedDescription
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -6141,8 +6153,10 @@ private struct MailboxProviderConnectionPanel: View {
         }
       } label: {
         Label(
-          connections.isEmpty
-            ? configuration.emptyConnectTitle : configuration.otherConnectTitle,
+          viewModel.isConfirmingRecreation
+            ? "Recreate Removed Mailbox Connection"
+            : (connections.isEmpty
+              ? configuration.emptyConnectTitle : configuration.otherConnectTitle),
           systemImage: "person.crop.circle.badge.checkmark"
         )
         .frame(minHeight: 32)

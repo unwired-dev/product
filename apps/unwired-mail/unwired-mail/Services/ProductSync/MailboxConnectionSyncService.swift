@@ -2,6 +2,7 @@ import Foundation
 
 enum MailboxConnectionSyncError: LocalizedError, Equatable {
   case concurrentModification
+  case connectionRemoved(MailboxConnectionRemovalObservation)
   case invalidDefaultSendingConnection
   case missingProductSyncKeyMaterial
 
@@ -9,6 +10,8 @@ enum MailboxConnectionSyncError: LocalizedError, Equatable {
     switch self {
     case .concurrentModification:
       return "Mailbox Connections changed on another device. Refresh and try again."
+    case .connectionRemoved:
+      return "This Mailbox Connection was removed on another device. Refresh, then add it again."
     case .invalidDefaultSendingConnection:
       return "Choose an existing Mailbox Connection as the default sender."
     case .missingProductSyncKeyMaterial:
@@ -29,6 +32,10 @@ private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
         value: providerAccountIdentifier
       )
     )
+  }
+
+  var observation: MailboxConnectionRemovalObservation {
+    MailboxConnectionRemovalObservation(connectionId: connectionId, removedAt: removedAt)
   }
 }
 
@@ -187,10 +194,13 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     return try await update(session: session) { payload in
-      payload.connections.removeAll { $0.id == definition.id }
-      payload.connections.append(definition)
-      payload.removals.removeAll { $0.connectionId == definition.id }
-      return true
+      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
+      else {
+        payload.connections.removeAll { $0.id == definition.id }
+        payload.connections.append(definition)
+        return true
+      }
+      throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
     }
   }
 
@@ -329,5 +339,25 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private var associatedData: Data {
     Data(MailboxConnectionSyncPayload.primaryIdentifier.utf8)
+  }
+}
+
+extension MailboxConnectionSyncService {
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await update(session: session) { payload in
+      if let removal = payload.removals.first(where: { $0.connectionId == definition.id }) {
+        guard removal.observation == removalObservation else {
+          throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
+        }
+      }
+      payload.connections.removeAll { $0.id == definition.id }
+      payload.connections.append(definition)
+      payload.removals.removeAll { $0.connectionId == definition.id }
+      return true
+    }
   }
 }
