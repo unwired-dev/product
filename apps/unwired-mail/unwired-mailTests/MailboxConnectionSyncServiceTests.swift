@@ -170,7 +170,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(convergedSnapshot.removedConnectionIds.isEmpty)
   }
 
-  func testRemovalAdvancesGenerationBeyondConcurrentReauthorization() async throws {
+  func testRemovalInvalidatesConcurrentReauthorization() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
       Self.connection,
@@ -192,7 +192,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       session: firstDeviceSession
     )
 
-    XCTAssertEqual(recreatedSnapshot.connections.first?.authorizationGeneration, 2)
+    XCTAssertEqual(recreatedSnapshot.connections.first?.authorizationGeneration, 1)
   }
 
   func testLegacyWriterCannotResetRetainedAuthorizationGeneration() async throws {
@@ -242,7 +242,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
     XCTAssertEqual(offlineSnapshot.connections.first?.authorizationGeneration, 1)
-    XCTAssertEqual(snapshot.removedConnectionIds, [Self.connection.id])
+    XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
   // swiftlint:disable:next function_body_length
@@ -324,6 +324,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       Self.connection,
       session: firstDeviceSession
     )
+    _ = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
     services.transport.payloadLoadErrors["mailbox-authorization-generations-v1"] =
       MailboxConnectionSyncTestError.unavailable
 
@@ -334,7 +335,9 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
   }
 
-  func testRetainedTombstoneRemainsVisibleUntilReauthorizationSupersedesIt() async throws {
+  func testRetainedFloorDemotesStaleAuthorizationWithoutSurfacingAnActiveRemoval()
+    async throws
+  {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(
       Self.connection,
@@ -378,8 +381,62 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(retainedSnapshot.connections.count, 1)
-    XCTAssertEqual(retainedSnapshot.removedConnectionIds, [Self.connection.id])
+    XCTAssertTrue(retainedSnapshot.removedConnectionIds.isEmpty)
     XCTAssertTrue(reauthorizedSnapshot.removedConnectionIds.isEmpty)
+  }
+
+  func testReauthorizationKeepsLegacyVisibleTombstoneInPrimaryPayload() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+
+    let reauthorized = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    let remotePayload = try XCTUnwrap(services.transport.payload)
+    let plaintext = try services.keyMaterial.decryptPayload(
+      remotePayload.encryptedPayload,
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    let payload = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: plaintext) as? [String: Any]
+    )
+    let removals = try XCTUnwrap(payload["removals"] as? [[String: Any]])
+
+    XCTAssertEqual(removals.count, 1)
+    XCTAssertTrue(reauthorized.removedConnectionIds.isEmpty)
+  }
+
+  func testUncommittedGenerationFloorDoesNotFenceAnActiveConnection() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    services.transport.primaryWriteError = MailboxConnectionSyncTestError.unavailable
+
+    do {
+      _ = try await services.firstDevice.removeConnection(
+        Self.connection.id,
+        session: firstDeviceSession
+      )
+      XCTFail("Expected primary tombstone publication to fail")
+    } catch MailboxConnectionSyncTestError.unavailable {
+      // Expected.
+    }
+    services.transport.primaryWriteError = nil
+
+    let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 0)
+    XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
   func testActiveDefinitionCanBeRemovedWhenRetainedTombstoneSharesItsIdentity() async throws {
@@ -598,6 +655,7 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
   var afterGenerationFloorWrite: (() async throws -> Void)?
   var loadError: Error?
   var payloadLoadErrors: [String: Error] = [:]
+  var primaryWriteError: Error?
   var payload: EncryptedProductSyncPayload? {
     payloads["mailbox-connections-primary"]
   }
@@ -608,7 +666,8 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     identityToken _: String,
     payloadIdentifierPrefix _: String?
   ) async throws -> [EncryptedProductSyncPayload] {
-    additionalPayloads + payloads.values
+    additionalPayloads
+      + payloads.values.sorted { $0.payloadIdentifier < $1.payloadIdentifier }
   }
 
   func getEncryptedProductSyncPayload(
@@ -624,7 +683,11 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     identityToken _: String,
     payloadIdentifiers: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
-    payloadIdentifiers.compactMap { payloads[$0] }
+    if let loadError { throw loadError }
+    for identifier in payloadIdentifiers {
+      if let error = payloadLoadErrors[identifier] { throw error }
+    }
+    return payloadIdentifiers.compactMap { payloads[$0] }
   }
 
   func putEncryptedProductSyncPayload(
@@ -653,6 +716,9 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
     trustedDeviceId _: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
+    if payloadIdentifier == "mailbox-connections-primary", let primaryWriteError {
+      throw primaryWriteError
+    }
     let existing = payloads[payloadIdentifier]
     guard existing?.updatedAt == expectedUpdatedAt else {
       return try XCTUnwrap(existing)

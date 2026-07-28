@@ -143,6 +143,50 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(sync.savedDefinition?.connectedAt, 1_781_200_000_600)
   }
 
+  func testSyncedReauthorizationWinsAgainstStaleAdapterCleanup() async throws {
+    let productAccountId = ProductAccountId("product-account-race")
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let syncGate = MailboxConnectionSyncGate()
+    let blocker = GenericMailSetupLockBlocker()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      syncGate: syncGate,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let connectionId = try service.connectionId(for: manualDraft())
+    let cleanup = Task {
+      try await syncGate.withLock(connectionId) {
+        await blocker.hold()
+        try store.remove(productAccountId: productAccountId, connectionId: connectionId)
+      }
+    }
+    await blocker.waitUntilHeld()
+
+    let authorization = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "fresh-secret",
+        productAccountId: productAccountId,
+        syncSession: self.session(productAccountId: productAccountId)
+      )
+    }
+    while sync.savedDefinition == nil {
+      await Task.yield()
+    }
+    await blocker.release()
+
+    let definition = try await authorization.value
+    try await cleanup.value
+    let saved = try store.load(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+
+    XCTAssertEqual(saved?.credential, "fresh-secret")
+  }
+
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -1038,7 +1082,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
     await fulfillment(of: [cleanupStarted], timeout: 1)
     store.resumeLoad()
 
-    _ = try await authorization.value
+    do {
+      _ = try await authorization.value
+    } catch is CancellationError {
+      // Cleanup advanced the authorization generation before the final save.
+    }
     try await cleanup.value
 
     XCTAssertNil(store.authorization)
@@ -1817,6 +1865,31 @@ private actor GenericMailSetupAsyncGate {
     guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
     let waiter = waiters.remove(at: index)
     waiter.continuation.resume(returning: false)
+  }
+}
+
+private actor GenericMailSetupLockBlocker {
+  private var holdContinuation: CheckedContinuation<Void, Never>?
+  private var heldContinuation: CheckedContinuation<Void, Never>?
+
+  func hold() async {
+    heldContinuation?.resume()
+    heldContinuation = nil
+    await withCheckedContinuation { continuation in
+      holdContinuation = continuation
+    }
+  }
+
+  func waitUntilHeld() async {
+    guard holdContinuation == nil else { return }
+    await withCheckedContinuation { continuation in
+      heldContinuation = continuation
+    }
+  }
+
+  func release() {
+    holdContinuation?.resume()
+    holdContinuation = nil
   }
 }
 

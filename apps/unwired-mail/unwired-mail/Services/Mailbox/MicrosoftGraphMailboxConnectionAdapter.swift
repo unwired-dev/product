@@ -2463,17 +2463,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
-  private func accountCleanupLockId(
-    session: ProductAccountSessionSnapshot
-  ) -> MailboxConnectionId {
-    MailboxConnectionId(
-      providerMailboxIdentity: StableProviderMailboxIdentity(
-        providerId: .microsoftGraph,
-        value: "account-cleanup:\(session.productAccountId)"
-      )
-    )
-  }
-
   func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
@@ -2488,10 +2477,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func clearLocalConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
-    reportsPushFailure: Bool
+    reportsPushFailure: Bool,
+    revalidatesRemoval: Bool = false
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
+      if revalidatesRemoval {
+        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+          session: session
+        )
+        guard currentSnapshot.removedConnectionIds.contains(connection.id) else { return }
+      }
       var firstError: Error?
       let accessToken: String?
       do {
@@ -2563,7 +2559,6 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   @MainActor
-  // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
@@ -2583,85 +2578,42 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let expectedConnectionId, expectedConnectionId != connectionId {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
-    return try await syncGate.withLock(accountCleanupLockId(session: session)) {
-      let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
-      let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-      let previousDefinition = snapshot.connections.first { definition in
-        definition.provider == MailProviderId.microsoftGraph.rawValue
-          && definition.providerAccountIdentifier == account.id
-      }
-      let connection = MailboxConnection(
-        authorizationGeneration: previousDefinition?.authorizationGeneration ?? 0,
-        authorizationState: .authorized,
-        capabilities: .microsoftGraph,
-        connectedAt: previousDefinition?.connectedAt ?? timestamp,
-        displayName: account.emailAddress,
-        id: connectionId,
-        lastVerifiedAt: timestamp,
-        productAccountId: ProductAccountId(session.productAccountId),
-        trustedDeviceId: session.trustedDeviceId,
-        updatedAt: timestamp
-      )
-      let previousTokens = try savedTokens(for: account, session: session)
-      guard isSessionCurrent(session) else { return nil }
-      try tokenStore.save(
-        tokens.withAuthorizationGeneration(connection.authorizationGeneration),
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: account.id
-      )
-      do {
-        guard isSessionCurrent(session) else {
-          restore(previousTokens, for: account, session: session)
-          return nil
-        }
-        let savedSnapshot = try await definitionSyncService.saveConnection(
-          connection,
-          session: session
-        )
-        let savedGeneration =
-          savedSnapshot.connections.first(where: { $0.id == connection.id })?
-          .authorizationGeneration
-          ?? connection.authorizationGeneration
-        try tokenStore.save(
-          tokens.withAuthorizationGeneration(savedGeneration),
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: account.id
-        )
-        return connection.withAuthorizationGeneration(savedGeneration)
-      } catch {
-        restore(previousTokens, for: account, session: session)
-        throw error
-      }
+    let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    let previousDefinition = snapshot.connections.first { definition in
+      definition.provider == MailProviderId.microsoftGraph.rawValue
+        && definition.providerAccountIdentifier == account.id
     }
-  }
-
-  private func savedTokens(
-    for account: MicrosoftGraphAccount,
-    session: ProductAccountSessionSnapshot
-  ) throws -> MicrosoftGraphTokens? {
-    try tokenStore.load(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: account.id
+    let connection = MailboxConnection(
+      authorizationGeneration: previousDefinition?.authorizationGeneration ?? 0,
+      authorizationState: .authorized,
+      capabilities: .microsoftGraph,
+      connectedAt: previousDefinition?.connectedAt ?? timestamp,
+      displayName: account.emailAddress,
+      id: connectionId,
+      lastVerifiedAt: timestamp,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: timestamp
     )
-  }
-
-  private func restore(
-    _ previousTokens: MicrosoftGraphTokens?,
-    for account: MicrosoftGraphAccount,
-    session: ProductAccountSessionSnapshot
-  ) {
-    if let previousTokens {
-      try? tokenStore.save(
-        previousTokens,
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: account.id
-      )
-    } else {
-      try? tokenStore.clear(
+    guard isSessionCurrent(session) else { return nil }
+    let savedSnapshot = try await definitionSyncService.saveConnection(
+      connection,
+      session: session
+    )
+    let savedGeneration =
+      savedSnapshot.connections.first(where: { $0.id == connection.id })?
+      .authorizationGeneration
+      ?? connection.authorizationGeneration
+    try await syncGate.withLock(connection.id) {
+      guard isSessionCurrent(session) else { throw CancellationError() }
+      try tokenStore.save(
+        tokens.withAuthorizationGeneration(savedGeneration),
         productAccountId: session.productAccountId,
         providerAccountIdentifier: account.id
       )
     }
+    return connection.withAuthorizationGeneration(savedGeneration)
   }
 
   func loadConnection(
@@ -2691,7 +2643,8 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       try await clearLocalConnection(
         removed,
         session: session,
-        reportsPushFailure: false
+        reportsPushFailure: false,
+        revalidatesRemoval: true
       )
     }
     return try snapshot.connections.compactMap { definition in

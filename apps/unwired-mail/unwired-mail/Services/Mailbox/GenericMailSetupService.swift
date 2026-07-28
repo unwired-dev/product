@@ -450,6 +450,7 @@ struct GenericMailSetupService {
   private let clock: () -> Int64
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
+  private let syncGate: MailboxConnectionSyncGate
   private let verifier: GenericMailEndpointVerifying
 
   init(
@@ -462,6 +463,7 @@ struct GenericMailSetupService {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
+    syncGate: MailboxConnectionSyncGate = .shared,
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
@@ -469,6 +471,7 @@ struct GenericMailSetupService {
     self.clock = clock
     self.definitionSyncService = definitionSyncService
     self.discovery = discovery
+    self.syncGate = syncGate
     self.verifier = verifier
   }
 
@@ -737,39 +740,32 @@ extension GenericMailSetupService {
     isSessionCurrent: () -> Bool
   ) async throws {
     var previousAuthorization: DeviceLocalGenericMailAuthorization?
-    var persistenceCleanupGeneration: UInt64?
     let lease = await authorizationCoordinator.retain(productAccountId: productAccountId)
     do {
-      try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+      let persistenceCleanupGeneration = try await authorizationCoordinator.withLock(
+        lease: lease
+      ) { cleanupGeneration in
         try Task.checkCancellation()
         guard isSessionCurrent() else { throw CancellationError() }
         previousAuthorization = try authorizationStore.load(
           productAccountId: productAccountId,
           connectionId: definition.connectionId
         )
-        try authorizationStore.save(
-          DeviceLocalGenericMailAuthorization(
-            authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
-            credential: credential,
-            definition: definition
-          ),
-          productAccountId: productAccountId
-        )
-        persistenceCleanupGeneration = cleanupGeneration
+        return cleanupGeneration
       }
       if let syncSession {
-        do {
-          let snapshot = try await definitionSyncService.saveDefinition(
-            definition.synchronizedDefinition(
-              authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
-              connectedAt: clock()
-            ),
-            session: syncSession
-          )
-          let authorizationGeneration =
-            snapshot.connections.first(where: { $0.id == definition.connectionId })?
-            .authorizationGeneration
-            ?? 0
+        let snapshot = try await definitionSyncService.saveDefinition(
+          definition.synchronizedDefinition(
+            authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+            connectedAt: clock()
+          ),
+          session: syncSession
+        )
+        let authorizationGeneration =
+          snapshot.connections.first(where: { $0.id == definition.connectionId })?
+          .authorizationGeneration
+          ?? 0
+        try await syncGate.withLock(definition.connectionId) {
           try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
             guard cleanupGeneration == persistenceCleanupGeneration else {
               throw CancellationError()
@@ -783,22 +779,20 @@ extension GenericMailSetupService {
               productAccountId: productAccountId
             )
           }
-        } catch {
-          await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
-            guard cleanupGeneration == persistenceCleanupGeneration else { return }
-            if let previousAuthorization {
-              try? authorizationStore.save(
-                previousAuthorization,
-                productAccountId: productAccountId
-              )
-            } else {
-              try? authorizationStore.remove(
-                productAccountId: productAccountId,
-                connectionId: definition.connectionId
-              )
-            }
+        }
+      } else {
+        try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+          guard cleanupGeneration == persistenceCleanupGeneration else {
+            throw CancellationError()
           }
-          throw error
+          try authorizationStore.save(
+            DeviceLocalGenericMailAuthorization(
+              authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+              credential: credential,
+              definition: definition
+            ),
+            productAccountId: productAccountId
+          )
         }
       }
       await authorizationCoordinator.release(lease)

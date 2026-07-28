@@ -1524,6 +1524,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
       try await syncGate.withLock(removedId) {
+        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+          session: session
+        )
+        guard currentSnapshot.removedConnectionIds.contains(removedId) else { return }
         try clearLocalConnectionWithoutLock(removedId, session: session)
       }
     }

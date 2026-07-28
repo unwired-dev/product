@@ -317,7 +317,11 @@ extension GenericMailSetupViewModel {
     defer { isLoadingSyncedDefinitions = false }
     do {
       let syncedConnections = try await service.loadSyncedDefinitions(session: syncSession)
-        .sorted { $0.definition.emailAddress < $1.definition.emailAddress }
+        .sorted {
+          $0.definition.emailAddress.localizedCaseInsensitiveCompare(
+            $1.definition.emailAddress
+          ) == .orderedAscending
+        }
       let definitions = syncedConnections.map(\.definition)
       defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
         session: syncSession

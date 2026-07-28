@@ -267,7 +267,11 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     await setupGate.release()
 
     let reauthorizedConnection = try await setupTask.value
-    _ = try await loadTask.value
+    do {
+      _ = try await loadTask.value
+    } catch ProductSyncKeyMaterialStoreError.recoveryRequired {
+      // The stale cleanup had no local queue key material in this test fixture.
+    }
     let authorization = try authorizations.load(
       productAccountId: session.productAccountId,
       connectionId: definition.connectionId

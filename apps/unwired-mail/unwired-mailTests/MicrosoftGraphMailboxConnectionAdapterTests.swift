@@ -87,6 +87,51 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(definitionJSON.contains(authorizer.authorizedTokens.refreshToken))
   }
 
+  func testGraphReauthorizationWinsAgainstStaleRemovalCleanup() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService()
+    let syncGate = MailboxConnectionSyncGate()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    let blocker = MicrosoftGraphCleanupGateBlocker()
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      syncGate: syncGate,
+      tokenStore: tokenStore
+    )
+    let cleanup = Task {
+      try await syncGate.withLock(graphConnectionId) {
+        await blocker.hold()
+        try tokenStore.clear(
+          productAccountId: self.session.productAccountId,
+          providerAccountIdentifier: graphAccount.id
+        )
+      }
+    }
+    await blocker.waitUntilHeld()
+
+    let connection = Task {
+      try await adapter.connect(
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    while definitions.savedDefinition == nil {
+      await Task.yield()
+    }
+    await blocker.release()
+
+    _ = try await connection.value
+    try await cleanup.value
+    let tokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+
+    XCTAssertEqual(tokens, authorizer.authorizedTokens)
+  }
+
   func testFullCapabilitiesRequestWriteAndSendScopes() throws {
     let request = MicrosoftGraphOAuthRequest(
       callbackScheme: "msauth.dev.unwired.mail",
@@ -3289,6 +3334,7 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
     savedDefinition = definition
     definitions.removeAll { $0.id == definition.id }
     definitions.append(definition)
+    removedConnectionIds.removeAll { $0 == definition.id }
     return snapshot
   }
 
