@@ -361,6 +361,59 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testStaleGenericAuthorizationAppearsAuthorizationRequiredAfterReadd() async {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: "smtp.example.com",
+        port: 465,
+        security: .implicitTLS
+      ),
+      roleMappings: [.sent: "Sent"],
+      username: "reader@example.com"
+    )
+    let store = RecordingGenericMailAuthorizationStore()
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 0,
+      credential: "device-only-secret",
+      definition: definition
+    )
+    let sync = RecordingGenericSyncService(
+      authorizationGeneration: 1,
+      definitions: [definition]
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "second-device-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: store,
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+
+    await viewModel.loadSyncedDefinitions()
+
+    XCTAssertFalse(viewModel.isAuthorized(definition))
+    XCTAssertNil(viewModel.connectedDefinition)
+  }
+
+  @MainActor
   func testRefreshingSyncedDefinitionsPreservesManualSetupDraft() async {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
@@ -1620,11 +1673,17 @@ private final class RecordingGenericSyncService:
   var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
 
   init(
+    authorizationGeneration: Int = 0,
     definitions: [GenericMailConnectionDefinition] = [],
     removedConnectionIds: [MailboxConnectionId] = []
   ) {
     snapshot = MailboxConnectionSyncSnapshot(
-      connections: definitions.map { $0.synchronizedDefinition(connectedAt: 1) },
+      connections: definitions.map {
+        $0.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: 1
+        )
+      },
       defaultSendingConnectionId: nil,
       removedConnectionIds: removedConnectionIds,
       updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1

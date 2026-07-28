@@ -249,7 +249,10 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     let current = try await loadSnapshot(session: session)
-    guard !current.removedConnectionIds.contains(connectionId) else {
+    guard
+      current.connections.contains(where: { $0.id == connectionId })
+        || !current.removedConnectionIds.contains(connectionId)
+    else {
       return current
     }
     let currentGeneration =
@@ -308,10 +311,17 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       let removalGeneration = payload.removals.first {
         $0.connectionId == definition.id
       }?.authorizationGeneration
-      let generation =
+      var generation =
         existingGeneration
         ?? removalGeneration
         ?? definition.authorizationGeneration
+      if let removalGeneration {
+        generation = try await retainGenerationFloor(
+          definition.id,
+          minimumGeneration: max(generation, removalGeneration),
+          session: session
+        )
+      }
       payload.connections.removeAll { $0.id == definition.id }
       payload.removals.removeAll { $0.connectionId == definition.id }
       payload.connections.append(definition.withAuthorizationGeneration(generation))
@@ -339,7 +349,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private func update(
     session: ProductAccountSessionSnapshot,
-    mutation: (inout MailboxConnectionSyncPayload) throws -> Bool
+    mutation: (inout MailboxConnectionSyncPayload) async throws -> Bool
   ) async throws -> MailboxConnectionSyncSnapshot {
     for attempt in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await loadRemotePayload(session: session)
@@ -348,7 +358,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         try decrypt(remotePayload, session: session),
         ledger: try decryptGenerationLedger(generationPayload, session: session)
       )
-      guard try mutation(&payload) else {
+      guard try await mutation(&payload) else {
         try refreshCache(payload, remotePayload: remotePayload, session: session)
         return snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }

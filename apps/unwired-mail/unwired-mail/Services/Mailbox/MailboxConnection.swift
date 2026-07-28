@@ -1527,8 +1527,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
         session: session
       )
+      let existingStatus = try await connectionService.loadStoredConnection(
+        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+        session: session
+      )
 
-      let status = try await connectionService.completeConnection(
+      var status = try await connectionService.completeConnection(
         verifiedAccount: VerifiedGmailAccount(
           emailAddress: verifiedAccount.emailAddress,
           providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
@@ -1540,6 +1544,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         ),
         session: session
       )
+      if let existingStatus {
+        status = try connectionService.bindAuthorizationGeneration(
+          existingStatus.authorizationGeneration,
+          to: status,
+          session: session
+        )
+      }
       let connection = status.mailboxConnection(
         productAccountId: session.productAccountId,
         authorizationState: .authorized

@@ -152,6 +152,11 @@ struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
   }
 }
 
+struct SyncedGenericMailConnectionDefinition: Equatable, Sendable {
+  let authorizationGeneration: Int
+  let definition: GenericMailConnectionDefinition
+}
+
 enum MailTransportVersion: Int, Equatable, Sendable {
   case olderThanTLS12
   case tls12OrNewer
@@ -490,32 +495,6 @@ struct GenericMailSetupService {
     }
   }
 
-  func hasLocalAuthorization(
-    _ definition: GenericMailConnectionDefinition,
-    productAccountId: ProductAccountId
-  ) throws -> Bool {
-    try authorizationStore.load(
-      productAccountId: productAccountId,
-      connectionId: definition.connectionId
-    ) != nil
-  }
-
-  func loadSyncedDefinitions(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> [GenericMailConnectionDefinition] {
-    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
-    for connectionId in snapshot.removedConnectionIds
-    where connectionId.providerId.rawValue == "imap-smtp"
-      || connectionId.providerId.rawValue == "pop3-smtp"
-    {
-      try authorizationStore.remove(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connectionId
-      )
-    }
-    return snapshot.connections.compactMap(\.genericMailDefinition)
-  }
-
   func loadDefaultSendingConnectionId(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionId? {
@@ -712,6 +691,43 @@ struct GenericMailSetupService {
 }
 
 extension GenericMailSetupService {
+  func hasLocalAuthorization(
+    _ syncedDefinition: SyncedGenericMailConnectionDefinition,
+    productAccountId: ProductAccountId
+  ) throws -> Bool {
+    guard
+      let authorization = try authorizationStore.load(
+        productAccountId: productAccountId,
+        connectionId: syncedDefinition.definition.connectionId
+      )
+    else {
+      return false
+    }
+    return authorization.authorizationGeneration == syncedDefinition.authorizationGeneration
+  }
+
+  func loadSyncedDefinitions(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [SyncedGenericMailConnectionDefinition] {
+    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
+    for connectionId in snapshot.removedConnectionIds
+    where connectionId.providerId.rawValue == "imap-smtp"
+      || connectionId.providerId.rawValue == "pop3-smtp"
+    {
+      try authorizationStore.remove(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )
+    }
+    return snapshot.connections.compactMap { connection in
+      guard let definition = connection.genericMailDefinition else { return nil }
+      return SyncedGenericMailConnectionDefinition(
+        authorizationGeneration: connection.authorizationGeneration,
+        definition: definition
+      )
+    }
+  }
+
   // swiftlint:disable:next function_body_length
   fileprivate func persistAuthorizationAndDefinition(
     _ definition: GenericMailConnectionDefinition,

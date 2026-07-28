@@ -231,6 +231,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(connectionService.clearedConnection)
   }
 
+  func testGmailReconnectPreservesExistingGenerationWhenDefinitionSyncFails() async throws {
+    let existingStatus = RecordingAdapterConnectionService.status
+      .withAuthorizationGeneration(2)
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = [existingStatus]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [
+          existingStatus.mailboxConnection(
+            productAccountId: session.productAccountId,
+            authorizationState: .authorized
+          ).definition
+        ],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    definitionSyncService.saveError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+
+    do {
+      _ = try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
+      XCTFail("Expected Product Sync failure")
+    } catch is AdapterTestError {
+    }
+
+    XCTAssertEqual(connectionService.statuses.first?.authorizationGeneration, 2)
+  }
+
   func testGmailAdapterRejectsAuthorizationForDifferentMailboxDefinition() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(
@@ -5058,6 +5093,19 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     return statuses.first {
       $0.providerAccountIdentifier == providerAccountIdentifier
     }
+  }
+
+  func bindAuthorizationGeneration(
+    _ authorizationGeneration: Int,
+    to connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus {
+    let boundConnection = connection.withAuthorizationGeneration(authorizationGeneration)
+    statuses.removeAll {
+      $0.providerAccountIdentifier == boundConnection.providerAccountIdentifier
+    }
+    statuses.append(boundConnection)
+    return boundConnection
   }
 
   func hasLocalAuthorization(
