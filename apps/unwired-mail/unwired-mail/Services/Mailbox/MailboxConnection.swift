@@ -1616,8 +1616,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
     else { return localConnections }
-    try await clearRemovedConnections(
-      snapshot.removedConnectionIds,
+    try await clearConnectionsRequiringLocalCleanup(
+      snapshot.connectionIdsRequiringLocalCleanup,
       localStatusesById: localStatusesById,
       session: session
     )
@@ -1644,52 +1644,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
   }
 
-  private func clearRemovedConnections(
-    _ removedConnectionIds: [MailboxConnectionId],
+  private func clearConnectionsRequiringLocalCleanup(
+    _ connectionIds: [MailboxConnectionId],
     localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
     session: ProductAccountSessionSnapshot
   ) async throws {
     var firstError: Error?
-    for removedConnectionId in removedConnectionIds where removedConnectionId.providerId == .gmail {
+    for connectionId in connectionIds where connectionId.providerId == .gmail {
       do {
-        try await syncGate.withAllConnectionsLocked {
-          guard try await connectionIsRemoved(removedConnectionId, session: session) else {
-            return
-          }
-          let localStatus = try localStatusForCleanup(
-            id: removedConnectionId,
-            localStatusesById: localStatusesById,
-            session: session
-          )
-          let removedConnection = removedMailboxConnection(
-            id: removedConnectionId,
-            localStatus: localStatus,
-            session: session
-          )
-          var cleanupError: Error?
-          do {
-            try await connectionService.clearLocalConnection(
-              localStatus
-                ?? gmailConnection(
-                  removedConnection,
-                  session: session,
-                  requiresAuthorization: false
-                ),
-              session: session,
-              allowsAccountWideCleanup: true
-            )
-          } catch {
-            cleanupError = error
-          }
-          do {
-            try await clearRemovedConnection(removedConnection, session: session)
-          } catch {
-            cleanupError = cleanupError ?? error
-          }
-          if let cleanupError {
-            throw cleanupError
-          }
-        }
+        try await clearConnectionRequiringLocalCleanup(
+          connectionId,
+          localStatusesById: localStatusesById,
+          session: session
+        )
       } catch {
         firstError = firstError ?? error
       }
@@ -1697,6 +1664,81 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let firstError {
       throw firstError
     }
+  }
+
+  private func clearConnectionRequiringLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await syncGate.withAllConnectionsLocked {
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let currentLocalStatus = try await connectionService.loadStoredConnection(
+        providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+        session: session
+      )
+      let localAuthorizationGeneration =
+        try connectionService.hasLocalAuthorization(
+          providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+          session: session
+        ) ? currentLocalStatus?.authorizationGeneration : nil
+      guard
+        currentSnapshot.requiresLocalCleanup(
+          connectionId,
+          localAuthorizationGeneration: localAuthorizationGeneration
+        )
+      else { return }
+      let localStatus: GmailProviderConnectionStatus?
+      if let currentLocalStatus {
+        localStatus = currentLocalStatus
+      } else {
+        localStatus = try localStatusForCleanup(
+          id: connectionId,
+          localStatusesById: localStatusesById,
+          session: session
+        )
+      }
+      let removedConnection = removedMailboxConnection(
+        id: connectionId,
+        localStatus: localStatus,
+        session: session
+      )
+      try await performLocalCleanup(
+        localStatus: localStatus,
+        connection: removedConnection,
+        session: session
+      )
+    }
+  }
+
+  private func performLocalCleanup(
+    localStatus: GmailProviderConnectionStatus?,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var cleanupError: Error?
+    do {
+      try await connectionService.clearLocalConnection(
+        localStatus
+          ?? gmailConnection(
+            connection,
+            session: session,
+            requiresAuthorization: false
+          ),
+        session: session,
+        allowsAccountWideCleanup: true
+      )
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try await clearRemovedConnection(connection, session: session)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError { throw cleanupError }
   }
 
   private func localStatusForCleanup(

@@ -2478,15 +2478,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     reportsPushFailure: Bool,
-    revalidatesRemoval: Bool = false
+    revalidatesLocalCleanup: Bool = false
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      if revalidatesRemoval {
-        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
-          session: session
-        )
-        guard currentSnapshot.removedConnectionIds.contains(connection.id) else { return }
+      if revalidatesLocalCleanup,
+        !(try await localCleanupIsRequired(connection.id, session: session))
+      {
+        return
       }
       var firstError: Error?
       let accessToken: String?
@@ -2527,6 +2526,24 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       if let firstError { throw firstError }
     }
+  }
+
+  private func localCleanupIsRequired(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+      session: session
+    )
+    let authorizationGeneration =
+      try? tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+      )?.authorizationGeneration
+    return currentSnapshot.requiresLocalCleanup(
+      connectionId,
+      localAuthorizationGeneration: authorizationGeneration
+    )
   }
 
   private func clearLocalConnectionWithoutLock(
@@ -2626,7 +2643,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    for connectionId in snapshot.removedConnectionIds
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
     where connectionId.providerId == .microsoftGraph {
       let removed = placeholderConnection(
         definition: MailboxConnectionDefinition(
@@ -2644,7 +2661,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         removed,
         session: session,
         reportsPushFailure: false,
-        revalidatesRemoval: true
+        revalidatesLocalCleanup: true
       )
     }
     return try snapshot.connections.compactMap { definition in
@@ -2945,30 +2962,35 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnection {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    let tokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: id.providerMailboxIdentity.value
+    )
     if snapshot.removedConnectionIds.contains(id) {
-      let removed = placeholderConnection(
-        definition: MailboxConnectionDefinition(
-          connectedAt: 0,
-          displayName: "",
-          provider: id.providerId.rawValue,
-          providerAccountIdentifier: id.providerMailboxIdentity.value,
-          stableProviderConnectionKey: ""
-        ),
+      let removed = cleanupPlaceholderConnection(
+        id: id,
         session: session,
-        authorized: true,
         updatedAt: snapshot.updatedAt
       )
       try clearLocalConnectionWithoutLock(removed, session: session)
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+    if snapshot.requiresLocalCleanup(
+      id,
+      localAuthorizationGeneration: tokens?.authorizationGeneration
+    ) {
+      let stale = cleanupPlaceholderConnection(
+        id: id,
+        session: session,
+        updatedAt: snapshot.updatedAt
+      )
+      try clearLocalConnectionWithoutLock(stale, session: session)
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     guard
       let definition = snapshot.connections.first(where: { $0.id == id }),
       definition.provider == MailProviderId.microsoftGraph.rawValue
     else { throw MailboxConnectionAdapterError.connectionRemoved }
-    let tokens = try tokenStore.load(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: definition.providerAccountIdentifier
-    )
     guard tokens?.authorizationGeneration == definition.authorizationGeneration else {
       let stale = placeholderConnection(
         definition: definition,
@@ -2984,6 +3006,25 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session,
       authorized: true,
       updatedAt: snapshot.updatedAt
+    )
+  }
+
+  private func cleanupPlaceholderConnection(
+    id: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot,
+    updatedAt: Int64?
+  ) -> MailboxConnection {
+    placeholderConnection(
+      definition: MailboxConnectionDefinition(
+        connectedAt: 0,
+        displayName: "",
+        provider: id.providerId.rawValue,
+        providerAccountIdentifier: id.providerMailboxIdentity.value,
+        stableProviderConnectionKey: ""
+      ),
+      session: session,
+      authorized: true,
+      updatedAt: updatedAt
     )
   }
 

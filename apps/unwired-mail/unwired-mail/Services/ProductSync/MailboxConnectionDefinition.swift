@@ -187,9 +187,48 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
   let defaultSendingConnectionId: MailboxConnectionId?
   let removedConnectionIds: [MailboxConnectionId]
   let updatedAt: Int64?
+  let authorizationCleanupConnectionIds: [MailboxConnectionId]
+
+  init(
+    connections: [MailboxConnectionDefinition],
+    defaultSendingConnectionId: MailboxConnectionId?,
+    removedConnectionIds: [MailboxConnectionId],
+    updatedAt: Int64?,
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = []
+  ) {
+    self.connections = connections
+    self.defaultSendingConnectionId = defaultSendingConnectionId
+    self.removedConnectionIds = removedConnectionIds
+    self.updatedAt = updatedAt
+    self.authorizationCleanupConnectionIds = authorizationCleanupConnectionIds
+  }
 
   var hasAuthoritativeState: Bool {
     updatedAt != nil
+  }
+
+  var connectionIdsRequiringLocalCleanup: [MailboxConnectionId] {
+    Array(Set(removedConnectionIds + authorizationCleanupConnectionIds))
+      .sorted { $0.rawValue < $1.rawValue }
+  }
+
+  func requiresLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    localAuthorizationGeneration: Int?
+  ) -> Bool {
+    if removedConnectionIds.contains(connectionId) {
+      return true
+    }
+    guard authorizationCleanupConnectionIds.contains(connectionId) else {
+      return false
+    }
+    guard
+      let activeGeneration = connections.first(where: { $0.id == connectionId })?
+        .authorizationGeneration
+    else {
+      return true
+    }
+    return localAuthorizationGeneration != activeGeneration
   }
 }
 

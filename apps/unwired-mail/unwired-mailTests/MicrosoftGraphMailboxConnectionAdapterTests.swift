@@ -92,7 +92,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     let definitions = RecordingMicrosoftGraphDefinitionSyncService()
     let syncGate = MailboxConnectionSyncGate()
     let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
-    let blocker = MicrosoftGraphCleanupGateBlocker()
+    let blocker = TestRendezvous()
     let adapter = try makeAdapter(
       authorizer: authorizer,
       client: RecordingMicrosoftGraphClient(),
@@ -911,7 +911,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         value: "gmail-user-001"
       )
     )
-    let blocker = MicrosoftGraphCleanupGateBlocker()
+    let blocker = TestRendezvous()
     let activeConnection = Task {
       try await syncGate.withLock(unrelatedConnectionId) {
         await blocker.hold()
@@ -3034,31 +3034,6 @@ private final class InMemoryGraphPendingActionStore:
 
 private enum GraphTokenStoreTestError: Error {
   case cannotDecode
-}
-
-private actor MicrosoftGraphCleanupGateBlocker {
-  private var holdContinuation: CheckedContinuation<Void, Never>?
-  private var heldContinuation: CheckedContinuation<Void, Never>?
-
-  func hold() async {
-    heldContinuation?.resume()
-    heldContinuation = nil
-    await withCheckedContinuation { continuation in
-      holdContinuation = continuation
-    }
-  }
-
-  func waitUntilHeld() async {
-    guard holdContinuation == nil else { return }
-    await withCheckedContinuation { continuation in
-      heldContinuation = continuation
-    }
-  }
-
-  func release() {
-    holdContinuation?.resume()
-    holdContinuation = nil
-  }
 }
 
 private final class FailingLoadMicrosoftGraphAuthorizationStore:

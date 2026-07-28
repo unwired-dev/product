@@ -168,6 +168,10 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(recreatedSnapshot.connections.first?.authorizationGeneration, 1)
     XCTAssertEqual(convergedSnapshot.connections.first?.authorizationGeneration, 1)
     XCTAssertTrue(convergedSnapshot.removedConnectionIds.isEmpty)
+    XCTAssertEqual(
+      convergedSnapshot.authorizationCleanupConnectionIds,
+      [Self.connection.id]
+    )
   }
 
   func testRemovalInvalidatesConcurrentReauthorization() async throws {
@@ -335,7 +339,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
   }
 
-  func testRetainedFloorDemotesStaleAuthorizationWithoutSurfacingAnActiveRemoval()
+  func testRetainedFloorDemotesStaleAuthorizationAndRequiresLocalCleanup()
     async throws
   {
     let services = try makeServices()
@@ -382,7 +386,9 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     XCTAssertEqual(retainedSnapshot.connections.count, 1)
     XCTAssertTrue(retainedSnapshot.removedConnectionIds.isEmpty)
+    XCTAssertEqual(retainedSnapshot.authorizationCleanupConnectionIds, [Self.connection.id])
     XCTAssertTrue(reauthorizedSnapshot.removedConnectionIds.isEmpty)
+    XCTAssertEqual(reauthorizedSnapshot.authorizationCleanupConnectionIds, [Self.connection.id])
   }
 
   func testReauthorizationKeepsLegacyVisibleTombstoneInPrimaryPayload() async throws {
@@ -412,6 +418,10 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     XCTAssertEqual(removals.count, 1)
     XCTAssertTrue(reauthorized.removedConnectionIds.isEmpty)
+    XCTAssertEqual(
+      reauthorized.authorizationCleanupConnectionIds,
+      [Self.connection.id]
+    )
   }
 
   func testUncommittedGenerationFloorDoesNotFenceAnActiveConnection() async throws {

@@ -40,10 +40,10 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     )
     let payload: MailboxConnectionSyncPayload
     do {
-      payload = applyGenerationFloors(
-        try payloadCodec.decrypt(remotePayload, session: session),
-        ledger: try decryptGenerationLedger(generationPayload, session: session)
-      )
+      payload = try payloadCodec.decrypt(remotePayload, session: session)
+        .applyingGenerationFloors(
+          try decryptGenerationLedger(generationPayload, session: session)
+        )
     } catch {
       try? cacheStore.clear(productAccountId: session.productAccountId)
       throw error
@@ -72,10 +72,10 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       let cached = try payloadCodec.decrypt(cachedPayload, session: session)
       return payloadCodec.snapshot(cached, updatedAt: cachedPayload.updatedAt)
     }
-    let payload = applyGenerationFloors(
-      try payloadCodec.decrypt(remotePayload, session: session),
-      ledger: try decryptGenerationLedger(generationPayload, session: session)
-    )
+    let payload = try payloadCodec.decrypt(remotePayload, session: session)
+      .applyingGenerationFloors(
+        try decryptGenerationLedger(generationPayload, session: session)
+      )
     try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
     return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
@@ -232,9 +232,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         transport: transport
       )
       let storedPayload = try payloadCodec.decrypt(remotePayload, session: session)
-      var payload = applyGenerationFloors(
-        storedPayload,
-        ledger: try decryptGenerationLedger(generationPayload, session: session)
+      var payload = storedPayload.applyingGenerationFloors(
+        try decryptGenerationLedger(generationPayload, session: session)
       )
       guard try await mutation(&payload, storedPayload) else {
         try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
@@ -351,42 +350,6 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       }
     }
     throw MailboxConnectionSyncError.concurrentModification
-  }
-
-  private func applyGenerationFloors(
-    _ payload: MailboxConnectionSyncPayload,
-    ledger: MailboxAuthorizationGenerationLedger
-  ) -> MailboxConnectionSyncPayload {
-    var payload = payload
-    for floor in ledger.floors where floor.isCommitted {
-      if let connectionIndex = payload.connections.firstIndex(where: {
-        $0.id == floor.connectionId
-      }) {
-        let connection = payload.connections[connectionIndex]
-        payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
-          max(connection.authorizationGeneration, floor.authorizationGeneration)
-        )
-        continue
-      }
-      if let removalIndex = payload.removals.firstIndex(where: {
-        $0.connectionId == floor.connectionId
-      }) {
-        let removal = payload.removals[removalIndex]
-        payload.removals[removalIndex] = removal.withAuthorizationGeneration(
-          max(removal.authorizationGeneration, floor.authorizationGeneration)
-        )
-        continue
-      }
-      payload.removals.append(
-        MailboxConnectionRemovalTombstone(
-          authorizationGeneration: floor.authorizationGeneration,
-          provider: floor.provider,
-          providerAccountIdentifier: floor.providerAccountIdentifier,
-          removedAt: 0
-        )
-      )
-    }
-    return payload
   }
 
   private var generationAssociatedData: Data {

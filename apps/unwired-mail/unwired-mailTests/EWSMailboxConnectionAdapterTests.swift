@@ -227,10 +227,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     definitions.removedConnectionIds = [definition.connectionId]
     let authorizations = InMemoryEWSAuthorizationStore()
     let syncGate = MailboxConnectionSyncGate()
-    let setupGate = EWSVerificationGate()
+    let setupGate = TestRendezvous()
     let client = RecordingEWSClient()
     definitions.beforeLoadSnapshotReturn = {
-      await setupGate.waitForRelease()
+      await setupGate.hold()
     }
     let setupService = EWSSetupService(
       authorizationStore: authorizations,
@@ -257,7 +257,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
         isSessionCurrent: { $0 == self.session }
       )
     }
-    await setupGate.waitUntilStarted()
+    await setupGate.waitUntilHeld()
     let loadTask = Task {
       try await adapter.loadConnections(session: session)
     }
@@ -479,10 +479,10 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
   }
 
   func testEWSSetupInvalidationPreventsInFlightCredentialPersistence() async throws {
-    let gate = EWSVerificationGate()
+    let gate = TestRendezvous()
     let client = RecordingEWSClient()
     client.beforeVerifyReturn = {
-      await gate.waitForRelease()
+      await gate.hold()
     }
     let definitions = RecordingEWSDefinitionSyncService()
     let authorizations = InMemoryEWSAuthorizationStore()
@@ -503,7 +503,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     viewModel.username = #"CORP\reader"#
 
     let connectionTask = Task { await viewModel.connect() }
-    await gate.waitUntilStarted()
+    await gate.waitUntilHeld()
     viewModel.invalidate()
     await gate.release()
     let connection = await connectionTask.value
@@ -4092,39 +4092,6 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     authorization _: DeviceLocalEWSAuthorization
   ) async throws {
     lock.withLock { storedSentMessages.append(message) }
-  }
-}
-
-private actor EWSVerificationGate {
-  private var hasReleased = false
-  private var hasStarted = false
-  private var releaseContinuation: CheckedContinuation<Void, Never>?
-  private var startContinuations: [CheckedContinuation<Void, Never>] = []
-
-  func waitForRelease() async {
-    guard !hasReleased else { return }
-    hasStarted = true
-    let continuations = startContinuations
-    startContinuations.removeAll()
-    for continuation in continuations {
-      continuation.resume()
-    }
-    await withCheckedContinuation { continuation in
-      releaseContinuation = continuation
-    }
-  }
-
-  func waitUntilStarted() async {
-    guard !hasStarted else { return }
-    await withCheckedContinuation { continuation in
-      startContinuations.append(continuation)
-    }
-  }
-
-  func release() {
-    hasReleased = true
-    releaseContinuation?.resume()
-    releaseContinuation = nil
   }
 }
 

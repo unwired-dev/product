@@ -1522,17 +1522,12 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
     var snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
-      snapshot = try await syncGate.withLock(removedId) {
-        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
-          session: session
-        )
-        guard currentSnapshot.removedConnectionIds.contains(removedId) else {
-          return currentSnapshot
-        }
-        try clearLocalConnectionWithoutLock(removedId, session: session)
-        return currentSnapshot
-      }
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
+    where connectionId.providerId == .imapSMTP {
+      snapshot = try await refreshAndClearLocalStateIfNeeded(
+        connectionId,
+        session: session
+      )
     }
     return try snapshot.connections.compactMap { definition in
       guard
@@ -1561,6 +1556,31 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         trustedDeviceId: session.trustedDeviceId,
         updatedAt: snapshot.updatedAt ?? definition.connectedAt
       )
+    }
+  }
+
+  private func refreshAndClearLocalStateIfNeeded(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await syncGate.withLock(connectionId) {
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let authorizationGeneration = try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )?.authorizationGeneration
+      guard
+        currentSnapshot.requiresLocalCleanup(
+          connectionId,
+          localAuthorizationGeneration: authorizationGeneration
+        )
+      else {
+        return currentSnapshot
+      }
+      try clearLocalConnectionWithoutLock(connectionId, session: session)
+      return currentSnapshot
     }
   }
 
@@ -1834,8 +1854,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    guard authorization.authorizationGeneration == synchronizedDefinition.authorizationGeneration
-    else {
+    if snapshot.requiresLocalCleanup(
+      connection.id,
+      localAuthorizationGeneration: authorization.authorizationGeneration
+    ) || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration {
       if isWithinSyncGate {
         try clearLocalConnectionWithoutLock(connection, session: session)
       } else {

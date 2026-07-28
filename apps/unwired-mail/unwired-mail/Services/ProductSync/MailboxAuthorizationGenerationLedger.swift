@@ -20,7 +20,8 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    // Legacy tombstones decode as generation 1, while legacy definitions decode as generation 0.
+    // Legacy tombstones decode at generation 1 (definitions decode at 0) so a
+    // generation-unaware re-add stays fenced until a generation-aware write.
     authorizationGeneration =
       try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 1
     provider = try container.decode(String.self, forKey: .provider)

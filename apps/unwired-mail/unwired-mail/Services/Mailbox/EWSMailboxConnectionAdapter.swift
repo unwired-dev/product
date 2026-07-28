@@ -1567,16 +1567,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    for connectionId in snapshot.removedConnectionIds
+    var snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
     where connectionId.providerId == .exchangeWebServices {
-      try await syncGate.withLock(connectionId) {
-        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
-          session: session
-        )
-        guard currentSnapshot.removedConnectionIds.contains(connectionId) else { return }
-        try await clearLocalConnectionWithoutLock(connectionId, session: session)
-      }
+      snapshot = try await refreshAndClearLocalStateIfNeeded(
+        connectionId,
+        session: session
+      )
     }
     return try snapshot.connections.compactMap { definition in
       guard
@@ -1613,6 +1610,32 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         trustedDeviceId: session.trustedDeviceId,
         updatedAt: snapshot.updatedAt ?? definition.connectedAt
       )
+    }
+  }
+
+  private func refreshAndClearLocalStateIfNeeded(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await syncGate.withLock(connectionId) {
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let authorizationGeneration =
+        try? authorizationStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connectionId
+        )?.authorizationGeneration
+      guard
+        currentSnapshot.requiresLocalCleanup(
+          connectionId,
+          localAuthorizationGeneration: authorizationGeneration
+        )
+      else {
+        return currentSnapshot
+      }
+      try await clearLocalConnectionWithoutLock(connectionId, session: session)
+      return currentSnapshot
     }
   }
 

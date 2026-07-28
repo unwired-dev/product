@@ -163,22 +163,79 @@ struct MailboxConnectionSyncPayloadCodec {
     _ payload: MailboxConnectionSyncPayload,
     updatedAt: Int64?
   ) -> MailboxConnectionSyncSnapshot {
-    MailboxConnectionSyncSnapshot(
+    let activeConnectionsById = Dictionary(
+      payload.connections.map { ($0.id, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
+    return MailboxConnectionSyncSnapshot(
       connections: payload.connections.sorted { $0.id.rawValue < $1.id.rawValue },
       defaultSendingConnectionId: payload.defaultSendingConnectionId,
       removedConnectionIds:
         payload.removals.filter { removal in
-          guard
-            let activeConnection = payload.connections.first(where: {
-              $0.id == removal.connectionId
-            })
-          else {
+          guard let activeConnection = activeConnectionsById[removal.connectionId] else {
             return true
           }
           return activeConnection.authorizationGeneration < removal.authorizationGeneration
         }.map(\.connectionId)
         .sorted { $0.rawValue < $1.rawValue },
-      updatedAt: updatedAt
+      updatedAt: updatedAt,
+      authorizationCleanupConnectionIds:
+        payload.removals.filter { removal in
+          activeConnectionsById[removal.connectionId]?.authorizationGeneration
+            == removal.authorizationGeneration
+        }.map(\.connectionId)
+        .sorted { $0.rawValue < $1.rawValue }
     )
+  }
+}
+
+extension MailboxConnectionSyncPayload {
+  func applyingGenerationFloors(
+    _ ledger: MailboxAuthorizationGenerationLedger
+  ) -> MailboxConnectionSyncPayload {
+    var payload = self
+    for floor in ledger.floors where floor.isCommitted {
+      if let connectionIndex = payload.connections.firstIndex(where: {
+        $0.id == floor.connectionId
+      }) {
+        let connection = payload.connections[connectionIndex]
+        guard connection.authorizationGeneration < floor.authorizationGeneration else {
+          continue
+        }
+        payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
+          floor.authorizationGeneration
+        )
+        let removedAt =
+          payload.removals.first(where: { $0.connectionId == floor.connectionId })?.removedAt ?? 0
+        payload.removals.removeAll { $0.connectionId == floor.connectionId }
+        payload.removals.append(
+          MailboxConnectionRemovalTombstone(
+            authorizationGeneration: floor.authorizationGeneration,
+            provider: floor.provider,
+            providerAccountIdentifier: floor.providerAccountIdentifier,
+            removedAt: removedAt
+          )
+        )
+        continue
+      }
+      if let removalIndex = payload.removals.firstIndex(where: {
+        $0.connectionId == floor.connectionId
+      }) {
+        let removal = payload.removals[removalIndex]
+        payload.removals[removalIndex] = removal.withAuthorizationGeneration(
+          max(removal.authorizationGeneration, floor.authorizationGeneration)
+        )
+        continue
+      }
+      payload.removals.append(
+        MailboxConnectionRemovalTombstone(
+          authorizationGeneration: floor.authorizationGeneration,
+          provider: floor.provider,
+          providerAccountIdentifier: floor.providerAccountIdentifier,
+          removedAt: 0
+        )
+      )
+    }
+    return payload
   }
 }

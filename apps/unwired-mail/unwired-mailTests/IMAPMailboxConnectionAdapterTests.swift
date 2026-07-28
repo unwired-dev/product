@@ -47,6 +47,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     )
     let adapter = try makeAdapter(
       authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
       authorizationStore: authorizationStore,
       client: RecordingIMAPClient(),
       definitions: [definition]
@@ -90,6 +91,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     let connections = try await adapter.loadConnections(session: session)
 
     XCTAssertEqual(connections.map(\.id), [definition.connectionId])
+    XCTAssertEqual(connections.first?.authorizationState, .authorized)
   }
 
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
@@ -584,6 +586,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     _ = try await adapter.loadMessageBody(message: message, session: session)
     let staleAdapter = try makeAdapter(
       authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
       authorizationStore: authorizationStore,
       cache: cache,
       client: client,
@@ -611,6 +614,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         stableProviderMessageId: message.stableProviderMessageId
       )
     )
+    XCTAssertEqual(client.bodyRequestCount, 1)
   }
 
   func testRepresentativeServerListTranscripts() async throws {
@@ -755,6 +759,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
 
   private func makeAdapter(
     authorizationGeneration: Int = 0,
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
     authorizationStore: RecordingIMAPAuthorizationStore,
     cache: GmailMessageBodyCaching = RecordingIMAPBodyCache(),
     client: RecordingIMAPClient,
@@ -771,6 +776,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitionSyncService: definitionSyncService
         ?? RecordingIMAPDefinitionSyncService(
           authorizationGeneration: authorizationGeneration,
+          authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
           definitions: definitions
         ),
       keyMaterialStore: keyStore,
@@ -894,6 +900,7 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
 
   init(
     authorizationGeneration: Int = 0,
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
     definitions: [GenericMailConnectionDefinition],
     removedConnectionIds: [MailboxConnectionId] = []
   ) {
@@ -906,7 +913,8 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
       },
       defaultSendingConnectionId: nil,
       removedConnectionIds: removedConnectionIds,
-      updatedAt: 10
+      updatedAt: 10,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds
     )
   }
 

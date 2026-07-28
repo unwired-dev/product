@@ -148,7 +148,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
     let syncGate = MailboxConnectionSyncGate()
-    let blocker = GenericMailSetupLockBlocker()
+    let blocker = TestRendezvous()
     let service = GenericMailSetupService(
       authorizationStore: store,
       definitionSyncService: sync,
@@ -1865,31 +1865,6 @@ private actor GenericMailSetupAsyncGate {
     guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
     let waiter = waiters.remove(at: index)
     waiter.continuation.resume(returning: false)
-  }
-}
-
-private actor GenericMailSetupLockBlocker {
-  private var holdContinuation: CheckedContinuation<Void, Never>?
-  private var heldContinuation: CheckedContinuation<Void, Never>?
-
-  func hold() async {
-    heldContinuation?.resume()
-    heldContinuation = nil
-    await withCheckedContinuation { continuation in
-      holdContinuation = continuation
-    }
-  }
-
-  func waitUntilHeld() async {
-    guard holdContinuation == nil else { return }
-    await withCheckedContinuation { continuation in
-      heldContinuation = continuation
-    }
-  }
-
-  func release() {
-    holdContinuation?.resume()
-    holdContinuation = nil
   }
 }
 

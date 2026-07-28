@@ -713,14 +713,29 @@ extension GenericMailSetupService {
     session: ProductAccountSessionSnapshot
   ) async throws -> [SyncedGenericMailConnectionDefinition] {
     let snapshot = try await definitionSyncService.loadSnapshot(session: session)
-    for connectionId in snapshot.removedConnectionIds
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
     where connectionId.providerId.rawValue == "imap-smtp"
       || connectionId.providerId.rawValue == "pop3-smtp"
     {
-      try authorizationStore.remove(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connectionId
-      )
+      try await syncGate.withLock(connectionId) {
+        let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+        let authorizationGeneration = try authorizationStore.load(
+          productAccountId: ProductAccountId(session.productAccountId),
+          connectionId: connectionId
+        )?.authorizationGeneration
+        guard
+          currentSnapshot.requiresLocalCleanup(
+            connectionId,
+            localAuthorizationGeneration: authorizationGeneration
+          )
+        else {
+          return
+        }
+        try authorizationStore.remove(
+          productAccountId: ProductAccountId(session.productAccountId),
+          connectionId: connectionId
+        )
+      }
     }
     return snapshot.connections.compactMap { connection in
       guard let definition = connection.genericMailDefinition else { return nil }
