@@ -211,6 +211,61 @@ final class GenericMailSetupServiceTests: XCTestCase {
     }
   }
 
+  func testSyncFailureRollsBackWhenConcurrentAccountCleanupFails() async throws {
+    let productAccountId = ProductAccountId("product-account-cleanup-failure-\(UUID().uuidString)")
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let saveStarted = XCTestExpectation(description: "definition save started")
+    let saveRelease = DispatchSemaphore(value: 0)
+    sync.onSave = {
+      saveStarted.fulfill()
+      saveRelease.wait()
+    }
+    sync.saveError = GenericMailSetupTestError.syncUnavailable
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let sessionState = LockedBoolean(true)
+
+    _ = try await service.authorize(
+      draft: manualDraft(),
+      credential: "previous-secret",
+      productAccountId: productAccountId
+    )
+    store.clearError = GenericMailSetupTestError.cleanupUnavailable
+    let replacement = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "replacement-secret",
+        productAccountId: productAccountId,
+        syncSession: session(productAccountId: productAccountId),
+        isSessionCurrent: { sessionState.value }
+      )
+    }
+    await fulfillment(of: [saveStarted], timeout: 1)
+    sessionState.value = false
+
+    do {
+      try await service.clearLocalAuthorizations(productAccountId: productAccountId)
+      XCTFail("Expected account cleanup failure")
+    } catch GenericMailSetupTestError.cleanupUnavailable {
+    } catch {
+      XCTFail("Unexpected cleanup error: \(error)")
+    }
+    saveRelease.signal()
+
+    do {
+      _ = try await replacement.value
+      XCTFail("Expected Product Sync failure")
+    } catch GenericMailSetupTestError.syncUnavailable {
+      XCTAssertEqual(store.authorization?.credential, "previous-secret")
+    } catch {
+      XCTFail("Unexpected authorization error: \(error)")
+    }
+  }
+
   func testAuthenticatedUsernamesAtSameAddressAndEndpointsRemainDistinct() async throws {
     let service = GenericMailSetupService(
       authorizationStore: RecordingGenericMailAuthorizationStore(),
@@ -803,7 +858,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.showsMailboxRoles)
   }
 
-  func testAccountCleanupClearsEveryDeviceLocalGenericAuthorization() throws {
+  func testAccountCleanupClearsEveryDeviceLocalGenericAuthorization() async throws {
     let store = RecordingGenericMailAuthorizationStore()
     store.authorization = DeviceLocalGenericMailAuthorization(
       credential: "secret",
@@ -821,7 +876,9 @@ final class GenericMailSetupServiceTests: XCTestCase {
       verifier: RecordingGenericMailEndpointVerifier()
     )
 
-    try service.clearLocalAuthorizations(productAccountId: ProductAccountId("product-account-001"))
+    try await service.clearLocalAuthorizations(
+      productAccountId: ProductAccountId("product-account-001")
+    )
 
     XCTAssertNil(store.authorization)
     XCTAssertEqual(
@@ -937,8 +994,10 @@ final class GenericMailSetupServiceTests: XCTestCase {
   func testCancellationWhileWaitingToPersistDoesNotReplaceAuthorization() async throws {
     let productAccountId = ProductAccountId("product-account-cancellation-\(UUID().uuidString)")
     let store = BlockingGenericMailAuthorizationStore()
+    let authorizationCoordinator = GenericMailAuthorizationCoordinator()
     let service = GenericMailSetupService(
       authorizationStore: store,
+      authorizationCoordinator: authorizationCoordinator,
       verifier: RecordingGenericMailEndpointVerifier()
     )
     let firstAuthorization = Task {
@@ -949,17 +1008,14 @@ final class GenericMailSetupServiceTests: XCTestCase {
       )
     }
     await fulfillment(of: [store.loadStarted], timeout: 1)
-    let sessionFence = SessionFenceProbe()
     let cancelledAuthorization = Task {
       try await service.authorize(
         draft: manualDraft(),
         credential: "cancelled-secret",
-        productAccountId: productAccountId,
-        isSessionCurrent: { sessionFence.isCurrent }
+        productAccountId: productAccountId
       )
     }
-    await fulfillment(of: [sessionFence.finalFencePassed], timeout: 1)
-    try await Task.sleep(nanoseconds: 10_000_000)
+    await authorizationCoordinator.waitUntilContended(productAccountId: productAccountId)
     cancelledAuthorization.cancel()
     store.resumeLoad()
 
@@ -1341,6 +1397,15 @@ final class GenericMailSetupServiceTests: XCTestCase {
       username: "reader@example.com"
     )
   }
+
+  private func session(productAccountId: ProductAccountId) -> ProductAccountSessionSnapshot {
+    ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: productAccountId.rawValue,
+      trustedDeviceId: "trusted-device-001"
+    )
+  }
 }
 
 private final class RecordingGenericMailEndpointVerifier: GenericMailEndpointVerifying {
@@ -1375,10 +1440,12 @@ private final class RecordingGenericMailEndpointVerifier: GenericMailEndpointVer
 
 private final class RecordingGenericMailAuthorizationStore: GenericMailAuthorizationPersisting {
   var authorization: DeviceLocalGenericMailAuthorization?
+  var clearError: Error?
   var clearedProductAccountId: ProductAccountId?
   var productAccountId: ProductAccountId?
 
   func clearAll(productAccountId: ProductAccountId) throws {
+    if let clearError { throw clearError }
     authorization = nil
     clearedProductAccountId = productAccountId
   }
@@ -1499,24 +1566,6 @@ private final class LockedBoolean: @unchecked Sendable {
   }
 }
 
-private final class SessionFenceProbe: @unchecked Sendable {
-  let finalFencePassed = XCTestExpectation(description: "final session fence passed")
-
-  private var checkCount = 0
-  private let lock = NSLock()
-
-  var isCurrent: Bool {
-    let currentCheckCount = lock.withLock {
-      checkCount += 1
-      return checkCount
-    }
-    if currentCheckCount == 4 {
-      finalFencePassed.fulfill()
-    }
-    return true
-  }
-}
-
 private final class RecordingBackgroundContextCacheStore:
   BackgroundContextCachePersisting
 {
@@ -1562,6 +1611,7 @@ private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing
 private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
+  var onSave: (() -> Void)?
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
@@ -1623,6 +1673,7 @@ private final class RecordingGenericSyncService:
     _ definition: MailboxConnectionDefinition,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    onSave?()
     if let saveError { throw saveError }
     savedDefinition = definition
     snapshot = replacingConnections(
@@ -1657,6 +1708,7 @@ private final class RecordingGenericSyncService:
 }
 
 private enum GenericMailSetupTestError: Error {
+  case cleanupUnavailable
   case invalidCertificate
   case syncUnavailable
 }

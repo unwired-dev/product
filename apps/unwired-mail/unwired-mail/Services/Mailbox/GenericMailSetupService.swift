@@ -217,33 +217,157 @@ protocol GenericMailAuthorizationPersisting {
   ) throws
 }
 
-final class GenericMailAuthorizationLock: @unchecked Sendable {
-  static let shared = GenericMailAuthorizationLock()
+private struct GenericMailAuthorizationLease: Sendable {
+  let productAccountId: ProductAccountId
+}
 
-  private let accountLocksLock = NSLock()
-  private var accountLocks: [ProductAccountId: NSLock] = [:]
+private actor GenericMailAuthorizationGate {
+  private struct Entry {
+    var cleanupGeneration: UInt64 = 0
+    var contentionObservers: [CheckedContinuation<Void, Never>] = []
+    var isLocked = false
+    var retainCount = 0
+    var waiters: [CheckedContinuation<Void, Never>] = []
+  }
+
+  private var entries: [ProductAccountId: Entry] = [:]
+
+  func retain(productAccountId: ProductAccountId) -> GenericMailAuthorizationLease {
+    var entry = entries[productAccountId, default: Entry()]
+    entry.retainCount += 1
+    entries[productAccountId] = entry
+    return GenericMailAuthorizationLease(productAccountId: productAccountId)
+  }
+
+  func release(_ lease: GenericMailAuthorizationLease) {
+    guard var entry = entries[lease.productAccountId] else { return }
+    entry.retainCount -= 1
+    entries[lease.productAccountId] = entry
+    removeEntryIfIdle(productAccountId: lease.productAccountId)
+  }
+
+  func acquire(_ lease: GenericMailAuthorizationLease) async -> UInt64 {
+    var entry = entries[lease.productAccountId, default: Entry()]
+    if !entry.isLocked {
+      entry.isLocked = true
+      entries[lease.productAccountId] = entry
+      return entry.cleanupGeneration
+    }
+
+    await withCheckedContinuation { continuation in
+      entry.waiters.append(continuation)
+      let observers = entry.contentionObservers
+      entry.contentionObservers.removeAll()
+      entries[lease.productAccountId] = entry
+      for observer in observers {
+        observer.resume()
+      }
+    }
+    return entries[lease.productAccountId]?.cleanupGeneration ?? 0
+  }
+
+  func releaseLock(
+    _ lease: GenericMailAuthorizationLease,
+    advancesCleanupGeneration: Bool
+  ) {
+    guard var entry = entries[lease.productAccountId] else { return }
+    if advancesCleanupGeneration {
+      entry.cleanupGeneration &+= 1
+    }
+    if entry.waiters.isEmpty {
+      entry.isLocked = false
+      entries[lease.productAccountId] = entry
+      removeEntryIfIdle(productAccountId: lease.productAccountId)
+    } else {
+      let waiter = entry.waiters.removeFirst()
+      entries[lease.productAccountId] = entry
+      waiter.resume()
+    }
+  }
+
+  func waitUntilContended(productAccountId: ProductAccountId) async {
+    if let entry = entries[productAccountId], !entry.waiters.isEmpty { return }
+    await withCheckedContinuation { continuation in
+      var entry = entries[productAccountId, default: Entry()]
+      entry.contentionObservers.append(continuation)
+      entries[productAccountId] = entry
+    }
+  }
+
+  private func removeEntryIfIdle(productAccountId: ProductAccountId) {
+    guard
+      let entry = entries[productAccountId],
+      entry.retainCount == 0,
+      !entry.isLocked,
+      entry.waiters.isEmpty,
+      entry.contentionObservers.isEmpty
+    else { return }
+    entries.removeValue(forKey: productAccountId)
+  }
+}
+
+final class GenericMailAuthorizationCoordinator: Sendable {
+  static let shared = GenericMailAuthorizationCoordinator()
+
+  private let gate = GenericMailAuthorizationGate()
+
+  fileprivate func retain(
+    productAccountId: ProductAccountId
+  ) async -> GenericMailAuthorizationLease {
+    await gate.retain(productAccountId: productAccountId)
+  }
+
+  fileprivate func release(_ lease: GenericMailAuthorizationLease) async {
+    await gate.release(lease)
+  }
+
+  fileprivate func withLock<Result>(
+    lease: GenericMailAuthorizationLease,
+    advancesCleanupGeneration: Bool = false,
+    operation: (UInt64) throws -> Result
+  ) async rethrows -> Result {
+    let cleanupGeneration = await gate.acquire(lease)
+    do {
+      let result = try operation(cleanupGeneration)
+      await gate.releaseLock(
+        lease,
+        advancesCleanupGeneration: advancesCleanupGeneration
+      )
+      return result
+    } catch {
+      await gate.releaseLock(lease, advancesCleanupGeneration: false)
+      throw error
+    }
+  }
 
   func withLock<Result>(
     productAccountId: ProductAccountId,
-    operation: () throws -> Result
-  ) rethrows -> Result {
-    try lock(for: productAccountId).withLock(operation)
+    advancesCleanupGeneration: Bool = false,
+    operation: (UInt64) throws -> Result
+  ) async rethrows -> Result {
+    let lease = await retain(productAccountId: productAccountId)
+    do {
+      let result = try await withLock(
+        lease: lease,
+        advancesCleanupGeneration: advancesCleanupGeneration,
+        operation: operation
+      )
+      await release(lease)
+      return result
+    } catch {
+      await release(lease)
+      throw error
+    }
   }
 
-  private func lock(for productAccountId: ProductAccountId) -> NSLock {
-    accountLocksLock.withLock {
-      if let lock = accountLocks[productAccountId] {
-        return lock
-      }
-      let lock = NSLock()
-      accountLocks[productAccountId] = lock
-      return lock
-    }
+  func waitUntilContended(productAccountId: ProductAccountId) async {
+    await gate.waitUntilContended(productAccountId: productAccountId)
   }
 }
 
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
+  private let authorizationCoordinator: GenericMailAuthorizationCoordinator
   private let clock: () -> Int64
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
@@ -252,6 +376,7 @@ struct GenericMailSetupService {
   init(
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
+    authorizationCoordinator: GenericMailAuthorizationCoordinator = .shared,
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
@@ -261,6 +386,7 @@ struct GenericMailSetupService {
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
+    self.authorizationCoordinator = authorizationCoordinator
     self.clock = clock
     self.definitionSyncService = definitionSyncService
     self.discovery = discovery
@@ -281,8 +407,11 @@ struct GenericMailSetupService {
     )
   }
 
-  func clearLocalAuthorizations(productAccountId: ProductAccountId) throws {
-    try GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
+  func clearLocalAuthorizations(productAccountId: ProductAccountId) async throws {
+    try await authorizationCoordinator.withLock(
+      productAccountId: productAccountId,
+      advancesCleanupGeneration: true
+    ) { _ in
       try authorizationStore.clearAll(productAccountId: productAccountId)
     }
   }
@@ -517,38 +646,50 @@ extension GenericMailSetupService {
     isSessionCurrent: () -> Bool
   ) async throws {
     var previousAuthorization: DeviceLocalGenericMailAuthorization?
-    try GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
-      try Task.checkCancellation()
-      guard isSessionCurrent() else { throw CancellationError() }
-      previousAuthorization = try authorizationStore.load(
-        productAccountId: productAccountId,
-        connectionId: definition.connectionId
-      )
-      try authorizationStore.save(
-        DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
-        productAccountId: productAccountId
-      )
-    }
-    if let syncSession {
-      do {
-        _ = try await definitionSyncService.saveDefinition(
-          definition.synchronizedDefinition(connectedAt: clock()),
-          session: syncSession
+    var persistenceCleanupGeneration: UInt64?
+    let lease = await authorizationCoordinator.retain(productAccountId: productAccountId)
+    do {
+      try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+        try Task.checkCancellation()
+        guard isSessionCurrent() else { throw CancellationError() }
+        previousAuthorization = try authorizationStore.load(
+          productAccountId: productAccountId,
+          connectionId: definition.connectionId
         )
-      } catch {
-        GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
-          guard isSessionCurrent() else { return }
-          if let previousAuthorization {
-            try? authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
-          } else {
-            try? authorizationStore.remove(
-              productAccountId: productAccountId,
-              connectionId: definition.connectionId
-            )
-          }
-        }
-        throw error
+        try authorizationStore.save(
+          DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
+          productAccountId: productAccountId
+        )
+        persistenceCleanupGeneration = cleanupGeneration
       }
+      if let syncSession {
+        do {
+          _ = try await definitionSyncService.saveDefinition(
+            definition.synchronizedDefinition(connectedAt: clock()),
+            session: syncSession
+          )
+        } catch {
+          await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+            guard cleanupGeneration == persistenceCleanupGeneration else { return }
+            if let previousAuthorization {
+              try? authorizationStore.save(
+                previousAuthorization,
+                productAccountId: productAccountId
+              )
+            } else {
+              try? authorizationStore.remove(
+                productAccountId: productAccountId,
+                connectionId: definition.connectionId
+              )
+            }
+          }
+          throw error
+        }
+      }
+      await authorizationCoordinator.release(lease)
+    } catch {
+      await authorizationCoordinator.release(lease)
+      throw error
     }
   }
 }
@@ -577,7 +718,7 @@ struct ProductAccountMailboxConnectionClearer: MailboxConnectionClearing {
       firstError = error
     }
     do {
-      try genericMailSetupService.clearLocalAuthorizations(
+      try await genericMailSetupService.clearLocalAuthorizations(
         productAccountId: ProductAccountId(session.productAccountId)
       )
     } catch {
