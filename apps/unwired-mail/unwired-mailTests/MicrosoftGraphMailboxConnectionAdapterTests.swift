@@ -2100,6 +2100,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(push.connectionIds.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
   func testBackgroundFetchStopsRenewingAfterCancellation() async throws {
     let secondAccount = MicrosoftGraphAccount(
       displayName: "Second Graph Reader",
@@ -2132,7 +2133,12 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     let sessionStore = InMemoryProductAccountSessionStore()
     try sessionStore.save(session)
     let push = RecordingMailboxPushService()
-    push.error = CancellationError()
+    let renewalStarted = expectation(description: "First renewal started")
+    var resumeRenewal: CheckedContinuation<Void, Never>?
+    push.beforeReturn = {
+      renewalStarted.fulfill()
+      await withCheckedContinuation { resumeRenewal = $0 }
+    }
     let defaultsName = "MicrosoftGraphCancelledBackgroundRenewalTests.\(UUID().uuidString)"
     let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
     defer { defaults.removePersistentDomain(forName: defaultsName) }
@@ -2143,8 +2149,14 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
     )
 
+    let renewalTask = Task {
+      try await handler.handle()
+    }
+    await fulfillment(of: [renewalStarted])
+    renewalTask.cancel()
+    resumeRenewal?.resume()
     do {
-      _ = try await handler.handle()
+      _ = try await renewalTask.value
       XCTFail("Expected cancellation")
     } catch is CancellationError {
     }
@@ -2998,6 +3010,7 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
 
 private final class RecordingMailboxPushService: MailboxPushRegistering {
   private(set) var connectionIds: [MailboxConnectionId] = []
+  var beforeReturn: (() async -> Void)?
   var error: Error?
 
   func registerOrRenewPush(
@@ -3005,6 +3018,7 @@ private final class RecordingMailboxPushService: MailboxPushRegistering {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
+    await beforeReturn?()
     if let error { throw error }
   }
 }
