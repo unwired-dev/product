@@ -7,6 +7,16 @@ import XCTest
 
 @MainActor
 final class GmailPushRelayServiceTests: XCTestCase {
+  func testAppPermitsMailRefreshBackgroundTask() throws {
+    let identifiers = try XCTUnwrap(
+      Bundle(for: PushNotificationAppDelegate.self)
+        .object(forInfoDictionaryKey: "BGTaskSchedulerPermittedIdentifiers")
+        as? [String]
+    )
+
+    XCTAssertTrue(identifiers.contains(MailRefreshBackgroundTask.identifier))
+  }
+
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",

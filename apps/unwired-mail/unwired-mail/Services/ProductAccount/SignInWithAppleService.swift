@@ -121,8 +121,22 @@ protocol AppleSignInPerforming {
   func restoreSession(snapshot: ProductAccountSessionSnapshot) async throws -> AppleSignInCredential
 }
 
+private struct AppleAuthorizationRequest: @unchecked Sendable {
+  let controller: ASAuthorizationController
+
+  func perform() {
+    controller.performRequests()
+  }
+}
+
 @MainActor
 final class SignInWithAppleService: NSObject, AppleSignInPerforming {
+  private static let authorizationQueue = DispatchQueue(
+    label: "dev.unwired.mail.apple-authorization",
+    qos: .default
+  )
+
+  private var authorizationController: ASAuthorizationController?
   private var continuation: CheckedContinuation<AppleSignInCredential, Error>?
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
 
@@ -169,7 +183,11 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
       let controller = ASAuthorizationController(authorizationRequests: [request])
       controller.delegate = self
       controller.presentationContextProvider = self
-      controller.performRequests()
+      authorizationController = controller
+      let authorizationRequest = AppleAuthorizationRequest(controller: controller)
+      Self.authorizationQueue.async {
+        authorizationRequest.perform()
+      }
     }
   }
 }
@@ -182,6 +200,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
     guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
       continuation?.resume(throwing: AppleSignInError.credentialUnavailable)
       continuation = nil
+      authorizationController = nil
       return
     }
 
@@ -190,6 +209,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
     else {
       continuation?.resume(throwing: AppleSignInError.missingIdentityToken)
       continuation = nil
+      authorizationController = nil
       return
     }
 
@@ -197,6 +217,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
     guard !userIdentifier.isEmpty else {
       continuation?.resume(throwing: AppleSignInError.missingUserIdentifier)
       continuation = nil
+      authorizationController = nil
       return
     }
 
@@ -207,6 +228,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
       )
     )
     continuation = nil
+    authorizationController = nil
   }
 
   func authorizationController(
@@ -219,6 +241,7 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
       continuation?.resume(throwing: error)
     }
     continuation = nil
+    authorizationController = nil
   }
 }
 

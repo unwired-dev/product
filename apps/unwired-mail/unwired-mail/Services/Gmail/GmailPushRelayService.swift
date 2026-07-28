@@ -1771,10 +1771,17 @@ private struct GmailWatchResponse: Decodable {
 }
 
 #if canImport(UIKit)
+  import BackgroundTasks
+
   private let pushRegistrationLogger = Logger(
     subsystem: Bundle.main.bundleIdentifier ?? "dev.unwired.mail",
     category: "push-registration"
   )
+
+  enum MailRefreshBackgroundTask {
+    static let identifier = "dev.unwired.mail.refresh"
+    static let interval: TimeInterval = 12 * 60 * 60
+  }
 
   @MainActor
   final class PushNotificationAppDelegate: NSObject, UIApplicationDelegate {
@@ -1790,10 +1797,20 @@ private struct GmailWatchResponse: Decodable {
     }
 
     func application(
-      _ application: UIApplication,
+      _: UIApplication,
       didFinishLaunchingWithOptions _: [UIApplication.LaunchOptionsKey: Any]? = nil
     ) -> Bool {
-      application.setMinimumBackgroundFetchInterval(12 * 60 * 60)
+      BGTaskScheduler.shared.register(
+        forTaskWithIdentifier: MailRefreshBackgroundTask.identifier,
+        using: nil
+      ) { task in
+        guard let refreshTask = task as? BGAppRefreshTask else {
+          task.setTaskCompleted(success: false)
+          return
+        }
+        Self.handle(refreshTask)
+      }
+      Self.scheduleBackgroundRefresh()
       return true
     }
 
@@ -1842,20 +1859,32 @@ private struct GmailWatchResponse: Decodable {
       }
     }
 
-    func application(
-      _: UIApplication,
-      performFetchWithCompletionHandler completionHandler:
-        @escaping (
-          UIBackgroundFetchResult
-        ) -> Void
-    ) {
-      Task { @MainActor in
+    nonisolated private static func handle(_ refreshTask: BGAppRefreshTask) {
+      scheduleBackgroundRefresh()
+      let renewalTask = Task { @MainActor in
         do {
-          let renewed = try await MicrosoftGraphPushRenewalHandler().handle()
-          completionHandler(renewed ? .newData : .noData)
+          _ = try await MicrosoftGraphPushRenewalHandler().handle()
+          refreshTask.setTaskCompleted(success: !Task.isCancelled)
         } catch {
-          completionHandler(.failed)
+          refreshTask.setTaskCompleted(success: false)
         }
+      }
+      refreshTask.expirationHandler = {
+        renewalTask.cancel()
+      }
+    }
+
+    nonisolated private static func scheduleBackgroundRefresh() {
+      let request = BGAppRefreshTaskRequest(identifier: MailRefreshBackgroundTask.identifier)
+      request.earliestBeginDate = Date(
+        timeIntervalSinceNow: MailRefreshBackgroundTask.interval
+      )
+      do {
+        try BGTaskScheduler.shared.submit(request)
+      } catch {
+        pushRegistrationLogger.error(
+          "Background refresh scheduling failed: \(error.localizedDescription, privacy: .public)"
+        )
       }
     }
   }
