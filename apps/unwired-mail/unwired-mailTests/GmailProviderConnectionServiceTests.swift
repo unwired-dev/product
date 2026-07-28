@@ -848,6 +848,11 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let transport = RecordingGmailConnectionTransport()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "scoped-access", refreshToken: "scoped-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: transport.status.providerAccountIdentifier
+    )
     transport.hasRemainingGmailConnections = true
     let service = GmailProviderConnectionService(
       pushConnectionStore: RecordingPushConnectionStore(),
@@ -869,6 +874,12 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     try await service.clearLocalConnection(transport.status, session: session)
 
     XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: transport.status.providerAccountIdentifier
+      )
+    )
   }
 
   func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {

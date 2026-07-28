@@ -1474,11 +1474,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard isSessionCurrent(session) else {
         return nil
       }
-      let hadExistingConnection = try await connectionService.loadConnections(session: session)
-        .contains {
-          $0.mailboxConnection(productAccountId: session.productAccountId).id
-            == verifiedConnectionId
-        }
+      let hadExistingConnection =
+        try await connectionService.loadStoredConnection(
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+          session: session
+        ) != nil
 
       let status = try await connectionService.completeConnection(
         verifiedAccount: VerifiedGmailAccount(
@@ -1575,12 +1575,24 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           localStatus: localStatus,
           session: session
         )
-        try await clearRemovedConnection(removedConnection, session: session)
-        try await connectionService.clearLocalConnection(
-          localStatus
-            ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
-          session: session
-        )
+        var cleanupError: Error?
+        do {
+          try await connectionService.clearLocalConnection(
+            localStatus
+              ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
+            session: session
+          )
+        } catch {
+          cleanupError = error
+        }
+        do {
+          try await clearRemovedConnection(removedConnection, session: session)
+        } catch {
+          cleanupError = cleanupError ?? error
+        }
+        if let cleanupError {
+          throw cleanupError
+        }
       }
     }
   }
@@ -1900,12 +1912,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
     do {
-      try await ensureConnectionIsActive(message.connectionId, session: session)
-      return try await metadataService.overrideCategory(
-        categoryId,
-        for: message.gmailMetadata,
-        session: session
-      ).mailboxMetadata(connectionId: message.connectionId)
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        return try await metadataService.overrideCategory(
+          categoryId,
+          for: message.gmailMetadata,
+          session: session
+        ).mailboxMetadata(connectionId: message.connectionId)
+      }
     } catch MailboxConnectionAdapterError.connectionRemoved {
       try await syncGate.withLock(message.connectionId) {
         try await clearRemovedConnectionState(message.connectionId, session: session)
@@ -2404,7 +2418,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard try await connectionIsRemoved(connectionId, session: session) else {
       return
     }
-    let localConnection = try await connectionService.loadStoredConnection(
+    let localConnection = try? await connectionService.loadStoredConnection(
       providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
       session: session
     )

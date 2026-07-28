@@ -567,13 +567,9 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
     do {
       if hasRemainingGmailConnections {
-        let scopedTokens = try tokenStore.load(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: connection.providerAccountIdentifier
-        )
-        if scopedTokens == nil,
-          let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
-        {
+        if let legacyTokens = try tokenStore.loadLegacy(
+          productAccountId: session.productAccountId
+        ) {
           let legacyAccount = try await credentialVerifier.verify(
             accessToken: legacyTokens.accessToken,
             refreshToken: legacyTokens.refreshToken
