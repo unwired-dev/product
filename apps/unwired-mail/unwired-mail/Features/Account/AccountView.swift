@@ -5037,7 +5037,16 @@ final class GmailInboxViewModel {
     } catch is CancellationError {
       return false
     } catch {
-      errorMessage = error.localizedDescription
+      let syncErrorMessage = error.localizedDescription
+      if let result = try? await service.loadMailbox(
+        currentCollection,
+        connection: connection,
+        session: session
+      ), !hasSignedOut, currentConnectionId == connection.id {
+        threads = result.threads
+        await refreshNavigationSnapshot(for: connection)
+      }
+      errorMessage = syncErrorMessage
       return false
     }
   }

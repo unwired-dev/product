@@ -230,6 +230,148 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
   }
 
+  func testSwiftDataMetadataStoreMigratesInboxIndexesWithoutDroppingArchivedMetadata() throws {
+    let schema = Schema([
+      DurableGmailMessageMetadataRecord.self,
+      GmailMetadataSyncCheckpointRecord.self,
+    ])
+    let configuration = ModelConfiguration(
+      "GmailInboxIndexMigrationTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-inbox",
+      internalDateMilliseconds: 2
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var archivedMessage = metadata(
+      messageId: "message-archive",
+      threadId: "thread-archive",
+      internalDateMilliseconds: 1
+    )
+    archivedMessage.providerLabelIds = ["ARCHIVE"]
+    try store.saveMessages(
+      [inboxMessage, archivedMessage],
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let legacyContext = ModelContext(container)
+    for record in try legacyContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>()) {
+      record.isInboxVisible = false
+      record.metadataIndexVersion = 0
+      record.providerThreadId = ""
+    }
+    try legacyContext.save()
+
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage]
+    )
+    XCTAssertEqual(
+      try store.loadMessages(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage, archivedMessage]
+    )
+
+    let indexedContext = ModelContext(container)
+    let archivedRecord = try XCTUnwrap(
+      indexedContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>())
+        .first { $0.stableProviderMessageId == archivedMessage.stableProviderMessageId }
+    )
+    archivedRecord.encodedMessage = Data("not-json".utf8)
+    try indexedContext.save()
+
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage]
+    )
+  }
+
+  func testSwiftDataInboxIndexMigrationBoundsWorkPerLoad() throws {
+    let schema = Schema([
+      DurableGmailMessageMetadataRecord.self,
+      GmailMetadataSyncCheckpointRecord.self,
+    ])
+    let configuration = ModelConfiguration(
+      "GmailBoundedInboxIndexMigrationTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-inbox",
+      internalDateMilliseconds: 1_000
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    let archivedMessages = (0..<600).map { index in
+      var message = metadata(
+        messageId: "message-archive-\(index)",
+        threadId: "thread-archive-\(index)",
+        internalDateMilliseconds: Int64(index)
+      )
+      message.providerLabelIds = ["ARCHIVE"]
+      return message
+    }
+    try store.saveMessages(
+      [inboxMessage] + archivedMessages,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let legacyContext = ModelContext(container)
+    for record in try legacyContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>()) {
+      record.metadataIndexVersion = 0
+    }
+    try legacyContext.save()
+
+    XCTAssertThrowsError(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: ["message-archive-599"],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
+    ) { error in
+      guard case GmailMessageMetadataStoreError.inboxIndexMigrationPending = error else {
+        return XCTFail("Expected bounded Inbox index migration to remain pending.")
+      }
+    }
+
+    let migratedContext = ModelContext(container)
+    var records = try migratedContext.fetch(
+      FetchDescriptor<DurableGmailMessageMetadataRecord>()
+    )
+    XCTAssertEqual(records.filter { $0.metadataIndexVersion == 0 }.count, 101)
+
+    XCTAssertEqual(
+      try store.loadInboxThreadMessages(
+        additionalProviderMessageIds: [],
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      [inboxMessage]
+    )
+    let completedContext = ModelContext(container)
+    records = try completedContext.fetch(FetchDescriptor<DurableGmailMessageMetadataRecord>())
+    XCTAssertEqual(records.filter { $0.metadataIndexVersion == 0 }.count, 0)
+  }
+
   func testSwiftDataMetadataStoreResumesBackfillAndReconcilesProviderDeletions() throws {
     let store = try SwiftDataGmailMessageMetadataStore.inMemory()
     let stale = metadata(
@@ -733,6 +875,84 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(
       result.threads[0].messages.map(\.providerMessageId),
       ["message-sent", "message-inbox"]
+    )
+  }
+
+  func testLoadInboxDoesNotDecodeLargeArchivedMetadataSet() async throws {
+    let schema = Schema([
+      DurableGmailMessageMetadataRecord.self,
+      GmailMetadataSyncCheckpointRecord.self,
+    ])
+    let configuration = ModelConfiguration(
+      "GmailInboxScopeTests",
+      schema: schema,
+      isStoredInMemoryOnly: true
+    )
+    let container = try ModelContainer(for: schema, configurations: [configuration])
+    let store = SwiftDataGmailMessageMetadataStore(container: container)
+    var inboxMessage = metadata(
+      messageId: "message-inbox",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 2_000
+    )
+    inboxMessage.providerLabelIds = ["INBOX"]
+    var sentReply = metadata(
+      messageId: "message-sent",
+      threadId: "thread-visible",
+      internalDateMilliseconds: 2_001
+    )
+    sentReply.providerLabelIds = ["SENT"]
+    let archivedMessages = (0..<1_000).map { index in
+      var message = metadata(
+        messageId: "message-archive-\(index)",
+        threadId:
+          index == 500 || index == 501
+          ? "thread-restored"
+          : "thread-archive-\(index)",
+        internalDateMilliseconds: Int64(index)
+      )
+      message.providerLabelIds = ["ARCHIVE"]
+      return message
+    }
+    try store.saveMessages(
+      [inboxMessage, sentReply] + archivedMessages,
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
+
+    let context = ModelContext(container)
+    let archivedRecords = try context.fetch(
+      FetchDescriptor<DurableGmailMessageMetadataRecord>()
+    ).filter { $0.stableProviderMessageId.contains("message-archive-") }
+    for record in archivedRecords {
+      if !record.stableProviderMessageId.hasSuffix("message-archive-500")
+        && !record.stableProviderMessageId.hasSuffix("message-archive-501")
+      {
+        record.encodedMessage = Data("not-json".utf8)
+      }
+    }
+    try context.save()
+
+    let service = GmailMessageMetadataService(
+      store: store,
+      tokenStore: RecordingGmailProviderTokenStore()
+    )
+    let result = try await service.loadInbox(connection: connection, session: session)
+
+    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-inbox"])
+    XCTAssertEqual(
+      result.threads.first?.messages.map(\.providerMessageId),
+      ["message-sent", "message-inbox"]
+    )
+
+    let projectionCandidates = try await service.loadInboxProjectionCandidates(
+      additionalProviderMessageIds: ["message-inbox", "message-archive-500"],
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(
+      projectionCandidates.messages.map(\.providerMessageId),
+      ["message-sent", "message-inbox", "message-archive-501", "message-archive-500"]
     )
   }
 
@@ -1515,6 +1735,38 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         switchedMessage.mailboxMetadata(connectionId: switchedMessage.mailboxConnectionId)
       ])
     )
+  }
+
+  @MainActor
+  func testInboxViewModelReloadsIndexedCacheWhenProviderSyncFailsAfterUpgrade() async {
+    let cachedMessage = metadata(
+      messageId: "message-cached",
+      threadId: "thread-cached",
+      internalDateMilliseconds: 1
+    )
+    let service = OfflineUpgradeMailboxService(cachedMessage: cachedMessage)
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    await viewModel.loadAfterConnectionChange(connection: mailboxConnection)
+
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+      ])
+    )
+    XCTAssertEqual(viewModel.errorMessage, "Provider unavailable.")
+    let callCounts = await service.callCounts
+    XCTAssertGreaterThanOrEqual(callCounts.loadInbox, 2)
+    XCTAssertEqual(callCounts.syncInbox, 1)
   }
 
   @MainActor
@@ -4173,6 +4425,88 @@ private actor DelayedMailboxBodyPrefetcher: MailboxMessageBodyPrefetching {
 
 private enum MailboxSwitchingError: Error {
   case historicalCategorizationFailed
+}
+
+private struct OfflineUpgradeSyncError: LocalizedError {
+  var errorDescription: String? { "Provider unavailable." }
+}
+
+private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessageSearching {
+  let cachedMessage: GmailMessageMetadata
+  private var hasCompletedIndexUpgrade = false
+  private var loadInboxCallCount = 0
+  private var syncInboxCallCount = 0
+
+  var callCounts: (loadInbox: Int, syncInbox: Int) {
+    (loadInboxCallCount, syncInboxCallCount)
+  }
+
+  init(cachedMessage: GmailMessageMetadata) {
+    self.cachedMessage = cachedMessage
+  }
+
+  func categorizeHistorical(
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func loadInbox(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    loadInboxCallCount += 1
+    guard hasCompletedIndexUpgrade else {
+      throw GmailMessageMetadataStoreError.inboxIndexMigrationPending
+    }
+    let message = cachedMessage.mailboxMetadata(connectionId: connection.id)
+    return MailboxMetadataSyncResult(
+      hasUnlistedNewMessages: false,
+      messages: [message],
+      newMessageIds: nil,
+      providerCursorIsExpired: false,
+      threads: MailboxThread.group([message])
+    )
+  }
+
+  func syncInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    syncInboxCallCount += 1
+    hasCompletedIndexUpgrade = true
+    throw OfflineUpgradeSyncError()
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: MailboxConnection,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func overrideCategory(
+    _: String,
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw OfflineUpgradeSyncError()
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxMessageMetadata] {
+    []
+  }
 }
 
 private struct GmailMessageMetadataSyncFixture {

@@ -1077,6 +1077,59 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(mailActionService.outgoingMessage?.recipient, "reader@example.com")
   }
 
+  func testGmailAdapterLoadsPendingInboxCandidatesForMailboxProjection() async throws {
+    let metadataService = RecordingAdapterMetadataService()
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let restoredMessage = mailShellMessage(
+      connectionId: connection.id,
+      providerMessageId: "message-restored",
+      providerThreadId: "thread-restored",
+      receivedAt: 100,
+      providerStateIds: ["TRASH"]
+    )
+    let movedMessage = mailShellMessage(
+      connectionId: connection.id,
+      providerMessageId: "message-moved",
+      providerThreadId: "thread-moved",
+      receivedAt: 90,
+      providerStateIds: ["Label_projects"]
+    )
+    try await pendingActionService.enqueue(
+      .restore,
+      messages: [restoredMessage],
+      connection: connection,
+      session: session
+    )
+    try await pendingActionService.enqueue(
+      .move,
+      targetProviderMailboxId: "INBOX",
+      messages: [movedMessage],
+      connection: connection,
+      session: session
+    )
+
+    _ = try await adapter.loadMailbox(
+      .role(.inbox),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      metadataService.inboxProjectionCandidateMessageIds,
+      ["message-moved", "message-restored"]
+    )
+    XCTAssertEqual(metadataService.loadedCollections, [.role(.inbox)])
+  }
+
   func testGmailMailboxRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -5125,6 +5178,7 @@ extension MailboxConnectionSyncSnapshot {
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   private let eventLog: RecordingAdapterEventLog?
+  var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
   var recentSyncResult = RecordingAdapterMetadataService.result
@@ -5150,6 +5204,15 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
     return Self.result
+  }
+
+  func loadInboxProjectionCandidates(
+    additionalProviderMessageIds: Set<String>,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    inboxProjectionCandidateMessageIds = additionalProviderMessageIds
+    return try await loadMailbox(.role(.inbox), connection: connection, session: session)
   }
 
   func loadMailbox(
