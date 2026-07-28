@@ -1,5 +1,5 @@
 ---
-status: amended by ADR-0026
+status: accepted (restored by ADR-0028)
 ---
 
 # Require secure mail transport
