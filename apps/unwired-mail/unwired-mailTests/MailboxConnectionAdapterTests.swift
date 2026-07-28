@@ -142,6 +142,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connectionService.statuses.map(\.providerAccountIdentifier), ["gmail-user-001"])
   }
 
+  func testGmailReauthorizationPurgesStaleGenerationBeforeSavingFreshTokens() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let staleConnection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [staleConnection.definition.withAuthorizationGeneration(1)],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: staleConnection.updatedAt,
+        authorizationCleanupConnectionIds: [staleConnection.id]
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connection = try await adapter.connect(
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    XCTAssertEqual(connectionService.completedAccount?.tokens.accessToken, "oauth-access-token")
+    XCTAssertEqual(connection?.authorizationGeneration, 1)
+  }
+
   func testGmailConnectionCleanupFencesConcurrentConnect() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let clearGate = AdapterLifecycleOperationGate()
@@ -5254,11 +5289,19 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     if let saveError { throw saveError }
+    let retainedGeneration = max(
+      definition.authorizationGeneration,
+      snapshot.connections.first(where: { $0.id == definition.id })?
+        .authorizationGeneration
+        ?? 0
+    )
     snapshot = MailboxConnectionSyncSnapshot(
-      connections: snapshot.connections.filter { $0.id != definition.id } + [definition],
+      connections: snapshot.connections.filter { $0.id != definition.id }
+        + [definition.withAuthorizationGeneration(retainedGeneration)],
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
       removedConnectionIds: snapshot.removedConnectionIds.filter { $0 != definition.id },
-      updatedAt: snapshot.updatedAt
+      updatedAt: snapshot.updatedAt,
+      authorizationCleanupConnectionIds: snapshot.authorizationCleanupConnectionIds
     )
     return snapshot
   }

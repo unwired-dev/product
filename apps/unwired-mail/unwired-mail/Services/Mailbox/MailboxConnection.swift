@@ -1535,6 +1535,24 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
         session: session
       )
+      let synchronizedSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let requiresPriorGenerationCleanup = synchronizedSnapshot.requiresLocalCleanup(
+        verifiedConnectionId,
+        localAuthorizationGeneration: existingStatus?.authorizationGeneration
+      )
+      if requiresPriorGenerationCleanup {
+        try await performLocalCleanup(
+          localStatus: existingStatus,
+          connection: removedMailboxConnection(
+            id: verifiedConnectionId,
+            localStatus: existingStatus,
+            session: session
+          ),
+          session: session
+        )
+      }
 
       var status = try await connectionService.completeConnection(
         verifiedAccount: VerifiedGmailAccount(
@@ -1548,7 +1566,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         ),
         session: session
       )
-      if let existingStatus {
+      if let existingStatus, !requiresPriorGenerationCleanup {
         status = try connectionService.bindAuthorizationGeneration(
           existingStatus.authorizationGeneration,
           to: status,

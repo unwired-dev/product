@@ -615,23 +615,35 @@ extension MailboxConnectionCapabilities {
 /// ```
 struct EWSSetupService {
   private let authorizationStore: EWSAuthorizationPersisting
+  private let bodyCache: GmailMessageBodyCaching
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
+  private let metadataStore: EWSMetadataPersisting
   private let now: () -> Date
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
 
   init(
     authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
+    bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: EWSClient = SystemEWSClient(),
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
+    metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
     now: @escaping () -> Date = Date.init,
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
+    self.bodyCache = bodyCache
     self.client = client
     self.definitionSyncService = definitionSyncService
+    self.metadataStore = metadataStore
     self.now = now
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
     self.syncGate = syncGate
   }
 
@@ -735,6 +747,41 @@ struct EWSSetupService {
       hasOnlineArchive: authorization.hasOnlineArchive
     )
     try await syncGate.withLock(definition.connectionId) {
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let localAuthorizationGeneration =
+        try authorizationStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: definition.connectionId
+        )?.authorizationGeneration
+      if currentSnapshot.requiresLocalCleanup(
+        definition.connectionId,
+        localAuthorizationGeneration: localAuthorizationGeneration
+      ) {
+        try authorizationStore.clear(
+          productAccountId: session.productAccountId,
+          connectionId: definition.connectionId
+        )
+        try metadataStore.clear(
+          productAccountId: session.productAccountId,
+          connectionId: definition.connectionId
+        )
+        try bodyCache.clearMessageBodies(
+          productAccountId: session.productAccountId,
+          connectionId: definition.connectionId
+        )
+        let connection = currentSnapshot.connections.first(where: {
+          $0.id == definition.connectionId
+        })?.mailboxConnection(
+          productAccountId: session.productAccountId,
+          trustedDeviceId: session.trustedDeviceId
+        )
+        if let connection {
+          try await pendingActionService.clear(connection: connection, session: session)
+          try await outboxService.clear(connection: connection, session: session)
+        }
+      }
       try authorizationStore.save(authorization, productAccountId: session.productAccountId)
     }
 

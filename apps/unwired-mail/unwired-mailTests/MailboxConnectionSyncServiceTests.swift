@@ -442,7 +442,6 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       // Expected.
     }
     services.transport.primaryWriteError = nil
-
     let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
 
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 0)
@@ -475,6 +474,26 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       // Expected.
     }
     services.transport.primaryWriteError = nil
+    var legacyDefinition = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: JSONEncoder().encode(Self.connection.definition))
+        as? [String: Any]
+    )
+    legacyDefinition["authorizationGeneration"] = nil
+    let legacyPayload: [String: Any] = [
+      "connections": [legacyDefinition],
+      "removals": [],
+      "schemaVersion": 1,
+    ]
+    let encryptedLegacyPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: legacyPayload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: firstDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedLegacyPayload,
+      trustedDeviceId: firstDeviceSession.trustedDeviceId
+    )
 
     let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
 

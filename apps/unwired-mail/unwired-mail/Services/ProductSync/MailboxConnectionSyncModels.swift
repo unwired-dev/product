@@ -194,23 +194,26 @@ extension MailboxConnectionSyncPayload {
     _ ledger: MailboxAuthorizationGenerationLedger
   ) -> MailboxConnectionSyncPayload {
     var payload = self
-    for floor in ledger.floors where floor.isCommitted {
+    for floor in ledger.floors {
+      guard let committedGeneration = floor.committedAuthorizationGeneration else {
+        continue
+      }
       if let connectionIndex = payload.connections.firstIndex(where: {
         $0.id == floor.connectionId
       }) {
         let connection = payload.connections[connectionIndex]
-        guard connection.authorizationGeneration < floor.authorizationGeneration else {
+        guard connection.authorizationGeneration < committedGeneration else {
           continue
         }
         payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
-          floor.authorizationGeneration
+          committedGeneration
         )
         let removedAt =
           payload.removals.first(where: { $0.connectionId == floor.connectionId })?.removedAt ?? 0
         payload.removals.removeAll { $0.connectionId == floor.connectionId }
         payload.removals.append(
           MailboxConnectionRemovalTombstone(
-            authorizationGeneration: floor.authorizationGeneration,
+            authorizationGeneration: committedGeneration,
             provider: floor.provider,
             providerAccountIdentifier: floor.providerAccountIdentifier,
             removedAt: removedAt
@@ -223,13 +226,13 @@ extension MailboxConnectionSyncPayload {
       }) {
         let removal = payload.removals[removalIndex]
         payload.removals[removalIndex] = removal.withAuthorizationGeneration(
-          max(removal.authorizationGeneration, floor.authorizationGeneration)
+          max(removal.authorizationGeneration, committedGeneration)
         )
         continue
       }
       payload.removals.append(
         MailboxConnectionRemovalTombstone(
-          authorizationGeneration: floor.authorizationGeneration,
+          authorizationGeneration: committedGeneration,
           provider: floor.provider,
           providerAccountIdentifier: floor.providerAccountIdentifier,
           removedAt: 0

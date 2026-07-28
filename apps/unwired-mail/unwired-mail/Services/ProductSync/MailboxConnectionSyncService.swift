@@ -327,6 +327,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     }?.authorizationGeneration
   }
 
+  // swiftlint:disable:next function_body_length
   private func retainGenerationFloor(
     _ connectionId: MailboxConnectionId,
     minimumGeneration: Int,
@@ -346,17 +347,20 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         minimumGeneration,
         existingFloor?.authorizationGeneration ?? 0
       )
-      let retainsExistingCommitment =
-        existingFloor?.authorizationGeneration == generation
-        && existingFloor?.isCommitted == true
       let commitsRetainedGeneration =
         isCommitted
         && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
+      let committedGeneration = max(
+        existingFloor?.committedAuthorizationGeneration ?? 0,
+        commitsRetainedGeneration ? minimumGeneration : 0
+      )
       ledger.floors.removeAll { $0.connectionId == connectionId }
       ledger.floors.append(
         MailboxAuthorizationGenerationFloor(
           authorizationGeneration: generation,
-          isCommitted: retainsExistingCommitment || commitsRetainedGeneration,
+          committedAuthorizationGeneration:
+            committedGeneration == 0 ? nil : committedGeneration,
+          isCommitted: committedGeneration == generation,
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value
         )

@@ -447,9 +447,13 @@ final class GenericMailAuthorizationCoordinator: Sendable {
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let authorizationCoordinator: GenericMailAuthorizationCoordinator
+  private let bodyCache: GmailMessageBodyCaching
   private let clock: () -> Int64
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
+  private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
   private let verifier: GenericMailEndpointVerifying
 
@@ -457,20 +461,28 @@ struct GenericMailSetupService {
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     authorizationCoordinator: GenericMailAuthorizationCoordinator = .shared,
+    bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
+    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared,
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
     self.authorizationCoordinator = authorizationCoordinator
+    self.bodyCache = bodyCache
     self.clock = clock
     self.definitionSyncService = definitionSyncService
     self.discovery = discovery
+    self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
     self.syncGate = syncGate
     self.verifier = verifier
   }
@@ -781,6 +793,43 @@ extension GenericMailSetupService {
           .authorizationGeneration
           ?? 0
         try await syncGate.withLock(definition.connectionId) {
+          let currentSnapshot = try await definitionSyncService.loadSnapshot(
+            session: syncSession
+          )
+          let requiresCleanup = currentSnapshot.requiresLocalCleanup(
+            definition.connectionId,
+            localAuthorizationGeneration: previousAuthorization?.authorizationGeneration
+          )
+          try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+            guard cleanupGeneration == persistenceCleanupGeneration else {
+              throw CancellationError()
+            }
+            if requiresCleanup {
+              try authorizationStore.remove(
+                productAccountId: productAccountId,
+                connectionId: definition.connectionId
+              )
+              try metadataStore.clear(
+                productAccountId: productAccountId.rawValue,
+                connectionId: definition.connectionId
+              )
+              try bodyCache.clearMessageBodies(
+                productAccountId: productAccountId.rawValue,
+                connectionId: definition.connectionId
+              )
+            }
+          }
+          if requiresCleanup,
+            let connection = currentSnapshot.connections.first(where: {
+              $0.id == definition.connectionId
+            })?.mailboxConnection(
+              productAccountId: productAccountId.rawValue,
+              trustedDeviceId: syncSession.trustedDeviceId
+            )
+          {
+            try await pendingActionService.clear(connection: connection, session: syncSession)
+            try await outboxService.clear(connection: connection, session: syncSession)
+          }
           try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
             guard cleanupGeneration == persistenceCleanupGeneration else {
               throw CancellationError()

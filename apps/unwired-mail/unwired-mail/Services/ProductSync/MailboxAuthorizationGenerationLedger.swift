@@ -60,17 +60,22 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
 
 struct MailboxAuthorizationGenerationFloor: Codable, Equatable, Sendable {
   let authorizationGeneration: Int
+  let committedAuthorizationGeneration: Int?
   let isCommitted: Bool
   let provider: String
   let providerAccountIdentifier: String
 
   init(
     authorizationGeneration: Int,
+    committedAuthorizationGeneration: Int? = nil,
     isCommitted: Bool = true,
     provider: String,
     providerAccountIdentifier: String
   ) {
     self.authorizationGeneration = authorizationGeneration
+    self.committedAuthorizationGeneration =
+      committedAuthorizationGeneration
+      ?? (isCommitted ? authorizationGeneration : nil)
     self.isCommitted = isCommitted
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
@@ -80,6 +85,9 @@ struct MailboxAuthorizationGenerationFloor: Codable, Equatable, Sendable {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     authorizationGeneration = try container.decode(Int.self, forKey: .authorizationGeneration)
     isCommitted = try container.decodeIfPresent(Bool.self, forKey: .isCommitted) ?? true
+    committedAuthorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .committedAuthorizationGeneration)
+      ?? (isCommitted ? authorizationGeneration : nil)
     provider = try container.decode(String.self, forKey: .provider)
     providerAccountIdentifier = try container.decode(
       String.self,
@@ -98,6 +106,7 @@ struct MailboxAuthorizationGenerationFloor: Codable, Equatable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case authorizationGeneration
+    case committedAuthorizationGeneration
     case isCommitted
     case provider
     case providerAccountIdentifier
