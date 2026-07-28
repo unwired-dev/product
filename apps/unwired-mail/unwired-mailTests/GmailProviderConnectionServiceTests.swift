@@ -839,6 +839,38 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(cacheStore.clearedProductAccountIds, [productAccountId])
   }
 
+  func testClearLocalConnectionDeletesMatchingLegacyCredentialWhenAnotherRouteRemains()
+    async throws
+  {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailConnectionTransport()
+    transport.hasRemainingGmailConnections = true
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: transport.status.emailAddress,
+          providerAccountIdentifier: transport.status.providerAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "legacy-refresh",
+            idToken: "gmail-identity-token"
+          )
+        )
+      )
+    )
+
+    try await service.clearLocalConnection(transport.status, session: session)
+
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+  }
+
   func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     cacheStore.clearError = GmailProviderConnectionTestError.tokenCleanupFailed

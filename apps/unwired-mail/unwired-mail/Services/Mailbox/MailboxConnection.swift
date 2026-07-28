@@ -2145,6 +2145,18 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async -> String? {
+    await resumePendingActions(
+      connection: connection,
+      session: session,
+      connectionIsLocked: false
+    )
+  }
+
+  private func resumePendingActions(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    connectionIsLocked: Bool
+  ) async -> String? {
     var errorDescription: String?
     do {
       try await pendingActionService.resume(
@@ -2152,11 +2164,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       ) { action, targetProviderMailboxId, messageIds in
         try await performProviderAction(
-          action,
-          targetProviderMailboxId: targetProviderMailboxId,
+          try gmailAction(action, targetProviderMailboxId: targetProviderMailboxId),
           messageIds: messageIds,
           connection: connection,
-          session: session
+          session: session,
+          connectionIsLocked: connectionIsLocked
         )
       }
     } catch is CancellationError {
@@ -2214,11 +2226,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) -> PendingProviderActionPerformer {
     { action, targetProviderMailboxId, messageIds in
       try await performProviderAction(
-        action,
-        targetProviderMailboxId: targetProviderMailboxId,
+        try gmailAction(action, targetProviderMailboxId: targetProviderMailboxId),
         messageIds: messageIds,
         connection: connection,
-        session: session
+        session: session,
+        connectionIsLocked: false
       )
     }
   }
@@ -2404,26 +2416,41 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: connection,
       session: session
     )
-    _ = await resumePendingActions(connections: [connection], session: session)
+    _ = await resumePendingActions(
+      connection: connection,
+      session: session,
+      connectionIsLocked: true
+    )
   }
 
   private func performProviderAction(
-    _ action: ProviderMailAction,
-    targetProviderMailboxId: String?,
+    _ action: GmailProviderMailAction,
     messageIds: [String],
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    connectionIsLocked: Bool
   ) async throws {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    try await mailActionService.perform(
-      try gmailAction(action, targetProviderMailboxId: targetProviderMailboxId),
-      messageIds: messageIds,
-      connection: gmailConnection,
-      session: session
-    )
+    if connectionIsLocked {
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session
+      )
+      try await mailActionService.perform(
+        action,
+        messageIds: messageIds,
+        connection: gmailConnection,
+        session: session
+      )
+      return
+    }
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      try await mailActionService.perform(
+        action,
+        messageIds: messageIds,
+        connection: gmailConnection,
+        session: session
+      )
+    }
   }
 
   // swiftlint:disable:next cyclomatic_complexity

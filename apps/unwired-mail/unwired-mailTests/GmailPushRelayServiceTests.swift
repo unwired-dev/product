@@ -495,6 +495,35 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
+  func testPushConnectionStoreTargetedLoadMigratesMatchingLegacyConnection() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let legacyJSON = try XCTUnwrap(
+      String(data: JSONEncoder().encode(connection), encoding: .utf8)
+    )
+    let ownershipStore = InMemoryLegacyWatchOwnerStore()
+    let store = KeychainGmailPushConnectionStore(
+      legacyWatchOwnershipStore: ownershipStore
+    )
+    defer { try? store.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString(legacyJSON, service: service, account: legacyAccount)
+
+    XCTAssertEqual(
+      try store.load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      ),
+      connection
+    )
+    XCTAssertEqual(
+      try ownershipStore.load(productAccountId: productAccountId),
+      connection.providerAccountIdentifier
+    )
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
+  }
+
   func testPushConnectionStoreMigratesLegacyConnectionWithStaleManifestEntry() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"

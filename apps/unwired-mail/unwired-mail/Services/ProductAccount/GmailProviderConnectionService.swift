@@ -556,6 +556,27 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     do {
+      if hasRemainingGmailConnections {
+        let scopedTokens = try tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+        if scopedTokens == nil,
+          let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId)
+        {
+          let legacyAccount = try await credentialVerifier.verify(
+            accessToken: legacyTokens.accessToken,
+            refreshToken: legacyTokens.refreshToken
+          )
+          if legacyAccount.providerAccountIdentifier == connection.providerAccountIdentifier {
+            try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+          }
+        }
+      }
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    do {
       try clearGmailProviderTokens(
         tokenStore,
         productAccountId: session.productAccountId,

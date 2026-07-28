@@ -1504,6 +1504,55 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(events, ["message-sent", "local-state-cleared"])
   }
 
+  func testGmailMailboxRemovalWaitsForInFlightProviderAction() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let mailActionService = DelayedAdapterMailActionService(eventLog: eventLog)
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      mailActionService: mailActionService,
+      pendingActionService: pendingActionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    try await adapter.perform(
+      .archive,
+      messages: [adapterMessage],
+      connection: connection,
+      session: session
+    )
+
+    let actionTask = Task {
+      await adapter.resumePendingActions(connection: connection, session: session)
+    }
+    await mailActionService.waitUntilStarted()
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await mailActionService.release()
+    let actionError = await actionTask.value
+    XCTAssertNil(actionError)
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(events, ["provider-action-finished", "local-state-cleared"])
+  }
+
   // swiftlint:disable:next function_body_length
   func testGmailMailboxRemovalWaitsForCredentialWritingProviderReads() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -4690,7 +4739,10 @@ private final class DelayedAdapterMailActionService: GmailProviderMailActing {
     messageIds _: [String],
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
-  ) async throws {}
+  ) async throws {
+    await gate.waitForRelease()
+    await eventLog.record("provider-action-finished")
+  }
 
   func send(
     _: GmailOutgoingMessage,

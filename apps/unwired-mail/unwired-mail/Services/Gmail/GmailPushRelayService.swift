@@ -662,9 +662,26 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> GmailProviderConnectionStatus? {
-    try connection(
+    let scopedConnection = try connection(
       account: key(productAccountId, providerAccountIdentifier)
     )
+    guard
+      let legacyConnection = try? legacyConnection(productAccountId: productAccountId),
+      legacyConnection.providerAccountIdentifier == providerAccountIdentifier
+    else {
+      return scopedConnection
+    }
+    try legacyWatchOwnershipStore.save(
+      providerAccountIdentifier: providerAccountIdentifier,
+      productAccountId: productAccountId
+    )
+    if scopedConnection == nil {
+      try save(legacyConnection, productAccountId: productAccountId)
+    }
+    for account in legacyKeys(productAccountId) {
+      try? KeychainStore.delete(service: service, account: account)
+    }
+    return scopedConnection ?? legacyConnection
   }
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
