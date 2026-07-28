@@ -4665,7 +4665,15 @@ final class GmailInboxViewModel {
       collection: collection,
       synchronizes: false
     )
+    let retriesInitialMailbox = errorMessage != nil
     await loadNavigation(connections: connections)
+    if retriesInitialMailbox {
+      await loadAfterConnectionChange(
+        connection: connection,
+        collection: collection,
+        synchronizes: false
+      )
+    }
   }
 
   private func loadNavigation(

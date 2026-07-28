@@ -1802,6 +1802,46 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelRetriesInitialInboxAfterNavigationCompletesIndexUpgrade() async {
+    let cachedMessage = metadata(
+      messageId: "message-cached",
+      threadId: "thread-cached",
+      internalDateMilliseconds: 1
+    )
+    let service = OfflineUpgradeMailboxService(
+      cachedMessage: cachedMessage,
+      completesIndexUpgradeDuringNavigation: true
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    await viewModel.loadInitialMailboxThenNavigation(
+      connection: mailboxConnection,
+      collection: .role(.inbox),
+      connections: [mailboxConnection]
+    )
+
+    XCTAssertEqual(
+      viewModel.threads,
+      MailboxThread.group([
+        cachedMessage.mailboxMetadata(connectionId: mailboxConnection.id)
+      ])
+    )
+    XCTAssertNil(viewModel.errorMessage)
+    let callCounts = await service.callCounts
+    let navigationCallCounts = await service.navigationCallCounts
+    XCTAssertEqual(callCounts.loadInbox, 2)
+    XCTAssertEqual(navigationCallCounts.loadNavigation, 1)
+  }
+
+  @MainActor
   func testInboxViewModelDistinguishesLocalAndProviderSearchResults() async {
     let localMessage = metadata(
       messageId: "message-001",
@@ -4479,6 +4519,7 @@ private struct OfflineUpgradeSyncError: LocalizedError {
 
 private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessageSearching {
   let cachedMessage: GmailMessageMetadata
+  let completesIndexUpgradeDuringNavigation: Bool
   private var hasCompletedIndexUpgrade = false
   private var loadInboxCallCount = 0
   private var loadNavigationCallCount = 0
@@ -4493,8 +4534,12 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
     (loadNavigationCallCount, loadProviderMailboxesCallCount)
   }
 
-  init(cachedMessage: GmailMessageMetadata) {
+  init(
+    cachedMessage: GmailMessageMetadata,
+    completesIndexUpgradeDuringNavigation: Bool = false
+  ) {
     self.cachedMessage = cachedMessage
+    self.completesIndexUpgradeDuringNavigation = completesIndexUpgradeDuringNavigation
   }
 
   func categorizeHistorical(
@@ -4532,6 +4577,9 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
       return try await loadInbox(connection: connection, session: session)
     }
     loadNavigationCallCount += 1
+    if completesIndexUpgradeDuringNavigation {
+      hasCompletedIndexUpgrade = true
+    }
     return .empty
   }
 
