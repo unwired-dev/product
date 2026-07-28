@@ -214,7 +214,8 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
 
   func requiresLocalCleanup(
     _ connectionId: MailboxConnectionId,
-    localAuthorizationGeneration: Int?
+    localAuthorizationGeneration: Int?,
+    completedAuthorizationCleanupGeneration: Int? = nil
   ) -> Bool {
     if removedConnectionIds.contains(connectionId) {
       return true
@@ -228,7 +229,71 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
     else {
       return true
     }
+    if completedAuthorizationCleanupGeneration == activeGeneration {
+      return false
+    }
     return localAuthorizationGeneration != activeGeneration
+  }
+}
+
+protocol MailboxAuthorizationCleanupPersisting {
+  func clear(
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  )
+  func load(
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) -> Int?
+  func save(
+    authorizationGeneration: Int,
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  )
+}
+
+struct UserDefaultsAuthorizationCleanupStore: MailboxAuthorizationCleanupPersisting {
+  private let defaults: UserDefaults
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) {
+    defaults.removeObject(
+      forKey: key(connectionId: connectionId, productAccountId: productAccountId)
+    )
+  }
+
+  func load(
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) -> Int? {
+    let key = key(connectionId: connectionId, productAccountId: productAccountId)
+    guard defaults.object(forKey: key) != nil else { return nil }
+    return defaults.integer(forKey: key)
+  }
+
+  func save(
+    authorizationGeneration: Int,
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) {
+    defaults.set(
+      authorizationGeneration,
+      forKey: key(connectionId: connectionId, productAccountId: productAccountId)
+    )
+  }
+
+  private func key(
+    connectionId: MailboxConnectionId,
+    productAccountId: String
+  ) -> String {
+    let encodedConnectionId = Data(connectionId.rawValue.utf8).base64EncodedString()
+    return "mailbox-authorization-cleanup.\(productAccountId).\(encodedConnectionId)"
   }
 }
 

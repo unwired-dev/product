@@ -1581,6 +1581,51 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGmailEqualGenerationCleanupIsNotRepeatedAfterRelaunch() async throws {
+    let defaultsName = "GmailAuthorizationCleanupTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let cleanupStore = UserDefaultsAuthorizationCleanupStore(defaults: defaults)
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    connectionService.cleanupStatuses = []
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt,
+        authorizationCleanupConnectionIds: [connection.id]
+      )
+    )
+    let firstAdapter = GmailMailboxConnectionAdapter(
+      authorizationCleanupStore: cleanupStore,
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    _ = try await firstAdapter.loadConnections(session: session)
+    let relaunchedAdapter = GmailMailboxConnectionAdapter(
+      authorizationCleanupStore: cleanupStore,
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    _ = try await relaunchedAdapter.loadConnections(session: session)
+
+    XCTAssertEqual(
+      connectionService.clearedProviderAccountIdentifiers,
+      [connection.providerMailboxIdentity.value]
+    )
+  }
+
   func testGmailReconciliationContinuesProviderCleanupAfterQueueCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let pendingActionStore = AdapterPendingActionStore()

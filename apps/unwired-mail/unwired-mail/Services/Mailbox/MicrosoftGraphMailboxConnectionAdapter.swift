@@ -2487,45 +2487,57 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       {
         return
       }
-      var firstError: Error?
-      let accessToken: String?
-      do {
-        accessToken = try await accessTokenForCleanup(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: connection.providerMailboxIdentity.value
-        )
-      } catch {
-        accessToken = nil
-        firstError = error
-      }
-      do {
-        try await pushRegistrar.clear(
-          accessToken: accessToken,
-          connection: connection,
-          session: session
-        )
-      } catch {
-        if reportsPushFailure {
-          firstError = firstError ?? error
-        }
-      }
-      do {
-        try clearLocalConnectionWithoutLock(connection, session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      do {
-        try await pendingActionService.clear(connection: connection, session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      do {
-        try await outboxService.clear(connection: connection, session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      if let firstError { throw firstError }
+      try await clearLocalConnectionWithinLock(
+        connection,
+        session: session,
+        reportsPushFailure: reportsPushFailure
+      )
     }
+  }
+
+  private func clearLocalConnectionWithinLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot,
+    reportsPushFailure: Bool
+  ) async throws {
+    var firstError: Error?
+    let accessToken: String?
+    do {
+      accessToken = try await accessTokenForCleanup(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerMailboxIdentity.value
+      )
+    } catch {
+      accessToken = nil
+      firstError = error
+    }
+    do {
+      try await pushRegistrar.clear(
+        accessToken: accessToken,
+        connection: connection,
+        session: session
+      )
+    } catch {
+      if reportsPushFailure {
+        firstError = firstError ?? error
+      }
+    }
+    do {
+      try clearLocalConnectionWithoutLock(connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   private func localCleanupIsRequired(
@@ -2576,6 +2588,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   @MainActor
+  // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
@@ -2624,6 +2637,21 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       ?? connection.authorizationGeneration
     try await syncGate.withLock(connection.id) {
       guard isSessionCurrent(session) else { throw CancellationError() }
+      let localAuthorizationGeneration =
+        try? tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: account.id
+        )?.authorizationGeneration
+      if snapshot.requiresLocalCleanup(
+        connection.id,
+        localAuthorizationGeneration: localAuthorizationGeneration
+      ) {
+        try await clearLocalConnectionWithinLock(
+          connection.withAuthorizationGeneration(savedGeneration),
+          session: session,
+          reportsPushFailure: false
+        )
+      }
       try tokenStore.save(
         tokens.withAuthorizationGeneration(savedGeneration),
         productAccountId: session.productAccountId,

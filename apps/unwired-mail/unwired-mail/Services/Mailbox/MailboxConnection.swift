@@ -1382,6 +1382,7 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
 
 // swiftlint:disable:next type_body_length
 struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
+  private let authorizationCleanupStore: MailboxAuthorizationCleanupPersisting
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
   private let credentialVerifier: GmailProviderCredentialVerifying
@@ -1396,6 +1397,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
+    authorizationCleanupStore: MailboxAuthorizationCleanupPersisting =
+      UserDefaultsAuthorizationCleanupStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     credentialVerifier: GmailProviderCredentialVerifying =
@@ -1410,6 +1413,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
+    self.authorizationCleanupStore = authorizationCleanupStore
     self.bodyReader = bodyReader
     self.connectionService = connectionService
     self.credentialVerifier = credentialVerifier
@@ -1566,6 +1570,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           to: status,
           session: session
         )
+        authorizationCleanupStore.clear(
+          connectionId: connection.id,
+          productAccountId: session.productAccountId
+        )
         return boundStatus.mailboxConnection(
           productAccountId: session.productAccountId,
           authorizationState: .authorized
@@ -1666,6 +1674,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func clearConnectionRequiringLocalCleanup(
     _ connectionId: MailboxConnectionId,
     localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
@@ -1687,7 +1696,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard
         currentSnapshot.requiresLocalCleanup(
           connectionId,
-          localAuthorizationGeneration: localAuthorizationGeneration
+          localAuthorizationGeneration: localAuthorizationGeneration,
+          completedAuthorizationCleanupGeneration: authorizationCleanupStore.load(
+            connectionId: connectionId,
+            productAccountId: session.productAccountId
+          )
         )
       else { return }
       let localStatus: GmailProviderConnectionStatus?
@@ -1710,6 +1723,15 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: removedConnection,
         session: session
       )
+      if let authorizationGeneration = currentSnapshot.connections.first(where: {
+        $0.id == connectionId
+      })?.authorizationGeneration {
+        authorizationCleanupStore.save(
+          authorizationGeneration: authorizationGeneration,
+          connectionId: connectionId,
+          productAccountId: session.productAccountId
+        )
+      }
     }
   }
 
