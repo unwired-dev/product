@@ -1219,6 +1219,105 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connectionService.statuses.isEmpty)
   }
 
+  func testGmailTombstoneCleanupWaitsForRecoveryCapableConnectionLoad() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let loadGate = AdapterLifecycleOperationGate()
+    let connectionService = RecordingAdapterConnectionService(
+      lifecycleEventLog: eventLog,
+      loadGate: loadGate
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let loadTask = Task {
+      try await adapter.loadConnections(session: session)
+    }
+    await loadGate.waitUntilStarted()
+    let cleanupTask = Task {
+      try await adapter.clearLocalConnection(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await loadGate.release()
+    _ = try await loadTask.value
+    try await cleanupTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(events, ["connection-load-finished", "local-state-cleared"])
+  }
+
+  func testGmailReconciliationCleansTokenOnlyTombstone() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    connectionService.cleanupStatuses = []
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [connection.id],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertTrue(connections.isEmpty)
+    XCTAssertEqual(
+      connectionService.clearedProviderAccountIdentifiers,
+      [connection.providerMailboxIdentity.value]
+    )
+  }
+
+  func testGmailReconciliationRevalidatesTombstoneBeforeCleanup() async throws {
+    let reconcileGate = AdapterLifecycleOperationGate()
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [connection.id],
+        updatedAt: connection.updatedAt
+      ),
+      reconcileGate: reconcileGate
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let loadTask = Task {
+      try await adapter.loadConnections(session: session)
+    }
+    await reconcileGate.waitUntilStarted()
+    _ = try await definitionSyncService.saveConnection(connection, session: session)
+    await reconcileGate.release()
+    _ = try await loadTask.value
+
+    XCTAssertTrue(connectionService.clearedProviderAccountIdentifiers.isEmpty)
+    XCTAssertEqual(connectionService.statuses, [RecordingAdapterConnectionService.status])
+  }
+
   func testGmailTombstoneCleanupWaitsForInFlightPrefetch() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -4451,10 +4550,15 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   var removedConnectionIds: [MailboxConnectionId] = []
   var removeError: Error?
   var saveError: Error?
+  private let reconcileGate: AdapterLifecycleOperationGate?
   private var snapshot: MailboxConnectionSyncSnapshot
 
-  init(snapshot: MailboxConnectionSyncSnapshot) {
+  init(
+    snapshot: MailboxConnectionSyncSnapshot,
+    reconcileGate: AdapterLifecycleOperationGate? = nil
+  ) {
     self.snapshot = snapshot
+    self.reconcileGate = reconcileGate
   }
 
   func loadSnapshot(
@@ -4479,7 +4583,11 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
         updatedAt: snapshot.updatedAt
       )
     }
-    return snapshot
+    let reconciledSnapshot = snapshot
+    if let reconcileGate {
+      await reconcileGate.waitForRelease()
+    }
+    return reconciledSnapshot
   }
 
   func removeConnection(

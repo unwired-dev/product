@@ -1508,7 +1508,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let localStatuses = try await syncGate.withAllConnectionsShared {
+    let localStatuses = try await syncGate.withAllConnectionsLocked {
       try await connectionService.loadConnections(session: session)
     }
     let localConnections = localStatuses.map {
@@ -1562,6 +1562,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     for removedConnectionId in removedConnectionIds where removedConnectionId.providerId == .gmail {
       try await syncGate.withLock(removedConnectionId) {
+        guard try await connectionIsRemoved(removedConnectionId, session: session) else {
+          return
+        }
         let localStatus = try localStatusForCleanup(
           id: removedConnectionId,
           authorizedStatusesById: localStatusesById,
@@ -1573,9 +1576,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session
         )
         try await clearRemovedConnection(removedConnection, session: session)
-        if let localStatus {
-          try await connectionService.clearLocalConnection(localStatus, session: session)
-        }
+        try await connectionService.clearLocalConnection(
+          localStatus
+            ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
+          session: session
+        )
       }
     }
   }
@@ -2379,18 +2384,26 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
-      session: session
-    )
-    if snapshot.removedConnectionIds.contains(connectionId) {
+    if try await connectionIsRemoved(connectionId, session: session) {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+  }
+
+  private func connectionIsRemoved(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Bool {
+    try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+      .removedConnectionIds.contains(connectionId)
   }
 
   private func clearRemovedConnectionState(
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    guard try await connectionIsRemoved(connectionId, session: session) else {
+      return
+    }
     let localConnection = try await connectionService.loadStoredConnection(
       providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
       session: session
