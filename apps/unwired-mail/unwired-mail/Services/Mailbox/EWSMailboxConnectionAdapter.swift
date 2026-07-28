@@ -599,6 +599,70 @@ extension MailboxConnectionCapabilities {
   }
 }
 
+protocol EWSLocalStateClearing {
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
+struct EWSLocalStateCleaner: EWSLocalStateClearing {
+  private let authorizationStore: EWSAuthorizationPersisting
+  private let bodyService: EWSMessageBodyService
+  private let metadataStore: EWSMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
+
+  init(
+    authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
+    cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
+    client: EWSClient = SystemEWSClient(),
+    keyMaterialStore: ProductSyncKeyMaterialPersisting =
+      KeychainProductSyncKeyMaterialStore(),
+    metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared
+  ) {
+    self.authorizationStore = authorizationStore
+    bodyService = EWSMessageBodyService(
+      cache: cache,
+      client: client,
+      keyMaterialStore: keyMaterialStore
+    )
+    self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try authorizationStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    try metadataStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .exchangeWebServices,
+      connectedAt: 0,
+      displayName: "",
+      id: connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+    try await pendingActionService.clear(connection: connection, session: session)
+    try await outboxService.clear(connection: connection, session: session)
+    try bodyService.clear(connection: connection, session: session)
+  }
+}
+
 /// Connects a verified full-capability on-premises EWS mailbox without syncing its credential.
 ///
 /// Example:
@@ -615,39 +679,32 @@ extension MailboxConnectionCapabilities {
 /// ```
 struct EWSSetupService {
   private let authorizationStore: EWSAuthorizationPersisting
-  private let bodyCache: GmailMessageBodyCaching
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
-  private let metadataStore: EWSMetadataPersisting
+  private let localStateCleaner: EWSLocalStateClearing
   private let now: () -> Date
-  private let outboxService: OutboxDeliveryService
-  private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
 
   init(
     authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
-    bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: EWSClient = SystemEWSClient(),
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
-    metadataStore: EWSMetadataPersisting = SwiftDataEWSMetadataStore(),
+    localStateCleaner: EWSLocalStateClearing? = nil,
     now: @escaping () -> Date = Date.init,
-    outboxService: OutboxDeliveryService = .shared,
-    pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
-    self.bodyCache = bodyCache
     self.client = client
     self.definitionSyncService = definitionSyncService
-    self.metadataStore = metadataStore
+    self.localStateCleaner =
+      localStateCleaner
+      ?? EWSLocalStateCleaner(authorizationStore: authorizationStore, client: client)
     self.now = now
-    self.outboxService = outboxService
-    self.pendingActionService = pendingActionService
     self.syncGate = syncGate
   }
 
-  // swiftlint:disable cyclomatic_complexity function_body_length
+  // swiftlint:disable function_body_length
   /// Verifies the server, mailbox identity, version, and required roles before persisting setup.
   func connect(
     authorizationMethod: MailAuthorizationMethod,
@@ -721,86 +778,86 @@ struct EWSSetupService {
     guard isSessionCurrent(session) else { throw CancellationError() }
     try Task.checkCancellation()
 
-    let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
-    guard isSessionCurrent(session) else { throw CancellationError() }
     let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
-    let synchronizedDefinition = synchronizedSnapshot.connections
-      .first(where: { $0.id == definition.connectionId })
-    let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
-    let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
-    let savedSnapshot = try await definitionSyncService.saveDefinition(
-      definition.synchronizedDefinition(
-        authorizationGeneration: authorizationGeneration,
-        connectedAt: connectedAt,
-        displayName: account.primaryEmailAddress
-      ),
-      session: session
-    )
-    let savedGeneration =
-      savedSnapshot.connections.first(where: { $0.id == definition.connectionId })?
-      .authorizationGeneration
-      ?? authorizationGeneration
-    authorization = DeviceLocalEWSAuthorization(
-      authorizationGeneration: savedGeneration,
-      credential: authorization.credential,
-      definition: authorization.definition,
-      hasOnlineArchive: authorization.hasOnlineArchive
-    )
-    try await syncGate.withLock(definition.connectionId) {
+    return try await syncGate.withLock(definition.connectionId) {
       guard isSessionCurrent(session) else { throw CancellationError() }
-      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+      let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+      guard isSessionCurrent(session) else { throw CancellationError() }
+      var localAuthorizationGeneration = try authorizationStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.authorizationGeneration
+      if try definitionSyncService.requiresLocalCleanup(
+        in: synchronizedSnapshot,
+        connectionId: definition.connectionId,
+        localAuthorizationGeneration: localAuthorizationGeneration,
+        session: session
+      ) {
+        try await localStateCleaner.clear(
+          connectionId: definition.connectionId,
+          session: session
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: synchronizedSnapshot,
+          connectionId: definition.connectionId,
+          session: session
+        )
+        localAuthorizationGeneration = nil
+      }
+      let synchronizedDefinition = synchronizedSnapshot.connections
+        .first(where: { $0.id == definition.connectionId })
+      let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
+      let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
+      let savedSnapshot = try await definitionSyncService.saveDefinition(
+        definition.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: connectedAt,
+          displayName: account.primaryEmailAddress
+        ),
         session: session
       )
-      guard isSessionCurrent(session) else { throw CancellationError() }
-      let localAuthorizationGeneration =
-        try authorizationStore.load(
-          productAccountId: session.productAccountId,
-          connectionId: definition.connectionId
-        )?.authorizationGeneration
-      if currentSnapshot.requiresLocalCleanup(
-        definition.connectionId,
-        localAuthorizationGeneration: localAuthorizationGeneration
+      let savedGeneration =
+        savedSnapshot.connections.first(where: { $0.id == definition.connectionId })?
+        .authorizationGeneration
+        ?? authorizationGeneration
+      if try definitionSyncService.requiresLocalCleanup(
+        in: savedSnapshot,
+        connectionId: definition.connectionId,
+        localAuthorizationGeneration: localAuthorizationGeneration,
+        session: session
       ) {
-        try authorizationStore.clear(
-          productAccountId: session.productAccountId,
-          connectionId: definition.connectionId
+        try await localStateCleaner.clear(
+          connectionId: definition.connectionId,
+          session: session
         )
-        try metadataStore.clear(
-          productAccountId: session.productAccountId,
-          connectionId: definition.connectionId
+        try definitionSyncService.recordLocalCleanup(
+          in: savedSnapshot,
+          connectionId: definition.connectionId,
+          session: session
         )
-        try bodyCache.clearMessageBodies(
-          productAccountId: session.productAccountId,
-          connectionId: definition.connectionId
-        )
-        let connection = currentSnapshot.connections.first(where: {
-          $0.id == definition.connectionId
-        })?.mailboxConnection(
-          productAccountId: session.productAccountId,
-          trustedDeviceId: session.trustedDeviceId
-        )
-        if let connection {
-          try await pendingActionService.clear(connection: connection, session: session)
-          try await outboxService.clear(connection: connection, session: session)
-        }
       }
-      try authorizationStore.save(authorization, productAccountId: session.productAccountId)
+      let savedAuthorization = DeviceLocalEWSAuthorization(
+        authorizationGeneration: savedGeneration,
+        credential: authorization.credential,
+        definition: authorization.definition,
+        hasOnlineArchive: authorization.hasOnlineArchive
+      )
+      try authorizationStore.save(savedAuthorization, productAccountId: session.productAccountId)
+      return MailboxConnection(
+        authorizationGeneration: savedAuthorization.authorizationGeneration,
+        authorizationState: .authorized,
+        capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
+        connectedAt: connectedAt,
+        displayName: account.primaryEmailAddress,
+        id: definition.connectionId,
+        lastVerifiedAt: timestamp,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: timestamp
+      )
     }
-
-    return MailboxConnection(
-      authorizationGeneration: authorization.authorizationGeneration,
-      authorizationState: .authorized,
-      capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
-      connectedAt: connectedAt,
-      displayName: account.primaryEmailAddress,
-      id: definition.connectionId,
-      lastVerifiedAt: timestamp,
-      productAccountId: ProductAccountId(session.productAccountId),
-      trustedDeviceId: session.trustedDeviceId,
-      updatedAt: timestamp
-    )
   }
-  // swiftlint:enable cyclomatic_complexity function_body_length
+  // swiftlint:enable function_body_length
 }
 
 enum EWSFolderRole: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
@@ -1676,14 +1733,21 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
           connectionId: connectionId
         )?.authorizationGeneration
       guard
-        currentSnapshot.requiresLocalCleanup(
-          connectionId,
-          localAuthorizationGeneration: authorizationGeneration
+        try definitionSyncService.requiresLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connectionId,
+          localAuthorizationGeneration: authorizationGeneration,
+          session: session
         )
       else {
         return currentSnapshot
       }
       try await clearLocalConnectionWithoutLock(connectionId, session: session)
+      try definitionSyncService.recordLocalCleanup(
+        in: currentSnapshot,
+        connectionId: connectionId,
+        session: session
+      )
       return currentSnapshot
     }
   }
@@ -2751,6 +2815,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func authorizationForProviderAccess(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -2764,6 +2829,11 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       } else {
         try await clearLocalConnection(connection, session: session)
       }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
@@ -2772,6 +2842,24 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectionId: connection.id
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
+    if try definitionSyncService.requiresLocalCleanup(
+      in: snapshot,
+      connectionId: connection.id,
+      localAuthorizationGeneration: authorization.authorizationGeneration,
+      session: session
+    ) {
+      if isWithinSyncGate {
+        try await clearLocalConnectionWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     guard
       let synchronizedDefinition = snapshot.connections.first(where: {
         $0.id == connection.id

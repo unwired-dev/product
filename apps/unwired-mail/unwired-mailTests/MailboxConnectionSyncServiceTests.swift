@@ -442,6 +442,31 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
       // Expected.
     }
     services.transport.primaryWriteError = nil
+    let definition = Self.connection.definition
+    let legacyPayload: [String: Any] = [
+      "connections": [
+        [
+          "connectedAt": definition.connectedAt,
+          "displayName": definition.displayName,
+          "provider": definition.provider,
+          "providerAccountIdentifier": definition.providerAccountIdentifier,
+          "stableProviderConnectionKey": definition.stableProviderConnectionKey,
+        ]
+      ],
+      "removals": [],
+      "schemaVersion": 1,
+    ]
+    let encryptedLegacyPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: legacyPayload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: secondDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedLegacyPayload,
+      trustedDeviceId: secondDeviceSession.trustedDeviceId
+    )
+
     let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
 
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 0)

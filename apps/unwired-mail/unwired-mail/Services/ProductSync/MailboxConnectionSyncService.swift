@@ -1,10 +1,12 @@
 import Foundation
 
+// swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
 
   private let cacheStore: MailboxConnectionSyncCachePersisting
+  private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
   private let clock: () -> Int64
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
@@ -15,6 +17,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
       KeychainMailboxConnectionSyncCacheStore(),
+    cleanupReceiptStore: MailboxCleanupReceiptPersisting =
+      KeychainMailboxCleanupReceiptStore(),
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
@@ -22,6 +26,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
     self.cacheStore = cacheStore
+    self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
     self.keyMaterialStore = keyMaterialStore
     payloadCodec = MailboxConnectionSyncPayloadCodec(
@@ -29,6 +34,28 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       keyMaterialStore: keyMaterialStore
     )
     self.transport = transport
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    try cleanupReceiptStore.generation(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try cleanupReceiptStore.record(
+      generation: generation,
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
   }
 
   func loadSnapshot(
@@ -350,17 +377,20 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       let commitsRetainedGeneration =
         isCommitted
         && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
-      let committedGeneration = max(
-        existingFloor?.committedAuthorizationGeneration ?? 0,
-        commitsRetainedGeneration ? minimumGeneration : 0
-      )
+      let committedGeneration =
+        if commitsRetainedGeneration {
+          max(
+            minimumGeneration,
+            existingFloor?.committedAuthorizationGeneration ?? 0
+          )
+        } else {
+          existingFloor?.committedAuthorizationGeneration
+        }
       ledger.floors.removeAll { $0.connectionId == connectionId }
       ledger.floors.append(
         MailboxAuthorizationGenerationFloor(
           authorizationGeneration: generation,
-          committedAuthorizationGeneration:
-            committedGeneration == 0 ? nil : committedGeneration,
-          isCommitted: committedGeneration == generation,
+          committedAuthorizationGeneration: committedGeneration,
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value
         )

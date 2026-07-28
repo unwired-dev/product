@@ -61,22 +61,17 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
 struct MailboxAuthorizationGenerationFloor: Codable, Equatable, Sendable {
   let authorizationGeneration: Int
   let committedAuthorizationGeneration: Int?
-  let isCommitted: Bool
   let provider: String
   let providerAccountIdentifier: String
 
   init(
     authorizationGeneration: Int,
     committedAuthorizationGeneration: Int? = nil,
-    isCommitted: Bool = true,
     provider: String,
     providerAccountIdentifier: String
   ) {
     self.authorizationGeneration = authorizationGeneration
-    self.committedAuthorizationGeneration =
-      committedAuthorizationGeneration
-      ?? (isCommitted ? authorizationGeneration : nil)
-    self.isCommitted = isCommitted
+    self.committedAuthorizationGeneration = committedAuthorizationGeneration
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
   }
@@ -84,15 +79,35 @@ struct MailboxAuthorizationGenerationFloor: Codable, Equatable, Sendable {
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
     authorizationGeneration = try container.decode(Int.self, forKey: .authorizationGeneration)
-    isCommitted = try container.decodeIfPresent(Bool.self, forKey: .isCommitted) ?? true
-    committedAuthorizationGeneration =
-      try container.decodeIfPresent(Int.self, forKey: .committedAuthorizationGeneration)
-      ?? (isCommitted ? authorizationGeneration : nil)
+    if container.contains(.committedAuthorizationGeneration) {
+      committedAuthorizationGeneration = try container.decodeIfPresent(
+        Int.self,
+        forKey: .committedAuthorizationGeneration
+      )
+    } else {
+      let isCommitted = try container.decodeIfPresent(Bool.self, forKey: .isCommitted) ?? true
+      committedAuthorizationGeneration = isCommitted ? authorizationGeneration : nil
+    }
     provider = try container.decode(String.self, forKey: .provider)
     providerAccountIdentifier = try container.decode(
       String.self,
       forKey: .providerAccountIdentifier
     )
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(authorizationGeneration, forKey: .authorizationGeneration)
+    try container.encodeIfPresent(
+      committedAuthorizationGeneration,
+      forKey: .committedAuthorizationGeneration
+    )
+    try container.encode(
+      committedAuthorizationGeneration == authorizationGeneration,
+      forKey: .isCommitted
+    )
+    try container.encode(provider, forKey: .provider)
+    try container.encode(providerAccountIdentifier, forKey: .providerAccountIdentifier)
   }
 
   var connectionId: MailboxConnectionId {

@@ -188,19 +188,22 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
   let removedConnectionIds: [MailboxConnectionId]
   let updatedAt: Int64?
   let authorizationCleanupConnectionIds: [MailboxConnectionId]
+  let localCleanupGenerations: [MailboxConnectionId: Int]
 
   init(
     connections: [MailboxConnectionDefinition],
     defaultSendingConnectionId: MailboxConnectionId?,
     removedConnectionIds: [MailboxConnectionId],
     updatedAt: Int64?,
-    authorizationCleanupConnectionIds: [MailboxConnectionId] = []
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
+    localCleanupGenerations: [MailboxConnectionId: Int] = [:]
   ) {
     self.connections = connections
     self.defaultSendingConnectionId = defaultSendingConnectionId
     self.removedConnectionIds = removedConnectionIds
     self.updatedAt = updatedAt
     self.authorizationCleanupConnectionIds = authorizationCleanupConnectionIds
+    self.localCleanupGenerations = localCleanupGenerations
   }
 
   var hasAuthoritativeState: Bool {
@@ -215,8 +218,14 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
   func requiresLocalCleanup(
     _ connectionId: MailboxConnectionId,
     localAuthorizationGeneration: Int?,
-    completedAuthorizationCleanupGeneration: Int? = nil
+    completedCleanupGeneration: Int? = nil
   ) -> Bool {
+    if localAuthorizationGeneration == nil,
+      let requiredGeneration = localCleanupGeneration(for: connectionId),
+      completedCleanupGeneration ?? -1 >= requiredGeneration
+    {
+      return false
+    }
     if removedConnectionIds.contains(connectionId) {
       return true
     }
@@ -229,83 +238,23 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
     else {
       return true
     }
-    if completedAuthorizationCleanupGeneration == activeGeneration {
-      return false
-    }
     return localAuthorizationGeneration != activeGeneration
   }
-}
 
-protocol MailboxAuthorizationCleanupPersisting {
-  func clear(productAccountId: String)
-  func clear(
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  )
-  func load(
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  ) -> Int?
-  func save(
-    authorizationGeneration: Int,
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  )
-}
-
-struct UserDefaultsAuthorizationCleanupStore: MailboxAuthorizationCleanupPersisting {
-  private let defaults: UserDefaults
-
-  init(defaults: UserDefaults = .standard) {
-    self.defaults = defaults
-  }
-
-  func clear(productAccountId: String) {
-    let prefix = "mailbox-authorization-cleanup.\(productAccountId)."
-    for key in defaults.dictionaryRepresentation().keys where key.hasPrefix(prefix) {
-      defaults.removeObject(forKey: key)
+  func localCleanupGeneration(for connectionId: MailboxConnectionId) -> Int? {
+    if let generation = localCleanupGenerations[connectionId] {
+      return generation
     }
-  }
-
-  func clear(
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  ) {
-    defaults.removeObject(
-      forKey: key(connectionId: connectionId, productAccountId: productAccountId)
-    )
-  }
-
-  func load(
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  ) -> Int? {
-    let key = key(connectionId: connectionId, productAccountId: productAccountId)
-    guard defaults.object(forKey: key) != nil else { return nil }
-    return defaults.integer(forKey: key)
-  }
-
-  func save(
-    authorizationGeneration: Int,
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  ) {
-    defaults.set(
-      authorizationGeneration,
-      forKey: key(connectionId: connectionId, productAccountId: productAccountId)
-    )
-  }
-
-  private func key(
-    connectionId: MailboxConnectionId,
-    productAccountId: String
-  ) -> String {
-    let encodedConnectionId = Data(connectionId.rawValue.utf8).base64EncodedString()
-    return "mailbox-authorization-cleanup.\(productAccountId).\(encodedConnectionId)"
+    return connections.first(where: { $0.id == connectionId })?.authorizationGeneration
   }
 }
 
 protocol MailboxConnectionDefinitionSyncing {
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Int?
+
   func loadSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
@@ -343,12 +292,58 @@ protocol MailboxConnectionDefinitionSyncing {
     _ connectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session: ProductAccountSessionSnapshot
+  ) throws
 }
 
 extension MailboxConnectionDefinitionSyncing {
+  func completedLocalCleanupGeneration(
+    _: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    nil
+  }
+
   func loadSnapshotForProviderAccess(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await loadSnapshot(session: session)
+  }
+
+  func recordLocalCleanup(
+    _: MailboxConnectionId,
+    generation _: Int,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func requiresLocalCleanup(
+    in snapshot: MailboxConnectionSyncSnapshot,
+    connectionId: MailboxConnectionId,
+    localAuthorizationGeneration: Int?,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    try snapshot.requiresLocalCleanup(
+      connectionId,
+      localAuthorizationGeneration: localAuthorizationGeneration,
+      completedCleanupGeneration: completedLocalCleanupGeneration(
+        connectionId,
+        session: session
+      )
+    )
+  }
+
+  func recordLocalCleanup(
+    in snapshot: MailboxConnectionSyncSnapshot,
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    guard let generation = snapshot.localCleanupGeneration(for: connectionId) else {
+      return
+    }
+    try recordLocalCleanup(connectionId, generation: generation, session: session)
   }
 }

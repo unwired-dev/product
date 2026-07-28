@@ -2482,20 +2482,52 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      if revalidatesLocalCleanup,
-        !(try await localCleanupIsRequired(connection.id, session: session))
-      {
-        return
+      let cleanupSnapshot: MailboxConnectionSyncSnapshot?
+      if revalidatesLocalCleanup {
+        cleanupSnapshot = try await localCleanupSnapshotIfRequired(
+          connection.id,
+          session: session
+        )
+        guard cleanupSnapshot != nil else { return }
+      } else {
+        cleanupSnapshot = nil
       }
-      try await clearLocalConnectionWithinLock(
+      try await performLocalCleanupWithinLock(
         connection,
         session: session,
         reportsPushFailure: reportsPushFailure
       )
+      if let cleanupSnapshot {
+        try definitionSyncService.recordLocalCleanup(
+          in: cleanupSnapshot,
+          connectionId: connection.id,
+          session: session
+        )
+      }
     }
   }
 
-  private func clearLocalConnectionWithinLock(
+  private func localCleanupSnapshotIfRequired(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot? {
+    let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+      session: session
+    )
+    let authorizationGeneration =
+      try? tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+      )?.authorizationGeneration
+    return try definitionSyncService.requiresLocalCleanup(
+      in: currentSnapshot,
+      connectionId: connectionId,
+      localAuthorizationGeneration: authorizationGeneration,
+      session: session
+    ) ? currentSnapshot : nil
+  }
+
+  private func performLocalCleanupWithinLock(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     reportsPushFailure: Bool
@@ -2537,25 +2569,9 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     } catch {
       firstError = firstError ?? error
     }
-    if let firstError { throw firstError }
-  }
-
-  private func localCleanupIsRequired(
-    _ connectionId: MailboxConnectionId,
-    session: ProductAccountSessionSnapshot
-  ) async throws -> Bool {
-    let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
-      session: session
-    )
-    let authorizationGeneration =
-      try? tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connectionId.providerMailboxIdentity.value
-      )?.authorizationGeneration
-    return currentSnapshot.requiresLocalCleanup(
-      connectionId,
-      localAuthorizationGeneration: authorizationGeneration
-    )
+    if let firstError {
+      throw firstError
+    }
   }
 
   private func clearLocalConnectionWithoutLock(
@@ -2626,30 +2642,56 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       trustedDeviceId: session.trustedDeviceId,
       updatedAt: timestamp
     )
-    guard isSessionCurrent(session) else { return nil }
-    let savedSnapshot = try await definitionSyncService.saveConnection(
-      connection,
-      session: session
-    )
-    let savedGeneration =
-      savedSnapshot.connections.first(where: { $0.id == connection.id })?
-      .authorizationGeneration
-      ?? connection.authorizationGeneration
-    try await syncGate.withLock(connection.id) {
+    return try await syncGate.withLock(connection.id) {
       guard isSessionCurrent(session) else { throw CancellationError() }
-      let localAuthorizationGeneration =
-        try? tokenStore.load(
-          productAccountId: session.productAccountId,
-          providerAccountIdentifier: account.id
-        )?.authorizationGeneration
-      if savedSnapshot.requiresLocalCleanup(
-        connection.id,
-        localAuthorizationGeneration: localAuthorizationGeneration
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      var localGeneration = try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: account.id
+      )?.authorizationGeneration
+      if try definitionSyncService.requiresLocalCleanup(
+        in: currentSnapshot,
+        connectionId: connection.id,
+        localAuthorizationGeneration: localGeneration,
+        session: session
       ) {
-        try await clearLocalConnectionWithinLock(
-          connection.withAuthorizationGeneration(savedGeneration),
+        try await performLocalCleanupWithinLock(
+          connection,
           session: session,
           reportsPushFailure: false
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connection.id,
+          session: session
+        )
+        localGeneration = nil
+      }
+      let savedSnapshot = try await definitionSyncService.saveConnection(
+        connection,
+        session: session
+      )
+      let savedGeneration =
+        savedSnapshot.connections.first(where: { $0.id == connection.id })?
+        .authorizationGeneration
+        ?? connection.authorizationGeneration
+      if try definitionSyncService.requiresLocalCleanup(
+        in: savedSnapshot,
+        connectionId: connection.id,
+        localAuthorizationGeneration: localGeneration,
+        session: session
+      ) {
+        try await performLocalCleanupWithinLock(
+          connection,
+          session: session,
+          reportsPushFailure: false
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: savedSnapshot,
+          connectionId: connection.id,
+          session: session
         )
       }
       try tokenStore.save(
@@ -2657,8 +2699,8 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         productAccountId: session.productAccountId,
         providerAccountIdentifier: account.id
       )
+      return connection.withAuthorizationGeneration(savedGeneration)
     }
-    return connection.withAuthorizationGeneration(savedGeneration)
   }
 
   func loadConnection(
@@ -2993,6 +3035,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func activeConnectionWithinSyncGate(
     id: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
@@ -3009,11 +3052,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         updatedAt: snapshot.updatedAt
       )
       try clearLocalConnectionWithoutLock(removed, session: session)
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    if snapshot.requiresLocalCleanup(
-      id,
-      localAuthorizationGeneration: tokens?.authorizationGeneration
+    if try definitionSyncService.requiresLocalCleanup(
+      in: snapshot,
+      connectionId: id,
+      localAuthorizationGeneration: tokens?.authorizationGeneration,
+      session: session
     ) {
       let stale = cleanupPlaceholderConnection(
         id: id,
@@ -3021,6 +3071,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         updatedAt: snapshot.updatedAt
       )
       try clearLocalConnectionWithoutLock(stale, session: session)
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     guard

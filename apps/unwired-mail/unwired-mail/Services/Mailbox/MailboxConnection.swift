@@ -1383,7 +1383,6 @@ enum MailboxConnectionAdapterError: LocalizedError, Equatable {
 
 // swiftlint:disable:next type_body_length
 struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
-  private let authorizationCleanupStore: MailboxAuthorizationCleanupPersisting
   private let bodyReader: GmailMessageReading
   private let connectionService: GmailProviderConnecting
   private let credentialVerifier: GmailProviderCredentialVerifying
@@ -1398,8 +1397,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let syncGate: MailboxConnectionSyncGate
 
   init(
-    authorizationCleanupStore: MailboxAuthorizationCleanupPersisting =
-      UserDefaultsAuthorizationCleanupStore(),
     bodyReader: GmailMessageReading = GmailMessageBodyService(),
     connectionService: GmailProviderConnecting = GmailProviderConnectionService(),
     credentialVerifier: GmailProviderCredentialVerifying =
@@ -1414,7 +1411,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
-    self.authorizationCleanupStore = authorizationCleanupStore
     self.bodyReader = bodyReader
     self.connectionService = connectionService
     self.credentialVerifier = credentialVerifier
@@ -1460,7 +1456,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       } catch {
         firstError = firstError ?? error
       }
-      authorizationCleanupStore.clear(productAccountId: session.productAccountId)
       if let firstError {
         throw firstError
       }
@@ -1529,34 +1524,50 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard isSessionCurrent(session) else {
         return nil
       }
-      let hadExistingConnection = try connectionService.hasLocalAuthorization(
+      var hadExistingConnection = try connectionService.hasLocalAuthorization(
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
         session: session
       )
-      let existingStatus = try await connectionService.loadStoredConnection(
+      var existingStatus = try await connectionService.loadStoredConnection(
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
         session: session
       )
-      let synchronizedSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
         session: session
       )
-      let requiresPriorGenerationCleanup = synchronizedSnapshot.requiresLocalCleanup(
-        verifiedConnectionId,
-        localAuthorizationGeneration: existingStatus?.authorizationGeneration
-      )
-      if requiresPriorGenerationCleanup {
+      var localAuthorizationGeneration =
+        hadExistingConnection ? existingStatus?.authorizationGeneration : nil
+      if try definitionSyncService.requiresLocalCleanup(
+        in: currentSnapshot,
+        connectionId: verifiedConnectionId,
+        localAuthorizationGeneration: localAuthorizationGeneration,
+        session: session
+      ) {
+        let localStatus = try localStatusForCleanup(
+          id: verifiedConnectionId,
+          localStatusesById: [:],
+          session: session
+        )
         try await performLocalCleanup(
-          localStatus: existingStatus,
+          localStatus: localStatus,
           connection: removedMailboxConnection(
             id: verifiedConnectionId,
-            localStatus: existingStatus,
+            localStatus: localStatus,
             session: session
           ),
           session: session
         )
+        try definitionSyncService.recordLocalCleanup(
+          in: currentSnapshot,
+          connectionId: verifiedConnectionId,
+          session: session
+        )
+        hadExistingConnection = false
+        existingStatus = nil
+        localAuthorizationGeneration = nil
       }
 
-      let completedAccount = VerifiedGmailAccount(
+      let accountToConnect = VerifiedGmailAccount(
         emailAddress: verifiedAccount.emailAddress,
         providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
         tokens: GmailProviderTokens(
@@ -1566,10 +1577,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       )
       var status = try await connectionService.completeConnection(
-        verifiedAccount: completedAccount,
+        verifiedAccount: accountToConnect,
         session: session
       )
-      if let existingStatus, !requiresPriorGenerationCleanup {
+      if let existingStatus {
         status = try connectionService.bindAuthorizationGeneration(
           existingStatus.authorizationGeneration,
           to: status,
@@ -1586,19 +1597,25 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           snapshot.connections.first(where: { $0.id == connection.id })?
           .authorizationGeneration
           ?? connection.authorizationGeneration
-        if !requiresPriorGenerationCleanup,
-          snapshot.requiresLocalCleanup(
-            connection.id,
-            localAuthorizationGeneration: existingStatus?.authorizationGeneration
-          )
-        {
+        if try definitionSyncService.requiresLocalCleanup(
+          in: snapshot,
+          connectionId: verifiedConnectionId,
+          localAuthorizationGeneration: localAuthorizationGeneration,
+          session: session
+        ) {
           try await performLocalCleanup(
             localStatus: status,
             connection: connection,
             session: session
           )
+          try definitionSyncService.recordLocalCleanup(
+            in: snapshot,
+            connectionId: verifiedConnectionId,
+            session: session
+          )
+          hadExistingConnection = false
           status = try await connectionService.completeConnection(
-            verifiedAccount: completedAccount,
+            verifiedAccount: accountToConnect,
             session: session
           )
         }
@@ -1606,10 +1623,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorizationGeneration,
           to: status,
           session: session
-        )
-        authorizationCleanupStore.clear(
-          connectionId: connection.id,
-          productAccountId: session.productAccountId
         )
         return boundStatus.mailboxConnection(
           productAccountId: session.productAccountId,
@@ -1711,7 +1724,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
-  // swiftlint:disable:next function_body_length
   private func clearConnectionRequiringLocalCleanup(
     _ connectionId: MailboxConnectionId,
     localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
@@ -1731,13 +1743,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           session: session
         ) ? currentLocalStatus?.authorizationGeneration : nil
       guard
-        currentSnapshot.requiresLocalCleanup(
-          connectionId,
+        try definitionSyncService.requiresLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connectionId,
           localAuthorizationGeneration: localAuthorizationGeneration,
-          completedAuthorizationCleanupGeneration: authorizationCleanupStore.load(
-            connectionId: connectionId,
-            productAccountId: session.productAccountId
-          )
+          session: session
         )
       else { return }
       let localStatus: GmailProviderConnectionStatus?
@@ -1760,15 +1770,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: removedConnection,
         session: session
       )
-      if let authorizationGeneration = currentSnapshot.connections.first(where: {
-        $0.id == connectionId
-      })?.authorizationGeneration {
-        authorizationCleanupStore.save(
-          authorizationGeneration: authorizationGeneration,
-          connectionId: connectionId,
-          productAccountId: session.productAccountId
-        )
-      }
+      try definitionSyncService.recordLocalCleanup(
+        in: currentSnapshot,
+        connectionId: connectionId,
+        session: session
+      )
     }
   }
 
@@ -1787,7 +1793,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
             requiresAuthorization: false
           ),
         session: session,
-        allowsAccountWideCleanup: false
+        allowsAccountWideCleanup: true
       )
     } catch {
       cleanupError = error
@@ -2614,7 +2620,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard let definition = snapshot.connections.first(where: { $0.id == connectionId }) else {
-      throw MailboxConnectionAdapterError.connectionRemoved
+      return
     }
     guard
       let localConnection = try await connectionService.loadStoredConnection(

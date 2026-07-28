@@ -167,24 +167,31 @@ struct MailboxConnectionSyncPayloadCodec {
       payload.connections.map { ($0.id, $0) },
       uniquingKeysWith: { first, _ in first }
     )
+    let removedConnections = payload.removals.filter { removal in
+      guard let activeConnection = activeConnectionsById[removal.connectionId] else {
+        return true
+      }
+      return activeConnection.authorizationGeneration < removal.authorizationGeneration
+    }
+    let authorizationCleanupConnections = payload.removals.filter { removal in
+      activeConnectionsById[removal.connectionId]?.authorizationGeneration
+        == removal.authorizationGeneration
+    }
+    let localCleanupGenerations = Dictionary(
+      (removedConnections + authorizationCleanupConnections).map {
+        ($0.connectionId, $0.authorizationGeneration)
+      },
+      uniquingKeysWith: max
+    )
     return MailboxConnectionSyncSnapshot(
       connections: payload.connections.sorted { $0.id.rawValue < $1.id.rawValue },
       defaultSendingConnectionId: payload.defaultSendingConnectionId,
-      removedConnectionIds:
-        payload.removals.filter { removal in
-          guard let activeConnection = activeConnectionsById[removal.connectionId] else {
-            return true
-          }
-          return activeConnection.authorizationGeneration < removal.authorizationGeneration
-        }.map(\.connectionId)
+      removedConnectionIds: removedConnections.map(\.connectionId)
         .sorted { $0.rawValue < $1.rawValue },
       updatedAt: updatedAt,
-      authorizationCleanupConnectionIds:
-        payload.removals.filter { removal in
-          activeConnectionsById[removal.connectionId]?.authorizationGeneration
-            == removal.authorizationGeneration
-        }.map(\.connectionId)
-        .sorted { $0.rawValue < $1.rawValue }
+      authorizationCleanupConnectionIds: authorizationCleanupConnections.map(\.connectionId)
+        .sorted { $0.rawValue < $1.rawValue },
+      localCleanupGenerations: localCleanupGenerations
     )
   }
 }

@@ -157,6 +157,48 @@ struct SyncedGenericMailConnectionDefinition: Equatable, Sendable {
   let definition: GenericMailConnectionDefinition
 }
 
+protocol GenericMailLocalStateClearing {
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws
+}
+
+struct GenericMailLocalStateCleaner: GenericMailLocalStateClearing {
+  private let authorizationStore: GenericMailAuthorizationPersisting
+  private let cache: GmailMessageBodyCaching
+  private let metadataStore: IMAPMessageMetadataPersisting
+
+  init(
+    authorizationStore: GenericMailAuthorizationPersisting =
+      KeychainGenericMailAuthorizationStore(),
+    cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
+    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
+  ) {
+    self.authorizationStore = authorizationStore
+    self.cache = cache
+    self.metadataStore = metadataStore
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try metadataStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    try cache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    try authorizationStore.remove(
+      productAccountId: ProductAccountId(session.productAccountId),
+      connectionId: connectionId
+    )
+  }
+}
+
 enum MailTransportVersion: Int, Equatable, Sendable {
   case olderThanTLS12
   case tls12OrNewer
@@ -447,13 +489,10 @@ final class GenericMailAuthorizationCoordinator: Sendable {
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let authorizationCoordinator: GenericMailAuthorizationCoordinator
-  private let bodyCache: GmailMessageBodyCaching
   private let clock: () -> Int64
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
-  private let metadataStore: IMAPMessageMetadataPersisting
-  private let outboxService: OutboxDeliveryService
-  private let pendingActionService: PendingProviderActionService
+  private let localStateCleaner: GenericMailLocalStateClearing
   private let syncGate: MailboxConnectionSyncGate
   private let verifier: GenericMailEndpointVerifying
 
@@ -461,28 +500,23 @@ struct GenericMailSetupService {
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     authorizationCoordinator: GenericMailAuthorizationCoordinator = .shared,
-    bodyCache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
-    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
-    outboxService: OutboxDeliveryService = .shared,
-    pendingActionService: PendingProviderActionService = .shared,
+    localStateCleaner: GenericMailLocalStateClearing? = nil,
     syncGate: MailboxConnectionSyncGate = .shared,
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
     self.authorizationCoordinator = authorizationCoordinator
-    self.bodyCache = bodyCache
     self.clock = clock
     self.definitionSyncService = definitionSyncService
     self.discovery = discovery
-    self.metadataStore = metadataStore
-    self.outboxService = outboxService
-    self.pendingActionService = pendingActionService
+    self.localStateCleaner =
+      localStateCleaner ?? GenericMailLocalStateCleaner(authorizationStore: authorizationStore)
     self.syncGate = syncGate
     self.verifier = verifier
   }
@@ -734,9 +768,11 @@ extension GenericMailSetupService {
           connectionId: connectionId
         )?.authorizationGeneration
         guard
-          currentSnapshot.requiresLocalCleanup(
-            connectionId,
-            localAuthorizationGeneration: authorizationGeneration
+          try definitionSyncService.requiresLocalCleanup(
+            in: currentSnapshot,
+            connectionId: connectionId,
+            localAuthorizationGeneration: authorizationGeneration,
+            session: session
           )
         else {
           return
@@ -791,46 +827,21 @@ extension GenericMailSetupService {
           .authorizationGeneration
           ?? 0
         try await syncGate.withLock(definition.connectionId) {
-          let currentSnapshot = try await definitionSyncService.loadSnapshot(
+          if try definitionSyncService.requiresLocalCleanup(
+            in: snapshot,
+            connectionId: definition.connectionId,
+            localAuthorizationGeneration: previousAuthorization?.authorizationGeneration,
             session: syncSession
-          )
-          let requiresCleanup = currentSnapshot.requiresLocalCleanup(
-            definition.connectionId,
-            localAuthorizationGeneration: previousAuthorization?.authorizationGeneration
-          )
-          try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
-            guard cleanupGeneration == persistenceCleanupGeneration else {
-              throw CancellationError()
-            }
-            if requiresCleanup {
-              try authorizationStore.remove(
-                productAccountId: productAccountId,
-                connectionId: definition.connectionId
-              )
-              try metadataStore.clear(
-                productAccountId: productAccountId.rawValue,
-                connectionId: definition.connectionId
-              )
-              try bodyCache.clearMessageBodies(
-                productAccountId: productAccountId.rawValue,
-                connectionId: definition.connectionId
-              )
-            }
-          }
-          if requiresCleanup,
-            let connection =
-              (currentSnapshot.connections.first(where: {
-                $0.id == definition.connectionId
-              })
-              ?? snapshot.connections.first(where: {
-                $0.id == definition.connectionId
-              }))?.mailboxConnection(
-                productAccountId: productAccountId.rawValue,
-                trustedDeviceId: syncSession.trustedDeviceId
-              )
-          {
-            try await pendingActionService.clear(connection: connection, session: syncSession)
-            try await outboxService.clear(connection: connection, session: syncSession)
+          ) {
+            try localStateCleaner.clear(
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+            try definitionSyncService.recordLocalCleanup(
+              in: snapshot,
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
           }
           try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
             guard cleanupGeneration == persistenceCleanupGeneration else {

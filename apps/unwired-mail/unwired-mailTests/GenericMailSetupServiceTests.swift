@@ -187,6 +187,54 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(saved?.credential, "fresh-secret")
   }
 
+  func testSyncedReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization()
+    async throws
+  {
+    let productAccountId = ProductAccountId("product-account-stale-generation")
+    let definition = try await GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    ).authorize(
+      draft: manualDraft(),
+      credential: "verified-secret",
+      productAccountId: productAccountId
+    )
+    let store = RecordingGenericMailAuthorizationStore()
+    try store.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 0,
+        credential: "stale-secret",
+        definition: definition
+      ),
+      productAccountId: productAccountId
+    )
+    let sync = RecordingGenericSyncService(
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationGeneration: 1,
+      definitions: [definition],
+      localCleanupGenerations: [definition.connectionId: 1]
+    )
+    let localStateCleaner = RecordingGenericMailLocalStateCleaner()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      localStateCleaner: localStateCleaner,
+      syncGate: MailboxConnectionSyncGate(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+
+    _ = try await service.authorize(
+      draft: manualDraft(),
+      credential: "fresh-secret",
+      productAccountId: productAccountId,
+      syncSession: session(productAccountId: productAccountId)
+    )
+
+    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+    XCTAssertEqual(sync.completedCleanupGenerations[definition.connectionId], 1)
+    XCTAssertEqual(store.authorization?.authorizationGeneration, 1)
+  }
+
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -1712,6 +1760,7 @@ private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing
 private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
+  var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var onSave: (() async throws -> Void)?
   var saveError: Error?
   var removeError: Error?
@@ -1721,8 +1770,10 @@ private final class RecordingGenericSyncService:
   var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
 
   init(
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
     authorizationGeneration: Int = 0,
     definitions: [GenericMailConnectionDefinition] = [],
+    localCleanupGenerations: [MailboxConnectionId: Int] = [:],
     removedConnectionIds: [MailboxConnectionId] = []
   ) {
     snapshot = MailboxConnectionSyncSnapshot(
@@ -1734,8 +1785,25 @@ private final class RecordingGenericSyncService:
       },
       defaultSendingConnectionId: nil,
       removedConnectionIds: removedConnectionIds,
-      updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1
+      updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
+      localCleanupGenerations: localCleanupGenerations
     )
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    completedCleanupGenerations[connectionId]
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    completedCleanupGenerations[connectionId] = generation
   }
 
   func loadSnapshot(
@@ -1782,9 +1850,16 @@ private final class RecordingGenericSyncService:
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await onSave?()
     if let saveError { throw saveError }
-    savedDefinition = definition
+    let existingGeneration =
+      snapshot.connections.first(where: { $0.id == definition.id })?
+      .authorizationGeneration
+      ?? definition.authorizationGeneration
+    let retainedDefinition = definition.withAuthorizationGeneration(
+      max(existingGeneration, definition.authorizationGeneration)
+    )
+    savedDefinition = retainedDefinition
     snapshot = replacingConnections(
-      snapshot.connections.filter { $0.id != definition.id } + [definition]
+      snapshot.connections.filter { $0.id != definition.id } + [retainedDefinition]
     )
     return snapshot
   }
@@ -1809,8 +1884,21 @@ private final class RecordingGenericSyncService:
       connections: connections,
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
       removedConnectionIds: snapshot.removedConnectionIds,
-      updatedAt: 1
+      updatedAt: 1,
+      authorizationCleanupConnectionIds: snapshot.authorizationCleanupConnectionIds,
+      localCleanupGenerations: snapshot.localCleanupGenerations
     )
+  }
+}
+
+private final class RecordingGenericMailLocalStateCleaner: GenericMailLocalStateClearing {
+  var clearedConnectionIds: [MailboxConnectionId] = []
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    clearedConnectionIds.append(connectionId)
   }
 }
 

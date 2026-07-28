@@ -203,6 +203,64 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
   }
 
+  func testEWSReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization() async throws {
+    let endpoint = try XCTUnwrap(
+      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
+    )
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@corp.example",
+      endpoint: endpoint,
+      providerAccountIdentifier: try EWSConnectionDefinition.stableProviderAccountIdentifier(
+        endpoint: endpoint,
+        mailboxIdentifier: "mailbox-id"
+      ),
+      serverVersion: .exchange2019,
+      username: #"CORP\reader"#
+    )
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: 1,
+      connectedAt: 1_781_200_000_000,
+      displayName: definition.emailAddress
+    )
+    let definitions = RecordingEWSDefinitionSyncService(
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      definition: synchronizedDefinition,
+      localCleanupGenerations: [definition.connectionId: 1]
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        authorizationGeneration: 0,
+        credential: "stale-password",
+        definition: definition
+      ),
+      productAccountId: session.productAccountId
+    )
+    let localStateCleaner = RecordingEWSLocalStateCleaner()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      localStateCleaner: localStateCleaner,
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connection = try await service.connect(
+      authorizationMethod: .password,
+      credential: "fresh-password",
+      emailAddress: definition.emailAddress,
+      endpoint: definition.endpoint.absoluteString,
+      username: definition.username,
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+    XCTAssertEqual(connection.authorizationGeneration, 1)
+    XCTAssertEqual(definitions.completedCleanupGenerations[definition.connectionId], 1)
+  }
+
   func testEWSReauthorizationWinsAgainstStaleRemovalCleanup() async throws {
     let endpoint = try XCTUnwrap(
       URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
@@ -236,6 +294,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       authorizationStore: authorizations,
       client: client,
       definitionSyncService: definitions,
+      localStateCleaner: RecordingEWSLocalStateCleaner(),
       syncGate: syncGate
     )
     let adapter = EWSMailboxConnectionAdapter(
@@ -4098,21 +4157,43 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefinitionSyncing,
   @unchecked Sendable
 {
+  var authorizationCleanupConnectionIds: [MailboxConnectionId]
   var beforeLoadSnapshotReturn: (() async -> Void)?
+  var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var defaultSendingConnectionId: MailboxConnectionId?
   var didLoadSnapshot: (() -> Void)?
   var didSaveDefinition: (() -> Void)?
   var loadSnapshotError: Error?
+  var localCleanupGenerations: [MailboxConnectionId: Int]
   var providerAccessLoads = 0
   var removedConnectionIds: [MailboxConnectionId] = []
   var savedDefinition: MailboxConnectionDefinition?
 
   init(
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
     definition: MailboxConnectionDefinition? = nil,
-    definitions: [MailboxConnectionDefinition]? = nil
+    definitions: [MailboxConnectionDefinition]? = nil,
+    localCleanupGenerations: [MailboxConnectionId: Int] = [:]
   ) {
+    self.authorizationCleanupConnectionIds = authorizationCleanupConnectionIds
+    self.localCleanupGenerations = localCleanupGenerations
     savedDefinition = definition
     savedDefinitions = definitions ?? definition.map { [$0] } ?? []
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    completedCleanupGenerations[connectionId]
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    completedCleanupGenerations[connectionId] = generation
   }
 
   private var savedDefinitions: [MailboxConnectionDefinition]
@@ -4138,7 +4219,9 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
       connections: savedDefinitions,
       defaultSendingConnectionId: defaultSendingConnectionId,
       removedConnectionIds: removedConnectionIds,
-      updatedAt: nil
+      updatedAt: nil,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
+      localCleanupGenerations: localCleanupGenerations
     )
   }
 
@@ -4194,6 +4277,17 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   ) async throws -> MailboxConnectionSyncSnapshot {
     defaultSendingConnectionId = connectionId
     return snapshot()
+  }
+}
+
+private final class RecordingEWSLocalStateCleaner: EWSLocalStateClearing {
+  var clearedConnectionIds: [MailboxConnectionId] = []
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    clearedConnectionIds.append(connectionId)
   }
 }
 

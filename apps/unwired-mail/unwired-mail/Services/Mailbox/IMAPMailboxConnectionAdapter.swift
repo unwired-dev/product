@@ -1572,14 +1572,21 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         connectionId: connectionId
       )?.authorizationGeneration
       guard
-        currentSnapshot.requiresLocalCleanup(
-          connectionId,
-          localAuthorizationGeneration: authorizationGeneration
+        try definitionSyncService.requiresLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connectionId,
+          localAuthorizationGeneration: authorizationGeneration,
+          session: session
         )
       else {
         return currentSnapshot
       }
       try clearLocalConnectionWithoutLock(connectionId, session: session)
+      try definitionSyncService.recordLocalCleanup(
+        in: currentSnapshot,
+        connectionId: connectionId,
+        session: session
+      )
       return currentSnapshot
     }
   }
@@ -1826,6 +1833,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
+  // swiftlint:disable:next function_body_length
   private func authorizationForProviderAccess(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
@@ -1839,6 +1847,11 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       } else {
         try await clearLocalConnection(connection, session: session)
       }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
@@ -1854,15 +1867,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    if snapshot.requiresLocalCleanup(
-      connection.id,
-      localAuthorizationGeneration: authorization.authorizationGeneration
+    if try definitionSyncService.requiresLocalCleanup(
+      in: snapshot,
+      connectionId: connection.id,
+      localAuthorizationGeneration: authorization.authorizationGeneration,
+      session: session
     ) || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration {
       if isWithinSyncGate {
         try clearLocalConnectionWithoutLock(connection, session: session)
       } else {
         try await clearLocalConnection(connection, session: session)
       }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     guard hasMatchingCredentials(authorization.definition, definition) else {
