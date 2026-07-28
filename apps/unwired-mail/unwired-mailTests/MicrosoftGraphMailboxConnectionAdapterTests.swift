@@ -830,12 +830,12 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       }
     }
     await blocker.waitUntilHeld()
+    let cleanupInvoked = expectation(description: "account cleanup invoked")
     let cleanup = Task {
+      cleanupInvoked.fulfill()
       try await adapter.clearLocalConnection(session: session)
     }
-    for _ in 0..<10 {
-      await Task.yield()
-    }
+    await fulfillment(of: [cleanupInvoked], timeout: 1)
 
     XCTAssertTrue(push.clearedAllAccessTokens.isEmpty)
 

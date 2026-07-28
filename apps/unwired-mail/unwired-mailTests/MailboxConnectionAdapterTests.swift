@@ -67,6 +67,43 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connection?.productAccountId, ProductAccountId(session.productAccountId))
   }
 
+  func testGmailAccountCleanupWaitsForInFlightConnect() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let completionGate = AdapterLifecycleOperationGate()
+    let connectionService = RecordingAdapterConnectionService(
+      lifecycleEventLog: eventLog,
+      completionGate: completionGate
+    )
+    connectionService.statuses = []
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let connectTask = Task {
+      try await adapter.connect(session: session, isSessionCurrent: { $0 == self.session })
+    }
+    await completionGate.waitUntilStarted()
+    let cleanupTask = Task {
+      try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await completionGate.release()
+    _ = try await connectTask.value
+    try await cleanupTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(
+      events,
+      ["connection-completed", "local-state-cleared"]
+    )
+  }
+
   func testGmailSyncAdapterKeepsNonInboxMessagesInVisibleThreads() {
     let sentMessage = GmailMessageMetadata(
       categoryId: nil,
@@ -534,6 +571,36 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGmailBodyReadPreservesRemovalSignalWhenCleanupFails() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.clearConnectionError = AdapterTestError.unavailable
+    let pendingActionStore = AdapterPendingActionStore()
+    let outboxStore = AdapterOutboxStore()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [adapterConnectionId],
+          updatedAt: 1_781_200_000_300
+        )
+      ),
+      pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      outboxService: OutboxDeliveryService(store: outboxStore),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      XCTFail("Expected synchronized removal")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
+    XCTAssertEqual(outboxStore.saveCallCount, 1)
+  }
+
   func testGmailAdapterRejectsPendingActionAfterSynchronizedRemoval() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
@@ -780,6 +847,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
     }
     await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
     try await prefetchTask.value
     try await removalTask.value
@@ -831,9 +900,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
     let bodyReader = DelayedAdapterMessageReader(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
     let adapter = GmailMailboxConnectionAdapter(
       bodyReader: bodyReader,
       connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
       syncGate: MailboxConnectionSyncGate()
     )
@@ -846,6 +926,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
     }
     await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
 
     let body = try await bodyTask.value
@@ -856,7 +938,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connectionService.statuses.isEmpty)
   }
 
-  func testGmailAccountCleanupContinuesWhenConnectionEnumerationFails() async throws {
+  func testGmailAccountCleanupDoesNotDependOnConnectionEnumeration() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
     connectionService.loadError = AdapterTestError.unavailable
@@ -873,7 +955,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(connectionService.statuses.isEmpty)
   }
 
-  func testGmailAccountCleanupFencesBodyWritesWhenConnectionEnumerationFails() async throws {
+  func testGmailAccountCleanupUsesAllConnectionsFence() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
     connectionService.loadError = AdapterTestError.unavailable
@@ -904,6 +986,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try await adapter.clearLocalConnection(session: session, isStillCurrent: { true })
     }
     await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
     await bodyReader.release()
 
     _ = try await bodyTask.value
@@ -1270,6 +1354,52 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       "in:sent rfc822msgid:<unwired-attempt-001@outbox.unwired.mail>"
     )
     XCTAssertEqual(status, .sent)
+  }
+
+  func testGmailMailboxRemovalWaitsForInFlightSend() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let mailActionService = DelayedAdapterMailActionService(eventLog: eventLog)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      mailActionService: mailActionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let message = OutgoingMessage(
+      body: "Hello",
+      recipient: "reader@example.com",
+      subject: "Subject",
+      idempotencyKey: "unwired-attempt-001"
+    )
+
+    let sendTask = Task {
+      try await adapter.send(message, connection: connection, session: session)
+    }
+    await mailActionService.waitUntilStarted()
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await mailActionService.release()
+    try await sendTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(events, ["message-sent", "local-state-cleared"])
   }
 
   // swiftlint:disable:next function_body_length
@@ -3746,12 +3876,18 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var completedAccount: VerifiedGmailAccount?
   var clearedConnection: GmailProviderConnectionStatus?
   var clearedProviderAccountIdentifiers: [String] = []
+  var clearConnectionError: Error?
   var loadError: Error?
   var statuses = [RecordingAdapterConnectionService.status]
+  private let completionGate: AdapterLifecycleOperationGate?
   private let lifecycleEventLog: AdapterLifecycleEventLog?
 
-  init(lifecycleEventLog: AdapterLifecycleEventLog? = nil) {
+  init(
+    lifecycleEventLog: AdapterLifecycleEventLog? = nil,
+    completionGate: AdapterLifecycleOperationGate? = nil
+  ) {
     self.lifecycleEventLog = lifecycleEventLog
+    self.completionGate = completionGate
   }
 
   func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {
@@ -3766,6 +3902,9 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     await lifecycleEventLog?.record("local-state-cleared")
     clearedConnection = connection
     clearedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+    if let clearConnectionError {
+      throw clearConnectionError
+    }
     statuses.removeAll {
       $0.providerAccountIdentifier == connection.providerAccountIdentifier
     }
@@ -3775,6 +3914,9 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     verifiedAccount: VerifiedGmailAccount,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus {
+    if let completionGate {
+      await completionGate.waitForRelease()
+    }
     completedAccount = verifiedAccount
     let status = GmailProviderConnectionStatus(
       connectedAt: Self.status.connectedAt,
@@ -3789,6 +3931,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
       $0.providerAccountIdentifier == status.providerAccountIdentifier
     }
     statuses.append(status)
+    await lifecycleEventLog?.record("connection-completed")
     return status
   }
 
@@ -4076,7 +4219,7 @@ private actor AdapterLifecycleEventLog {
 private actor AdapterLifecycleOperationGate {
   private var hasReleased = false
   private var hasStarted = false
-  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
 
   func waitForRelease() async {
@@ -4088,7 +4231,7 @@ private actor AdapterLifecycleOperationGate {
     }
     guard !hasReleased else { return }
     await withCheckedContinuation { continuation in
-      releaseContinuation = continuation
+      releaseContinuations.append(continuation)
     }
   }
 
@@ -4100,12 +4243,12 @@ private actor AdapterLifecycleOperationGate {
   }
 
   func release() {
-    guard let releaseContinuation else {
-      hasReleased = true
-      return
+    hasReleased = true
+    let continuations = releaseContinuations
+    releaseContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
     }
-    releaseContinuation.resume()
-    self.releaseContinuation = nil
   }
 }
 
@@ -4270,6 +4413,39 @@ private final class RecordingAdapterMailActionService: GmailProviderMailActing {
   }
 }
 
+private final class DelayedAdapterMailActionService: GmailProviderMailActing {
+  private let eventLog: AdapterLifecycleEventLog
+  private let gate = AdapterLifecycleOperationGate()
+
+  init(eventLog: AdapterLifecycleEventLog) {
+    self.eventLog = eventLog
+  }
+
+  func perform(
+    _: GmailProviderMailAction,
+    messageIds _: [String],
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func send(
+    _: GmailOutgoingMessage,
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    await gate.waitForRelease()
+    await eventLog.record("message-sent")
+  }
+
+  func waitUntilStarted() async {
+    await gate.waitUntilStarted()
+  }
+
+  func release() async {
+    await gate.release()
+  }
+}
+
 private final class FailingAdapterMailActionService: GmailProviderMailActing {
   func perform(
     _: GmailProviderMailAction,
@@ -4320,6 +4496,7 @@ private final class RecordingAdapterEventLog {
 
 private final class AdapterPendingActionStore: PendingProviderActionPersisting {
   private var actions: [PendingProviderAction] = []
+  private(set) var saveCallCount = 0
 
   func load(productAccountId: String) throws -> [PendingProviderAction] {
     actions.filter { $0.productAccountId == productAccountId }
@@ -4329,6 +4506,7 @@ private final class AdapterPendingActionStore: PendingProviderActionPersisting {
     _ actions: [PendingProviderAction],
     productAccountId: String
   ) throws {
+    saveCallCount += 1
     self.actions.removeAll { $0.productAccountId == productAccountId }
     self.actions += actions
   }
@@ -4336,6 +4514,7 @@ private final class AdapterPendingActionStore: PendingProviderActionPersisting {
 
 private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   private var attempts: [OutgoingDeliveryAttempt] = []
+  private(set) var saveCallCount = 0
 
   func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
     attempts.filter { $0.productAccountId.rawValue == productAccountId }
@@ -4345,6 +4524,7 @@ private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sen
     _ attempts: [OutgoingDeliveryAttempt],
     productAccountId _: String
   ) throws {
+    saveCallCount += 1
     self.attempts = attempts
   }
 }

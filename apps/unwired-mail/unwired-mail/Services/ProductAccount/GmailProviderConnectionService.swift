@@ -490,18 +490,24 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
-    let hasRemainingGmailConnections = try await transport.removeGmailConnection(
-      identityToken: session.identityToken,
-      opaqueConnectionId: opaqueGmailConnectionId(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: connection.providerAccountIdentifier
-      ),
-      trustedDeviceId: session.trustedDeviceId
-    )
+    var cleanupError: Error?
+    let hasRemainingGmailConnections: Bool
+    do {
+      hasRemainingGmailConnections = try await transport.removeGmailConnection(
+        identityToken: session.identityToken,
+        opaqueConnectionId: opaqueGmailConnectionId(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        ),
+        trustedDeviceId: session.trustedDeviceId
+      )
+    } catch {
+      cleanupError = error
+      hasRemainingGmailConnections = true
+    }
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
-    var cleanupError: Error?
     do {
       try bodyReader.clearCachedMessageBodies(connection: connection, session: session)
     } catch {

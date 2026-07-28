@@ -859,6 +859,60 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertTrue(transport.removedOpaqueConnectionIds.isEmpty)
   }
 
+  func testClearLocalConnectionContinuesLocalCleanupWhenRemoteRemovalFails() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    transport.removeError = GmailProviderConnectionTestError.remoteRemovalFailed
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: transport.status.providerAccountIdentifier
+    )
+    let bodyReader = RecordingGmailMessageReader()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let pushWatchStore = RecordingPushWatchStore()
+    let service = GmailProviderConnectionService(
+      bodyReader: bodyReader,
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: pushWatchStore,
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(transport.status, session: session)
+      XCTFail("Expected remote removal failure")
+    } catch GmailProviderConnectionTestError.remoteRemovalFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: transport.status.providerAccountIdentifier
+      )
+    )
+    XCTAssertEqual(
+      bodyReader.clearedProviderAccountIdentifiers,
+      [transport.status.providerAccountIdentifier]
+    )
+    XCTAssertEqual(
+      metadataStore.clearedKeys,
+      ["\(session.productAccountId):\(transport.status.providerAccountIdentifier)"]
+    )
+    XCTAssertEqual(
+      pushConnectionStore.clearedProviderAccountIdentifiers,
+      [transport.status.providerAccountIdentifier]
+    )
+    XCTAssertEqual(
+      pushWatchStore.clearedKeys,
+      ["\(session.productAccountId):\(transport.status.providerAccountIdentifier)"]
+    )
+  }
+
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
     let transport = RecordingGmailConnectionTransport()
     transport.shouldStopWatch = false
@@ -924,6 +978,27 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       XCTFail("Expected push watch cleanup failure")
     } catch GmailProviderConnectionTestError.watchStopFailed {
       XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testClearAllPreservesConnectionsWhenWatchCleanupFails() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let pushWatchStore = RecordingPushWatchStore()
+    pushWatchStore.clearError = GmailProviderConnectionTestError.watchStopFailed
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: pushWatchStore,
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(session: session)
+      XCTFail("Expected push watch cleanup failure")
+    } catch GmailProviderConnectionTestError.watchStopFailed {
+      XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
@@ -1433,6 +1508,7 @@ private enum GmailProviderConnectionTestError: Error {
   case bundleCreationFailed
   case metadataCleanupFailed
   case registrationFailed
+  case remoteRemovalFailed
   case tokenCleanupFailed
   case tokenLoadFailed
   case watchStopFailed
@@ -1540,6 +1616,7 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
   var shouldStopError: Error?
   var shouldStopWatch = true
   var hasRemainingGmailConnections = false
+  var removeError: Error?
   var removedOpaqueConnectionIds: [String] = []
 
   func registerGmailConnection(
@@ -1588,6 +1665,9 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
     trustedDeviceId _: String
   ) async throws -> Bool {
     removedOpaqueConnectionIds.append(opaqueConnectionId)
+    if let removeError {
+      throw removeError
+    }
     return hasRemainingGmailConnections
   }
 }

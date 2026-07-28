@@ -52,6 +52,8 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
   }
 }
 
+/// Acquires the all-connections lock before connection locks, ordered by ascending id.
+/// Lock helpers are non-reentrant and must not be nested, including for the same id.
 actor MailboxConnectionSyncGate {
   static let shared = MailboxConnectionSyncGate()
   private static let allConnectionsId = MailboxConnectionId(
@@ -1373,14 +1375,6 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isStillCurrent: @escaping @MainActor () -> Bool
   ) async throws {
-    let connectionIds: [MailboxConnectionId]?
-    do {
-      connectionIds = try await connectionService.loadStoredConnections(session: session).map {
-        $0.mailboxConnection(productAccountId: session.productAccountId).id
-      }
-    } catch {
-      connectionIds = nil
-    }
     let cleanup = {
       var firstError: Error?
       do {
@@ -1408,11 +1402,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         throw firstError
       }
     }
-    if let connectionIds {
-      try await syncGate.withLocks(connectionIds, operation: cleanup)
-    } else {
-      try await syncGate.withAllConnectionsLocked(operation: cleanup)
-    }
+    try await syncGate.withAllConnectionsLocked(operation: cleanup)
   }
 
   func clearLocalConnection(
@@ -1470,32 +1460,38 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if let expectedConnectionId, expectedConnectionId != verifiedConnectionId {
       throw MailboxConnectionAdapterError.unexpectedAuthorizedAccount
     }
-    let hadExistingConnection = try await connectionService.loadConnections(session: session)
-      .contains {
-        $0.mailboxConnection(productAccountId: session.productAccountId).id == verifiedConnectionId
+    return try await syncGate.withLock(verifiedConnectionId) {
+      guard isSessionCurrent(session) else {
+        return nil
       }
+      let hadExistingConnection = try await connectionService.loadConnections(session: session)
+        .contains {
+          $0.mailboxConnection(productAccountId: session.productAccountId).id
+            == verifiedConnectionId
+        }
 
-    let status = try await connectionService.completeConnection(
-      verifiedAccount: VerifiedGmailAccount(
-        emailAddress: verifiedAccount.emailAddress,
-        providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
-        tokens: GmailProviderTokens(
-          accessToken: verifiedAccount.tokens.accessToken,
-          refreshToken: verifiedAccount.tokens.refreshToken,
-          idToken: authorizedTokens.idToken
-        )
-      ),
-      session: session
-    )
-    let connection = status.mailboxConnection(productAccountId: session.productAccountId)
-    do {
-      _ = try await definitionSyncService.saveConnection(connection, session: session)
-      return connection
-    } catch {
-      if !hadExistingConnection {
-        try await connectionService.clearLocalConnection(status, session: session)
+      let status = try await connectionService.completeConnection(
+        verifiedAccount: VerifiedGmailAccount(
+          emailAddress: verifiedAccount.emailAddress,
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: verifiedAccount.tokens.accessToken,
+            refreshToken: verifiedAccount.tokens.refreshToken,
+            idToken: authorizedTokens.idToken
+          )
+        ),
+        session: session
+      )
+      let connection = status.mailboxConnection(productAccountId: session.productAccountId)
+      do {
+        _ = try await definitionSyncService.saveConnection(connection, session: session)
+        return connection
+      } catch {
+        if !hadExistingConnection {
+          try await connectionService.clearLocalConnection(status, session: session)
+        }
+        throw error
       }
-      throw error
     }
   }
 
@@ -1920,7 +1916,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         return MailboxMessageBody(text: body.text)
       }
     } catch MailboxConnectionAdapterError.connectionRemoved {
-      try await syncGate.withLock(message.connectionId) {
+      try? await syncGate.withLock(message.connectionId) {
         try await clearRemovedConnectionState(message.connectionId, session: session)
       }
       throw MailboxConnectionAdapterError.connectionRemoved
@@ -1948,7 +1944,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       }
     } catch MailboxConnectionAdapterError.connectionRemoved {
-      try await syncGate.withLock(connection.id) {
+      try? await syncGate.withLock(connection.id) {
         try await clearRemovedConnectionState(connection.id, session: session)
       }
       throw MailboxConnectionAdapterError.connectionRemoved
@@ -2236,22 +2232,25 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    try await mailActionService.send(
-      GmailOutgoingMessage(
-        body: message.body,
-        recipient: message.recipient,
-        subject: message.subject,
-        inReplyTo: message.inReplyTo,
-        threadId: message.providerThreadId,
-        rfcMessageId: message.rfcMessageId
-      ),
-      connection: gmailConnection,
-      session: session
-    )
+    try await syncGate.withSharedLock(connection.id) {
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session,
+        clearsRemovedConnection: false
+      )
+      try await mailActionService.send(
+        GmailOutgoingMessage(
+          body: message.body,
+          recipient: message.recipient,
+          subject: message.subject,
+          inReplyTo: message.inReplyTo,
+          threadId: message.providerThreadId,
+          rfcMessageId: message.rfcMessageId
+        ),
+        connection: gmailConnection,
+        session: session
+      )
+    }
   }
 
   func deliveryStatus(
@@ -2323,17 +2322,29 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         status.provider == connectionId.providerId.rawValue
           && status.providerAccountIdentifier == connectionId.providerMailboxIdentity.value
       }
+    var cleanupError: Error?
     if let localConnection {
-      try await connectionService.clearLocalConnection(localConnection, session: session)
+      do {
+        try await connectionService.clearLocalConnection(localConnection, session: session)
+      } catch {
+        cleanupError = error
+      }
     }
-    try await clearRemovedConnection(
-      removedMailboxConnection(
-        id: connectionId,
-        localStatus: localConnection,
+    do {
+      try await clearRemovedConnection(
+        removedMailboxConnection(
+          id: connectionId,
+          localStatus: localConnection,
+          session: session
+        ),
         session: session
-      ),
-      session: session
-    )
+      )
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
+    }
   }
 
   private func gmailConnection(
