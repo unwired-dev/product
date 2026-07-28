@@ -2595,7 +2595,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       requiresAuthorization: requiresAuthorization
     )
     do {
-      try await ensureConnectionIsActive(connection.id, session: session)
+      try await ensureConnectionIsActive(
+        connection.id,
+        authorizationGeneration: connection.authorizationGeneration,
+        session: session
+      )
     } catch MailboxConnectionAdapterError.connectionRemoved {
       if clearsRemovedConnection {
         if connectionIsLocked {
@@ -2613,6 +2617,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func ensureConnectionIsActive(
     _ connectionId: MailboxConnectionId,
+    authorizationGeneration: Int? = nil,
     session: ProductAccountSessionSnapshot
   ) async throws {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
@@ -2631,6 +2636,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     guard
+      authorizationGeneration == nil
+        || authorizationGeneration == definition.authorizationGeneration,
       localConnection.authorizationGeneration == definition.authorizationGeneration
     else {
       throw MailboxConnectionAdapterError.authorizationRequired
@@ -2798,7 +2805,11 @@ extension GmailMailboxConnectionAdapter: GmailConnectionAuthorizationChecking {
       return false
     }
     do {
-      try await ensureConnectionIsActive(connection.mailboxConnectionId, session: session)
+      try await ensureConnectionIsActive(
+        connection.mailboxConnectionId,
+        authorizationGeneration: connection.authorizationGeneration,
+        session: session
+      )
       return true
     } catch MailboxConnectionAdapterError.connectionRemoved {
       return false

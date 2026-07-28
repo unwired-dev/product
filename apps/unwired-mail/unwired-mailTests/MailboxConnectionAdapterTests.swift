@@ -509,6 +509,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(secondDeviceAfter.first?.trustedDeviceId, secondDeviceSession.trustedDeviceId)
   }
 
+  // swiftlint:disable:next function_body_length
   func testGmailAdapterRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let staleStatus = RecordingAdapterConnectionService.status
     let recreatedDefinition = staleStatus.mailboxConnection(
@@ -552,6 +553,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(staleConnections.first?.authorizationState, .required)
     XCTAssertEqual(currentConnections.first?.authorizationState, .authorized)
+    let staleOperationConnection = try XCTUnwrap(currentConnections.first)
+      .withAuthorizationGeneration(0)
+    do {
+      _ = try await currentAdapter.syncInbox(
+        connection: staleOperationConnection,
+        session: session
+      )
+      XCTFail("Expected a stale operation generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   func testGmailProviderAccessRequiresPersistedAuthorizationGeneration() async throws {

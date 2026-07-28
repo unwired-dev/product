@@ -3651,7 +3651,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard
       let definition = snapshot.connections.first(where: { $0.id == connection.id })
     else { throw MailboxConnectionAdapterError.connectionRemoved }
-    guard tokens.authorizationGeneration == definition.authorizationGeneration else {
+    guard
+      connection.authorizationGeneration == definition.authorizationGeneration,
+      tokens.authorizationGeneration == definition.authorizationGeneration
+    else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     let refreshBoundary = Int64(now().addingTimeInterval(60).timeIntervalSince1970 * 1_000)

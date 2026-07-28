@@ -1591,6 +1591,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let bodyService: EWSMessageBodyService
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
+  private let localStateCleaner: EWSLocalStateClearing
   private let metadataStore: EWSMetadataPersisting
   private let now: () -> Date
   private let outboxService: OutboxDeliveryService
@@ -1619,6 +1620,15 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     )
     self.client = client
     self.definitionSyncService = definitionSyncService
+    localStateCleaner = EWSLocalStateCleaner(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      keyMaterialStore: keyMaterialStore,
+      metadataStore: metadataStore,
+      outboxService: outboxService,
+      pendingActionService: pendingActionService
+    )
     self.metadataStore = metadataStore
     self.now = now
     self.outboxService = outboxService
@@ -1662,28 +1672,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try authorizationStore.clear(
-      productAccountId: session.productAccountId,
-      connectionId: connectionId
-    )
-    try metadataStore.clear(
-      productAccountId: session.productAccountId,
-      connectionId: connectionId
-    )
-    let connection = MailboxConnection(
-      authorizationState: .authorized,
-      capabilities: .exchangeWebServices,
-      connectedAt: 0,
-      displayName: "",
-      id: connectionId,
-      lastVerifiedAt: 0,
-      productAccountId: ProductAccountId(session.productAccountId),
-      trustedDeviceId: session.trustedDeviceId,
-      updatedAt: 0
-    )
-    try await pendingActionService.clear(connection: connection, session: session)
-    try await outboxService.clear(connection: connection, session: session)
-    try bodyService.clear(connection: connection, session: session)
+    try await localStateCleaner.clear(connectionId: connectionId, session: session)
   }
 
   @MainActor
@@ -2892,6 +2881,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       let definition = synchronizedDefinition.ewsDefinition
     else { throw MailboxConnectionAdapterError.connectionRemoved }
     guard
+      connection.authorizationGeneration == synchronizedDefinition.authorizationGeneration,
       authorization.authorizationGeneration == synchronizedDefinition.authorizationGeneration,
       authorization.definition.matchesAuthorizationScope(definition)
     else {

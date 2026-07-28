@@ -201,6 +201,15 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(staleConnection.authorizationState, .required)
     XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    do {
+      _ = try await adapter.syncInbox(
+        connection: authorizedConnection.withAuthorizationGeneration(0),
+        session: session
+      )
+      XCTFail("Expected a stale operation generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   func testEWSReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization() async throws {
