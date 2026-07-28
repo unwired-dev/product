@@ -2761,12 +2761,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    let categorized = try await applyingSyncedCategories(
-      to: metadataService.load(
-        connection: connection,
+    let cached = try await syncGate.withLock(connection.id) {
+      let active = try await activeConnectionWithinSyncGate(id: connection.id, session: session)
+      return try metadataService.load(
+        connection: active,
         productAccountId: session.productAccountId
-      ),
+      )
+    }
+    let categorized = try await applyingSyncedCategories(
+      to: cached,
       session: session
     )
     return try await pendingActionService.project(
@@ -2782,12 +2785,15 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    let categorized = try await applyingSyncedCategories(
-      to: metadataService.load(
-        connection: connection,
+    let cached = try await syncGate.withLock(connection.id) {
+      let active = try await activeConnectionWithinSyncGate(id: connection.id, session: session)
+      return try metadataService.load(
+        connection: active,
         productAccountId: session.productAccountId
-      ),
+      )
+    }
+    let categorized = try await applyingSyncedCategories(
+      to: cached,
       session: session
     )
     let result = try await pendingActionService.project(
@@ -2804,11 +2810,13 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox] {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    let state = try metadataStore.loadState(
-      productAccountId: session.productAccountId,
-      connectionId: connection.id
-    )
+    let state = try await syncGate.withLock(connection.id) {
+      _ = try await activeConnectionWithinSyncGate(id: connection.id, session: session)
+      return try metadataStore.loadState(
+        productAccountId: session.productAccountId,
+        connectionId: connection.id
+      )
+    }
     return (state?.folders ?? []).compactMap { cursor in
       guard cursor.folder.role == nil else { return nil }
       return ProviderMailbox(

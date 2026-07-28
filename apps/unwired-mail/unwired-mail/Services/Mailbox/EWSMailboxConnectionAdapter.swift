@@ -647,7 +647,7 @@ struct EWSSetupService {
     self.syncGate = syncGate
   }
 
-  // swiftlint:disable function_body_length
+  // swiftlint:disable cyclomatic_complexity function_body_length
   /// Verifies the server, mailbox identity, version, and required roles before persisting setup.
   func connect(
     authorizationMethod: MailAuthorizationMethod,
@@ -747,9 +747,11 @@ struct EWSSetupService {
       hasOnlineArchive: authorization.hasOnlineArchive
     )
     try await syncGate.withLock(definition.connectionId) {
+      guard isSessionCurrent(session) else { throw CancellationError() }
       let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
         session: session
       )
+      guard isSessionCurrent(session) else { throw CancellationError() }
       let localAuthorizationGeneration =
         try authorizationStore.load(
           productAccountId: session.productAccountId,
@@ -798,7 +800,7 @@ struct EWSSetupService {
       updatedAt: timestamp
     )
   }
-  // swiftlint:enable function_body_length
+  // swiftlint:enable cyclomatic_complexity function_body_length
 }
 
 enum EWSFolderRole: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
@@ -1741,12 +1743,17 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> [ProviderMailbox] {
-    try validate(connection, session: session, requiresAuthorization: true)
-    let folders =
-      try metadataStore.load(
+    let folders = try await syncGate.withLock(connection.id) {
+      _ = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      return try metadataStore.load(
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )?.folders ?? []
+    }
     let foldersById = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0) })
     return folders.compactMap {
       guard
@@ -2789,18 +2796,24 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try validate(connection, session: session, requiresAuthorization: true)
-    let snapshot =
-      try metadataStore.load(
-        productAccountId: session.productAccountId,
-        connectionId: connection.id
+    let snapshot = try await syncGate.withLock(connection.id) {
+      _ = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
       )
-      ?? EWSMetadataSnapshot(
-        folders: [],
-        messages: [],
-        nextOffsetsByFolderId: [:],
-        hasInitialMailboxAvailability: false
-      )
+      return
+        try metadataStore.load(
+          productAccountId: session.productAccountId,
+          connectionId: connection.id
+        )
+        ?? EWSMetadataSnapshot(
+          folders: [],
+          messages: [],
+          nextOffsetsByFolderId: [:],
+          hasInitialMailboxAvailability: false
+        )
+    }
     return try await projectedResult(
       snapshot,
       collection,

@@ -1888,29 +1888,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> GenericMailConnectionDefinition {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    if snapshot.removedConnectionIds.contains(connection.id) {
-      try await clearLocalConnection(connection, session: session)
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
-    guard
-      let authorization = try authorizationStore.load(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connection.id
-      ),
-      authorization.definition.incomingEndpoint.mailProtocol == .imap
-    else { throw MailboxConnectionAdapterError.authorizationRequired }
-    guard
-      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-        .genericMailDefinition
-    else {
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
-    guard hasMatchingCredentials(authorization.definition, definition) else {
-      throw MailboxConnectionAdapterError.authorizationRequired
-    }
-    return definition
+    try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    ).definition
   }
 
   private func hasMatchingCredentials(
