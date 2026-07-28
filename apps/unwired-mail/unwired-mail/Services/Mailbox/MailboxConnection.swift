@@ -2232,24 +2232,31 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await syncGate.withSharedLock(connection.id) {
-      let gmailConnection = try await gmailConnectionForProviderAccess(
-        connection,
-        session: session,
-        clearsRemovedConnection: false
-      )
-      try await mailActionService.send(
-        GmailOutgoingMessage(
-          body: message.body,
-          recipient: message.recipient,
-          subject: message.subject,
-          inReplyTo: message.inReplyTo,
-          threadId: message.providerThreadId,
-          rfcMessageId: message.rfcMessageId
-        ),
-        connection: gmailConnection,
-        session: session
-      )
+    do {
+      try await syncGate.withSharedLock(connection.id) {
+        let gmailConnection = try await gmailConnectionForProviderAccess(
+          connection,
+          session: session,
+          clearsRemovedConnection: false
+        )
+        try await mailActionService.send(
+          GmailOutgoingMessage(
+            body: message.body,
+            recipient: message.recipient,
+            subject: message.subject,
+            inReplyTo: message.inReplyTo,
+            threadId: message.providerThreadId,
+            rfcMessageId: message.rfcMessageId
+          ),
+          connection: gmailConnection,
+          session: session
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(connection.id) {
+        try await clearRemovedConnectionState(connection.id, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
     }
   }
 
@@ -2317,11 +2324,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let localConnection = try await connectionService.loadStoredConnections(session: session)
-      .first { status in
-        status.provider == connectionId.providerId.rawValue
-          && status.providerAccountIdentifier == connectionId.providerMailboxIdentity.value
-      }
+    let localConnection = try await connectionService.loadStoredConnection(
+      providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
+      session: session
+    )
     var cleanupError: Error?
     if let localConnection {
       do {

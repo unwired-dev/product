@@ -571,6 +571,70 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGmailAdapterClearsLocalAuthorizationWhenSendFindsSynchronizedRemoval() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let mailActionService = RecordingAdapterMailActionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [adapterConnectionId],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      mailActionService: mailActionService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let message = OutgoingMessage(
+      body: "Hello",
+      recipient: "reader@example.com",
+      subject: "Subject",
+      idempotencyKey: "unwired-attempt-001"
+    )
+
+    do {
+      try await adapter.send(message, connection: connection, session: session)
+      XCTFail("Expected synchronized removal to fence send")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertNil(mailActionService.outgoingMessage)
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+  }
+
+  func testGmailTombstoneCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.loadStoredConnectionsError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [adapterConnectionId],
+          updatedAt: 1_781_200_000_300
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      XCTFail("Expected synchronized removal")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+  }
+
   func testGmailBodyReadPreservesRemovalSignalWhenCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.clearConnectionError = AdapterTestError.unavailable
@@ -3878,6 +3942,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var clearedProviderAccountIdentifiers: [String] = []
   var clearConnectionError: Error?
   var loadError: Error?
+  var loadStoredConnectionsError: Error?
   var statuses = [RecordingAdapterConnectionService.status]
   private let completionGate: AdapterLifecycleOperationGate?
   private let lifecycleEventLog: AdapterLifecycleEventLog?
@@ -3946,7 +4011,15 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     if let loadError { throw loadError }
+    if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     return statuses
+  }
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    statuses.first { $0.providerAccountIdentifier == providerAccountIdentifier }
   }
 }
 
