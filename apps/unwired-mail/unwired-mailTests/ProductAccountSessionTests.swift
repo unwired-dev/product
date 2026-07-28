@@ -1,3 +1,4 @@
+import AuthenticationServices
 import XCTest
 
 @testable import unwired_mail
@@ -121,6 +122,43 @@ final class ProductAccountSessionTests: XCTestCase {
       XCTFail("Expected unavailable authorization state to fail restoration")
     } catch {
       XCTAssertEqual(error as? AppleSignInError, .credentialUnavailable)
+    }
+  }
+
+  func testSignInRejectsOverlapAndIgnoresUnrelatedControllerCompletion() async throws {
+    var controllers: [ASAuthorizationController] = []
+    let service = SignInWithAppleService(
+      performAuthorizationRequest: { controllers.append($0) }
+    )
+    let firstSignIn = Task { try await service.signIn() }
+    while controllers.isEmpty {
+      await Task.yield()
+    }
+    let activeController = try XCTUnwrap(controllers.first)
+    let unrelatedController = ASAuthorizationController(
+      authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()]
+    )
+
+    service.authorizationController(
+      controller: unrelatedController,
+      didCompleteWithError: CancellationError()
+    )
+
+    do {
+      _ = try await service.signIn()
+      XCTFail("Expected overlapping authorization to be rejected")
+    } catch {
+      XCTAssertEqual(error as? AppleSignInError, .authorizationInProgress)
+    }
+
+    service.authorizationController(
+      controller: activeController,
+      didCompleteWithError: CancellationError()
+    )
+    do {
+      _ = try await firstSignIn.value
+      XCTFail("Expected the active authorization to be cancelled")
+    } catch is CancellationError {
     }
   }
 

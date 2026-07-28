@@ -1781,6 +1781,28 @@ private struct GmailWatchResponse: Decodable {
   enum MailRefreshBackgroundTask {
     static let identifier = "dev.unwired.mail.refresh"
     static let interval: TimeInterval = 12 * 60 * 60
+
+    @discardableResult
+    nonisolated static func run(
+      reschedule: () -> Void,
+      renewal: @escaping @MainActor () async throws -> Void,
+      completion: @escaping @MainActor (Bool) -> Void,
+      installExpirationHandler: (@escaping () -> Void) -> Void
+    ) -> Task<Void, Never> {
+      reschedule()
+      let renewalTask = Task { @MainActor in
+        do {
+          try await renewal()
+          completion(!Task.isCancelled)
+        } catch {
+          completion(false)
+        }
+      }
+      installExpirationHandler {
+        renewalTask.cancel()
+      }
+      return renewalTask
+    }
   }
 
   @MainActor
@@ -1860,18 +1882,18 @@ private struct GmailWatchResponse: Decodable {
     }
 
     nonisolated private static func handle(_ refreshTask: BGAppRefreshTask) {
-      scheduleBackgroundRefresh()
-      let renewalTask = Task { @MainActor in
-        do {
+      MailRefreshBackgroundTask.run(
+        reschedule: scheduleBackgroundRefresh,
+        renewal: {
           _ = try await MicrosoftGraphPushRenewalHandler().handle()
-          refreshTask.setTaskCompleted(success: !Task.isCancelled)
-        } catch {
-          refreshTask.setTaskCompleted(success: false)
+        },
+        completion: { success in
+          refreshTask.setTaskCompleted(success: success)
+        },
+        installExpirationHandler: { expirationHandler in
+          refreshTask.expirationHandler = expirationHandler
         }
-      }
-      refreshTask.expirationHandler = {
-        renewalTask.cancel()
-      }
+      )
     }
 
     nonisolated private static func scheduleBackgroundRefresh() {

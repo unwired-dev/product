@@ -48,6 +48,7 @@ enum AppleSignInError: LocalizedError, Equatable {
   case credentialUnavailable
   case notAuthorized
   case configurationMissing
+  case authorizationInProgress
 
   var errorDescription: String? {
     switch self {
@@ -66,6 +67,8 @@ enum AppleSignInError: LocalizedError, Equatable {
         The App ID dev.unwired.mail must also have Sign in with Apple enabled in \
         the Apple Developer portal.
         """
+    case .authorizationInProgress:
+      return "A Sign in with Apple request is already in progress."
     }
   }
 }
@@ -139,12 +142,16 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private var authorizationController: ASAuthorizationController?
   private var continuation: CheckedContinuation<AppleSignInCredential, Error>?
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
+  private let performAuthorizationRequest: @MainActor (ASAuthorizationController) -> Void
 
   init(
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
-      AppleAuthorizationStateChecker()
+      AppleAuthorizationStateChecker(),
+    performAuthorizationRequest: @escaping @MainActor (ASAuthorizationController) -> Void =
+      SignInWithAppleService.performAuthorizationRequest
   ) {
     self.authorizationStateChecker = authorizationStateChecker
+    self.performAuthorizationRequest = performAuthorizationRequest
     super.init()
   }
 
@@ -173,7 +180,10 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   }
 
   private func performAuthorization() async throws -> AppleSignInCredential {
-    try await withCheckedThrowingContinuation { continuation in
+    guard authorizationController == nil, continuation == nil else {
+      throw AppleSignInError.authorizationInProgress
+    }
+    return try await withCheckedThrowingContinuation { continuation in
       self.continuation = continuation
 
       let provider = ASAuthorizationAppleIDProvider()
@@ -184,11 +194,27 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
       controller.delegate = self
       controller.presentationContextProvider = self
       authorizationController = controller
-      let authorizationRequest = AppleAuthorizationRequest(controller: controller)
-      Self.authorizationQueue.async {
-        authorizationRequest.perform()
-      }
+      performAuthorizationRequest(controller)
     }
+  }
+
+  private static func performAuthorizationRequest(_ controller: ASAuthorizationController) {
+    let authorizationRequest = AppleAuthorizationRequest(controller: controller)
+    authorizationQueue.async {
+      authorizationRequest.perform()
+    }
+  }
+
+  private func finishAuthorization(
+    controller: ASAuthorizationController,
+    result: Result<AppleSignInCredential, Error>
+  ) {
+    guard controller === authorizationController, let continuation else {
+      return
+    }
+    self.continuation = nil
+    authorizationController = nil
+    continuation.resume(with: result)
   }
 }
 
@@ -197,51 +223,61 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
     controller: ASAuthorizationController,
     didCompleteWithAuthorization authorization: ASAuthorization
   ) {
+    guard controller === authorizationController else {
+      return
+    }
     guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-      continuation?.resume(throwing: AppleSignInError.credentialUnavailable)
-      continuation = nil
-      authorizationController = nil
+      finishAuthorization(
+        controller: controller,
+        result: .failure(AppleSignInError.credentialUnavailable)
+      )
       return
     }
 
     guard let tokenData = credential.identityToken,
       let identityToken = String(data: tokenData, encoding: .utf8)
     else {
-      continuation?.resume(throwing: AppleSignInError.missingIdentityToken)
-      continuation = nil
-      authorizationController = nil
+      finishAuthorization(
+        controller: controller,
+        result: .failure(AppleSignInError.missingIdentityToken)
+      )
       return
     }
 
     let userIdentifier = credential.user
     guard !userIdentifier.isEmpty else {
-      continuation?.resume(throwing: AppleSignInError.missingUserIdentifier)
-      continuation = nil
-      authorizationController = nil
+      finishAuthorization(
+        controller: controller,
+        result: .failure(AppleSignInError.missingUserIdentifier)
+      )
       return
     }
 
-    continuation?.resume(
-      returning: AppleSignInCredential(
-        appleUserIdentifier: userIdentifier,
-        identityToken: identityToken
+    finishAuthorization(
+      controller: controller,
+      result: .success(
+        AppleSignInCredential(
+          appleUserIdentifier: userIdentifier,
+          identityToken: identityToken
+        )
       )
     )
-    continuation = nil
-    authorizationController = nil
   }
 
   func authorizationController(
     controller: ASAuthorizationController,
     didCompleteWithError error: Error
   ) {
+    let resolvedError: Error
     if let authError = error as? ASAuthorizationError, authError.code == .unknown {
-      continuation?.resume(throwing: AppleSignInError.configurationMissing)
+      resolvedError = AppleSignInError.configurationMissing
     } else {
-      continuation?.resume(throwing: error)
+      resolvedError = error
     }
-    continuation = nil
-    authorizationController = nil
+    finishAuthorization(
+      controller: controller,
+      result: .failure(resolvedError)
+    )
   }
 }
 

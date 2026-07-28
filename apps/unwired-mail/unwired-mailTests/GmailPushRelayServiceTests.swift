@@ -17,6 +17,64 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertTrue(identifiers.contains(MailRefreshBackgroundTask.identifier))
   }
 
+  func testMailRefreshTaskReschedulesAndCompletesSuccessfulRenewal() async {
+    var didReschedule = false
+    var completion: Bool?
+
+    let task = MailRefreshBackgroundTask.run(
+      reschedule: { didReschedule = true },
+      renewal: {},
+      completion: { completion = $0 },
+      installExpirationHandler: { _ in }
+    )
+    await task.value
+
+    XCTAssertTrue(didReschedule)
+    XCTAssertEqual(completion, true)
+  }
+
+  func testMailRefreshTaskReportsRenewalFailure() async {
+    var completion: Bool?
+
+    let task = MailRefreshBackgroundTask.run(
+      reschedule: {},
+      renewal: { throw URLError(.cannotConnectToHost) },
+      completion: { completion = $0 },
+      installExpirationHandler: { _ in }
+    )
+    await task.value
+
+    XCTAssertEqual(completion, false)
+  }
+
+  func testMailRefreshTaskExpirationCancelsRenewal() async {
+    let renewalStarted = expectation(description: "Renewal started")
+    var expirationHandler: (() -> Void)?
+    var didCancel = false
+    var completion: Bool?
+
+    let task = MailRefreshBackgroundTask.run(
+      reschedule: {},
+      renewal: {
+        renewalStarted.fulfill()
+        do {
+          try await Task.sleep(for: .seconds(60))
+        } catch is CancellationError {
+          didCancel = true
+          throw CancellationError()
+        }
+      },
+      completion: { completion = $0 },
+      installExpirationHandler: { expirationHandler = $0 }
+    )
+    await fulfillment(of: [renewalStarted])
+    expirationHandler?()
+    await task.value
+
+    XCTAssertTrue(didCancel)
+    XCTAssertEqual(completion, false)
+  }
+
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
