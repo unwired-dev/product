@@ -457,7 +457,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
   }
 
-  func testGmailRemovalClearsLocalAuthorizationBeforeSyncRemoval() async throws {
+  func testGmailRemovalKeepsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     definitionSyncService.removeError = AdapterTestError.unavailable
@@ -475,7 +475,46 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     } catch is AdapterTestError {
     }
 
-    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertNil(connectionService.clearedConnection)
+  }
+
+  func testGmailRemovalRetriesFailedLocalCleanupAfterReload() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.clearErrors = [AdapterTestError.unavailable]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    do {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected local cleanup failure")
+    } catch is AdapterTestError {
+    }
+
+    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
+    XCTAssertEqual(connectionService.statuses, [RecordingAdapterConnectionService.status])
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertTrue(connections.isEmpty)
+    XCTAssertTrue(connectionService.statuses.isEmpty)
+    XCTAssertEqual(
+      connectionService.clearedProviderAccountIdentifiers,
+      ["gmail-user-001", "gmail-user-001"]
+    )
   }
 
   func testGmailAdapterPurgesLocalAuthorizationForSynchronizedRemoval() async throws {
@@ -3399,6 +3438,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
 
   var completedAccount: VerifiedGmailAccount?
   var clearedConnection: GmailProviderConnectionStatus?
+  var clearErrors: [Error] = []
   var clearedProviderAccountIdentifiers: [String] = []
   var statuses = [RecordingAdapterConnectionService.status]
 
@@ -3410,6 +3450,9 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   ) async throws {
     clearedConnection = connection
     clearedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
+    if !clearErrors.isEmpty {
+      throw clearErrors.removeFirst()
+    }
     statuses.removeAll {
       $0.providerAccountIdentifier == connection.providerAccountIdentifier
     }

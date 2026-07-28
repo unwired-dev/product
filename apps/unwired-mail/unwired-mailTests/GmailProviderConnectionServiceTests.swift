@@ -927,6 +927,28 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
+  func testClearLocalConnectionKeepsRetryStatusWhenCleanupFailsAfterRemoteRemoval() async throws {
+    let transport = RecordingGmailConnectionTransport()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: FailingClearGmailProviderTokenStore(),
+      transport: transport
+    )
+
+    do {
+      try await service.clearLocalConnection(transport.status, session: session)
+      XCTFail("Expected token cleanup failure")
+    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertEqual(transport.removedOpaqueConnectionIds.count, 1)
+    let statuses = try await service.loadConnections(session: session)
+    XCTAssertEqual(statuses, [transport.status])
+  }
+
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
     let session = ConvexClientTesting.makeSession { request in
       if request.url?.path == "/token" {
@@ -1584,7 +1606,16 @@ private final class FailingClearGmailProviderTokenStore: GmailProviderTokenPersi
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> GmailProviderTokens? {
-    nil
+    GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
+  }
+
+  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] {
+    [
+      "gmail-user-001": GmailProviderTokens(
+        accessToken: "access-token",
+        refreshToken: "refresh-token"
+      )
+    ]
   }
 
   func save(
@@ -1637,6 +1668,9 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
     providerAccountIdentifier: String
   ) throws {
     clearedProviderAccountIdentifiers.append(providerAccountIdentifier)
+    connections.removeAll {
+      $0.providerAccountIdentifier == providerAccountIdentifier
+    }
   }
 
   func load(
