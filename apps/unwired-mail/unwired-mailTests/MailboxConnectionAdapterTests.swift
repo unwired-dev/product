@@ -1955,6 +1955,106 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(events, ["provider-action-finished", "local-state-cleared"])
   }
 
+  func testGmailMailboxRemovalWaitsForHistoricalCategorization() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let categorizationStarted = expectation(description: "historical categorization starts")
+    let metadataService = DelayedAdapterProviderReadService(
+      eventLog: eventLog,
+      started: categorizationStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let categorizationTask = Task {
+      try await adapter.categorizeHistorical(
+        scope: HistoricalCategorizationScope(
+          receivedAtOrAfterMilliseconds: 0,
+          receivedBeforeMilliseconds: 100
+        ),
+        connection: connection,
+        session: session
+      )
+    }
+    await fulfillment(of: [categorizationStarted], timeout: 1)
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    await metadataService.release()
+    _ = try await categorizationTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(
+      events,
+      ["historical-categorization-finished", "local-state-cleared"]
+    )
+  }
+
+  func testGmailMailboxRemovalWaitsForPendingActionPersistence() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
+    let saveStarted = expectation(description: "pending action save starts")
+    let pendingActionStore = BlockingAdapterPendingActionStore(saveStarted: saveStarted)
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let actionTask = Task {
+      try await adapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      )
+    }
+    await fulfillment(of: [saveStarted], timeout: 1)
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await Task.yield()
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertTrue(eventsBeforeRelease.isEmpty)
+
+    pendingActionStore.release()
+    try await actionTask.value
+    try await removalTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(events, ["local-state-cleared"])
+  }
+
   // swiftlint:disable:next function_body_length
   func testGmailMailboxRemovalWaitsForCredentialWritingProviderReads() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -4891,7 +4991,10 @@ private final class DelayedAdapterProviderReadService:
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    GmailMetadataSyncResult(messages: [], threads: [])
+    started.fulfill()
+    await gate.waitForRelease()
+    await eventLog.record("historical-categorization-finished")
+    return GmailMetadataSyncResult(messages: [], threads: [])
   }
 
   func loadInbox(
@@ -5328,6 +5431,37 @@ private final class AdapterPendingActionStore: PendingProviderActionPersisting {
     if let saveError { throw saveError }
     self.actions.removeAll { $0.productAccountId == productAccountId }
     self.actions += actions
+  }
+}
+
+private final class BlockingAdapterPendingActionStore: PendingProviderActionPersisting {
+  private var actions: [PendingProviderAction] = []
+  private var hasBlockedSave = false
+  private let releaseSemaphore = DispatchSemaphore(value: 0)
+  private let saveStarted: XCTestExpectation
+
+  init(saveStarted: XCTestExpectation) {
+    self.saveStarted = saveStarted
+  }
+
+  func load(productAccountId: String) throws -> [PendingProviderAction] {
+    actions.filter { $0.productAccountId == productAccountId }
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId _: String
+  ) throws {
+    if !hasBlockedSave {
+      hasBlockedSave = true
+      saveStarted.fulfill()
+      releaseSemaphore.wait()
+    }
+    self.actions = actions
+  }
+
+  func release() {
+    releaseSemaphore.signal()
   }
 }
 

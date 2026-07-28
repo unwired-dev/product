@@ -374,9 +374,9 @@ private func clearGmailProviderTokens(
   _ tokenStore: GmailProviderTokenPersisting,
   productAccountId: String,
   providerAccountIdentifier: String,
-  hasRemainingGmailConnections: Bool
+  hasRemainingGmailState: Bool
 ) throws {
-  if hasRemainingGmailConnections {
+  if hasRemainingGmailState {
     try tokenStore.clear(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
@@ -540,6 +540,22 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = error
       hasRemainingGmailConnections = true
     }
+    let hasRemainingLocalGmailState: Bool
+    do {
+      let targetIdentifier = connection.providerAccountIdentifier
+      hasRemainingLocalGmailState =
+        try tokenStore.loadAll(productAccountId: session.productAccountId).keys.contains {
+          $0 != targetIdentifier
+        }
+        || pushConnectionStore.loadAll(productAccountId: session.productAccountId).contains {
+          $0.providerAccountIdentifier != targetIdentifier
+        }
+    } catch {
+      // Failed enumeration cannot prove this is the last local Gmail identity.
+      hasRemainingLocalGmailState = true
+    }
+    let hasRemainingGmailState =
+      hasRemainingGmailConnections || hasRemainingLocalGmailState
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
@@ -548,7 +564,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if !hasRemainingGmailConnections {
+    if !hasRemainingGmailState {
       do {
         try backgroundContextCacheStore.clear(productAccountId: session.productAccountId)
       } catch {
@@ -566,7 +582,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     do {
-      if hasRemainingGmailConnections {
+      if hasRemainingGmailState {
         if let legacyTokens = try tokenStore.loadLegacy(
           productAccountId: session.productAccountId
         ) {
@@ -580,14 +596,14 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         }
       }
     } catch {
-      cleanupError = cleanupError ?? error
+      // An unverifiable legacy credential has unproven ownership and must be preserved.
     }
     do {
       try clearGmailProviderTokens(
         tokenStore,
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier,
-        hasRemainingGmailConnections: hasRemainingGmailConnections
+        hasRemainingGmailState: hasRemainingGmailState
       )
     } catch {
       cleanupError = cleanupError ?? error

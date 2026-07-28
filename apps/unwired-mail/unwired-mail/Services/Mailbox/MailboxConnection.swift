@@ -1719,21 +1719,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let result = try await metadataService.categorizeHistorical(
-      scope: scope.gmailScope,
-      connection: gmailConnection,
-      session: session
-    )
-    return try await pendingActionService.project(
-      result.mailboxResult(connectionId: connection.id),
-      collection: .role(.inbox),
-      connection: connection,
-      session: session
-    )
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      let result = try await metadataService.categorizeHistorical(
+        scope: scope.gmailScope,
+        connection: gmailConnection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        result.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
+    }
   }
 
   func loadInbox(
@@ -2051,18 +2049,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await gmailConnectionForProviderAccess(
+    try await withSharedProviderAccess(
       connection,
       session: session,
       requiresAuthorization: false
-    )
-    try await pendingActionService.enqueue(
-      action,
-      targetProviderMailboxId: targetProviderMailboxId,
-      messages: messages,
-      connection: connection,
-      session: session
-    )
+    ) { _ in
+      try await pendingActionService.enqueue(
+        action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messages: messages,
+        connection: connection,
+        session: session
+      )
+    }
   }
 
   func resumePendingActions(
@@ -2346,6 +2345,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private func withSharedProviderAccess<T>(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
+    requiresAuthorization: Bool = true,
     operation: (GmailProviderConnectionStatus) async throws -> T
   ) async throws -> T {
     do {
@@ -2353,6 +2353,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         let gmailConnection = try await gmailConnectionForProviderAccess(
           connection,
           session: session,
+          requiresAuthorization: requiresAuthorization,
           clearsRemovedConnection: false
         )
         return try await operation(gmailConnection)
