@@ -3051,7 +3051,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         updatedAt: snapshot.updatedAt
       )
-      try clearLocalConnectionWithoutLock(removed, session: session)
+      try await performLocalCleanupWithinLock(
+        removed,
+        session: session,
+        reportsPushFailure: false
+      )
       try definitionSyncService.recordLocalCleanup(
         in: snapshot,
         connectionId: id,
@@ -3070,7 +3074,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         updatedAt: snapshot.updatedAt
       )
-      try clearLocalConnectionWithoutLock(stale, session: session)
+      try await performLocalCleanupWithinLock(
+        stale,
+        session: session,
+        reportsPushFailure: false
+      )
       try definitionSyncService.recordLocalCleanup(
         in: snapshot,
         connectionId: id,
@@ -3089,7 +3097,11 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorized: true,
         updatedAt: snapshot.updatedAt
       )
-      try clearLocalConnectionWithoutLock(stale, session: session)
+      try await performLocalCleanupWithinLock(
+        stale,
+        session: session,
+        reportsPushFailure: false
+      )
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return placeholderConnection(

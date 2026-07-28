@@ -94,6 +94,29 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections.first?.authorizationState, .authorized)
   }
 
+  func testRemovalCleanupClearsPendingActionsAndOutboxBeforeRecordingReceipt() async throws {
+    let definition = imapDefinition(username: "reader")
+    let definitions = RecordingIMAPDefinitionSyncService(
+      definitions: [],
+      removedConnectionIds: [definition.connectionId]
+    )
+    let outboxStore = InMemoryIMAPOutboxStore()
+    let pendingActionStore = InMemoryIMAPPendingActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitionSyncService: definitions,
+      definitions: [],
+      outboxStore: outboxStore,
+      pendingActionStore: pendingActionStore
+    )
+
+    _ = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(outboxStore.saveCallCount, 1)
+    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
+  }
+
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -817,6 +840,8 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     definitionSyncService: MailboxConnectionDefinitionSyncing? = nil,
     definitions: [GenericMailConnectionDefinition],
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
+    outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
+    pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
     store: IMAPMessageMetadataPersisting? = nil
   ) throws -> IMAPMailboxConnectionAdapter {
     let metadataStore = try store ?? SwiftDataIMAPMessageMetadataStore.inMemory()
@@ -832,8 +857,48 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
         ),
       keyMaterialStore: keyStore,
       metadataStore: metadataStore,
+      outboxService: OutboxDeliveryService(store: outboxStore),
+      pendingActionService: PendingProviderActionService(
+        store: pendingActionStore
+      ),
       syncGate: MailboxConnectionSyncGate()
     )
+  }
+}
+
+private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
+  private var attempts: [OutgoingDeliveryAttempt] = []
+  private(set) var saveCallCount = 0
+
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts.filter { $0.productAccountId.rawValue == productAccountId }
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    saveCallCount += 1
+    self.attempts = attempts
+  }
+}
+
+private final class InMemoryIMAPPendingActionStore:
+  PendingProviderActionPersisting, @unchecked Sendable
+{
+  private var actions: [PendingProviderAction] = []
+  private(set) var saveCallCount = 0
+
+  func load(productAccountId: String) throws -> [PendingProviderAction] {
+    actions.filter { $0.productAccountId == productAccountId }
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId _: String
+  ) throws {
+    saveCallCount += 1
+    self.actions = actions
   }
 }
 

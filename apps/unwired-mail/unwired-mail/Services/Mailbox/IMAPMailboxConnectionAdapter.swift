@@ -1439,6 +1439,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let metadataService: IMAPMessageMetadataService
   private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
 
   init(
@@ -1451,12 +1453,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = OutboxDeliveryService(),
+    pendingActionService: PendingProviderActionService = PendingProviderActionService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
     self.cache = cache
     self.definitionSyncService = definitionSyncService
     self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
     self.syncGate = syncGate
     bodyReader = IMAPMessageBodyService(
       authorizationStore: authorizationStore,
@@ -1480,8 +1486,31 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      try clearLocalConnectionWithoutLock(connection, session: session)
+      try await performLocalCleanupWithoutLock(connection, session: session)
     }
+  }
+
+  private func performLocalCleanupWithoutLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var firstError: Error?
+    do {
+      try clearLocalConnectionWithoutLock(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   private func clearLocalConnectionWithoutLock(
@@ -1581,7 +1610,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       else {
         return currentSnapshot
       }
-      try clearLocalConnectionWithoutLock(connectionId, session: session)
+      let removed = MailboxConnection(
+        authorizationState: .required,
+        capabilities: .none,
+        connectedAt: 0,
+        displayName: "",
+        id: connectionId,
+        lastVerifiedAt: 0,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: currentSnapshot.updatedAt ?? 0
+      )
+      try await performLocalCleanupWithoutLock(removed, session: session)
       try definitionSyncService.recordLocalCleanup(
         in: currentSnapshot,
         connectionId: connectionId,
@@ -1843,7 +1883,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     if snapshot.removedConnectionIds.contains(connection.id) {
       if isWithinSyncGate {
-        try clearLocalConnectionWithoutLock(connection, session: session)
+        try await performLocalCleanupWithoutLock(connection, session: session)
       } else {
         try await clearLocalConnection(connection, session: session)
       }
@@ -1874,7 +1914,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session
     ) || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration {
       if isWithinSyncGate {
-        try clearLocalConnectionWithoutLock(connection, session: session)
+        try await performLocalCleanupWithoutLock(connection, session: session)
       } else {
         try await clearLocalConnection(connection, session: session)
       }
