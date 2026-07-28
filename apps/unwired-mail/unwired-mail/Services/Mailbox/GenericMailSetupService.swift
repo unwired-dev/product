@@ -217,6 +217,31 @@ protocol GenericMailAuthorizationPersisting {
   ) throws
 }
 
+final class GenericMailAuthorizationLock: @unchecked Sendable {
+  static let shared = GenericMailAuthorizationLock()
+
+  private let accountLocksLock = NSLock()
+  private var accountLocks: [ProductAccountId: NSLock] = [:]
+
+  func withLock<Result>(
+    productAccountId: ProductAccountId,
+    operation: () throws -> Result
+  ) rethrows -> Result {
+    try lock(for: productAccountId).withLock(operation)
+  }
+
+  private func lock(for productAccountId: ProductAccountId) -> NSLock {
+    accountLocksLock.withLock {
+      if let lock = accountLocks[productAccountId] {
+        return lock
+      }
+      let lock = NSLock()
+      accountLocks[productAccountId] = lock
+      return lock
+    }
+  }
+}
+
 struct GenericMailSetupService {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let clock: () -> Int64
@@ -257,7 +282,9 @@ struct GenericMailSetupService {
   }
 
   func clearLocalAuthorizations(productAccountId: ProductAccountId) throws {
-    try authorizationStore.clearAll(productAccountId: productAccountId)
+    try GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
+      try authorizationStore.clearAll(productAccountId: productAccountId)
+    }
   }
 
   func hasLocalAuthorization(
@@ -356,7 +383,8 @@ struct GenericMailSetupService {
       verifiedDefinition,
       credential: credential,
       productAccountId: productAccountId,
-      syncSession: syncSession
+      syncSession: syncSession,
+      isSessionCurrent: isSessionCurrent
     )
     return verifiedDefinition
   }
@@ -485,16 +513,22 @@ extension GenericMailSetupService {
     _ definition: GenericMailConnectionDefinition,
     credential: String,
     productAccountId: ProductAccountId,
-    syncSession: ProductAccountSessionSnapshot?
+    syncSession: ProductAccountSessionSnapshot?,
+    isSessionCurrent: () -> Bool
   ) async throws {
-    let previousAuthorization = try authorizationStore.load(
-      productAccountId: productAccountId,
-      connectionId: definition.connectionId
-    )
-    try authorizationStore.save(
-      DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
-      productAccountId: productAccountId
-    )
+    var previousAuthorization: DeviceLocalGenericMailAuthorization?
+    try GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
+      try Task.checkCancellation()
+      guard isSessionCurrent() else { throw CancellationError() }
+      previousAuthorization = try authorizationStore.load(
+        productAccountId: productAccountId,
+        connectionId: definition.connectionId
+      )
+      try authorizationStore.save(
+        DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
+        productAccountId: productAccountId
+      )
+    }
     if let syncSession {
       do {
         _ = try await definitionSyncService.saveDefinition(
@@ -502,13 +536,16 @@ extension GenericMailSetupService {
           session: syncSession
         )
       } catch {
-        if let previousAuthorization {
-          try? authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
-        } else {
-          try? authorizationStore.remove(
-            productAccountId: productAccountId,
-            connectionId: definition.connectionId
-          )
+        GenericMailAuthorizationLock.shared.withLock(productAccountId: productAccountId) {
+          guard isSessionCurrent() else { return }
+          if let previousAuthorization {
+            try? authorizationStore.save(previousAuthorization, productAccountId: productAccountId)
+          } else {
+            try? authorizationStore.remove(
+              productAccountId: productAccountId,
+              connectionId: definition.connectionId
+            )
+          }
         }
         throw error
       }
