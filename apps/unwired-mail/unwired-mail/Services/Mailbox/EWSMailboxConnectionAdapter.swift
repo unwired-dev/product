@@ -618,18 +618,21 @@ struct EWSSetupService {
   private let client: EWSClient
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let now: () -> Date
+  private let syncGate: MailboxConnectionSyncGate
 
   init(
     authorizationStore: EWSAuthorizationPersisting = KeychainEWSAuthorizationStore(),
     client: EWSClient = SystemEWSClient(),
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
-    now: @escaping () -> Date = Date.init
+    now: @escaping () -> Date = Date.init,
+    syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
     self.client = client
     self.definitionSyncService = definitionSyncService
     self.now = now
+    self.syncGate = syncGate
   }
 
   // swiftlint:disable function_body_length
@@ -706,68 +709,70 @@ struct EWSSetupService {
     guard isSessionCurrent(session) else { throw CancellationError() }
     try Task.checkCancellation()
 
-    let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
-    guard isSessionCurrent(session) else { throw CancellationError() }
-    let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
-    let synchronizedDefinition = synchronizedSnapshot.connections
-      .first(where: { $0.id == definition.connectionId })
-    let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
-    let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
-    let previous = try authorizationStore.load(
-      productAccountId: session.productAccountId,
-      connectionId: definition.connectionId
-    )
-    authorization = DeviceLocalEWSAuthorization(
-      authorizationGeneration: authorizationGeneration,
-      credential: authorization.credential,
-      definition: authorization.definition,
-      hasOnlineArchive: authorization.hasOnlineArchive
-    )
-    try authorizationStore.save(authorization, productAccountId: session.productAccountId)
-    do {
-      let savedSnapshot = try await definitionSyncService.saveDefinition(
-        definition.synchronizedDefinition(
-          authorizationGeneration: authorizationGeneration,
-          connectedAt: connectedAt,
-          displayName: account.primaryEmailAddress
-        ),
-        session: session
+    return try await syncGate.withLock(definition.connectionId) {
+      let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+      guard isSessionCurrent(session) else { throw CancellationError() }
+      let timestamp = Int64(now().timeIntervalSince1970 * 1_000)
+      let synchronizedDefinition = synchronizedSnapshot.connections
+        .first(where: { $0.id == definition.connectionId })
+      let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
+      let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
+      let previous = try authorizationStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
       )
-      let savedGeneration =
-        savedSnapshot.connections.first(where: { $0.id == definition.connectionId })?
-        .authorizationGeneration
-        ?? authorizationGeneration
       authorization = DeviceLocalEWSAuthorization(
-        authorizationGeneration: savedGeneration,
+        authorizationGeneration: authorizationGeneration,
         credential: authorization.credential,
         definition: authorization.definition,
         hasOnlineArchive: authorization.hasOnlineArchive
       )
       try authorizationStore.save(authorization, productAccountId: session.productAccountId)
-    } catch {
-      if let previous {
-        try? authorizationStore.save(previous, productAccountId: session.productAccountId)
-      } else {
-        try? authorizationStore.clear(
-          productAccountId: session.productAccountId,
-          connectionId: definition.connectionId
+      do {
+        let savedSnapshot = try await definitionSyncService.saveDefinition(
+          definition.synchronizedDefinition(
+            authorizationGeneration: authorizationGeneration,
+            connectedAt: connectedAt,
+            displayName: account.primaryEmailAddress
+          ),
+          session: session
         )
+        let savedGeneration =
+          savedSnapshot.connections.first(where: { $0.id == definition.connectionId })?
+          .authorizationGeneration
+          ?? authorizationGeneration
+        authorization = DeviceLocalEWSAuthorization(
+          authorizationGeneration: savedGeneration,
+          credential: authorization.credential,
+          definition: authorization.definition,
+          hasOnlineArchive: authorization.hasOnlineArchive
+        )
+        try authorizationStore.save(authorization, productAccountId: session.productAccountId)
+      } catch {
+        if let previous {
+          try? authorizationStore.save(previous, productAccountId: session.productAccountId)
+        } else {
+          try? authorizationStore.clear(
+            productAccountId: session.productAccountId,
+            connectionId: definition.connectionId
+          )
+        }
+        throw error
       }
-      throw error
-    }
 
-    return MailboxConnection(
-      authorizationGeneration: authorization.authorizationGeneration,
-      authorizationState: .authorized,
-      capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
-      connectedAt: connectedAt,
-      displayName: account.primaryEmailAddress,
-      id: definition.connectionId,
-      lastVerifiedAt: timestamp,
-      productAccountId: ProductAccountId(session.productAccountId),
-      trustedDeviceId: session.trustedDeviceId,
-      updatedAt: timestamp
-    )
+      return MailboxConnection(
+        authorizationGeneration: authorization.authorizationGeneration,
+        authorizationState: .authorized,
+        capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
+        connectedAt: connectedAt,
+        displayName: account.primaryEmailAddress,
+        id: definition.connectionId,
+        lastVerifiedAt: timestamp,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: timestamp
+      )
+    }
   }
   // swiftlint:enable function_body_length
 }
@@ -1589,6 +1594,10 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     for connectionId in snapshot.removedConnectionIds
     where connectionId.providerId == .exchangeWebServices {
       try await syncGate.withLock(connectionId) {
+        let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+          session: session
+        )
+        guard currentSnapshot.removedConnectionIds.contains(connectionId) else { return }
         try await clearLocalConnectionWithoutLock(connectionId, session: session)
       }
     }

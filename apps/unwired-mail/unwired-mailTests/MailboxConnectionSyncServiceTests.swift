@@ -242,7 +242,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
     XCTAssertEqual(offlineSnapshot.connections.first?.authorizationGeneration, 1)
-    XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
+    XCTAssertEqual(snapshot.removedConnectionIds, [Self.connection.id])
   }
 
   // swiftlint:disable:next function_body_length

@@ -203,6 +203,83 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
   }
 
+  func testEWSReauthorizationWinsAgainstStaleRemovalCleanup() async throws {
+    let endpoint = try XCTUnwrap(
+      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
+    )
+    let definition = EWSConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@corp.example",
+      endpoint: endpoint,
+      providerAccountIdentifier: try EWSConnectionDefinition.stableProviderAccountIdentifier(
+        endpoint: endpoint,
+        mailboxIdentifier: "mailbox-id"
+      ),
+      serverVersion: .exchange2019,
+      username: #"CORP\reader"#
+    )
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: 1,
+      connectedAt: 1_781_200_000_000,
+      displayName: definition.emailAddress
+    )
+    let definitions = RecordingEWSDefinitionSyncService(definition: synchronizedDefinition)
+    definitions.removedConnectionIds = [definition.connectionId]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let syncGate = MailboxConnectionSyncGate()
+    let setupGate = EWSVerificationGate()
+    let client = RecordingEWSClient()
+    definitions.beforeLoadSnapshotReturn = {
+      await setupGate.waitForRelease()
+    }
+    let setupService = EWSSetupService(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: definitions,
+      syncGate: syncGate
+    )
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      metadataStore: InMemoryEWSMetadataStore(),
+      syncGate: syncGate
+    )
+
+    let setupTask = Task {
+      try await setupService.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: "reader@corp.example",
+        endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+        username: #"CORP\reader"#,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    await setupGate.waitUntilStarted()
+    let loadTask = Task {
+      try await adapter.loadConnections(session: session)
+    }
+    while definitions.providerAccessLoads == 0 {
+      await Task.yield()
+    }
+    await setupGate.release()
+
+    let reauthorizedConnection = try await setupTask.value
+    _ = try await loadTask.value
+    let authorization = try authorizations.load(
+      productAccountId: session.productAccountId,
+      connectionId: definition.connectionId
+    )
+
+    XCTAssertEqual(authorization?.credential, "fresh-password")
+    XCTAssertEqual(
+      authorization?.authorizationGeneration,
+      reauthorizedConnection.authorizationGeneration
+    )
+  }
+
   func testSetupCancellationBeforePersistenceLeavesNoConnection() async throws {
     let client = RecordingEWSClient()
     let definitions = RecordingEWSDefinitionSyncService()
@@ -4015,11 +4092,13 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
 }
 
 private actor EWSVerificationGate {
+  private var hasReleased = false
   private var hasStarted = false
   private var releaseContinuation: CheckedContinuation<Void, Never>?
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
 
   func waitForRelease() async {
+    guard !hasReleased else { return }
     hasStarted = true
     let continuations = startContinuations
     startContinuations.removeAll()
@@ -4039,6 +4118,7 @@ private actor EWSVerificationGate {
   }
 
   func release() {
+    hasReleased = true
     releaseContinuation?.resume()
     releaseContinuation = nil
   }
@@ -4047,6 +4127,7 @@ private actor EWSVerificationGate {
 private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefinitionSyncing,
   @unchecked Sendable
 {
+  var beforeLoadSnapshotReturn: (() async -> Void)?
   var defaultSendingConnectionId: MailboxConnectionId?
   var didLoadSnapshot: (() -> Void)?
   var didSaveDefinition: (() -> Void)?
@@ -4070,6 +4151,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   ) async throws -> MailboxConnectionSyncSnapshot {
     if let loadSnapshotError { throw loadSnapshotError }
     didLoadSnapshot?()
+    await beforeLoadSnapshotReturn?()
     return snapshot()
   }
 
@@ -4130,6 +4212,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     } else {
       savedDefinitions.append(definition)
     }
+    removedConnectionIds.removeAll { $0 == definition.id }
     didSaveDefinition?()
     return snapshot()
   }

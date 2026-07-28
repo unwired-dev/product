@@ -534,9 +534,23 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         $0.id == floor.connectionId
       }) {
         let connection = payload.connections[connectionIndex]
+        let requiresLocalCleanup =
+          connection.authorizationGeneration < floor.authorizationGeneration
         payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
           max(connection.authorizationGeneration, floor.authorizationGeneration)
         )
+        if requiresLocalCleanup,
+          !payload.removals.contains(where: { $0.connectionId == floor.connectionId })
+        {
+          payload.removals.append(
+            MailboxConnectionRemovalTombstone(
+              authorizationGeneration: floor.authorizationGeneration,
+              provider: floor.provider,
+              providerAccountIdentifier: floor.providerAccountIdentifier,
+              removedAt: 0
+            )
+          )
+        }
         continue
       }
       if let removalIndex = payload.removals.firstIndex(where: {
