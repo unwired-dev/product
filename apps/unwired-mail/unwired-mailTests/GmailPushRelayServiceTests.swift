@@ -553,18 +553,46 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
-  func testPushConnectionStoreReportsUnreadableScopedConnection() throws {
+  func testPushConnectionStoreLoadsValidConnectionsPastUnreadableScopedConnection() throws {
     let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
     let service = "private-email.gmail-push-connection"
+    let validConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "valid@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-valid",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
     let scopedAccount =
       "gmail-push-connection.\(gmailSafeFileComponent(productAccountId))."
       + gmailSafeFileComponent(connection.providerAccountIdentifier)
     let store = KeychainGmailPushConnectionStore()
     defer { try? store.clearAll(productAccountId: productAccountId) }
     try store.save(connection, productAccountId: productAccountId)
+    try store.save(validConnection, productAccountId: productAccountId)
     try KeychainStore.writeString("not-json", service: service, account: scopedAccount)
 
-    XCTAssertThrowsError(try store.loadAll(productAccountId: productAccountId))
+    XCTAssertEqual(try store.loadAll(productAccountId: productAccountId), [validConnection])
+    XCTAssertEqual(
+      try KeychainStore.readString(service: service, account: scopedAccount),
+      "not-json"
+    )
+  }
+
+  func testPushConnectionStoreClearScopedDeletesUnreadableLegacyConnection() throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let service = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let store = KeychainGmailPushConnectionStore()
+    defer { try? store.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString("not-json", service: service, account: legacyAccount)
+
+    try store.clearScoped(productAccountId: productAccountId)
+
+    XCTAssertNil(try KeychainStore.readString(service: service, account: legacyAccount))
   }
 
   func testPushConnectionStoreClearScopedPreservesLegacyConnection() throws {

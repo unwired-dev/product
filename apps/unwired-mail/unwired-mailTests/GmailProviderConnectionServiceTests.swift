@@ -933,6 +933,32 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
+  func testClearLocalConnectionDeletesUnverifiableLegacyCredentialWithMatchingOwnership()
+    async throws
+  {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "stale-access", refreshToken: "stale-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let transport = RecordingGmailConnectionTransport()
+    transport.hasRemainingGmailConnections = true
+    let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
+    pushConnectionStore.legacyOwnedIdentifiers = [
+      transport.status.providerAccountIdentifier
+    ]
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: RejectingGmailCredentialVerifier()
+    )
+
+    try await service.clearLocalConnection(transport.status, session: session)
+
+    XCTAssertNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+  }
+
   func testClearLocalConnectionPreservesAnotherTokenOnlyMailbox() async throws {
     let removedConnection = RecordingGmailConnectionTransport().status
     let remainingProviderAccountIdentifier = "gmail-user-002"
@@ -1196,6 +1222,44 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(
       pushConnectionStore.clearedScopedProductAccountIds,
       [session.productAccountId]
+    )
+  }
+
+  func testAccountCleanupDeletesUnreadableLegacyPushConnection() async throws {
+    let productAccountId = "\(session.productAccountId)-\(UUID().uuidString)"
+    let keychainService = "private-email.gmail-push-connection"
+    let legacyAccount =
+      "gmail-push-connection.\(legacyGmailSafeFileComponent(productAccountId))"
+    let cleanupSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    let pushConnectionStore = KeychainGmailPushConnectionStore()
+    defer { try? pushConnectionStore.clearAll(productAccountId: productAccountId) }
+    try KeychainStore.writeString(
+      "not-json",
+      service: keychainService,
+      account: legacyAccount
+    )
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: RecordingPushWatchStore(),
+      tokenStore: InMemoryGmailProviderTokenStore(),
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    do {
+      try await service.clearLocalConnection(session: cleanupSession)
+      XCTFail("Expected connection enumeration failure")
+    } catch is DecodingError {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertNil(
+      try KeychainStore.readString(service: keychainService, account: legacyAccount)
     )
   }
 

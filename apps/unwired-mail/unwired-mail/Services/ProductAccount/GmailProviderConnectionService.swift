@@ -645,8 +645,15 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
             hasRemainingState = true
           }
         } catch {
-          // Unverifiable legacy credentials have unproven ownership and must be preserved.
-          hasRemainingState = true
+          if (try? pushConnectionStore.hasLegacyOwnership(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: targetIdentifier
+          )) == true {
+            shouldClearMatchingLegacyCredential = true
+          } else {
+            // Unverifiable legacy credentials with unproven ownership must be preserved.
+            hasRemainingState = true
+          }
         }
       }
       hasRemainingLocalGmailState = hasRemainingState

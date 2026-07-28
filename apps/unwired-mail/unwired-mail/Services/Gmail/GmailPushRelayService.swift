@@ -676,6 +676,14 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
       try KeychainStore.delete(service: service, account: key(productAccountId, identifier))
     }
     try KeychainStore.delete(service: service, account: manifestKey(productAccountId))
+    do {
+      _ = try legacyConnection(productAccountId: productAccountId)
+    } catch {
+      for account in legacyKeys(productAccountId) {
+        try KeychainStore.delete(service: service, account: account)
+      }
+      try legacyWatchOwnershipStore.clear(productAccountId: productAccountId)
+    }
   }
 
   func hasLegacyOwnership(
@@ -719,8 +727,14 @@ struct KeychainGmailPushConnectionStore: GmailPushConnectionPersisting {
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     let identifiers = try providerAccountIdentifiers(productAccountId: productAccountId)
-    var connections = try identifiers.compactMap {
-      try load(productAccountId: productAccountId, providerAccountIdentifier: $0)
+    var connections: [GmailProviderConnectionStatus] = []
+    for identifier in identifiers {
+      if let connection = try? load(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: identifier
+      ) {
+        connections.append(connection)
+      }
     }
     guard let legacyConnection = try legacyConnection(productAccountId: productAccountId) else {
       return connections
