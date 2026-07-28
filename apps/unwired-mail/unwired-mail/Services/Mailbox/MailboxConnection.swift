@@ -221,6 +221,16 @@ actor MailboxConnectionSyncGate {
     return try await operation()
   }
 
+  func withAllConnectionsShared<T>(
+    operation: () async throws -> T
+  ) async throws -> T {
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    return try await operation()
+  }
+
   func withAllConnectionsLocked<T>(
     operation: () async throws -> T
   ) async throws -> T {
@@ -1498,7 +1508,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let localStatuses = try await connectionService.loadConnections(session: session)
+    let localStatuses = try await syncGate.withAllConnectionsShared {
+      try await connectionService.loadConnections(session: session)
+    }
     let localConnections = localStatuses.map {
       $0.mailboxConnection(productAccountId: session.productAccountId)
     }
@@ -1751,7 +1763,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       try Task.checkCancellation()
       let result = try await metadataService.continueHistoricalBackfill(
-        connection: try await gmailConnectionForProviderAccess(connection, session: session),
+        connection: try await gmailConnectionForProviderAccess(
+          connection,
+          session: session,
+          connectionIsLocked: true
+        ),
         session: session
       )
       return result.mailboxResult(connectionId: connection.id)
@@ -1766,7 +1782,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
-        session: session
+        session: session,
+        connectionIsLocked: true
       )
       _ = try await metadataService.syncInbox(
         connection: gmailConnection,
@@ -1810,7 +1827,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
-        session: session
+        session: session,
+        connectionIsLocked: true
       )
       let recentSync = try await metadataService.syncRecentInbox(
         connection: gmailConnection,
@@ -1858,12 +1876,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     for message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
-    try await ensureConnectionIsActive(message.connectionId, session: session)
-    return try await metadataService.overrideCategory(
-      categoryId,
-      for: message.gmailMetadata,
-      session: session
-    ).mailboxMetadata(connectionId: message.connectionId)
+    do {
+      try await ensureConnectionIsActive(message.connectionId, session: session)
+      return try await metadataService.overrideCategory(
+        categoryId,
+        for: message.gmailMetadata,
+        session: session
+      ).mailboxMetadata(connectionId: message.connectionId)
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
   }
 
   func searchProvider(
@@ -1900,11 +1925,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMessageBody {
     do {
       return try await syncGate.withSharedLock(message.connectionId) {
-        try await ensureConnectionIsActive(
-          message.connectionId,
-          session: session,
-          clearsRemovedConnection: false
-        )
+        try await ensureConnectionIsActive(message.connectionId, session: session)
         let body = try await bodyReader.loadMessageBody(
           message: message.gmailMetadata,
           session: session
@@ -1961,7 +1982,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withLock(connection.id) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
-        session: session
+        session: session,
+        connectionIsLocked: true
       )
       _ = try await pushWatchService.registerOrRenew(
         connection: gmailConnection,
@@ -2310,7 +2332,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     requiresAuthorization: Bool = true,
-    clearsRemovedConnection: Bool = true
+    clearsRemovedConnection: Bool = true,
+    connectionIsLocked: Bool = false
   ) async throws -> GmailProviderConnectionStatus {
     let gmailConnection = try gmailConnection(
       connection,
@@ -2318,14 +2341,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       requiresAuthorization: requiresAuthorization
     )
     do {
-      try await ensureConnectionIsActive(
-        connection.id,
-        session: session,
-        clearsRemovedConnection: clearsRemovedConnection
-      )
+      try await ensureConnectionIsActive(connection.id, session: session)
     } catch MailboxConnectionAdapterError.connectionRemoved {
       if clearsRemovedConnection {
-        try await clearRemovedConnection(connection, session: session)
+        if connectionIsLocked {
+          try await clearRemovedConnectionState(connection.id, session: session)
+        } else {
+          try await syncGate.withLock(connection.id) {
+            try await clearRemovedConnectionState(connection.id, session: session)
+          }
+        }
       }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
@@ -2334,16 +2359,12 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func ensureConnectionIsActive(
     _ connectionId: MailboxConnectionId,
-    session: ProductAccountSessionSnapshot,
-    clearsRemovedConnection: Bool = true
+    session: ProductAccountSessionSnapshot
   ) async throws {
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
       session: session
     )
     if snapshot.removedConnectionIds.contains(connectionId) {
-      if clearsRemovedConnection {
-        try await clearRemovedConnectionState(connectionId, session: session)
-      }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
   }
@@ -2433,7 +2454,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if connectionIsLocked {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
-        session: session
+        session: session,
+        connectionIsLocked: true
       )
       try await mailActionService.perform(
         action,
