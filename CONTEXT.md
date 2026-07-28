@@ -77,7 +77,7 @@ An acknowledgement that may tell a sender their message was opened, kept separat
 _Avoid_: Read status, unread indicator
 
 **Secure Mail Transport**:
-Encrypted provider communication using TLS 1.0 or newer with valid server identity before any mailbox authentication occurs.
+Encrypted provider communication using TLS 1.2 or newer with valid server identity before any mailbox authentication occurs.
 _Avoid_: Plaintext mail access, invalid-certificate exception
 
 **Mailbox Service Discovery**:
@@ -666,7 +666,7 @@ _Avoid_: Password reset, support recovery
 - "POP3 support" was resolved as a limited **Legacy POP3 Connection** using POP3 and SMTP with product-owned organization, not an IMAP-equivalent synchronized mailbox.
 - "IMAP support" was resolved as a complete **Standards-Based Mailbox Connection** using IMAP and SMTP, not read-only mailbox access.
 - "provider action parity" was resolved as the **Full-Capability Mailbox Connection** contract for Gmail, IMAP and SMTP, Microsoft Graph, and EWS; POP3 retains its reduced contract.
-- "generic mail transport security" was resolved as **Secure Mail Transport** with TLS 1.0 or newer and valid server identity, not plaintext or user-approved invalid certificates.
+- "generic mail transport security" was resolved as **Secure Mail Transport** with TLS 1.2 or newer and valid server identity, not plaintext or user-approved invalid certificates.
 - "generic account setup" was resolved as device-side **Mailbox Service Discovery** with user review and manual fallback, not backend-assisted or silent endpoint guessing.
 - "unified inboxes" was resolved as **Unified Mailboxes** shown alongside the mailboxes belonging to each **Mailbox Connection**, not provider folders shared between providers.
 - "unified navigation" was resolved as permanent Inbox, Pins, Drafts, Sent, Archive, All Mail, Spam, and Trash; conditional **Outbox**; and connection-scoped provider folders and labels.

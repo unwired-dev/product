@@ -725,9 +725,12 @@ struct MicrosoftGraphPushRenewalHandler {
     var completedRenewal = false
     var firstError: Error?
     for connection in connections {
+      try Task.checkCancellation()
       do {
         try await pushService.registerOrRenewPush(connection: connection, session: session)
         completedRenewal = true
+      } catch is CancellationError {
+        throw CancellationError()
       } catch {
         firstError = firstError ?? error
       }

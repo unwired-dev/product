@@ -195,7 +195,12 @@ the nearest `AGENTS.md` instructions. It automatically reviews non-draft pull
 requests to the default branch and incrementally reviews new pushes. Pull
 requests from common dependency and automation bots are skipped, as are pull
 requests whose title contains `[WIP]` or `[skip review]` or that carry the
-`do-not-review` label. Generated Convex client files are excluded from review.
+`do-not-review` label. Because CodeRabbit skips bot-authored pull requests by
+default, [`.github/workflows/coderabbit-bot-review.yml`](.github/workflows/coderabbit-bot-review.yml)
+explicitly requests reviews for non-draft pull requests authored by
+`gipity-bot[bot]` when they are opened, reopened, receive new commits
+(`synchronize`), or become ready for review (`ready_for_review`). Generated
+Convex client files are excluded from review.
 
 ## Release Notes
 

@@ -1,0 +1,35 @@
+name: CodeRabbit bot review
+
+on:
+  pull_request_target:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+
+concurrency:
+  group: coderabbit-bot-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+  request-review:
+    name: Request review
+    if: >-
+      github.event.pull_request.user.login == 'gipity-bot[bot]' &&
+      github.event.pull_request.draft == false &&
+      !contains(github.event.pull_request.title, '[WIP]') &&
+      !contains(github.event.pull_request.title, '[skip review]') &&
+      !contains(github.event.pull_request.labels.*.name, 'do-not-review')
+    # Required to post the CodeRabbit trigger to the pull request conversation.
+    permissions:
+      pull-requests: write
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    steps:
+      - name: Ask CodeRabbit to review
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: gh pr comment "$PR_URL" --body '@coderabbitai review'

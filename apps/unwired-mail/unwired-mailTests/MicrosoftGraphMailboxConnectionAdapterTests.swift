@@ -2386,6 +2386,70 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(push.connectionIds.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testBackgroundFetchStopsRenewingAfterCancellation() async throws {
+    let secondAccount = MicrosoftGraphAccount(
+      displayName: "Second Graph Reader",
+      emailAddress: "second@example.com",
+      id: "graph-user-002"
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    for account in [graphAccount, secondAccount] {
+      try tokenStore.save(
+        MicrosoftGraphTokens(
+          accessToken: "access-\(account.id)",
+          expiresAtMilliseconds: 4_000_000_000_000,
+          grantedScopes: fullGraphMailScopes,
+          refreshToken: "refresh-\(account.id)"
+        ),
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: account.id
+      )
+    }
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [
+          graphConnectionDefinition,
+          makeGraphConnectionDefinition(account: secondAccount),
+        ]
+      ),
+      tokenStore: tokenStore
+    )
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let push = RecordingMailboxPushService()
+    let renewalStarted = expectation(description: "First renewal started")
+    var resumeRenewal: CheckedContinuation<Void, Never>?
+    push.beforeReturn = {
+      renewalStarted.fulfill()
+      await withCheckedContinuation { resumeRenewal = $0 }
+    }
+    let defaultsName = "MicrosoftGraphCancelledBackgroundRenewalTests.\(UUID().uuidString)"
+    let defaults = try XCTUnwrap(UserDefaults(suiteName: defaultsName))
+    defer { defaults.removePersistentDomain(forName: defaultsName) }
+    let handler = MicrosoftGraphPushRenewalHandler(
+      connectionManager: adapter,
+      pushService: push,
+      sessionStore: sessionStore,
+      statusStore: UserDefaultsMicrosoftGraphPushStatusStore(defaults: defaults)
+    )
+
+    let renewalTask = Task {
+      try await handler.handle()
+    }
+    await fulfillment(of: [renewalStarted])
+    renewalTask.cancel()
+    resumeRenewal?.resume()
+    do {
+      _ = try await renewalTask.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    }
+
+    XCTAssertEqual(push.connectionIds.count, 1)
+  }
+
   func testPushRegistrationDeletesNewSubscriptionWhenConfirmationFails() async throws {
     let client = RecordingMicrosoftGraphClient()
     let adapter = try authorizedAdapter(client: client)
@@ -3209,6 +3273,7 @@ private final class RecordingMicrosoftGraphPushRegistrar: MicrosoftGraphPushRegi
 
 private final class RecordingMailboxPushService: MailboxPushRegistering {
   private(set) var connectionIds: [MailboxConnectionId] = []
+  var beforeReturn: (() async -> Void)?
   var error: Error?
 
   func registerOrRenewPush(
@@ -3216,6 +3281,7 @@ private final class RecordingMailboxPushService: MailboxPushRegistering {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
+    await beforeReturn?()
     if let error { throw error }
   }
 }
