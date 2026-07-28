@@ -1792,6 +1792,7 @@ private struct GmailWatchResponse: Decodable {
       reschedule()
       let renewalTask = Task { @MainActor in
         do {
+          try Task.checkCancellation()
           try await renewal()
           completion(!Task.isCancelled)
         } catch {

@@ -75,6 +75,22 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(completion, false)
   }
 
+  func testMailRefreshTaskExpirationBeforeStartSkipsRenewal() async {
+    var didRenew = false
+    var completion: Bool?
+
+    let task = MailRefreshBackgroundTask.run(
+      reschedule: {},
+      renewal: { didRenew = true },
+      completion: { completion = $0 },
+      installExpirationHandler: { $0() }
+    )
+    await task.value
+
+    XCTAssertFalse(didRenew)
+    XCTAssertEqual(completion, false)
+  }
+
   private let connection = GmailProviderConnectionStatus(
     connectedAt: 1_781_200_000_000,
     emailAddress: "user@example.com",
