@@ -178,6 +178,22 @@ protocol GmailProviderConnecting {
   func loadStoredConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus?
+}
+
+extension GmailProviderConnecting {
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    try await loadStoredConnections(session: session).first {
+      $0.providerAccountIdentifier == providerAccountIdentifier
+    }
+  }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -426,6 +442,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+  }
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    try pushConnectionStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
   }
 
   func clearLocalConnection(

@@ -571,6 +571,74 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testGmailSendCleansUpSynchronizedRemovalBeforeReturningFailure() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    let mailActionService = RecordingAdapterMailActionService()
+    let pendingActionStore = AdapterPendingActionStore()
+    let outboxStore = AdapterOutboxStore()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [adapterConnectionId],
+          updatedAt: 1_781_200_000_300
+        )
+      ),
+      mailActionService: mailActionService,
+      pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      outboxService: OutboxDeliveryService(store: outboxStore),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId
+    )
+    let message = OutgoingMessage(
+      body: "Hello",
+      recipient: "reader@example.com",
+      subject: "Subject",
+      idempotencyKey: "removed-send"
+    )
+
+    do {
+      try await adapter.send(message, connection: connection, session: session)
+      XCTFail("Expected synchronized removal")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertNil(mailActionService.outgoingMessage)
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
+    XCTAssertEqual(outboxStore.saveCallCount, 1)
+  }
+
+  func testGmailRemovalCleanupDoesNotEnumerateUnrelatedStoredConnections() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.loadStoredConnectionsError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [adapterConnectionId],
+          updatedAt: 1_781_200_000_300
+        )
+      ),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await adapter.loadMessageBody(message: adapterMessage, session: session)
+      XCTFail("Expected synchronized removal")
+    } catch let error as MailboxConnectionAdapterError {
+      XCTAssertEqual(error, .connectionRemoved)
+    }
+    XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
+  }
+
   func testGmailBodyReadPreservesRemovalSignalWhenCleanupFails() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.clearConnectionError = AdapterTestError.unavailable
@@ -867,6 +935,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       bodyReader: bodyReader,
       connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
       syncGate: MailboxConnectionSyncGate()
     )
@@ -3878,6 +3954,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var clearedProviderAccountIdentifiers: [String] = []
   var clearConnectionError: Error?
   var loadError: Error?
+  var loadStoredConnectionsError: Error?
   var statuses = [RecordingAdapterConnectionService.status]
   private let completionGate: AdapterLifecycleOperationGate?
   private let lifecycleEventLog: AdapterLifecycleEventLog?
@@ -3945,8 +4022,19 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   func loadStoredConnections(
     session _: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
+    if let loadStoredConnectionsError { throw loadStoredConnectionsError }
     if let loadError { throw loadError }
     return statuses
+  }
+
+  func loadStoredConnection(
+    providerAccountIdentifier: String,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailProviderConnectionStatus? {
+    if let loadError { throw loadError }
+    return statuses.first {
+      $0.providerAccountIdentifier == providerAccountIdentifier
+    }
   }
 }
 
