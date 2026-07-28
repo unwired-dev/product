@@ -608,20 +608,27 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       for (storedIdentifier, tokens) in try tokenStore.loadAll(
         productAccountId: session.productAccountId
       ) where storedIdentifier != targetIdentifier {
+        let verifiedAccount: VerifiedGmailAccount
         do {
-          let verifiedAccount = try await credentialVerifier.verify(
+          verifiedAccount = try await credentialVerifier.verify(
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken
           )
-          if verifiedAccount.providerAccountIdentifier == targetIdentifier {
+        } catch {
+          hasRemainingState = true
+          continue
+        }
+        if verifiedAccount.providerAccountIdentifier == targetIdentifier {
+          do {
             try tokenStore.clear(
               productAccountId: session.productAccountId,
               providerAccountIdentifier: storedIdentifier
             )
-          } else {
+          } catch {
+            cleanupError = cleanupError ?? error
             hasRemainingState = true
           }
-        } catch {
+        } else {
           hasRemainingState = true
         }
       }

@@ -1053,6 +1053,51 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(cacheStore.clearedProductAccountIds, [session.productAccountId])
   }
 
+  func testClearLocalConnectionPropagatesScopedAliasDeletionFailure() async throws {
+    let removedConnection = RecordingGmailConnectionTransport().status
+    let obsoleteIdentifier = "obsolete-gmail-user"
+    let tokenStore = FailingClearGmailProviderTokenStore(
+      failingProviderAccountIdentifier: obsoleteIdentifier,
+      tokensByIdentifier: [
+        obsoleteIdentifier: GmailProviderTokens(
+          accessToken: "alias-access",
+          refreshToken: "alias-refresh"
+        )
+      ]
+    )
+    let pushConnectionStore = RecordingPushConnectionStore(connection: removedConnection)
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport(),
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: removedConnection.emailAddress,
+          providerAccountIdentifier: removedConnection.providerAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "alias-refresh"
+          )
+        )
+      )
+    )
+
+    do {
+      try await service.clearLocalConnection(removedConnection, session: session)
+      XCTFail("Expected alias token cleanup failure")
+    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+      XCTAssertTrue(pushConnectionStore.clearedProviderAccountIdentifiers.isEmpty)
+      XCTAssertNotNil(
+        try tokenStore.load(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: obsoleteIdentifier
+        )
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testHasLocalAuthorizationRecognizesMatchingLegacyOwnership() throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     tokenStore.saveLegacy(
@@ -2097,19 +2142,42 @@ private final class RecordingGmailConnectionTransport: GmailProviderConnectionTr
 }
 
 private final class FailingClearGmailProviderTokenStore: GmailProviderTokenPersisting {
-  func clear(productAccountId _: String, providerAccountIdentifier _: String) throws {
-    throw GmailProviderConnectionTestError.tokenCleanupFailed
+  private let failingProviderAccountIdentifier: String?
+  private var tokensByIdentifier: [String: GmailProviderTokens]
+
+  init(
+    failingProviderAccountIdentifier: String? = nil,
+    tokensByIdentifier: [String: GmailProviderTokens] = [:]
+  ) {
+    self.failingProviderAccountIdentifier = failingProviderAccountIdentifier
+    self.tokensByIdentifier = tokensByIdentifier
+  }
+
+  func clear(productAccountId _: String, providerAccountIdentifier: String) throws {
+    if failingProviderAccountIdentifier == nil
+      || failingProviderAccountIdentifier == providerAccountIdentifier
+    {
+      throw GmailProviderConnectionTestError.tokenCleanupFailed
+    }
+    tokensByIdentifier[providerAccountIdentifier] = nil
   }
 
   func clearAll(productAccountId _: String) throws {
-    throw GmailProviderConnectionTestError.tokenCleanupFailed
+    if failingProviderAccountIdentifier == nil {
+      throw GmailProviderConnectionTestError.tokenCleanupFailed
+    }
+    tokensByIdentifier.removeAll()
   }
 
   func load(
     productAccountId _: String,
-    providerAccountIdentifier _: String
+    providerAccountIdentifier: String
   ) throws -> GmailProviderTokens? {
-    nil
+    tokensByIdentifier[providerAccountIdentifier]
+  }
+
+  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] {
+    tokensByIdentifier
   }
 
   func save(
