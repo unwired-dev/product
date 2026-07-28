@@ -1521,14 +1521,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    var snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
-      try await syncGate.withLock(removedId) {
+      snapshot = try await syncGate.withLock(removedId) {
         let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
           session: session
         )
-        guard currentSnapshot.removedConnectionIds.contains(removedId) else { return }
+        guard currentSnapshot.removedConnectionIds.contains(removedId) else {
+          return currentSnapshot
+        }
         try clearLocalConnectionWithoutLock(removedId, session: session)
+        return currentSnapshot
       }
     }
     return try snapshot.connections.compactMap { definition in
@@ -1737,13 +1740,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
-    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
-      return cached
-    }
     _ = try await authorizationForProviderAccess(
       connection: connection(id: message.connectionId, session: session),
       session: session
     )
+    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+      return cached
+    }
     return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
@@ -1808,7 +1811,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot,
     isWithinSyncGate: Bool = false
   ) async throws -> DeviceLocalGenericMailAuthorization {
-    try validate(connection: connection, session: session, requiresAuthorization: true)
+    try validate(connection: connection, session: session, requiresAuthorization: false)
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     if snapshot.removedConnectionIds.contains(connection.id) {
       if isWithinSyncGate {
@@ -1831,11 +1834,16 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    guard
-      authorization.authorizationGeneration
-        == synchronizedDefinition.authorizationGeneration,
-      hasMatchingCredentials(authorization.definition, definition)
+    guard authorization.authorizationGeneration == synchronizedDefinition.authorizationGeneration
     else {
+      if isWithinSyncGate {
+        try clearLocalConnectionWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    guard hasMatchingCredentials(authorization.definition, definition) else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return DeviceLocalGenericMailAuthorization(

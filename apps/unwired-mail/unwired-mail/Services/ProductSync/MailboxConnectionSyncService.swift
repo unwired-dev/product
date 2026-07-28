@@ -316,11 +316,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         minimumGeneration,
         existingFloor?.authorizationGeneration ?? 0
       )
+      let retainsExistingCommitment =
+        existingFloor?.authorizationGeneration == generation
+        && existingFloor?.isCommitted == true
       ledger.floors.removeAll { $0.connectionId == connectionId }
       ledger.floors.append(
         MailboxAuthorizationGenerationFloor(
           authorizationGeneration: generation,
-          isCommitted: existingFloor?.isCommitted == true || isCommitted,
+          isCommitted: retainsExistingCommitment || isCommitted,
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value
         )

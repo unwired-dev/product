@@ -439,6 +439,39 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
   }
 
+  func testAdvancingCommittedFloorBecomesPendingUntilSecondRemovalPublishes() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    services.transport.primaryWriteError = MailboxConnectionSyncTestError.unavailable
+
+    do {
+      _ = try await services.firstDevice.removeConnection(
+        Self.connection.id,
+        session: firstDeviceSession
+      )
+      XCTFail("Expected second tombstone publication to fail")
+    } catch MailboxConnectionSyncTestError.unavailable {
+      // Expected.
+    }
+    services.transport.primaryWriteError = nil
+
+    let snapshot = try await services.secondDevice.loadSnapshot(session: secondDeviceSession)
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
+    XCTAssertTrue(snapshot.removedConnectionIds.isEmpty)
+  }
+
   func testActiveDefinitionCanBeRemovedWhenRetainedTombstoneSharesItsIdentity() async throws {
     let services = try makeServices()
     _ = try await services.firstDevice.saveConnection(

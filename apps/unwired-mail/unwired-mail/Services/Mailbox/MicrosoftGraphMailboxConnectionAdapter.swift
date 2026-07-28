@@ -2965,15 +2965,24 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       let definition = snapshot.connections.first(where: { $0.id == id }),
       definition.provider == MailProviderId.microsoftGraph.rawValue
     else { throw MailboxConnectionAdapterError.connectionRemoved }
-    let authorized =
-      try tokenStore.load(
-        productAccountId: session.productAccountId,
-        providerAccountIdentifier: definition.providerAccountIdentifier
-      ) != nil
+    let tokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: definition.providerAccountIdentifier
+    )
+    guard tokens?.authorizationGeneration == definition.authorizationGeneration else {
+      let stale = placeholderConnection(
+        definition: definition,
+        session: session,
+        authorized: true,
+        updatedAt: snapshot.updatedAt
+      )
+      try clearLocalConnectionWithoutLock(stale, session: session)
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     return placeholderConnection(
       definition: definition,
       session: session,
-      authorized: authorized,
+      authorized: true,
       updatedAt: snapshot.updatedAt
     )
   }

@@ -1411,6 +1411,65 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
+  func testCachedBodyReadRejectsStaleAuthorizationGenerationAndClearsLocalCache()
+    async throws
+  {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      bodyCache: bodyCache,
+      client: client,
+      definitions: definitions,
+      keyMaterialStore: keyStore,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    _ = try await adapter.loadMessageBody(message: message, session: session)
+    definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
+
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected stale authorization to reject the cached body")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+
+    XCTAssertNil(bodyCache.payloads[message.stableProviderMessageId])
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
+  }
+
   func testCategoryOverrideSurvivesMetadataRecoveryThroughProductSync() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
