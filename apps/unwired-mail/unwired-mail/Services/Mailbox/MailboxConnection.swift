@@ -1363,6 +1363,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
@@ -1386,7 +1387,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
     else { return localConnections }
     for removedConnectionId in snapshot.removedConnectionIds {
-      let localStatus = localStatusesById[removedConnectionId]
+      let localStatus = try localStatusForCleanup(
+        id: removedConnectionId,
+        authorizedStatusesById: localStatusesById,
+        session: session
+      )
       let removedConnection = removedMailboxConnection(
         id: removedConnectionId,
         localStatus: localStatus,
@@ -1416,6 +1421,20 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func localStatusForCleanup(
+    id: MailboxConnectionId,
+    authorizedStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? {
+    if let authorizedStatus = authorizedStatusesById[id] {
+      return authorizedStatus
+    }
+    return try connectionService.loadConnectionForCleanup(
+      providerAccountIdentifier: id.providerMailboxIdentity.value,
+      session: session
+    )
   }
 
   private func removedMailboxConnection(

@@ -174,6 +174,18 @@ protocol GmailProviderConnecting {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
+
+  func loadConnectionForCleanup(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus?
+}
+
+extension GmailProviderConnecting {
+  func loadConnectionForCleanup(
+    providerAccountIdentifier _: String,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? { nil }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -685,6 +697,20 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       guard status.trustedDeviceId == session.trustedDeviceId else { return false }
       return tokensByIdentifier[status.providerAccountIdentifier] != nil
     }
+  }
+
+  func loadConnectionForCleanup(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus? {
+    guard
+      let status = try pushConnectionStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier
+      ),
+      status.trustedDeviceId == session.trustedDeviceId
+    else { return nil }
+    return status
   }
 }
 extension GmailProviderConnectionService {

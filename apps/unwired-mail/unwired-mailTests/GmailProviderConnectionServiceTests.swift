@@ -927,26 +927,58 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     }
   }
 
-  func testClearLocalConnectionKeepsRetryStatusWhenCleanupFailsAfterRemoteRemoval() async throws {
+  func testClearLocalConnectionRetriesLateCleanupAfterTokensAreRemoved() async throws {
     let transport = RecordingGmailConnectionTransport()
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: transport.status.providerAccountIdentifier
+    )
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    metadataStore.clearError = GmailProviderConnectionTestError.metadataCleanupFailed
     let pushConnectionStore = RecordingPushConnectionStore(connection: transport.status)
     let service = GmailProviderConnectionService(
       pushConnectionStore: pushConnectionStore,
-      tokenStore: FailingClearGmailProviderTokenStore(),
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
       transport: transport
     )
 
     do {
       try await service.clearLocalConnection(transport.status, session: session)
-      XCTFail("Expected token cleanup failure")
-    } catch GmailProviderConnectionTestError.tokenCleanupFailed {
+      XCTFail("Expected metadata cleanup failure")
+    } catch GmailProviderConnectionTestError.metadataCleanupFailed {
     } catch {
       XCTFail("Unexpected error: \(error)")
     }
 
     XCTAssertEqual(transport.removedOpaqueConnectionIds.count, 1)
-    let statuses = try await service.loadConnections(session: session)
-    XCTAssertEqual(statuses, [transport.status])
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: transport.status.providerAccountIdentifier
+      )
+    )
+    let authorizedStatuses = try await service.loadConnections(session: session)
+    XCTAssertTrue(authorizedStatuses.isEmpty)
+    let retryStatus = try XCTUnwrap(
+      service.loadConnectionForCleanup(
+        providerAccountIdentifier: transport.status.providerAccountIdentifier,
+        session: session
+      )
+    )
+
+    metadataStore.clearError = nil
+    try await service.clearLocalConnection(retryStatus, session: session)
+
+    XCTAssertEqual(transport.removedOpaqueConnectionIds.count, 2)
+    XCTAssertNil(
+      try service.loadConnectionForCleanup(
+        providerAccountIdentifier: transport.status.providerAccountIdentifier,
+        session: session
+      )
+    )
   }
 
   func testVerifierRequiresGmailProfileAccessBeforeReturningVerifiedAccount() async throws {
@@ -1606,16 +1638,7 @@ private final class FailingClearGmailProviderTokenStore: GmailProviderTokenPersi
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws -> GmailProviderTokens? {
-    GmailProviderTokens(accessToken: "access-token", refreshToken: "refresh-token")
-  }
-
-  func loadAll(productAccountId _: String) throws -> [String: GmailProviderTokens] {
-    [
-      "gmail-user-001": GmailProviderTokens(
-        accessToken: "access-token",
-        refreshToken: "refresh-token"
-      )
-    ]
+    nil
   }
 
   func save(
