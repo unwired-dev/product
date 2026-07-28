@@ -243,6 +243,7 @@ enum MailboxMessageCollection: Hashable, Sendable {
     "CATEGORY_UPDATES",
     "CHAT",
     "DRAFT",
+    "EWS_ARCHIVE_HIERARCHY",
     "IMPORTANT",
     "INBOX",
     "SENT",
@@ -262,9 +263,12 @@ enum MailboxMessageCollection: Hashable, Sendable {
     case .role(.sent):
       return states.contains("SENT")
     case .role(.archive):
-      return !states.contains(where: {
-        $0.hasPrefix("imap-mailbox:") || $0.hasPrefix("graph-folder:")
-      })
+      return
+        (states.contains("ARCHIVE")
+        || !states.contains(where: {
+          $0.hasPrefix("imap-mailbox:") || $0.hasPrefix("graph-folder:")
+            || $0.hasPrefix("ews-folder:")
+        }))
         && states.isDisjoint(with: ["INBOX", "DRAFT", "SENT", "SPAM", "TRASH"])
     case .role(.spam):
       return states.contains("SPAM")
@@ -302,7 +306,21 @@ struct MailboxItemCount: Equatable, Sendable {
 
 struct ProviderMailbox: Equatable, Hashable, Sendable {
   let id: String
+  let isMoveDestination: Bool
+  let providerStateIds: Set<String>
   let title: String
+
+  init(
+    id: String,
+    isMoveDestination: Bool = true,
+    providerStateIds: Set<String> = [],
+    title: String
+  ) {
+    self.id = id
+    self.isMoveDestination = isMoveDestination
+    self.providerStateIds = providerStateIds
+    self.title = title
+  }
 }
 
 struct MailboxConnection: Equatable, Identifiable, Sendable {
@@ -964,6 +982,16 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -1030,6 +1058,24 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
     .unknown
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds _: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await perform(
+      action,
+      targetProviderMailboxId: targetProviderMailboxId,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
   }
 
   func perform(

@@ -187,21 +187,27 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(providerConflict.messages, [message])
   }
 
+  // swiftlint:disable:next function_body_length
   func testFullCapabilityActionsProjectProviderState() async throws {
     // swiftlint:disable:next large_tuple
     let cases: [(ProviderMailAction, String?, [String], Set<String>)] = [
       (.markRead, nil, ["INBOX", "UNREAD"], ["INBOX"]),
       (.markUnread, nil, ["INBOX"], ["INBOX", "UNREAD"]),
       (.archive, nil, ["INBOX"], []),
+      (.archive, nil, ["ews-folder:source"], []),
       (.move, "Label_projects", ["INBOX"], ["Label_projects"]),
       (
         .move, "graph-folder:destination", ["graph-folder:source", "UNREAD"],
         ["graph-folder:destination", "UNREAD"]
       ),
+      (.move, "ews-folder:destination", ["ews-folder:source"], ["ews-folder:destination"]),
       (.delete, nil, ["INBOX"], ["TRASH"]),
       (.restore, nil, ["TRASH"], ["INBOX"]),
+      (.restore, nil, ["ews-folder:source", "TRASH"], ["INBOX"]),
       (.spam, nil, ["graph-folder:source", "INBOX"], ["SPAM"]),
+      (.spam, nil, ["ews-folder:source", "INBOX"], ["SPAM"]),
       (.notSpam, nil, ["SPAM"], ["INBOX"]),
+      (.notSpam, nil, ["ews-folder:source", "SPAM"], ["INBOX"]),
       (.star, nil, ["INBOX"], ["INBOX", "STARRED"]),
       (.unstar, nil, ["INBOX", "STARRED"], ["INBOX"]),
     ]
@@ -240,6 +246,143 @@ final class PendingProviderActionServiceTests: XCTestCase {
       )
 
       XCTAssertEqual(Set(projected.messages[0].providerStateIds ?? []), testCase.3)
+    }
+  }
+
+  func testEWSArchiveProjectionMarksOnlineArchiveHierarchy() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-ews-archive",
+      providerStateIds: ["INBOX"],
+      connectionId: ewsConnection.id
+    )
+    try await service.perform(
+      .archive,
+      messages: [message],
+      connection: ewsConnection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: ewsConnection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+      ["ARCHIVE", EWSProviderMessage.archiveHierarchyStateId]
+    )
+  }
+
+  func testEWSDeleteProjectionPreservesOnlineArchiveHierarchy() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-ews-archive-delete",
+      providerStateIds: [
+        EWSProviderMessage.archiveHierarchyStateId,
+        EWSProviderMessage.customFolderStateId("archive-folder"),
+      ],
+      connectionId: ewsConnection.id
+    )
+    try await service.perform(
+      .delete,
+      messages: [message],
+      connection: ewsConnection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: ewsConnection,
+      session: session
+    )
+
+    XCTAssertEqual(
+      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+      ["TRASH", EWSProviderMessage.archiveHierarchyStateId]
+    )
+  }
+
+  func testEWSMoveProjectionRecomputesInheritedDestinationRole() async throws {
+    // swiftlint:disable:next large_tuple
+    let cases: [(sourceStates: [String], targetStates: Set<String>, expected: Set<String>)] = [
+      (
+        ["SPAM", EWSProviderMessage.customFolderStateId("junk-projects"), "UNREAD"],
+        [],
+        [EWSProviderMessage.customFolderStateId("projects"), "UNREAD"]
+      ),
+      (
+        [EWSProviderMessage.customFolderStateId("projects"), "UNREAD"],
+        ["TRASH"],
+        ["TRASH", EWSProviderMessage.customFolderStateId("deleted-projects"), "UNREAD"]
+      ),
+    ]
+
+    for (index, testCase) in cases.enumerated() {
+      let store = InMemoryPendingProviderActionStore()
+      let service = PendingProviderActionService(store: store)
+      let message = pendingActionMessage(
+        providerMessageId: "message-ews-move-\(index)",
+        providerStateIds: testCase.sourceStates,
+        connectionId: ewsConnection.id
+      )
+      let targetFolderState =
+        index == 0
+        ? EWSProviderMessage.customFolderStateId("projects")
+        : EWSProviderMessage.customFolderStateId("deleted-projects")
+      try await service.enqueue(
+        .move,
+        targetProviderMailboxId: targetFolderState,
+        targetProviderStateIds: testCase.targetStates,
+        messages: [message],
+        connection: ewsConnection,
+        session: session
+      )
+
+      let projected = try await service.project(
+        MailboxMetadataSyncResult(
+          hasUnlistedNewMessages: false,
+          messages: [message],
+          newMessageIds: nil,
+          providerCursorIsExpired: false,
+          threads: MailboxThread.group([message])
+        ),
+        collection: .allObserved,
+        connection: ewsConnection,
+        session: session
+      )
+
+      XCTAssertEqual(
+        Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+        testCase.expected
+      )
     }
   }
 
@@ -753,6 +896,41 @@ final class PendingProviderActionServiceTests: XCTestCase {
 
     let actions = try await service.pendingActions(session: session)
     XCTAssertTrue(actions.isEmpty)
+  }
+
+  func testProviderSyncKeepsBlockedActionWhenProviderSpecificConfirmationRejectsIt() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-blocked-archive",
+      providerStateIds: ["SENT"]
+    )
+
+    do {
+      try await service.perform(
+        .archive,
+        messages: [message],
+        connection: connection,
+        session: session
+      ) { _, _, _ in
+        throw GmailMessageMetadataSyncError.missingLocalGmailTokens
+      }
+      XCTFail("Expected retry-limit failure")
+    } catch let error as PendingProviderActionError {
+      guard case .retryLimitReached = error else {
+        return XCTFail("Expected retry-limit failure")
+      }
+    }
+
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in false }
+    )
+
+    let actions = try await service.pendingActions(session: session)
+    XCTAssertEqual(actions.count, 1)
   }
 
   // swiftlint:disable:next function_body_length
@@ -1368,6 +1546,25 @@ final class PendingProviderActionServiceTests: XCTestCase {
       rfcMessageId: "<\(providerMessageId)@example.com>",
       snippet: "Message",
       subject: "Subject"
+    )
+  }
+
+  private var ewsConnection: MailboxConnection {
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .exchangeWebServices,
+      connectedAt: 1_781_200_000_000,
+      displayName: "reader@corp.example",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: "ews-user-001"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_100,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_200
     )
   }
 }

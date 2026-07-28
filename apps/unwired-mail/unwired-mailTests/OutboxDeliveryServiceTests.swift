@@ -458,7 +458,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     try await service.clear(session: session)
   }
 
-  func testOfflineDeliveryPersistsAndResumesAfterRestart() async throws {
+  func testPreRequestHostFailurePersistsAndResumesAfterRestart() async throws {
     let store = InMemoryOutboxDeliveryStore()
     let clock = LockedOutboxClock(Date(timeIntervalSince1970: 1_781_200_000))
     let firstService = OutboxDeliveryService(
@@ -472,7 +472,7 @@ final class OutboxDeliveryServiceTests: XCTestCase {
       message,
       connection: connection,
       session: session,
-      provider: { _, _, _ in throw URLError(.notConnectedToInternet) },
+      provider: { _, _, _ in throw URLError(.cannotFindHost) },
       reconcile: { _, _ in .notSent }
     )
 
@@ -537,6 +537,115 @@ final class OutboxDeliveryServiceTests: XCTestCase {
 
     let attempts = try await service.items(session: session)
     XCTAssertEqual(attempts.first?.state, .retrying)
+  }
+
+  func testEWSAuthenticationFailureRequiresUserAction() async throws {
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in throw EWSServiceError.authenticationRejected },
+      reconcile: { _, _ in .unknown }
+    )
+
+    let attempts = try await service.items(session: session)
+    XCTAssertEqual(attempts.first?.state, .userActionRequired)
+  }
+
+  func testEWSHTTP5xxFailureReconcilesBeforeRetrying() async throws {
+    let reconciliations = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: immediateHandoffDelay,
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        throw EWSServiceError.response(code: "HTTP 503", message: "Unavailable")
+      },
+      reconcile: { _, _ in
+        await reconciliations.increment()
+        return .unknown
+      }
+    )
+
+    let attempts = try await service.items(session: session)
+    let reconciliationCount = await reconciliations.currentValue()
+    XCTAssertEqual(reconciliationCount, 1)
+    XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+  }
+
+  func testEWSTransientServerResponsesRetryWithoutReconciliation() async throws {
+    for code in [
+      "ErrorADUnavailable",
+      "ErrorInternalServerTransientError",
+      "ErrorServerBusy",
+    ] {
+      let reconciliations = DeliveryCounter()
+      let service = OutboxDeliveryService(
+        handoffDelayNanoseconds: immediateHandoffDelay,
+        retryDelayNanoseconds: { _ in 60_000_000_000 },
+        store: InMemoryOutboxDeliveryStore()
+      )
+
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in
+          throw EWSServiceError.response(code: code, message: "Temporarily unavailable")
+        },
+        reconcile: { _, _ in
+          await reconciliations.increment()
+          return .unknown
+        }
+      )
+
+      let attempts = try await service.items(session: session)
+      let reconciliationCount = await reconciliations.currentValue()
+      XCTAssertEqual(reconciliationCount, 0, code)
+      XCTAssertEqual(attempts.first?.state, .retrying, code)
+      try await service.clear(session: session)
+    }
+  }
+
+  func testEWSAmbiguousResponsesAlwaysReconcileBeforeRetrying() async throws {
+    let errors: [EWSServiceError] = [
+      .response(code: "HTTP 408", message: "Timeout"),
+      .response(code: "HTTP 425", message: "Too Early"),
+      .invalidResponse,
+    ]
+
+    for error in errors {
+      let reconciliations = DeliveryCounter()
+      let service = OutboxDeliveryService(
+        handoffDelayNanoseconds: immediateHandoffDelay,
+        store: InMemoryOutboxDeliveryStore()
+      )
+      _ = try await service.enqueue(
+        message,
+        connection: connection,
+        session: session,
+        provider: { _, _, _ in throw error },
+        reconcile: { _, _ in
+          await reconciliations.increment()
+          return .unknown
+        }
+      )
+
+      let attempts = try await service.items(session: session)
+      let reconciliationCount = await reconciliations.currentValue()
+      XCTAssertEqual(reconciliationCount, 1)
+      XCTAssertEqual(attempts.first?.state, .outcomeUnknown)
+    }
   }
 
   func testAmbiguousFailureReconcilesSentWithoutDuplicateDelivery() async throws {

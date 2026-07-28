@@ -1831,11 +1831,11 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       connectionIds: [firstConnection.id, secondConnection.id],
       providerMailboxesByConnection: [
         firstConnection.id: [
-          ProviderMailbox(id: "Label_101", title: "Projects"),
+          ProviderMailbox(id: "Label_101", providerStateIds: ["SPAM"], title: "Projects"),
           ProviderMailbox(id: "Label_102", title: "First only"),
         ],
         secondConnection.id: [
-          ProviderMailbox(id: "Label_201", title: "Projects"),
+          ProviderMailbox(id: "Label_201", providerStateIds: ["TRASH"], title: "Projects"),
           ProviderMailbox(id: "Label_202", title: "Second only"),
         ],
       ]
@@ -1849,6 +1849,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       destinations.first?.targeting(batches)?.map(\.targetProviderMailboxId),
       ["Label_101", "Label_201"]
+    )
+    XCTAssertEqual(
+      destinations.first?.targeting(batches)?.map(\.targetProviderStateIds),
+      [["SPAM"], ["TRASH"]]
     )
     XCTAssertNil(destinations.first?.targeting([batches[0]]))
   }
@@ -1949,7 +1953,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(result.messages.first?.providerStateIds, ["INBOX", "UNREAD", "Label_projects"])
   }
 
-  func testContextualMoveFromProviderMailboxRequiresGraphConnection() {
+  func testContextualMoveFromProviderMailboxRequiresCompatibleConnection() {
     let gmailActions = MailShellConversationReader.contextualProviderActions(
       supported: [.move],
       messages: [],
@@ -1967,6 +1971,84 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertFalse(gmailActions.contains(.move))
     XCTAssertTrue(graphActions.contains(.move))
+    XCTAssertFalse(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.gmail)
+    )
+    XCTAssertTrue(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.microsoftGraph)
+    )
+    XCTAssertTrue(
+      MailShellConversationReader.allowsMoveFromProviderMailbox(.exchangeWebServices)
+    )
+
+    let archiveMessage = mailShellMessage(
+      providerMessageId: "archive-message",
+      providerThreadId: "archive-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "ARCHIVE",
+        EWSProviderMessage.archiveHierarchyStateId,
+        EWSProviderMessage.customFolderStateId("archive-projects"),
+      ]
+    )
+    let archiveActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.delete, .move, .restore, .spam],
+      messages: [archiveMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("archive-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(archiveActions, [.delete])
+    XCTAssertEqual(
+      MailboxMessageCollection.providerMailboxIds(in: [archiveMessage]),
+      [EWSProviderMessage.customFolderStateId("archive-projects")]
+    )
+  }
+
+  func testContextualActionsHonorInheritedProviderMailboxRoles() {
+    let spamMessage = mailShellMessage(
+      providerMessageId: "spam-message",
+      providerThreadId: "spam-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "SPAM",
+        EWSProviderMessage.customFolderStateId("junk-projects"),
+      ]
+    )
+    let trashMessage = mailShellMessage(
+      providerMessageId: "trash-message",
+      providerThreadId: "trash-thread",
+      receivedAt: 100,
+      providerStateIds: [
+        "TRASH",
+        EWSProviderMessage.customFolderStateId("deleted-projects"),
+      ]
+    )
+
+    let spamActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.notSpam, .restore, .spam],
+      messages: [spamMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("junk-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+    let trashActions = MailShellConversationReader.contextualProviderActions(
+      supported: [.notSpam, .restore, .spam],
+      messages: [trashMessage],
+      collection: .providerMailbox(
+        EWSProviderMessage.customFolderStateId("deleted-projects")
+      ),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(spamActions, [.notSpam])
+    XCTAssertEqual(trashActions, [.restore])
   }
 
   func testProviderSpecificGmailLabelsRemainConnectionScoped() {
@@ -2095,6 +2177,45 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: [sentMessage.id]),
       [sentMessage]
     )
+  }
+
+  func testMailShellArchiveActionGatingOnlyUsesSelectedMailboxMessages() {
+    let inboxMessage = mailShellMessage(
+      providerMessageId: "message-inbox",
+      providerThreadId: "thread-001",
+      receivedAt: 100,
+      providerStateIds: ["INBOX"]
+    )
+    let archiveMessage = mailShellMessage(
+      providerMessageId: "message-archive",
+      providerThreadId: "thread-001",
+      receivedAt: 50,
+      providerStateIds: [
+        "ARCHIVE",
+        EWSProviderMessage.archiveHierarchyStateId,
+      ]
+    )
+    let thread = mailShellThread(
+      providerThreadId: "thread-001",
+      messages: [archiveMessage, inboxMessage]
+    )
+    let viewModel = MailShellSelectionModel()
+    viewModel.selectUnifiedMailbox(.inbox)
+
+    let selectedMessages = viewModel.selectedMailboxMessages(
+      in: thread,
+      pinnedMessageIds: []
+    )
+    let actions = MailShellConversationReader.contextualProviderActions(
+      supported: [.move, .spam],
+      messages: selectedMessages,
+      collection: .role(.inbox),
+      allowsMove: true,
+      allowsProviderMailboxMove: true
+    )
+
+    XCTAssertEqual(selectedMessages, [inboxMessage])
+    XCTAssertEqual(actions, [.move, .spam])
   }
 
   func testMailShellScopesThreadsToSelectedMailbox() {
@@ -2595,6 +2716,41 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed."
     )
+  }
+
+  func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let service = RecordingBulkMailActionService(
+      failingConnectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "other-account"
+        )
+      )
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+    let message = mailShellMessage(
+      connectionId: connection.id,
+      providerMessageId: "message-first",
+      providerThreadId: "thread-first",
+      receivedAt: 200
+    )
+
+    let didPerform = await viewModel.perform(
+      .move,
+      targetProviderMailboxId: "provider-mailbox:deleted-child",
+      targetProviderStateIds: ["TRASH"],
+      for: [message],
+      connection: connection
+    )
+
+    XCTAssertTrue(didPerform)
+    let targetProviderStateIds = await service.recordedTargetProviderStateIds()
+    XCTAssertEqual(targetProviderStateIds, [["TRASH"]])
   }
 
   func testMailActionViewModelRetriesBlockedBulkConnection() async {
@@ -3783,6 +3939,7 @@ private actor MultiplePendingFailureService: MailboxProviderMailActing {
 private actor RecordingBulkMailActionService: MailboxProviderMailActing {
   private var connectionIds: [MailboxConnectionId] = []
   private let failingConnectionId: MailboxConnectionId
+  private var targetProviderStateIds: [Set<String>] = []
 
   init(failingConnectionId: MailboxConnectionId) {
     self.failingConnectionId = failingConnectionId
@@ -3800,8 +3957,28 @@ private actor RecordingBulkMailActionService: MailboxProviderMailActing {
     }
   }
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _: ProviderMailAction,
+    targetProviderMailboxId _: String?,
+    targetProviderStateIds: Set<String>,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+    self.targetProviderStateIds.append(targetProviderStateIds)
+    if connection.id == failingConnectionId {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+  }
+
   func recordedConnectionIds() -> [MailboxConnectionId] {
     connectionIds
+  }
+
+  func recordedTargetProviderStateIds() -> [Set<String>] {
+    targetProviderStateIds
   }
 
   func send(
