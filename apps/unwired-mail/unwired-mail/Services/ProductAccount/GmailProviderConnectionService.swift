@@ -184,6 +184,11 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailProviderConnectionStatus?
 
+  func hasLocalAuthorization(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool
+
   func loadConnectionForCleanup(
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
@@ -191,6 +196,14 @@ protocol GmailProviderConnecting {
 }
 
 extension GmailProviderConnecting {
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup _: Bool
+  ) async throws {
+    try await clearLocalConnection(connection, session: session)
+  }
+
   func loadStoredConnection(
     providerAccountIdentifier: String,
     session: ProductAccountSessionSnapshot
@@ -203,6 +216,11 @@ extension GmailProviderConnecting {
     providerAccountIdentifier _: String,
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? { nil }
+
+  func hasLocalAuthorization(
+    providerAccountIdentifier _: String,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Bool { false }
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -463,6 +481,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     )
   }
 
+  func hasLocalAuthorization(
+    providerAccountIdentifier: String,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Bool {
+    try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    ) != nil
+  }
+
   func clearLocalConnection(
     session: ProductAccountSessionSnapshot
   ) async throws {
@@ -473,8 +501,10 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       cleanupError = cleanupError ?? error
     }
     var connections: [GmailProviderConnectionStatus] = []
+    var didLoadConnections = false
     do {
       connections = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
+      didLoadConnections = true
     } catch {
       cleanupError = cleanupError ?? error
     }
@@ -503,7 +533,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     } catch {
       cleanupError = cleanupError ?? error
     }
-    if didClearPushWatchStore {
+    if didClearPushWatchStore && didLoadConnections {
       do {
         try pushConnectionStore.clearAll(productAccountId: session.productAccountId)
       } catch {
@@ -515,10 +545,22 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func clearLocalConnection(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await clearLocalConnection(
+      connection,
+      session: session,
+      allowsAccountWideCleanup: true
+    )
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  func clearLocalConnection(
+    _ connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot,
+    allowsAccountWideCleanup: Bool
   ) async throws {
     let shouldStopWatch = await shouldStopPushWatch(connection: connection, session: session)
     try backgroundContextCacheStore.clear(
@@ -541,21 +583,43 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       hasRemainingGmailConnections = true
     }
     let hasRemainingLocalGmailState: Bool
+    var shouldClearMatchingLegacyCredential = false
     do {
       let targetIdentifier = connection.providerAccountIdentifier
-      hasRemainingLocalGmailState =
+      var hasRemainingState =
         try tokenStore.loadAll(productAccountId: session.productAccountId).keys.contains {
           $0 != targetIdentifier
         }
         || pushConnectionStore.loadAll(productAccountId: session.productAccountId).contains {
           $0.providerAccountIdentifier != targetIdentifier
         }
+      if let legacyTokens = try tokenStore.loadLegacy(
+        productAccountId: session.productAccountId
+      ) {
+        do {
+          let legacyAccount = try await credentialVerifier.verify(
+            accessToken: legacyTokens.accessToken,
+            refreshToken: legacyTokens.refreshToken
+          )
+          if legacyAccount.providerAccountIdentifier == targetIdentifier {
+            shouldClearMatchingLegacyCredential = true
+          } else {
+            hasRemainingState = true
+          }
+        } catch {
+          // Unverifiable legacy credentials have unproven ownership and must be preserved.
+          hasRemainingState = true
+        }
+      }
+      hasRemainingLocalGmailState = hasRemainingState
     } catch {
       // Failed enumeration cannot prove this is the last local Gmail identity.
       hasRemainingLocalGmailState = true
     }
     let hasRemainingGmailState =
-      hasRemainingGmailConnections || hasRemainingLocalGmailState
+      !allowsAccountWideCleanup
+      || hasRemainingGmailConnections
+      || hasRemainingLocalGmailState
     if shouldStopWatch {
       try? await pushWatchStopper.stop(connection: connection, session: session)
     }
@@ -581,22 +645,12 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
         cleanupError = cleanupError ?? error
       }
     }
-    do {
-      if hasRemainingGmailState {
-        if let legacyTokens = try tokenStore.loadLegacy(
-          productAccountId: session.productAccountId
-        ) {
-          let legacyAccount = try await credentialVerifier.verify(
-            accessToken: legacyTokens.accessToken,
-            refreshToken: legacyTokens.refreshToken
-          )
-          if legacyAccount.providerAccountIdentifier == connection.providerAccountIdentifier {
-            try tokenStore.clearLegacy(productAccountId: session.productAccountId)
-          }
-        }
+    if shouldClearMatchingLegacyCredential {
+      do {
+        try tokenStore.clearLegacy(productAccountId: session.productAccountId)
+      } catch {
+        cleanupError = cleanupError ?? error
       }
-    } catch {
-      // An unverifiable legacy credential has unproven ownership and must be preserved.
     }
     do {
       try clearGmailProviderTokens(

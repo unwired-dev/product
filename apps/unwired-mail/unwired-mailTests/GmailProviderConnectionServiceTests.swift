@@ -830,7 +830,17 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       pushWatchStore: RecordingPushWatchStore(),
       metadataStore: RecordingGmailProviderMetadataStore(),
       tokenStore: tokenStore,
-      transport: transport
+      transport: transport,
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: transport.status.emailAddress,
+          providerAccountIdentifier: transport.status.providerAccountIdentifier,
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "legacy-refresh"
+          )
+        )
+      )
     )
 
     try await service.clearLocalConnection(transport.status, session: legacySession)
@@ -975,6 +985,50 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     )
   }
 
+  func testClearLocalConnectionPreservesUnrelatedLegacyOnlyMailbox() async throws {
+    let removedConnection = RecordingGmailConnectionTransport().status
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let bodyReader = RecordingGmailMessageReader()
+    let cacheStore = RecordingBackgroundContextCacheStore()
+    let metadataStore = RecordingGmailProviderMetadataStore()
+    let pushConnectionStore = RecordingPushConnectionStore(connection: removedConnection)
+    let service = GmailProviderConnectionService(
+      backgroundContextCacheStore: cacheStore,
+      bodyReader: bodyReader,
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: RecordingPushWatchStore(),
+      metadataStore: metadataStore,
+      tokenStore: tokenStore,
+      transport: RecordingGmailConnectionTransport(),
+      credentialVerifier: StaticGmailCredentialVerifier(
+        account: VerifiedGmailAccount(
+          emailAddress: "remaining@example.com",
+          providerAccountIdentifier: "gmail-user-002",
+          tokens: GmailProviderTokens(
+            accessToken: "refreshed-access",
+            refreshToken: "legacy-refresh"
+          )
+        )
+      )
+    )
+
+    try await service.clearLocalConnection(removedConnection, session: session)
+
+    XCTAssertNotNil(try tokenStore.loadLegacy(productAccountId: session.productAccountId))
+    XCTAssertTrue(bodyReader.clearedSessions.isEmpty)
+    XCTAssertTrue(cacheStore.clearedProductAccountIds.isEmpty)
+    XCTAssertTrue(metadataStore.clearedProductAccountIds.isEmpty)
+    XCTAssertEqual(
+      pushConnectionStore.clearedProviderAccountIdentifiers,
+      [removedConnection.providerAccountIdentifier]
+    )
+    XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
+  }
+
   func testClearLocalConnectionDoesNotRemoveMailboxWhenCacheCannotBeCleared() async throws {
     let cacheStore = RecordingBackgroundContextCacheStore()
     cacheStore.clearError = GmailProviderConnectionTestError.tokenCleanupFailed
@@ -1044,6 +1098,31 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
       pushWatchStore.clearedKeys,
       ["\(session.productAccountId):\(transport.status.providerAccountIdentifier)"]
     )
+  }
+
+  func testAccountCleanupRetainsPushConnectionsWhenEnumerationFails() async throws {
+    let pushConnectionStore = RecordingPushConnectionStore(
+      connection: RecordingGmailConnectionTransport().status
+    )
+    pushConnectionStore.loadAllError = GmailProviderConnectionTestError.tokenLoadFailed
+    let pushWatchStore = RecordingPushWatchStore()
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: pushConnectionStore,
+      pushWatchStore: pushWatchStore,
+      tokenStore: InMemoryGmailProviderTokenStore(),
+      transport: RecordingGmailConnectionTransport()
+    )
+
+    do {
+      try await service.clearLocalConnection(session: session)
+      XCTFail("Expected connection enumeration failure")
+    } catch GmailProviderConnectionTestError.tokenLoadFailed {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertEqual(pushWatchStore.clearedAllProductAccountIds, [session.productAccountId])
+    XCTAssertTrue(pushConnectionStore.clearedProductAccountIds.isEmpty)
   }
 
   func testClearLocalConnectionPreservesSharedMailboxWatch() async throws {
@@ -1928,6 +2007,7 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
   var connections: [GmailProviderConnectionStatus]
   var loadedProductAccountId: String?
   var loadError: Error?
+  var loadAllError: Error?
   var connection: GmailProviderConnectionStatus? { connections.first }
 
   init(connection: GmailProviderConnectionStatus? = nil) {
@@ -1960,6 +2040,9 @@ private final class RecordingPushConnectionStore: GmailPushConnectionPersisting 
 
   func loadAll(productAccountId: String) throws -> [GmailProviderConnectionStatus] {
     loadedProductAccountId = productAccountId
+    if let loadAllError {
+      throw loadAllError
+    }
     return connections
   }
 

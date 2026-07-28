@@ -1419,12 +1419,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withAllConnectionsLocked {
       var firstError: Error?
       do {
         try await connectionService.clearLocalConnection(
           try gmailConnection(connection, session: session),
-          session: session
+          session: session,
+          allowsAccountWideCleanup: true
         )
       } catch {
         firstError = error
@@ -1446,6 +1447,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 
   @MainActor
+  // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot,
@@ -1479,6 +1481,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
           session: session
         ) != nil
+        || connectionService.hasLocalAuthorization(
+          providerAccountIdentifier: verifiedAccount.providerAccountIdentifier,
+          session: session
+        )
 
       let status = try await connectionService.completeConnection(
         verifiedAccount: VerifiedGmailAccount(
@@ -1498,7 +1504,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         return connection
       } catch {
         if !hadExistingConnection {
-          try await connectionService.clearLocalConnection(status, session: session)
+          try await connectionService.clearLocalConnection(
+            status,
+            session: session,
+            allowsAccountWideCleanup: false
+          )
         }
         throw error
       }
@@ -1560,40 +1570,53 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     localStatusesById: [MailboxConnectionId: GmailProviderConnectionStatus],
     session: ProductAccountSessionSnapshot
   ) async throws {
+    var firstError: Error?
     for removedConnectionId in removedConnectionIds where removedConnectionId.providerId == .gmail {
-      try await syncGate.withLock(removedConnectionId) {
-        guard try await connectionIsRemoved(removedConnectionId, session: session) else {
-          return
-        }
-        let localStatus = try localStatusForCleanup(
-          id: removedConnectionId,
-          authorizedStatusesById: localStatusesById,
-          session: session
-        )
-        let removedConnection = removedMailboxConnection(
-          id: removedConnectionId,
-          localStatus: localStatus,
-          session: session
-        )
-        var cleanupError: Error?
-        do {
-          try await connectionService.clearLocalConnection(
-            localStatus
-              ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
+      do {
+        try await syncGate.withAllConnectionsLocked {
+          guard try await connectionIsRemoved(removedConnectionId, session: session) else {
+            return
+          }
+          let localStatus = try localStatusForCleanup(
+            id: removedConnectionId,
+            authorizedStatusesById: localStatusesById,
             session: session
           )
-        } catch {
-          cleanupError = error
+          let removedConnection = removedMailboxConnection(
+            id: removedConnectionId,
+            localStatus: localStatus,
+            session: session
+          )
+          var cleanupError: Error?
+          do {
+            try await connectionService.clearLocalConnection(
+              localStatus
+                ?? gmailConnection(
+                  removedConnection,
+                  session: session,
+                  requiresAuthorization: false
+                ),
+              session: session,
+              allowsAccountWideCleanup: true
+            )
+          } catch {
+            cleanupError = error
+          }
+          do {
+            try await clearRemovedConnection(removedConnection, session: session)
+          } catch {
+            cleanupError = cleanupError ?? error
+          }
+          if let cleanupError {
+            throw cleanupError
+          }
         }
-        do {
-          try await clearRemovedConnection(removedConnection, session: session)
-        } catch {
-          cleanupError = cleanupError ?? error
-        }
-        if let cleanupError {
-          throw cleanupError
-        }
+      } catch {
+        firstError = firstError ?? error
       }
+    }
+    if let firstError {
+      throw firstError
     }
   }
 
@@ -1667,12 +1690,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withAllConnectionsLocked {
       let gmailStatus = try gmailConnection(
         connection, session: session, requiresAuthorization: false)
       _ = try await definitionSyncService.removeConnection(connection.id, session: session)
       try await clearRemovedConnection(connection, session: session)
-      try await connectionService.clearLocalConnection(gmailStatus, session: session)
+      try await connectionService.clearLocalConnection(
+        gmailStatus,
+        session: session,
+        allowsAccountWideCleanup: true
+      )
     }
   }
 
@@ -2433,7 +2460,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       try await connectionService.clearLocalConnection(
         localConnection
           ?? gmailConnection(removedConnection, session: session, requiresAuthorization: false),
-        session: session
+        session: session,
+        allowsAccountWideCleanup: false
       )
     } catch {
       cleanupError = error
