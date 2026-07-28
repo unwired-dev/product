@@ -1479,12 +1479,18 @@ struct GmailMessageMetadataService:
       providerAccountIdentifier: connection.providerAccountIdentifier
     )
 
+    let historicalMetadataBackfillIsComplete =
+      try store.loadSyncState(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )?.historicalMetadataBackfillIsComplete ?? true
     let addedMessageIds = inboxHistoryChanges?.addedMessageIds
     let visibleMessages = inboxMessages(fetchedMessages)
     return GmailMetadataSyncResult(
       hasUnlistedNewMessages: addedMessageIds.map {
         !$0.isSubset(of: currentInboxMessageIds)
       } ?? false,
+      historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
       messages: visibleMessages,
       newMessageIds: addedMessageIds?.intersection(currentInboxMessageIds),
       threads: inboxThreads(fetchedMessages)

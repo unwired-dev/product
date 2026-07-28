@@ -2233,6 +2233,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         )
       ),
       pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      pendingActionGate: MailboxConnectionSyncGate(),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
       syncGate: MailboxConnectionSyncGate()
     )
@@ -2258,6 +2259,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await removalTask.value
     let events = await eventLog.snapshot()
     XCTAssertEqual(events, ["local-state-cleared"])
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
   // swiftlint:disable:next function_body_length
@@ -2601,6 +2603,105 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(result.hasUnlistedNewMessages)
     XCTAssertEqual(result.newMessageIds, ["message-001"])
     XCTAssertTrue(result.providerCursorIsExpired)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGmailAdapterKeepsOptimisticActionAcrossIncompleteRecentSync() async throws {
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let metadataService = RecordingAdapterMetadataService()
+    var staleGmailMessage = adapterGmailMessage
+    staleGmailMessage.providerLabelIds = ["INBOX"]
+    let staleMessage = staleGmailMessage.mailboxMetadata(connectionId: adapterConnectionId)
+    let newestGmailMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "New Sender <new@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: 1_781_200_001_000,
+      providerMessageId: "message-002",
+      providerThreadId: "thread-002",
+      replyTo: nil,
+      snippet: "New private message",
+      stableProviderMessageId: "gmail:gmail-user-001:message-002",
+      subject: "New subject",
+      rfcMessageId: "<message-002@example.com>"
+    )
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      messages: [staleGmailMessage, newestGmailMessage],
+      threads: GmailInboxThread.group([staleGmailMessage, newestGmailMessage])
+    )
+    metadataService.recentSyncResult = GmailMetadataSyncResult(
+      historicalMetadataBackfillIsComplete: false,
+      messages: [newestGmailMessage],
+      threads: GmailInboxThread.group([newestGmailMessage])
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    try await pendingActionService.perform(
+      .archive,
+      messages: [staleMessage],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+
+    let result = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: true,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    let actionStates = try await pendingActionService.pendingActions(session: session).map(\.state)
+    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-002"])
+    XCTAssertEqual(actionStates, [.providerConfirmed])
+  }
+
+  func testGmailAdapterEnqueuesCachedActionDuringHistoricalBackfill() async throws {
+    let backfillGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(historicalBackfillGate: backfillGate)
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService,
+      pendingActionGate: MailboxConnectionSyncGate(),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let backfillTask = Task {
+      try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    }
+    await backfillGate.waitUntilStarted()
+    let actionEnqueued = expectation(description: "Cached action enqueued during backfill")
+    let actionTask = Task {
+      try await adapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      )
+      actionEnqueued.fulfill()
+    }
+
+    await fulfillment(of: [actionEnqueued], timeout: 1)
+    let queuedActions = try await pendingActionService.pendingActions(session: session)
+    XCTAssertEqual(queuedActions.map(\.action), [.archive])
+
+    await backfillGate.release()
+    _ = try await backfillTask.value
+    try await actionTask.value
   }
 
   func testMailShellPreservesSelectedThreadAcrossReordering() {
@@ -5125,15 +5226,21 @@ extension MailboxConnectionSyncSnapshot {
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   private let eventLog: RecordingAdapterEventLog?
+  private let historicalBackfillGate: AdapterLifecycleOperationGate?
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
-  var recentSyncResult = RecordingAdapterMetadataService.result
+  var inboxSyncResult = RecordingAdapterMetadataService.defaultResult
+  var recentSyncResult = RecordingAdapterMetadataService.defaultResult
   var providerDelayNanoseconds: UInt64 = 0
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedProviderAccountIdentifiers: [String] = []
 
-  init(eventLog: RecordingAdapterEventLog? = nil) {
+  init(
+    eventLog: RecordingAdapterEventLog? = nil,
+    historicalBackfillGate: AdapterLifecycleOperationGate? = nil
+  ) {
     self.eventLog = eventLog
+    self.historicalBackfillGate = historicalBackfillGate
   }
 
   func categorizeHistorical(
@@ -5141,7 +5248,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    Self.result
+    inboxSyncResult
   }
 
   func loadInbox(
@@ -5149,7 +5256,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
-    return Self.result
+    return inboxSyncResult
   }
 
   func loadMailbox(
@@ -5164,7 +5271,17 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     } else if collection == .role(.inbox) {
       eventLog?.events.append("inbox")
     }
-    return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
+    return
+      collection == .allObserved
+      ? inboxSyncResult : inboxSyncResult.projected(to: collection)
+  }
+
+  func continueHistoricalBackfill(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    await historicalBackfillGate?.waitForRelease()
+    return inboxSyncResult
   }
 
   func syncInbox(
@@ -5176,7 +5293,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     }
     syncedConnection = connection
     syncedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
-    return Self.result
+    return inboxSyncResult
   }
 
   // swiftlint:disable:next function_parameter_count
@@ -5199,7 +5316,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     message.assigningCategory(categoryId)
   }
 
-  private static let result = GmailMetadataSyncResult(
+  private static let defaultResult = GmailMetadataSyncResult(
     messages: [adapterGmailMessage],
     threads: GmailInboxThread.group([adapterGmailMessage])
   )

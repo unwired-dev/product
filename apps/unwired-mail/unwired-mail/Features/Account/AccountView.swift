@@ -2675,7 +2675,7 @@ private struct MailShellMailboxTools: View {
               )
             )
           }
-          .disabled(isDisabled || trimmedQuery.isEmpty)
+          .disabled(areCachedMetadataActionsDisabled || trimmedQuery.isEmpty)
           if connection?.capabilities.canSearchProvider == true {
             Button("Search \(providerDisplayName) Full Text") {
               guard let connection else { return }
@@ -2744,7 +2744,7 @@ private struct MailShellMailboxTools: View {
               }
             }
           }
-          .disabled(isDisabled)
+          .disabled(areCachedMetadataActionsDisabled)
           if let cacheErrorMessage {
             Text(cacheErrorMessage)
               .foregroundStyle(.red)
@@ -2763,6 +2763,11 @@ private struct MailShellMailboxTools: View {
 
   private var isDisabled: Bool {
     isConnectionBusy || viewModel.isRefreshDisabled || viewModel.isAssigningCategory
+  }
+
+  private var areCachedMetadataActionsDisabled: Bool {
+    isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
+      || viewModel.isAssigningCategory
   }
 
   private var providerDisplayName: String {
@@ -3134,7 +3139,7 @@ struct MailShellConversationReader: View {
         Label("Actions", systemImage: "ellipsis.circle")
       }
       .disabled(
-        batches.isEmpty || inboxViewModel.isRefreshDisabled || isConnectionBusy
+        batches.isEmpty || inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -3179,7 +3184,7 @@ struct MailShellConversationReader: View {
         Label("Actions", systemImage: "ellipsis.circle")
       }
       .disabled(
-        inboxViewModel.isRefreshDisabled || isConnectionBusy
+        inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -4563,6 +4568,10 @@ final class GmailInboxViewModel {
 
   var isRefreshDisabled: Bool {
     isCategorizingHistorical || isLoading || isSearching || isSyncing || backfillTask != nil
+  }
+
+  var areCachedMetadataActionsDisabled: Bool {
+    isCategorizingHistorical || isLoading || isSearching || isSyncing
   }
 
   var isBusy: Bool {

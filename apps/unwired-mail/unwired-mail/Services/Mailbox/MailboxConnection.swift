@@ -53,8 +53,10 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
 }
 
 /// Acquires the all-connections lock before connection locks, ordered by ascending id.
-/// Lock helpers are non-reentrant and must not be nested, including for the same id.
+/// Lock helpers are non-reentrant within one gate instance and must not be nested there.
+/// Gmail operations that need both gates acquire `syncGate` before `pendingActionGate`.
 actor MailboxConnectionSyncGate {
+  static let pendingActions = MailboxConnectionSyncGate()
   static let shared = MailboxConnectionSyncGate()
   private static let allConnectionsId = MailboxConnectionId(
     providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -1350,6 +1352,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let oauthAuthorizer: GmailOAuthAuthorizing
   private let pushWatchService: GmailPushWatchRegistering
   private let pendingActionService: PendingProviderActionService
+  private let pendingActionGate: MailboxConnectionSyncGate
   private let outboxService: OutboxDeliveryService
   private let searchService: GmailMessageSearching
   private let syncGate: MailboxConnectionSyncGate
@@ -1365,6 +1368,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     oauthAuthorizer: GmailOAuthAuthorizing = GoogleGmailOAuthService(),
     pushWatchService: GmailPushWatchRegistering = GmailPushWatchService(),
     pendingActionService: PendingProviderActionService = .shared,
+    pendingActionGate: MailboxConnectionSyncGate = .pendingActions,
     outboxService: OutboxDeliveryService = .shared,
     searchService: GmailMessageSearching = GmailMessageMetadataService(),
     syncGate: MailboxConnectionSyncGate = .shared
@@ -1378,6 +1382,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.oauthAuthorizer = oauthAuthorizer
     self.pushWatchService = pushWatchService
     self.pendingActionService = pendingActionService
+    self.pendingActionGate = pendingActionGate
     self.outboxService = outboxService
     self.searchService = searchService
     self.syncGate = syncGate
@@ -1418,7 +1423,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         throw firstError
       }
     }
-    try await syncGate.withAllConnectionsLocked(operation: cleanup)
+    try await syncGate.withAllConnectionsLocked {
+      try await pendingActionGate.withAllConnectionsLocked(operation: cleanup)
+    }
   }
 
   func clearLocalConnection(
@@ -1426,28 +1433,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await syncGate.withAllConnectionsLocked {
-      var firstError: Error?
-      do {
-        try await connectionService.clearLocalConnection(
-          try gmailConnection(connection, session: session),
-          session: session,
-          allowsAccountWideCleanup: true
-        )
-      } catch {
-        firstError = error
-      }
-      do {
-        try await pendingActionService.clear(connection: connection, session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      do {
-        try await outboxService.clear(connection: connection, session: session)
-      } catch {
-        firstError = firstError ?? error
-      }
-      if let firstError {
-        throw firstError
+      try await pendingActionGate.withLock(connection.id) {
+        var firstError: Error?
+        do {
+          try await connectionService.clearLocalConnection(
+            try gmailConnection(connection, session: session),
+            session: session,
+            allowsAccountWideCleanup: true
+          )
+        } catch {
+          firstError = error
+        }
+        do {
+          try await pendingActionService.clear(connection: connection, session: session)
+        } catch {
+          firstError = firstError ?? error
+        }
+        do {
+          try await outboxService.clear(connection: connection, session: session)
+        } catch {
+          firstError = firstError ?? error
+        }
+        if let firstError {
+          throw firstError
+        }
       }
     }
   }
@@ -1723,19 +1732,21 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    var cleanupError: Error?
-    do {
-      try await pendingActionService.clear(connection: connection, session: session)
-    } catch {
-      cleanupError = error
-    }
-    do {
-      try await outboxService.clear(connection: connection, session: session)
-    } catch {
-      cleanupError = cleanupError ?? error
-    }
-    if let cleanupError {
-      throw cleanupError
+    try await pendingActionGate.withLock(connection.id) {
+      var cleanupError: Error?
+      do {
+        try await pendingActionService.clear(connection: connection, session: session)
+      } catch {
+        cleanupError = error
+      }
+      do {
+        try await outboxService.clear(connection: connection, session: session)
+      } catch {
+        cleanupError = cleanupError ?? error
+      }
+      if let cleanupError {
+        throw cleanupError
+      }
     }
   }
 
@@ -1861,7 +1872,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         connectionIsLocked: true
       )
-      _ = try await metadataService.syncInbox(
+      let syncResult = try await metadataService.syncInbox(
         connection: gmailConnection,
         session: session
       )
@@ -1872,6 +1883,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       try await reconcileAndResumePendingActions(
         messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+        removesContradictedActions: syncResult.historicalMetadataBackfillIsComplete,
         connection: connection,
         session: session
       )
@@ -1921,6 +1933,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       try await reconcileAndResumePendingActions(
         messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
+        removesContradictedActions: recentSync.historicalMetadataBackfillIsComplete,
         connection: connection,
         session: session
       )
@@ -2092,18 +2105,23 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await withSharedProviderAccess(
-      connection,
-      session: session,
-      requiresAuthorization: false
-    ) { _ in
-      try await pendingActionService.enqueue(
-        action,
-        targetProviderMailboxId: targetProviderMailboxId,
-        messages: messages,
-        connection: connection,
-        session: session
-      )
+    do {
+      _ = try gmailConnection(connection, session: session, requiresAuthorization: false)
+      try await pendingActionGate.withSharedLock(connection.id) {
+        try await ensureConnectionIsActive(connection.id, session: session)
+        try await pendingActionService.enqueue(
+          action,
+          targetProviderMailboxId: targetProviderMailboxId,
+          messages: messages,
+          connection: connection,
+          session: session
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(connection.id) {
+        try await clearRemovedConnectionState(connection.id, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
     }
   }
 
@@ -2519,11 +2537,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
 
   private func reconcileAndResumePendingActions(
     messages: [MailboxMessageMetadata],
+    removesContradictedActions: Bool,
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await pendingActionService.reconcileProviderSync(
       messages: messages,
+      removesContradictedActions: removesContradictedActions,
       connection: connection,
       session: session
     )

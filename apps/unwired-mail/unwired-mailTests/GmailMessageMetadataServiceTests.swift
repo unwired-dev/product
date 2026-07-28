@@ -1800,7 +1800,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelDisablesRefreshWhileHistoricalBackfillRuns() async {
+  func testInboxViewModelDisablesRefreshButAllowsCachedActionsDuringHistoricalBackfill() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
       threadId: "thread-cached",
@@ -1833,6 +1833,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isRefreshDisabled)
+    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
     XCTAssertEqual(service.syncInboxCallCount, 0)
 
     await service.releaseHistoricalBackfill()
@@ -1847,6 +1848,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [backfillCompletion], timeout: 1)
 
     XCTAssertFalse(viewModel.isRefreshDisabled)
+    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
   }
 
   @MainActor
@@ -2534,6 +2536,22 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       ["message-003", "message-002", "message-000"]
     )
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
+  func testSyncRecentInboxPreservesIncompleteHistoricalBackfillState() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+    let initial = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    let recent = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    XCTAssertFalse(recent.historicalMetadataBackfillIsComplete)
   }
 
   func testSyncRecentInboxRemovesMessagesExcludedByGmailHistory() async throws {
