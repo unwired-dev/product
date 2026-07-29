@@ -2,6 +2,7 @@ import Foundation
 
 struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
   let authorizationGeneration: Int
+  let hasExplicitAuthorizationGeneration: Bool
   let provider: String
   let providerAccountIdentifier: String
   let removedAt: Int64
@@ -15,6 +16,7 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
     tombstoneIdentifier: String? = nil
   ) {
     self.authorizationGeneration = authorizationGeneration
+    hasExplicitAuthorizationGeneration = true
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
     self.removedAt = removedAt
@@ -23,10 +25,14 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    let decodedAuthorizationGeneration = try container.decodeIfPresent(
+      Int.self,
+      forKey: .authorizationGeneration
+    )
     // Legacy tombstones decode at generation 1 (definitions decode at 0) so a
     // generation-unaware re-add stays fenced until a generation-aware write.
-    authorizationGeneration =
-      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 1
+    authorizationGeneration = decodedAuthorizationGeneration ?? 1
+    hasExplicitAuthorizationGeneration = decodedAuthorizationGeneration != nil
     provider = try container.decode(String.self, forKey: .provider)
     providerAccountIdentifier = try container.decode(
       String.self,
@@ -37,6 +43,15 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
       String.self,
       forKey: .tombstoneIdentifier
     )
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(authorizationGeneration, forKey: .authorizationGeneration)
+    try container.encode(provider, forKey: .provider)
+    try container.encode(providerAccountIdentifier, forKey: .providerAccountIdentifier)
+    try container.encode(removedAt, forKey: .removedAt)
+    try container.encodeIfPresent(tombstoneIdentifier, forKey: .tombstoneIdentifier)
   }
 
   var connectionId: MailboxConnectionId {

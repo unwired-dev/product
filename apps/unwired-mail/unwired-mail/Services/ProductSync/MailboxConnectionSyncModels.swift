@@ -200,6 +200,7 @@ struct MailboxConnectionSyncPayloadCodec {
 }
 
 extension MailboxConnectionSyncPayload {
+  // swiftlint:disable:next function_body_length
   func applyingGenerationFloors(
     _ ledger: MailboxAuthorizationGenerationLedger
   ) -> MailboxConnectionSyncPayload {
@@ -212,20 +213,27 @@ extension MailboxConnectionSyncPayload {
         $0.id == floor.connectionId
       }) {
         let connection = payload.connections[connectionIndex]
-        guard connection.authorizationGeneration < committedGeneration else {
-          continue
-        }
-        payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
-          committedGeneration
-        )
         let existingRemoval = payload.removals.first {
           $0.connectionId == floor.connectionId
         }
+        let hasLegacyRemoval = existingRemoval?.hasExplicitAuthorizationGeneration == false
+        let requiredGeneration =
+          if hasLegacyRemoval {
+            max(connection.authorizationGeneration, committedGeneration + 1)
+          } else {
+            committedGeneration
+          }
+        guard connection.authorizationGeneration < requiredGeneration || hasLegacyRemoval else {
+          continue
+        }
+        payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
+          requiredGeneration
+        )
         payload.removals.removeAll { $0.connectionId == floor.connectionId }
         payload.removals.append(
           MailboxConnectionRemovalTombstone(
             // Equality keeps the active connection in the local-cleanup set, not the removed set.
-            authorizationGeneration: committedGeneration,
+            authorizationGeneration: requiredGeneration,
             provider: floor.provider,
             providerAccountIdentifier: floor.providerAccountIdentifier,
             removedAt: existingRemoval?.removedAt ?? 0,
@@ -238,8 +246,14 @@ extension MailboxConnectionSyncPayload {
         $0.connectionId == floor.connectionId
       }) {
         let removal = payload.removals[removalIndex]
+        let requiredGeneration =
+          if removal.hasExplicitAuthorizationGeneration {
+            committedGeneration
+          } else {
+            committedGeneration + 1
+          }
         payload.removals[removalIndex] = removal.withAuthorizationGeneration(
-          max(removal.authorizationGeneration, committedGeneration)
+          max(removal.authorizationGeneration, requiredGeneration)
         )
         continue
       }

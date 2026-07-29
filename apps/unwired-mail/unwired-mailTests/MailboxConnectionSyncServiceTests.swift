@@ -311,6 +311,57 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 1)
   }
 
+  func testSecondLegacyRemovalAdvancesPastRetainedAuthorizationGeneration() async throws {
+    let services = try makeServices()
+    _ = try await services.firstDevice.saveConnection(
+      Self.connection,
+      session: firstDeviceSession
+    )
+    _ = try await services.firstDevice.removeConnection(
+      Self.connection.id,
+      session: firstDeviceSession
+    )
+    _ = try await recreateConnection(
+      using: services.firstDevice,
+      session: firstDeviceSession
+    )
+    let definition = Self.connection.definition
+    let legacyPayload: [String: Any] = [
+      "connections": [
+        [
+          "connectedAt": definition.connectedAt,
+          "displayName": definition.displayName,
+          "provider": definition.provider,
+          "providerAccountIdentifier": definition.providerAccountIdentifier,
+          "stableProviderConnectionKey": definition.stableProviderConnectionKey,
+        ]
+      ],
+      "removals": [
+        [
+          "provider": definition.provider,
+          "providerAccountIdentifier": definition.providerAccountIdentifier,
+          "removedAt": 1_781_200_000_700,
+        ]
+      ],
+      "schemaVersion": 1,
+    ]
+    let encryptedPayload = try services.keyMaterial.encryptPayload(
+      JSONSerialization.data(withJSONObject: legacyPayload),
+      associatedData: Data("mailbox-connections-primary".utf8)
+    )
+    _ = try await services.transport.putEncryptedProductSyncPayload(
+      identityToken: secondDeviceSession.identityToken,
+      payloadIdentifier: "mailbox-connections-primary",
+      encryptedPayload: encryptedPayload,
+      trustedDeviceId: secondDeviceSession.trustedDeviceId
+    )
+
+    let snapshot = try await services.firstDevice.loadSnapshot(session: firstDeviceSession)
+
+    XCTAssertEqual(snapshot.connections.first?.authorizationGeneration, 2)
+    XCTAssertEqual(snapshot.authorizationCleanupConnectionIds, [Self.connection.id])
+  }
+
   func testProviderAccessDoesNotDiscardFreshGenerationWhenIndividualLedgerLoadFails()
     async throws
   {

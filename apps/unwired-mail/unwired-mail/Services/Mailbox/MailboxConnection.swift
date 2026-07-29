@@ -2052,39 +2052,37 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let additionalProviderMessageIds = Set(
-      try await pendingActionService.pendingActions(session: session)
-        .filter { pendingAction in
-          guard
-            pendingAction.connectionId == connection.id.rawValue,
-            pendingAction.keepsOptimisticProjection
-          else { return false }
-          switch pendingAction.action {
-          case .notSpam, .restore:
-            return true
-          case .move:
-            return pendingAction.targetProviderMailboxId == "INBOX"
-          default:
-            return false
+    try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      let additionalProviderMessageIds = Set(
+        try await pendingActionService.pendingActions(session: session)
+          .filter { pendingAction in
+            guard
+              pendingAction.connectionId == connection.id.rawValue,
+              pendingAction.keepsOptimisticProjection
+            else { return false }
+            switch pendingAction.action {
+            case .notSpam, .restore:
+              return true
+            case .move:
+              return pendingAction.targetProviderMailboxId == "INBOX"
+            default:
+              return false
+            }
           }
-        }
-        .flatMap(\.messageIds)
-    )
-    let result = try await metadataService.loadInboxProjectionCandidates(
-      additionalProviderMessageIds: additionalProviderMessageIds,
-      connection: gmailConnection,
-      session: session
-    )
-    return try await pendingActionService.project(
-      result.mailboxResult(connectionId: connection.id),
-      collection: .role(.inbox),
-      connection: connection,
-      session: session
-    )
+          .flatMap(\.messageIds)
+      )
+      let result = try await metadataService.loadInboxProjectionCandidates(
+        additionalProviderMessageIds: additionalProviderMessageIds,
+        connection: gmailConnection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        result.mailboxResult(connectionId: connection.id),
+        collection: .role(.inbox),
+        connection: connection,
+        session: session
+      )
+    }
   }
 
   func loadMailbox(
@@ -2095,21 +2093,19 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     if collection == .role(.inbox) {
       return try await loadInbox(connection: connection, session: session)
     }
-    let gmailConnection = try await gmailConnectionForProviderAccess(
-      connection,
-      session: session
-    )
-    let result = try await metadataService.loadMailbox(
-      .allObserved,
-      connection: gmailConnection,
-      session: session
-    )
-    return try await pendingActionService.project(
-      result.mailboxResult(connectionId: connection.id),
-      collection: collection,
-      connection: connection,
-      session: session
-    )
+    return try await withSharedProviderAccess(connection, session: session) { gmailConnection in
+      let result = try await metadataService.loadMailbox(
+        .allObserved,
+        connection: gmailConnection,
+        session: session
+      )
+      return try await pendingActionService.project(
+        result.mailboxResult(connectionId: connection.id),
+        collection: collection,
+        connection: connection,
+        session: session
+      )
+    }
   }
 
   func loadProviderMailboxes(

@@ -1551,6 +1551,52 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(metadataService.loadedCollections, [.role(.inbox)])
   }
 
+  func testGmailCachedMetadataLoadsHoldSharedGenerationGate() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let collections: [MailboxMessageCollection] = [.role(.inbox), .role(.archive)]
+    for collection in collections {
+      let loadGate = AdapterLifecycleOperationGate()
+      let metadataService = RecordingAdapterMetadataService(loadGate: loadGate)
+      let syncGate = MailboxConnectionSyncGate()
+      let adapter = GmailMailboxConnectionAdapter(
+        definitionSyncService: RecordingAdapterDefinitionSyncService(
+          snapshot: MailboxConnectionSyncSnapshot(
+            connections: [connection.definition],
+            defaultSendingConnectionId: nil,
+            removedConnectionIds: [],
+            updatedAt: connection.updatedAt
+          )
+        ),
+        metadataService: metadataService,
+        pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+        outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+        syncGate: syncGate
+      )
+      let load = Task {
+        try await adapter.loadMailbox(collection, connection: connection, session: session)
+      }
+      await loadGate.waitUntilStarted()
+      let exclusiveAcquired = TestFlag()
+      let exclusive = Task {
+        try await syncGate.withLock(connection.id) {
+          await exclusiveAcquired.set()
+        }
+      }
+      try await Task.sleep(for: .milliseconds(20))
+      let acquiredBeforeReadFinished = await exclusiveAcquired.value
+
+      XCTAssertFalse(acquiredBeforeReadFinished)
+      await loadGate.release()
+      _ = try await load.value
+      try await exclusive.value
+      let acquiredAfterReadFinished = await exclusiveAcquired.value
+      XCTAssertTrue(acquiredAfterReadFinished)
+    }
+  }
+
   func testGmailMailboxRemovalWaitsForInFlightPushRenewal() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -5670,6 +5716,7 @@ extension MailboxConnectionSyncSnapshot {
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   private let eventLog: RecordingAdapterEventLog?
+  private let loadGate: AdapterLifecycleOperationGate?
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
@@ -5678,8 +5725,12 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedProviderAccountIdentifiers: [String] = []
 
-  init(eventLog: RecordingAdapterEventLog? = nil) {
+  init(
+    eventLog: RecordingAdapterEventLog? = nil,
+    loadGate: AdapterLifecycleOperationGate? = nil
+  ) {
     self.eventLog = eventLog
+    self.loadGate = loadGate
   }
 
   func categorizeHistorical(
@@ -5719,6 +5770,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     } else if collection == .role(.inbox) {
       eventLog?.events.append("inbox")
     }
+    await loadGate?.waitForRelease()
     return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
   }
 
