@@ -4396,18 +4396,23 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion reported")
     let service = DeferredBulkResumeService(resumeStarted: resumeStarted)
     let viewModel = GmailMailActionViewModel(service: service, session: session)
 
     let result = await viewModel.performBulk(
       .archive,
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
-      deferredPendingActionConnectionIds: [connection.id]
+      deferredPendingActionConnectionIds: [connection.id],
+      onDeferredCompletion: { completedConnection in
+        XCTAssertEqual(completedConnection.id, connection.id)
+        deferredCompletion.fulfill()
+      }
     )
 
     XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
     XCTAssertFalse(viewModel.isPerformingAction)
-    await fulfillment(of: [resumeStarted], timeout: 1)
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
     let resumeCount = await service.resumeCount()
     XCTAssertEqual(resumeCount, 1)
   }
@@ -4544,6 +4549,61 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         + "[gmail:gmail-user-001:message-first]: The provider connection failed.\n"
         + "second@example.com — Subject message-second "
         + "[gmail:gmail-user-002:message-second]: The provider connection failed."
+    )
+  }
+
+  func testMailActionViewModelPreservesInlineFailureWhenDeferredBatchFails() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed."
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let errorsSurfaced = expectation(description: "inline and deferred errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("deferred@example.com") != true {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "current@example.com — Subject message-current "
+        + "[gmail:gmail-user-002:message-current]: The provider connection failed.\n"
+        + "deferred@example.com — Subject message-deferred "
+        + "[gmail:gmail-user-001:message-deferred]: The provider connection failed."
     )
   }
 

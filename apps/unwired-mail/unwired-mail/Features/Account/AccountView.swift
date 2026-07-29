@@ -3315,14 +3315,21 @@ struct MailShellConversationReader: View {
     batches: [MailboxBulkActionBatch]
   ) {
     Task {
+      let deferredConnectionIds = inboxViewModel.historicalBackfillConnectionIds(
+        for: batches.map(\.connection)
+      )
       guard
         let result = await mailActionViewModel.performBulk(
           action,
           batches: batches,
-          deferredPendingActionConnectionIds: inboxViewModel.historicalBackfillConnectionIds(
-            for: batches.map(\.connection)
-          ),
+          deferredPendingActionConnectionIds: deferredConnectionIds,
           onEnqueued: { connection in
+            _ = await inboxViewModel.reloadLocal(
+              connection: connection,
+              refreshesNavigationSnapshot: !deferredConnectionIds.contains(connection.id)
+            )
+          },
+          onDeferredCompletion: { connection in
             _ = await inboxViewModel.reloadLocal(connection: connection)
           }
         )
@@ -3330,7 +3337,10 @@ struct MailShellConversationReader: View {
       let attemptedConnections = batches.map(\.connection)
       let errorMessage = mailActionViewModel.errorMessage
       for connection in attemptedConnections {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
+        _ = await inboxViewModel.reloadLocal(
+          connection: connection,
+          refreshesNavigationSnapshot: !deferredConnectionIds.contains(connection.id)
+        )
       }
       guard let errorMessage else { return }
       readerErrorConnectionId = result.failures.first?.connectionId
@@ -4331,7 +4341,8 @@ extension GmailMailActionViewModel {
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
     deferredPendingActionConnectionIds: Set<MailboxConnectionId> = [],
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in },
+    onDeferredCompletion: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
   ) async -> MailboxBulkActionResult? {
     guard !batches.isEmpty,
       batches.allSatisfy({
@@ -4371,7 +4382,12 @@ extension GmailMailActionViewModel {
     }
     if !deferredBatches.isEmpty {
       Task { [weak self] in
-        await self?.resumeDeferredPendingActions(action, batches: deferredBatches)
+        await self?.resumeDeferredPendingActions(
+          action,
+          batches: deferredBatches,
+          immediateFailures: result.failures,
+          onCompleted: onDeferredCompletion
+        )
       }
     }
     return result
@@ -4478,7 +4494,9 @@ extension GmailMailActionViewModel {
 
   private func resumeDeferredPendingActions(
     _ action: ProviderMailAction,
-    batches: [MailboxBulkActionBatch]
+    batches: [MailboxBulkActionBatch],
+    immediateFailures: [MailboxBulkActionFailure],
+    onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     let outcomes = await withTaskGroup(
       of: MailboxBulkActionBatchOutcome.self,
@@ -4517,8 +4535,12 @@ extension GmailMailActionViewModel {
     }
     await refreshFailureConnections(knownConnections)
     let result = bulkActionResult(outcomes)
-    if !result.failures.isEmpty {
-      errorMessage = result.failures.map(Self.failureDescription).joined(separator: "\n")
+    let failures = immediateFailures + result.failures
+    if !failures.isEmpty {
+      errorMessage = failures.map(Self.failureDescription).joined(separator: "\n")
+    }
+    for batch in batches {
+      await onCompleted(batch.connection)
     }
   }
 
@@ -5288,7 +5310,10 @@ final class GmailInboxViewModel {
     }
   }
 
-  func reloadLocal(connection: MailboxConnection) async -> Bool {
+  func reloadLocal(
+    connection: MailboxConnection,
+    refreshesNavigationSnapshot: Bool = true
+  ) async -> Bool {
     do {
       if currentConnectionId == connection.id {
         let result = try await loadProjectedMailbox(
@@ -5312,7 +5337,9 @@ final class GmailInboxViewModel {
           .flatMap(\.messages)
         threads = MailboxThread.group(otherMessages + result.threads.flatMap(\.messages))
       }
-      await refreshNavigationSnapshot(for: connection)
+      if refreshesNavigationSnapshot {
+        await refreshNavigationSnapshot(for: connection)
+      }
       errorMessage = nil
       return true
     } catch is CancellationError {
