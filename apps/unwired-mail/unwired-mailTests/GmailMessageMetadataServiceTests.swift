@@ -1145,7 +1145,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       ["thread-second", "thread-first"]
     )
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
-    XCTAssertEqual(fixture.service.syncInboxCallCount, fixture.connections.count)
+    let syncInboxCallCount = await fixture.service.syncInboxCallCount()
+    XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
   }
 
   @MainActor
@@ -1212,7 +1213,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     }
     await fixture.service.waitUntilHistoricalBackfillStarts()
 
-    XCTAssertEqual(fixture.service.syncInboxCallCount, fixture.connections.count)
+    let syncInboxCallCount = await fixture.service.syncInboxCallCount()
+    XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
 
     await fixture.service.releaseHistoricalBackfill()
@@ -1220,7 +1222,74 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelClearsLoadingWhenUnifiedLoadIsCancelled() async {
+  func testInboxViewModelLoadsUnifiedInboxPhasesConcurrently() async {
+    let cacheStarts = expectation(description: "both cached inbox loads start")
+    cacheStarts.expectedFulfillmentCount = 2
+    let syncStarts = expectation(description: "both inbox syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let backfillStarts = expectation(description: "both historical backfills start")
+    backfillStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      switch phase {
+      case .cache:
+        cacheStarts.fulfill()
+      case .sync:
+        syncStarts.fulfill()
+      case .backfill:
+        backfillStarts.fulfill()
+      case .navigation:
+        break
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(
+      historicalMessagesByProviderAccount: [
+        "gmail-user-001": metadata(
+          messageId: "message-first-historical",
+          threadId: "thread-first-historical",
+          internalDateMilliseconds: 300
+        ),
+        "gmail-user-002": metadata(
+          messageId: "message-second-historical",
+          threadId: "thread-second-historical",
+          internalDateMilliseconds: 400,
+          providerAccountIdentifier: "gmail-user-002"
+        ),
+      ],
+      phaseGate: phaseGate
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    }
+
+    await fulfillment(of: [cacheStarts], timeout: 1)
+    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
+    await phaseGate.release(.cache)
+    await fulfillment(of: [syncStarts], timeout: 1)
+    XCTAssertEqual(
+      fixture.viewModel.threads.map(\.providerThreadId),
+      ["thread-second", "thread-first"]
+    )
+    await phaseGate.release(.sync)
+    await fulfillment(of: [backfillStarts], timeout: 1)
+    await phaseGate.release(.backfill)
+    await loadTask.value
+
+    XCTAssertEqual(
+      fixture.viewModel.threads.map(\.providerThreadId),
+      ["thread-second", "thread-first"]
+    )
+  }
+
+  @MainActor
+  func testInboxViewModelRejectsStaleLoadBeforeStartingBackfill() async {
+    let navigationStarts = expectation(description: "both navigation refreshes start")
+    navigationStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .navigation {
+        navigationStarts.fulfill()
+      }
+    }
     let fixture = makeUnifiedInboxViewModelFixture(
       historicalMessagesByProviderAccount: [
         connection.providerAccountIdentifier: metadata(
@@ -1229,33 +1298,106 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
           internalDateMilliseconds: 50
         )
       ],
-      delaysHistoricalBackfill: true
+      delaysNavigationRefresh: true,
+      phaseGate: phaseGate
     )
 
     let loadTask = Task { @MainActor in
       await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
     }
-    await fixture.service.waitUntilHistoricalBackfillStarts()
+    await phaseGate.release(.cache)
+    await phaseGate.release(.sync)
+    await fulfillment(of: [navigationStarts], timeout: 1)
     fixture.viewModel.clear()
-
-    XCTAssertFalse(fixture.viewModel.isLoading)
-
-    await fixture.service.releaseHistoricalBackfill()
+    await phaseGate.release(.navigation)
     await loadTask.value
+
+    let historicalBackfillCallCount = await fixture.service.historicalBackfillCallCount()
+    XCTAssertEqual(historicalBackfillCallCount, 0)
+    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
+  }
+
+  @MainActor
+  func testInboxViewModelReportsConcurrentErrorsInConnectionOrder() async {
+    let syncStarts = expectation(description: "both inbox syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .sync {
+        syncStarts.fulfill()
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(
+      syncErrorsByProviderAccount: [
+        "gmail-user-001": "first failed",
+        "gmail-user-002": "second failed",
+      ],
+      phaseGate: phaseGate
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    }
+    await phaseGate.release(.cache)
+    await fulfillment(of: [syncStarts], timeout: 1)
+    await phaseGate.release(.sync, for: fixture.connections[1].id)
+    await Task.yield()
+    await phaseGate.release(.sync, for: fixture.connections[0].id)
+    await loadTask.value
+
+    XCTAssertEqual(
+      fixture.viewModel.errorMessage,
+      [
+        "\(fixture.connections[0].displayName): first failed",
+        "\(fixture.connections[1].displayName): second failed",
+      ].joined(separator: "\n")
+    )
+  }
+
+  @MainActor
+  func testInboxViewModelClearsLoadingWhenUnifiedLoadIsCancelled() async {
+    let cacheStarts = expectation(description: "both cached inbox loads start")
+    cacheStarts.expectedFulfillmentCount = 2
+    let syncStarts = expectation(description: "inbox sync does not start")
+    syncStarts.isInverted = true
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      switch phase {
+      case .cache:
+        cacheStarts.fulfill()
+      case .sync:
+        syncStarts.fulfill()
+      case .backfill, .navigation:
+        break
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    }
+    await fulfillment(of: [cacheStarts], timeout: 1)
+    loadTask.cancel()
+    fixture.viewModel.clear()
+    await phaseGate.release(.cache)
+    await loadTask.value
+
+    await fulfillment(of: [syncStarts], timeout: 0.1)
+    XCTAssertFalse(fixture.viewModel.isLoading)
+    XCTAssertTrue(fixture.viewModel.threads.isEmpty)
   }
 
   @MainActor
   func testInboxViewModelRefreshesOneUnifiedInboxConnectionWithoutDroppingOthers() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
-    let syncInboxCallCount = fixture.service.syncInboxCallCount
+    let syncInboxCallCount = await fixture.service.syncInboxCallCount()
     fixture.viewModel.errorMessage = "Previous refresh failed"
 
     let didRefresh = await fixture.viewModel.refresh(connection: fixture.connections[0])
 
     XCTAssertTrue(didRefresh)
     XCTAssertNil(fixture.viewModel.errorMessage)
-    XCTAssertEqual(fixture.service.syncInboxCallCount, syncInboxCallCount + 1)
+    let refreshedSyncInboxCallCount = await fixture.service.syncInboxCallCount()
+    XCTAssertEqual(refreshedSyncInboxCallCount, syncInboxCallCount + 1)
     XCTAssertEqual(
       fixture.viewModel.threads.map(\.providerThreadId),
       ["thread-second", "thread-first"]
@@ -2318,7 +2460,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isRefreshDisabled)
-    XCTAssertEqual(service.syncInboxCallCount, 0)
+    let syncInboxCallCount = await service.syncInboxCallCount()
+    XCTAssertEqual(syncInboxCallCount, 0)
 
     await service.releaseHistoricalBackfill()
 
@@ -4046,7 +4189,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   @MainActor
   private func makeUnifiedInboxViewModelFixture(
     historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:],
-    delaysHistoricalBackfill: Bool = false
+    delaysHistoricalBackfill: Bool = false,
+    delaysNavigationRefresh: Bool = false,
+    syncErrorsByProviderAccount: [String: String] = [:],
+    phaseGate: UnifiedInboxPhaseGate? = nil
   ) -> UnifiedInboxViewModelFixture {
     let secondConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
@@ -4072,7 +4218,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         ),
       ],
       historicalMessagesByProviderAccount: historicalMessagesByProviderAccount,
-      delaysHistoricalBackfill: delaysHistoricalBackfill
+      delaysHistoricalBackfill: delaysHistoricalBackfill,
+      delaysNavigationRefresh: delaysNavigationRefresh,
+      syncErrorsByProviderAccount: syncErrorsByProviderAccount,
+      phaseGate: phaseGate
     )
     return UnifiedInboxViewModelFixture(
       connections: [
@@ -4488,13 +4637,22 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
   let messagesByProviderAccountIdentifier: [String: GmailMessageMetadata]
   var historicalMessagesByProviderAccount: [String: GmailMessageMetadata] = [:]
   var delaysHistoricalBackfill = false
+  var delaysNavigationRefresh = false
+  var syncErrorsByProviderAccount: [String: String] = [:]
+  var phaseGate: UnifiedInboxPhaseGate?
   var loadResultIsIncomplete = false
   private let historicalBackfillGate = OverrideGate()
   private let historicalCategorizationGate = OverrideGate()
   private let overrideGate = OverrideGate()
-  private let syncInboxCallRecorder = MailboxSyncCallRecorder()
+  private let callRecorder = MailboxCallRecorder()
 
-  var syncInboxCallCount: Int { syncInboxCallRecorder.count }
+  func syncInboxCallCount() async -> Int {
+    await callRecorder.syncCount
+  }
+
+  func historicalBackfillCallCount() async -> Int {
+    await callRecorder.historicalBackfillCount
+  }
 
   func categorizeHistorical(
     scope _: HistoricalCategorizationScope,
@@ -4509,18 +4667,39 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    result(
+    await phaseGate?.suspendFirstCacheLoad(for: connection.id)
+    return result(
       for: connection,
       using: messagesByProviderAccountIdentifier,
       historicalMetadataBackfillIsComplete: !loadResultIsIncomplete
     )
   }
 
+  func loadMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    guard collection == .allObserved else {
+      return try await loadInbox(connection: connection, session: session)
+    }
+    if delaysNavigationRefresh {
+      await phaseGate?.suspendFirstNavigationLoad(for: connection.id)
+    }
+    return result(for: connection, using: messagesByProviderAccountIdentifier)
+  }
+
   func syncInbox(
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    syncInboxCallRecorder.count += 1
+    await phaseGate?.suspend(.sync, for: connection.id)
+    await callRecorder.recordSync()
+    if let description = syncErrorsByProviderAccount[
+      connection.providerMailboxIdentity.value
+    ] {
+      throw MailboxSwitchingLocalizedError(description: description)
+    }
     return result(
       for: connection,
       using: messagesByProviderAccountIdentifier,
@@ -4535,6 +4714,8 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    await phaseGate?.suspend(.backfill, for: connection.id)
+    await callRecorder.recordHistoricalBackfill()
     if delaysHistoricalBackfill {
       await historicalBackfillGate.waitForRelease()
     }
@@ -4622,6 +4803,73 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
       messages: [message],
       threads: GmailInboxThread.group([message])
     ).mailboxResult(connectionId: connection.id)
+  }
+}
+
+private actor UnifiedInboxPhaseGate {
+  enum Phase: Hashable, Sendable {
+    case cache
+    case sync
+    case backfill
+    case navigation
+  }
+
+  private struct Suspension: Hashable {
+    let connectionId: MailboxConnectionId
+    let phase: Phase
+  }
+
+  private var cachedConnectionIds: Set<MailboxConnectionId> = []
+  private var continuations: [Suspension: [CheckedContinuation<Void, Never>]] = [:]
+  private let onStart: @Sendable (Phase) -> Void
+  private var navigationConnectionIds: Set<MailboxConnectionId> = []
+  private var releasedPhases: Set<Phase> = []
+  private var releasedSuspensions: Set<Suspension> = []
+
+  init(onStart: @escaping @Sendable (Phase) -> Void) {
+    self.onStart = onStart
+  }
+
+  func suspendFirstCacheLoad(for connectionId: MailboxConnectionId) async {
+    guard cachedConnectionIds.insert(connectionId).inserted else { return }
+    await suspend(.cache, for: connectionId)
+  }
+
+  func suspendFirstNavigationLoad(for connectionId: MailboxConnectionId) async {
+    guard navigationConnectionIds.insert(connectionId).inserted else { return }
+    await suspend(.navigation, for: connectionId)
+  }
+
+  func suspend(_ phase: Phase, for connectionId: MailboxConnectionId) async {
+    onStart(phase)
+    let suspension = Suspension(connectionId: connectionId, phase: phase)
+    guard
+      !releasedPhases.contains(phase),
+      !releasedSuspensions.contains(suspension)
+    else { return }
+    await withCheckedContinuation { continuation in
+      continuations[suspension, default: []].append(continuation)
+    }
+  }
+
+  func release(_ phase: Phase) {
+    releasedPhases.insert(phase)
+    let phaseSuspensions = continuations.keys.filter { $0.phase == phase }
+    let phaseContinuations = phaseSuspensions.flatMap {
+      continuations.removeValue(forKey: $0) ?? []
+    }
+    for continuation in phaseContinuations {
+      continuation.resume()
+    }
+  }
+
+  func release(_ phase: Phase, for connectionId: MailboxConnectionId) {
+    let suspension = Suspension(connectionId: connectionId, phase: phase)
+    releasedSuspensions.insert(suspension)
+    let suspensionContinuations = continuations.removeValue(forKey: suspension) ?? []
+    for continuation in suspensionContinuations {
+      continuation.resume()
+    }
   }
 }
 
@@ -4887,6 +5135,12 @@ private actor OfflineUpgradeMailboxService: MailboxMetadataSyncing, MailboxMessa
   }
 }
 
+private struct MailboxSwitchingLocalizedError: LocalizedError {
+  let description: String
+
+  var errorDescription: String? { description }
+}
+
 private struct GmailMessageMetadataSyncFixture {
   let eligibilityStore: RecordingGmailPushEligibilityStore
   let requestRecorder: GmailMetadataRequestRecorder
@@ -4900,8 +5154,17 @@ private final class GmailMetadataRequestRecorder {
   var queries: [String] = []
 }
 
-private final class MailboxSyncCallRecorder {
-  var count = 0
+private actor MailboxCallRecorder {
+  private(set) var historicalBackfillCount = 0
+  private(set) var syncCount = 0
+
+  func recordHistoricalBackfill() {
+    historicalBackfillCount += 1
+  }
+
+  func recordSync() {
+    syncCount += 1
+  }
 }
 
 private final class RecordingGmailMessageCategorizer: GmailMessageCategorizing {
