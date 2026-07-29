@@ -1214,10 +1214,10 @@ struct DevicePushUnregistrationService: DevicePushUnregistering {
 
 // swiftlint:disable type_body_length
 protocol GmailConnectionAuthorizationChecking {
-  func hasLocalAuthorization(
+  func hasActiveAuthorization(
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
-  ) throws -> Bool
+  ) async throws -> Bool
 }
 
 @MainActor
@@ -1329,9 +1329,20 @@ struct GmailPushWakeupHandler {
       gmailHistoryIdIsNewer(
         historyId,
         than: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId
-      ),
-      try authorizationChecker.hasLocalAuthorization(connection, session: productSession)
+      )
     else {
+      return false
+    }
+    guard
+      try await authorizationChecker.hasActiveAuthorization(
+        connection,
+        session: productSession
+      )
+    else {
+      try watchStore.clear(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
       return false
     }
 
@@ -1444,6 +1455,17 @@ struct GmailPushWakeupHandler {
       )
       return false
     } catch MailboxConnectionAdapterError.connectionRemoved {
+      publishSyncStatus(
+        .idle,
+        connection: mailboxConnection,
+        productAccountId: productSession.productAccountId
+      )
+      return false
+    } catch MailboxConnectionAdapterError.authorizationRequired {
+      try watchStore.clear(
+        productAccountId: productSession.productAccountId,
+        providerAccountIdentifier: connection.providerAccountIdentifier
+      )
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,

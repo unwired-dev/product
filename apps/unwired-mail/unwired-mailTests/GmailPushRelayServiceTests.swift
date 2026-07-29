@@ -1609,6 +1609,48 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
   }
 
+  func testGmailWakeupRejectsStaleGenerationBeforeBackgroundDeadlineFallback() async throws {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let notificationDelivery = RecordingNotificationDelivery()
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.localAuthorizationAvailable = false
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      hasProcessingTimeRemaining: { false },
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    XCTAssertEqual(watchStore.clearedProductAccountId, session.productAccountId)
+    XCTAssertEqual(
+      watchStore.clearedProviderAccountIdentifier,
+      connection.providerAccountIdentifier
+    )
+    XCTAssertNil(watchStore.savedStatus)
+  }
+
   func testGmailWakeupDoesNotShowGenericFallbackAfterBackgroundDeadlineWithoutRules()
     async throws
   {
@@ -1797,6 +1839,48 @@ final class GmailPushRelayServiceTests: XCTestCase {
     XCTAssertFalse(handled)
     XCTAssertEqual(notificationDelivery.genericNotificationIdentifiers.count, 1)
     XCTAssertNil(watchStore.savedStatus)
+  }
+
+  func testGmailWakeupClearsWatchWithoutFallbackWhenAuthorizationGenerationIsStale()
+    async throws
+  {
+    let sessionStore = InMemoryProductAccountSessionStore()
+    try sessionStore.save(session)
+    let syncService = RecordingPushGmailMetadataSyncService()
+    syncService.syncError = MailboxConnectionAdapterError.authorizationRequired
+    let notificationDelivery = RecordingNotificationDelivery()
+    let watchStore = RecordingGmailPushWatchStore(
+      status: GmailPushWatchStatus(
+        expirationMilliseconds: 1_781_400_000_000,
+        historyId: "123",
+        routeId: "route-001"
+      )
+    )
+    let handler = GmailPushWakeupHandler(
+      connectionStore: RecordingGmailPushConnectionStore(connection: connection),
+      genericNotificationFallbackStore: StubGenericNotificationFallbackStore(isEnabled: true),
+      notificationDelivery: notificationDelivery,
+      notificationRuleSync: StubNotificationRuleSync(
+        rules: NotificationRules(categoryIds: ["system:flights"])
+      ),
+      sessionStore: sessionStore,
+      syncService: syncService,
+      watchStore: watchStore
+    )
+
+    let handled = try await handler.handle(userInfo: [
+      "historyId": "124",
+      "provider": "gmail",
+      "routeId": "route-001",
+    ])
+
+    XCTAssertFalse(handled)
+    XCTAssertTrue(notificationDelivery.genericNotificationIdentifiers.isEmpty)
+    XCTAssertEqual(watchStore.clearedProductAccountId, session.productAccountId)
+    XCTAssertEqual(
+      watchStore.clearedProviderAccountIdentifier,
+      connection.providerAccountIdentifier
+    )
   }
 
   func testGmailWakeupDoesNotFallbackWhenRulesAreDisabledDuringFailedMetadataSync()
@@ -3108,6 +3192,7 @@ private final class GmailPushOverlapFixture {
 
 private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
   var clearedProductAccountId: String?
+  var clearedProviderAccountIdentifier: String?
   var savedStatus: GmailPushWatchStatus?
   private var status: GmailPushWatchStatus?
   private var statuses: [String: GmailPushWatchStatus]
@@ -3130,9 +3215,10 @@ private final class RecordingGmailPushWatchStore: GmailPushWatchPersisting {
 
   func clear(
     productAccountId: String,
-    providerAccountIdentifier _: String
+    providerAccountIdentifier: String
   ) throws {
     clearedProductAccountId = productAccountId
+    clearedProviderAccountIdentifier = providerAccountIdentifier
   }
 
   func load(
@@ -3343,10 +3429,10 @@ private final class RecordingPushGmailMetadataSyncService:
   var syncError: Error?
   var usesUnavailableHistoryDelta = false
 
-  func hasLocalAuthorization(
+  func hasActiveAuthorization(
     _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
-  ) throws -> Bool {
+  ) async throws -> Bool {
     localAuthorizationAvailable
   }
 

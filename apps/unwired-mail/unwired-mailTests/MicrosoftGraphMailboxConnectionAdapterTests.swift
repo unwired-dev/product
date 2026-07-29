@@ -88,6 +88,205 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(definitionJSON.contains(authorizer.authorizedTokens.refreshToken))
   }
 
+  func testGraphReauthorizationWinsAgainstStaleRemovalCleanup() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService()
+    let syncGate = MailboxConnectionSyncGate()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    let blocker = TestRendezvous()
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      syncGate: syncGate,
+      tokenStore: tokenStore
+    )
+    let cleanup = Task {
+      try await syncGate.withLock(graphConnectionId) {
+        await blocker.hold()
+        try tokenStore.clear(
+          productAccountId: self.session.productAccountId,
+          providerAccountIdentifier: graphAccount.id
+        )
+      }
+    }
+    await blocker.waitUntilHeld()
+
+    let connection = Task {
+      try await adapter.connect(
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    await Task.yield()
+    XCTAssertNil(definitions.savedDefinition)
+    await blocker.release()
+
+    _ = try await connection.value
+    try await cleanup.value
+    let tokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+
+    XCTAssertEqual(tokens, authorizer.authorizedTokens)
+  }
+
+  func testGraphReauthorizationPurgesStaleGenerationBeforeSavingFreshTokens() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      authorizationCleanupConnectionIds: [graphConnectionId],
+      definitions: [graphConnectionDefinition.withAuthorizationGeneration(1)],
+      localCleanupGenerations: [graphConnectionId: 1]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "stale-access",
+        authorizationGeneration: 0,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "stale-refresh"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      bodyCache: bodyCache,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      syncGate: MailboxConnectionSyncGate(),
+      tokenStore: tokenStore
+    )
+
+    let connection = try await adapter.connect(
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+
+    XCTAssertEqual(bodyCache.connectionClearCount, 1)
+    XCTAssertEqual(connection?.authorizationGeneration, 1)
+    XCTAssertEqual(definitions.completedCleanupGenerations[graphConnectionId], 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGraphSendHoldsConnectionGateUntilProviderOperationFinishes() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let providerGate = TestRendezvous()
+    client.beforeSendReturn = {
+      await providerGate.hold()
+    }
+    let syncGate = MailboxConnectionSyncGate()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      client: client,
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      syncGate: syncGate,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let send = Task {
+      try await adapter.send(
+        OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+        connection: connection,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupStarted = TestRendezvous()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      await cleanupStarted.hold()
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    await cleanupStarted.waitUntilHeld()
+    await cleanupStarted.release()
+    try await Task.sleep(for: .milliseconds(20))
+    let finishedWhileProviderWasRunning = await cleanupFinished.value
+
+    XCTAssertFalse(finishedWhileProviderWasRunning)
+    await providerGate.release()
+    try await send.value
+    try await cleanup.value
+    let cleanupDidFinish = await cleanupFinished.value
+    XCTAssertEqual(client.sentMessages.count, 1)
+    XCTAssertTrue(cleanupDidFinish)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGraphReauthorizationRechecksCleanupAfterSavingDefinition() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let cleanupGeneration = 1
+    definitions.snapshotAfterSave = MailboxConnectionSyncSnapshot(
+      connections: [
+        graphConnectionDefinition.withAuthorizationGeneration(cleanupGeneration)
+      ],
+      defaultSendingConnectionId: nil,
+      removedConnectionIds: [],
+      updatedAt: 1_781_200_000_001,
+      authorizationCleanupConnectionIds: [graphConnectionId],
+      localCleanupGenerations: [graphConnectionId: cleanupGeneration]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "stale-access",
+        authorizationGeneration: 0,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "stale-refresh"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      bodyCache: bodyCache,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      syncGate: MailboxConnectionSyncGate(),
+      tokenStore: tokenStore
+    )
+
+    let connection = try await adapter.connect(
+      session: session,
+      isSessionCurrent: { $0 == self.session }
+    )
+    let savedTokens = try tokenStore.load(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+
+    XCTAssertEqual(bodyCache.connectionClearCount, 1)
+    XCTAssertEqual(connection?.authorizationGeneration, cleanupGeneration)
+    XCTAssertEqual(savedTokens?.accessToken, authorizer.authorizedTokens.accessToken)
+    XCTAssertEqual(savedTokens?.authorizationGeneration, cleanupGeneration)
+    XCTAssertEqual(
+      definitions.completedCleanupGenerations[graphConnectionId],
+      cleanupGeneration
+    )
+  }
+
   func testConnectClearsExistingTokensWhenRecreationIsRejected() async throws {
     let authorizer = RecordingMicrosoftGraphAuthorizer()
     let definitions = RecordingMicrosoftGraphDefinitionSyncService()
@@ -171,6 +370,58 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertFalse(tokens.hasFullMailAccess)
+    XCTAssertEqual(tokens.authorizationGeneration, 0)
+  }
+
+  func testGraphConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition.withAuthorizationGeneration(1)]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        authorizationGeneration: 0,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+
+    let staleConnections = try await adapter.loadConnections(session: session)
+    let staleConnection = try XCTUnwrap(staleConnections.first)
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        authorizationGeneration: 1,
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let authorizedConnections = try await adapter.loadConnections(session: session)
+    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+
+    XCTAssertEqual(staleConnection.authorizationState, .required)
+    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    do {
+      _ = try await adapter.syncInbox(
+        connection: authorizedConnection.withAuthorizationGeneration(0),
+        session: session
+      )
+      XCTFail("Expected a stale operation generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   // swiftlint:disable:next function_body_length
@@ -868,7 +1119,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         value: "gmail-user-001"
       )
     )
-    let blocker = MicrosoftGraphCleanupGateBlocker()
+    let blocker = TestRendezvous()
     let activeConnection = Task {
       try await syncGate.withLock(unrelatedConnectionId) {
         await blocker.hold()
@@ -1368,6 +1619,65 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
+  func testCachedBodyReadRejectsStaleAuthorizationGenerationAndClearsLocalCache()
+    async throws
+  {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(1)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/delta")
+    )
+    client.bodies["immutable-message-1"] = "Private body"
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(productAccountId: session.productAccountId, allowCreation: true)
+    let bodyCache = RecordingMicrosoftGraphBodyCache()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      bodyCache: bodyCache,
+      client: client,
+      definitions: definitions,
+      keyMaterialStore: keyStore,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    _ = try await adapter.loadMessageBody(message: message, session: session)
+    definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
+
+    do {
+      _ = try await adapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected stale authorization to reject the cached body")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+
+    XCTAssertNil(bodyCache.payloads[message.stableProviderMessageId])
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
+  }
+
   func testCategoryOverrideSurvivesMetadataRecoveryThroughProductSync() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
@@ -1562,6 +1872,68 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(authorizer.refreshedTokens, 1)
     XCTAssertEqual(client.accessTokens.last, authorizer.refreshResult.accessToken)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testRejectedAccessTokenDoesNotRefreshAfterAuthorizationGenerationAdvances()
+    async throws
+  {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let client = RecordingMicrosoftGraphClient()
+    client.rejectedAccessTokens = ["access-token"]
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService(
+      definitions: [graphConnectionDefinition]
+    )
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    client.onRejectedAccessToken = {
+      definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
+      try tokenStore.save(
+        MicrosoftGraphTokens(
+          accessToken: "replacement-token",
+          authorizationGeneration: 1,
+          expiresAtMilliseconds: 4_000_000_000_000,
+          grantedScopes: fullGraphMailScopes,
+          refreshToken: "replacement-refresh-token"
+        ),
+        productAccountId: self.session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    }
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: client,
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    do {
+      _ = try await adapter.syncInbox(connection: connection, session: session)
+      XCTFail("Expected authorization to be required")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertEqual(authorizer.refreshedTokens, 0)
+    XCTAssertEqual(client.accessTokens, ["access-token"])
+    XCTAssertEqual(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )?.accessToken,
+      "replacement-token"
+    )
   }
 
   func testWrappedSendUnauthorizedErrorRefreshesAndRetries() async throws {
@@ -2814,6 +3186,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var metadataPageDidLoad: (() -> Void)?
   var moveAttempts = 0
   var moveErrors: [Error] = []
+  var onRejectedAccessToken: (() throws -> Void)?
   var pages: [String: MicrosoftGraphMetadataPage] = [:]
   var rejectedAccessTokens: Set<String> = []
   var requestedContinuations: [String?] = []
@@ -2823,6 +3196,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var readUpdates: [(messageId: String, isRead: Bool)] = []
   var sendErrors: [Error] = []
   var sentMessages: [OutgoingMessage] = []
+  var beforeSendReturn: (() async -> Void)?
 
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount {
     accessTokens.append(accessToken)
@@ -2910,6 +3284,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   func send(_ message: OutgoingMessage, accessToken: String) async throws {
     accessTokens.append(accessToken)
     try validate(accessToken)
+    await beforeSendReturn?()
     if !sendErrors.isEmpty {
       throw sendErrors.removeFirst()
     }
@@ -2927,6 +3302,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
 
   private func validate(_ accessToken: String) throws {
     if rejectedAccessTokens.contains(accessToken) {
+      try onRejectedAccessToken?()
       throw MicrosoftGraphClientError.requestFailed(401)
     }
   }
@@ -2951,31 +3327,6 @@ private final class InMemoryGraphPendingActionStore:
 
 private enum GraphTokenStoreTestError: Error {
   case cannotDecode
-}
-
-private actor MicrosoftGraphCleanupGateBlocker {
-  private var holdContinuation: CheckedContinuation<Void, Never>?
-  private var heldContinuation: CheckedContinuation<Void, Never>?
-
-  func hold() async {
-    heldContinuation?.resume()
-    heldContinuation = nil
-    await withCheckedContinuation { continuation in
-      holdContinuation = continuation
-    }
-  }
-
-  func waitUntilHeld() async {
-    guard holdContinuation == nil else { return }
-    await withCheckedContinuation { continuation in
-      heldContinuation = continuation
-    }
-  }
-
-  func release() {
-    holdContinuation?.resume()
-    holdContinuation = nil
-  }
 }
 
 private final class FailingLoadMicrosoftGraphAuthorizationStore:
@@ -3264,15 +3615,40 @@ private final class RecordingGraphCategoryAssignmentSync: MessageCategoryAssignm
 private final class RecordingMicrosoftGraphDefinitionSyncService:
   MailboxConnectionDefinitionSyncing
 {
+  var authorizationCleanupConnectionIds: [MailboxConnectionId]
+  var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var defaultSendingConnectionId: MailboxConnectionId?
   var definitions: [MailboxConnectionDefinition]
+  var localCleanupGenerations: [MailboxConnectionId: Int]
   var removedConnectionIds: [MailboxConnectionId] = []
   var recreatedDefinitionCount = 0
   var recreateError: Error?
   var savedDefinition: MailboxConnectionDefinition?
+  var snapshotAfterSave: MailboxConnectionSyncSnapshot?
 
-  init(definitions: [MailboxConnectionDefinition] = []) {
+  init(
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
+    definitions: [MailboxConnectionDefinition] = [],
+    localCleanupGenerations: [MailboxConnectionId: Int] = [:]
+  ) {
+    self.authorizationCleanupConnectionIds = authorizationCleanupConnectionIds
     self.definitions = definitions
+    self.localCleanupGenerations = localCleanupGenerations
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    completedCleanupGenerations[connectionId]
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    completedCleanupGenerations[connectionId] = generation
   }
 
   func loadSnapshot(
@@ -3324,6 +3700,10 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
     savedDefinition = definition
     definitions.removeAll { $0.id == definition.id }
     definitions.append(definition)
+    removedConnectionIds.removeAll { $0 == definition.id }
+    if let snapshotAfterSave {
+      return snapshotAfterSave
+    }
     return snapshot
   }
 
@@ -3340,12 +3720,15 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
       connections: definitions,
       defaultSendingConnectionId: defaultSendingConnectionId,
       removedConnectionIds: removedConnectionIds,
-      updatedAt: 1_781_200_000_000
+      updatedAt: 1_781_200_000_000,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
+      localCleanupGenerations: localCleanupGenerations
     )
   }
 }
 
 private final class RecordingMicrosoftGraphBodyCache: GmailMessageBodyCaching {
+  var connectionClearCount = 0
   var payloads: [String: ProductSyncEncryptedPayload] = [:]
   var savedMessageIds: [String] = []
 
@@ -3357,6 +3740,7 @@ private final class RecordingMicrosoftGraphBodyCache: GmailMessageBodyCaching {
     productAccountId _: String,
     providerAccountIdentifier _: String
   ) throws {
+    connectionClearCount += 1
     payloads = [:]
   }
 

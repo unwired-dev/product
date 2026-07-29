@@ -266,6 +266,170 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
+  func testSyncedReauthorizationWinsAgainstStaleAdapterCleanup() async throws {
+    let productAccountId = ProductAccountId("product-account-race-\(UUID().uuidString)")
+    let store = RecordingGenericMailAuthorizationStore()
+    let sync = RecordingGenericSyncService()
+    let syncGate = MailboxConnectionSyncGate()
+    let blocker = TestRendezvous()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      syncGate: syncGate,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let connectionId = try service.connectionId(for: manualDraft())
+    let cleanup = Task {
+      try await syncGate.withLock(connectionId) {
+        await blocker.hold()
+        try store.remove(productAccountId: productAccountId, connectionId: connectionId)
+      }
+    }
+    await blocker.waitUntilHeld()
+
+    let authorization = Task {
+      try await service.authorize(
+        draft: manualDraft(),
+        credential: "fresh-secret",
+        productAccountId: productAccountId,
+        syncSession: self.session(productAccountId: productAccountId)
+      )
+    }
+    while sync.savedDefinition == nil {
+      await Task.yield()
+    }
+    await blocker.release()
+
+    let definition = try await authorization.value
+    try await cleanup.value
+    let saved = try store.load(
+      productAccountId: productAccountId,
+      connectionId: definition.connectionId
+    )
+
+    XCTAssertEqual(saved?.credential, "fresh-secret")
+  }
+
+  func testSyncedReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization()
+    async throws
+  {
+    let productAccountId = ProductAccountId("product-account-stale-generation")
+    let definition = try await GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    ).authorize(
+      draft: manualDraft(),
+      credential: "verified-secret",
+      productAccountId: productAccountId
+    )
+    let store = RecordingGenericMailAuthorizationStore()
+    try store.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 0,
+        credential: "stale-secret",
+        definition: definition
+      ),
+      productAccountId: productAccountId
+    )
+    let sync = RecordingGenericSyncService(
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationGeneration: 1,
+      definitions: [definition],
+      localCleanupGenerations: [definition.connectionId: 1]
+    )
+    let localStateCleaner = RecordingGenericMailLocalStateCleaner()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      localStateCleaner: localStateCleaner,
+      syncGate: MailboxConnectionSyncGate(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+
+    _ = try await service.authorize(
+      draft: manualDraft(),
+      credential: "fresh-secret",
+      productAccountId: productAccountId,
+      syncSession: session(productAccountId: productAccountId)
+    )
+
+    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+    XCTAssertEqual(sync.completedCleanupGenerations[definition.connectionId], 1)
+    XCTAssertEqual(store.authorization?.authorizationGeneration, 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGenericLocalStateCleanupClearsPendingActionsAndOutboxDeliveries() async throws {
+    let productAccountId = ProductAccountId("product-account-queued-cleanup")
+    let session = session(productAccountId: productAccountId)
+    let definition = try await GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    ).authorize(
+      draft: manualDraft(),
+      credential: "secret",
+      productAccountId: productAccountId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .gmail,
+      connectedAt: 1,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 1,
+      productAccountId: productAccountId,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+    let pendingStore = GenericMailPendingActionStore(
+      actions: [
+        PendingProviderAction(
+          action: .markRead,
+          attemptCount: 0,
+          connectionId: connection.id.rawValue,
+          id: UUID(),
+          lastErrorDescription: nil,
+          messageIds: ["message-1"],
+          productAccountId: productAccountId.rawValue,
+          providerId: connection.providerId.rawValue,
+          providerMailboxIdentity: connection.providerMailboxIdentity.value,
+          sequence: 1,
+          state: .pending,
+          targetProviderMailboxId: nil,
+          targetProviderStateIds: nil
+        )
+      ]
+    )
+    let outboxStore = GenericMailOutboxStore()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: outboxStore
+    )
+    _ = try await outboxService.enqueue(
+      OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let cleaner = GenericMailLocalStateCleaner(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      cache: FileGmailMessageBodyCache(rootDirectory: cacheDirectory),
+      metadataStore: try SwiftDataIMAPMessageMetadataStore.inMemory(),
+      outboxService: outboxService,
+      pendingActionService: PendingProviderActionService(store: pendingStore)
+    )
+
+    try await cleaner.clear(connectionId: connection.id, session: session)
+
+    let remainingOutboxItems = try await outboxService.items(session: session)
+    XCTAssertTrue(try pendingStore.load(productAccountId: productAccountId.rawValue).isEmpty)
+    XCTAssertTrue(remainingOutboxItems.isEmpty)
+  }
+
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -480,6 +644,59 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.syncedDefinitions, [definition])
     XCTAssertFalse(viewModel.isAuthorized(definition))
     XCTAssertEqual(viewModel.emailAddress, definition.emailAddress)
+    XCTAssertNil(viewModel.connectedDefinition)
+  }
+
+  @MainActor
+  func testStaleGenericAuthorizationAppearsAuthorizationRequiredAfterReadd() async {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .imap,
+        hostname: "imap.example.com",
+        port: 993,
+        security: .implicitTLS
+      ),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp,
+        hostname: "smtp.example.com",
+        port: 465,
+        security: .implicitTLS
+      ),
+      roleMappings: [.sent: "Sent"],
+      username: "reader@example.com"
+    )
+    let store = RecordingGenericMailAuthorizationStore()
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: 0,
+      credential: "device-only-secret",
+      definition: definition
+    )
+    let sync = RecordingGenericSyncService(
+      authorizationGeneration: 1,
+      definitions: [definition]
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "second-device-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: store,
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+
+    await viewModel.loadSyncedDefinitions()
+
+    XCTAssertFalse(viewModel.isAuthorized(definition))
     XCTAssertNil(viewModel.connectedDefinition)
   }
 
@@ -1108,7 +1325,11 @@ final class GenericMailSetupServiceTests: XCTestCase {
     await fulfillment(of: [cleanupStarted], timeout: 1)
     store.resumeLoad()
 
-    _ = try await authorization.value
+    do {
+      _ = try await authorization.value
+    } catch is CancellationError {
+      // Cleanup advanced the authorization generation before the final save.
+    }
     try await cleanup.value
 
     XCTAssertNil(store.authorization)
@@ -1734,6 +1955,7 @@ private final class RecordingMailboxConnectionClearer: MailboxConnectionClearing
 private final class RecordingGenericSyncService:
   MailboxConnectionDefinitionSyncing
 {
+  var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var onSave: (() async throws -> Void)?
   var recreatedDefinition: MailboxConnectionDefinition?
   var recreationObservation: MailboxConnectionRemovalObservation?
@@ -1745,15 +1967,40 @@ private final class RecordingGenericSyncService:
   var currentSnapshot: MailboxConnectionSyncSnapshot { snapshot }
 
   init(
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
+    authorizationGeneration: Int = 0,
     definitions: [GenericMailConnectionDefinition] = [],
+    localCleanupGenerations: [MailboxConnectionId: Int] = [:],
     removedConnectionIds: [MailboxConnectionId] = []
   ) {
     snapshot = MailboxConnectionSyncSnapshot(
-      connections: definitions.map { $0.synchronizedDefinition(connectedAt: 1) },
+      connections: definitions.map {
+        $0.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: 1
+        )
+      },
       defaultSendingConnectionId: nil,
       removedConnectionIds: removedConnectionIds,
-      updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1
+      updatedAt: definitions.isEmpty && removedConnectionIds.isEmpty ? nil : 1,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
+      localCleanupGenerations: localCleanupGenerations
     )
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    completedCleanupGenerations[connectionId]
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session _: ProductAccountSessionSnapshot
+  ) throws {
+    completedCleanupGenerations[connectionId] = generation
   }
 
   func loadSnapshot(
@@ -1817,9 +2064,16 @@ private final class RecordingGenericSyncService:
   ) async throws -> MailboxConnectionSyncSnapshot {
     try await onSave?()
     if let saveError { throw saveError }
-    savedDefinition = definition
+    let existingGeneration =
+      snapshot.connections.first(where: { $0.id == definition.id })?
+      .authorizationGeneration
+      ?? definition.authorizationGeneration
+    let retainedDefinition = definition.withAuthorizationGeneration(
+      max(existingGeneration, definition.authorizationGeneration)
+    )
+    savedDefinition = retainedDefinition
     snapshot = replacingConnections(
-      snapshot.connections.filter { $0.id != definition.id } + [definition]
+      snapshot.connections.filter { $0.id != definition.id } + [retainedDefinition]
     )
     return snapshot
   }
@@ -1844,8 +2098,55 @@ private final class RecordingGenericSyncService:
       connections: connections,
       defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
       removedConnectionIds: snapshot.removedConnectionIds,
-      updatedAt: 1
+      updatedAt: 1,
+      authorizationCleanupConnectionIds: snapshot.authorizationCleanupConnectionIds,
+      localCleanupGenerations: snapshot.localCleanupGenerations
     )
+  }
+}
+
+private final class RecordingGenericMailLocalStateCleaner: GenericMailLocalStateClearing {
+  var clearedConnectionIds: [MailboxConnectionId] = []
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    clearedConnectionIds.append(connectionId)
+  }
+}
+
+private final class GenericMailPendingActionStore: PendingProviderActionPersisting {
+  var actions: [PendingProviderAction]
+
+  init(actions: [PendingProviderAction]) {
+    self.actions = actions
+  }
+
+  func load(productAccountId _: String) throws -> [PendingProviderAction] {
+    actions
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId _: String
+  ) throws {
+    self.actions = actions
+  }
+}
+
+private final class GenericMailOutboxStore: OutboxDeliveryPersisting {
+  var attempts: [OutgoingDeliveryAttempt] = []
+
+  func load(productAccountId _: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    self.attempts = attempts
   }
 }
 
