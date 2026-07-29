@@ -161,29 +161,35 @@ protocol GenericMailLocalStateClearing {
   func clear(
     connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
-  ) throws
+  ) async throws
 }
 
 struct GenericMailLocalStateCleaner: GenericMailLocalStateClearing {
   private let authorizationStore: GenericMailAuthorizationPersisting
   private let cache: GmailMessageBodyCaching
   private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
 
   init(
     authorizationStore: GenericMailAuthorizationPersisting =
       KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
-    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
+    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared
   ) {
     self.authorizationStore = authorizationStore
     self.cache = cache
     self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
   }
 
   func clear(
     connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     try metadataStore.clear(
       productAccountId: session.productAccountId,
       connectionId: connectionId
@@ -192,6 +198,19 @@ struct GenericMailLocalStateCleaner: GenericMailLocalStateClearing {
       productAccountId: session.productAccountId,
       connectionId: connectionId
     )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: "",
+      id: connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+    try await pendingActionService.clear(connection: connection, session: session)
+    try await outboxService.clear(connection: connection, session: session)
     try authorizationStore.remove(
       productAccountId: ProductAccountId(session.productAccountId),
       connectionId: connectionId
@@ -833,7 +852,7 @@ extension GenericMailSetupService {
             localAuthorizationGeneration: previousAuthorization?.authorizationGeneration,
             session: syncSession
           ) {
-            try localStateCleaner.clear(
+            try await localStateCleaner.clear(
               connectionId: definition.connectionId,
               session: syncSession
             )
@@ -860,7 +879,7 @@ extension GenericMailSetupService {
             localAuthorizationGeneration: authorizationGeneration,
             session: syncSession
           ) {
-            try localStateCleaner.clear(
+            try await localStateCleaner.clear(
               connectionId: definition.connectionId,
               session: syncSession
             )

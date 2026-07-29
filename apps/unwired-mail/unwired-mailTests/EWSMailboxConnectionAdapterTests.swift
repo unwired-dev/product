@@ -212,6 +212,64 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     }
   }
 
+  func testEWSSendHoldsConnectionGateUntilProviderOperationFinishes() async throws {
+    let definition = makeEWSDefinition()
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let client = RecordingEWSClient()
+    let providerGate = TestRendezvous()
+    client.beforeSendReturn = {
+      await providerGate.hold()
+    }
+    let adapter = EWSMailboxConnectionAdapter(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: RecordingEWSDefinitionSyncService(
+        definition: definition.synchronizedDefinition(
+          authorizationGeneration: 0,
+          connectedAt: 1_781_200_000_000,
+          displayName: definition.emailAddress
+        )
+      ),
+      metadataStore: InMemoryEWSMetadataStore(),
+      outboxService: OutboxDeliveryService(store: EWSOutboxStore()),
+      pendingActionService: PendingProviderActionService(store: EWSActionStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let send = Task {
+      try await adapter.send(
+        OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+        connection: connection,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupStarted = TestRendezvous()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      await cleanupStarted.hold()
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    await cleanupStarted.waitUntilHeld()
+    await cleanupStarted.release()
+    try await Task.sleep(for: .milliseconds(20))
+    let finishedWhileProviderWasRunning = await cleanupFinished.value
+
+    XCTAssertFalse(finishedWhileProviderWasRunning)
+    await providerGate.release()
+    try await send.value
+    try await cleanup.value
+    let cleanupDidFinish = await cleanupFinished.value
+    XCTAssertEqual(client.sentMessages.count, 1)
+    XCTAssertTrue(cleanupDidFinish)
+  }
+
   func testEWSReauthorizationPurgesStaleGenerationBeforeSavingFreshAuthorization() async throws {
     let endpoint = try XCTUnwrap(
       URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
@@ -4160,6 +4218,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     serverVersion: .exchange2019
   )
   var body = ""
+  var beforeSendReturn: (() async -> Void)?
   var beforeVerifyReturn: (() async -> Void)?
   var didLoadMessagePage: (() -> Void)?
   var failPageLoadsAfterAction = false
@@ -4314,6 +4373,7 @@ private final class RecordingEWSClient: EWSClient, @unchecked Sendable {
     _ message: OutgoingMessage,
     authorization _: DeviceLocalEWSAuthorization
   ) async throws {
+    await beforeSendReturn?()
     lock.withLock { storedSentMessages.append(message) }
   }
 }
@@ -4474,6 +4534,21 @@ private final class EWSActionStore: PendingProviderActionPersisting, @unchecked 
     productAccountId _: String
   ) throws {
     self.actions = actions
+  }
+}
+
+private final class EWSOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
+  private var attempts: [OutgoingDeliveryAttempt] = []
+
+  func load(productAccountId _: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    self.attempts = attempts
   }
 }
 

@@ -171,6 +171,64 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
+  func testGraphSendHoldsConnectionGateUntilProviderOperationFinishes() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    let providerGate = TestRendezvous()
+    client.beforeSendReturn = {
+      await providerGate.hold()
+    }
+    let syncGate = MailboxConnectionSyncGate()
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      client: client,
+      definitions: RecordingMicrosoftGraphDefinitionSyncService(
+        definitions: [graphConnectionDefinition]
+      ),
+      syncGate: syncGate,
+      tokenStore: tokenStore
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let send = Task {
+      try await adapter.send(
+        OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+        connection: connection,
+        session: session
+      )
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupStarted = TestRendezvous()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      await cleanupStarted.hold()
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    await cleanupStarted.waitUntilHeld()
+    await cleanupStarted.release()
+    try await Task.sleep(for: .milliseconds(20))
+    let finishedWhileProviderWasRunning = await cleanupFinished.value
+
+    XCTAssertFalse(finishedWhileProviderWasRunning)
+    await providerGate.release()
+    try await send.value
+    try await cleanup.value
+    let cleanupDidFinish = await cleanupFinished.value
+    XCTAssertEqual(client.sentMessages.count, 1)
+    XCTAssertTrue(cleanupDidFinish)
+  }
+
+  // swiftlint:disable:next function_body_length
   func testGraphReauthorizationRechecksCleanupAfterSavingDefinition() async throws {
     let authorizer = RecordingMicrosoftGraphAuthorizer()
     let bodyCache = RecordingMicrosoftGraphBodyCache()
@@ -3093,6 +3151,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var readUpdates: [(messageId: String, isRead: Bool)] = []
   var sendErrors: [Error] = []
   var sentMessages: [OutgoingMessage] = []
+  var beforeSendReturn: (() async -> Void)?
 
   func verifyAccount(accessToken: String) async throws -> MicrosoftGraphAccount {
     accessTokens.append(accessToken)
@@ -3180,6 +3239,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   func send(_ message: OutgoingMessage, accessToken: String) async throws {
     accessTokens.append(accessToken)
     try validate(accessToken)
+    await beforeSendReturn?()
     if !sendErrors.isEmpty {
       throw sendErrors.removeFirst()
     }

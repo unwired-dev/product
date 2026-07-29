@@ -65,3 +65,11 @@ actor TestBarrier {
     }
   }
 }
+
+actor TestFlag {
+  private(set) var value = false
+
+  func set() {
+    value = true
+  }
+}

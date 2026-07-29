@@ -3218,16 +3218,18 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await withAccessTokenRetry(
-      connection: connection,
-      session: session,
-      isWithinSyncGate: false
-    ) { token in
-      try await pushRegistrar.registerOrRenew(
+    try await syncGate.withLock(connection.id) {
+      try await withAccessTokenRetry(
         connection: connection,
-        accessToken: token,
-        session: session
-      )
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await pushRegistrar.registerOrRenew(
+          connection: connection,
+          accessToken: token,
+          session: session
+        )
+      }
     }
   }
 
@@ -3253,17 +3255,23 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    guard connection.capabilities.supports(action) else {
-      throw MailboxConnectionAdapterError.unsupportedCapability
+    try await syncGate.withLock(connection.id) {
+      _ = try await accessToken(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      guard connection.capabilities.supports(action) else {
+        throw MailboxConnectionAdapterError.unsupportedCapability
+      }
+      try await pendingActionService.enqueue(
+        action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messages: messages,
+        connection: connection,
+        session: session
+      )
     }
-    try await pendingActionService.enqueue(
-      action,
-      targetProviderMailboxId: targetProviderMailboxId,
-      messages: messages,
-      connection: connection,
-      session: session
-    )
   }
 
   func resumePendingActions(
@@ -3501,42 +3509,44 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let destinationFolderId = try destinationFolderId(
-      for: action,
-      targetProviderMailboxId: targetProviderMailboxId,
-      connection: connection,
-      session: session
-    )
-    try await withAccessTokenRetry(
-      connection: connection,
-      session: session,
-      isWithinSyncGate: false
-    ) { token in
-      for messageId in messageIds {
-        switch action {
-        case .markRead:
-          try await metadataService.clientForAccountVerification.setMessageRead(
-            true,
-            messageId: messageId,
-            accessToken: token
-          )
-        case .markUnread:
-          try await metadataService.clientForAccountVerification.setMessageRead(
-            false,
-            messageId: messageId,
-            accessToken: token
-          )
-        case .archive, .delete, .move, .notSpam, .restore, .spam:
-          guard let destinationFolderId else {
-            throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+    try await syncGate.withLock(connection.id) {
+      let destinationFolderId = try destinationFolderId(
+        for: action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        connection: connection,
+        session: session
+      )
+      try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        for messageId in messageIds {
+          switch action {
+          case .markRead:
+            try await metadataService.clientForAccountVerification.setMessageRead(
+              true,
+              messageId: messageId,
+              accessToken: token
+            )
+          case .markUnread:
+            try await metadataService.clientForAccountVerification.setMessageRead(
+              false,
+              messageId: messageId,
+              accessToken: token
+            )
+          case .archive, .delete, .move, .notSpam, .restore, .spam:
+            guard let destinationFolderId else {
+              throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+            }
+            try await metadataService.clientForAccountVerification.moveMessage(
+              messageId: messageId,
+              destinationFolderId: destinationFolderId,
+              accessToken: token
+            )
+          case .star, .unstar:
+            throw MailboxConnectionAdapterError.unsupportedCapability
           }
-          try await metadataService.clientForAccountVerification.moveMessage(
-            messageId: messageId,
-            destinationFolderId: destinationFolderId,
-            accessToken: token
-          )
-        case .star, .unstar:
-          throw MailboxConnectionAdapterError.unsupportedCapability
         }
       }
     }
@@ -3586,12 +3596,14 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    try await withAccessTokenRetry(
-      connection: connection,
-      session: session,
-      isWithinSyncGate: false
-    ) { token in
-      try await metadataService.clientForAccountVerification.send(message, accessToken: token)
+    try await syncGate.withLock(connection.id) {
+      try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await metadataService.clientForAccountVerification.send(message, accessToken: token)
+      }
     }
   }
 
@@ -3600,15 +3612,17 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
-    try await withAccessTokenRetry(
-      connection: connection,
-      session: session,
-      isWithinSyncGate: false
-    ) { token in
-      try await metadataService.clientForAccountVerification.deliveryStatus(
-        rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
-        accessToken: token
-      )
+    try await syncGate.withLock(connection.id) {
+      try await withAccessTokenRetry(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      ) { token in
+        try await metadataService.clientForAccountVerification.deliveryStatus(
+          rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
+          accessToken: token
+        )
+      }
     }
   }
 

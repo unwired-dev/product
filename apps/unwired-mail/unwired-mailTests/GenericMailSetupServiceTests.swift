@@ -235,6 +235,78 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(store.authorization?.authorizationGeneration, 1)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGenericLocalStateCleanupClearsPendingActionsAndOutboxDeliveries() async throws {
+    let productAccountId = ProductAccountId("product-account-queued-cleanup")
+    let session = session(productAccountId: productAccountId)
+    let definition = try await GenericMailSetupService(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      verifier: RecordingGenericMailEndpointVerifier()
+    ).authorize(
+      draft: manualDraft(),
+      credential: "secret",
+      productAccountId: productAccountId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .gmail,
+      connectedAt: 1,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 1,
+      productAccountId: productAccountId,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    )
+    let pendingStore = GenericMailPendingActionStore(
+      actions: [
+        PendingProviderAction(
+          action: .markRead,
+          attemptCount: 0,
+          connectionId: connection.id.rawValue,
+          id: UUID(),
+          lastErrorDescription: nil,
+          messageIds: ["message-1"],
+          productAccountId: productAccountId.rawValue,
+          providerId: connection.providerId.rawValue,
+          providerMailboxIdentity: connection.providerMailboxIdentity.value,
+          sequence: 1,
+          state: .pending,
+          targetProviderMailboxId: nil,
+          targetProviderStateIds: nil
+        )
+      ]
+    )
+    let outboxStore = GenericMailOutboxStore()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: outboxStore
+    )
+    _ = try await outboxService.enqueue(
+      OutgoingMessage(body: "Body", recipient: "reader@example.com", subject: "Subject"),
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    let cacheDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: cacheDirectory) }
+    let cleaner = GenericMailLocalStateCleaner(
+      authorizationStore: RecordingGenericMailAuthorizationStore(),
+      cache: FileGmailMessageBodyCache(rootDirectory: cacheDirectory),
+      metadataStore: try SwiftDataIMAPMessageMetadataStore.inMemory(),
+      outboxService: outboxService,
+      pendingActionService: PendingProviderActionService(store: pendingStore)
+    )
+
+    try await cleaner.clear(connectionId: connection.id, session: session)
+
+    let remainingOutboxItems = try await outboxService.items(session: session)
+    XCTAssertTrue(try pendingStore.load(productAccountId: productAccountId.rawValue).isEmpty)
+    XCTAssertTrue(remainingOutboxItems.isEmpty)
+  }
+
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()
@@ -1897,8 +1969,42 @@ private final class RecordingGenericMailLocalStateCleaner: GenericMailLocalState
   func clear(
     connectionId: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
-  ) throws {
+  ) async throws {
     clearedConnectionIds.append(connectionId)
+  }
+}
+
+private final class GenericMailPendingActionStore: PendingProviderActionPersisting {
+  var actions: [PendingProviderAction]
+
+  init(actions: [PendingProviderAction]) {
+    self.actions = actions
+  }
+
+  func load(productAccountId _: String) throws -> [PendingProviderAction] {
+    actions
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId _: String
+  ) throws {
+    self.actions = actions
+  }
+}
+
+private final class GenericMailOutboxStore: OutboxDeliveryPersisting {
+  var attempts: [OutgoingDeliveryAttempt] = []
+
+  func load(productAccountId _: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    self.attempts = attempts
   }
 }
 

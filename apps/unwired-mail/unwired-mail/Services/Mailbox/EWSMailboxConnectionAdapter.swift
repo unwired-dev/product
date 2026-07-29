@@ -2145,14 +2145,20 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
     let connection = try await requiredConnection(message.connectionId, session: session)
-    let authorization = try await authorizationForProviderAccess(connection, session: session)
-    let providerMessage = try storedMessage(message, session: session)
-    return try await bodyService.load(
-      message: message,
-      providerMessage: providerMessage,
-      authorization: authorization,
-      session: session
-    )
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      let providerMessage = try storedMessage(message, session: session)
+      return try await bodyService.load(
+        message: message,
+        providerMessage: providerMessage,
+        authorization: authorization,
+        session: session
+      )
+    }
   }
 
   func prefetchMessageBodies(
@@ -2161,39 +2167,45 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     referenceDate: Date,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let authorization = try await authorizationForProviderAccess(connection, session: session)
-    let snapshot = try requiredSnapshot(connection, session: session)
-    let folders = Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
-    let lowerBound =
-      Int64(referenceDate.addingTimeInterval(-30 * 24 * 60 * 60).timeIntervalSince1970)
-      * 1_000
-    let upperBound = Int64(referenceDate.timeIntervalSince1970 * 1_000)
-    let storedMessages = snapshot.messages
-    let candidates = storedMessages.compactMap { providerMessage -> EWSBodyCandidate? in
-      let message = providerMessage.mailboxMetadata(connection: connection, foldersById: folders)
-      let states = Set(message.providerStateIds ?? [])
-      guard states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) else { return nil }
-      let isPinned = pinnedMessageIds.contains(message.id)
-      let isRecent =
-        (lowerBound...upperBound).contains(message.providerInternalDateMilliseconds)
-        && !states.isDisjoint(with: ["INBOX", "SENT"])
-      return isPinned || isRecent ? (message, providerMessage) : nil
-    }.sorted {
-      $0.0.providerInternalDateMilliseconds > $1.0.providerInternalDateMilliseconds
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      let snapshot = try requiredSnapshot(connection, session: session)
+      let folders = Dictionary(uniqueKeysWithValues: snapshot.folders.map { ($0.id, $0) })
+      let lowerBound =
+        Int64(referenceDate.addingTimeInterval(-30 * 24 * 60 * 60).timeIntervalSince1970)
+        * 1_000
+      let upperBound = Int64(referenceDate.timeIntervalSince1970 * 1_000)
+      let storedMessages = snapshot.messages
+      let candidates = storedMessages.compactMap { providerMessage -> EWSBodyCandidate? in
+        let message = providerMessage.mailboxMetadata(connection: connection, foldersById: folders)
+        let states = Set(message.providerStateIds ?? [])
+        guard states.isDisjoint(with: ["DRAFT", "SPAM", "TRASH"]) else { return nil }
+        let isPinned = pinnedMessageIds.contains(message.id)
+        let isRecent =
+          (lowerBound...upperBound).contains(message.providerInternalDateMilliseconds)
+          && !states.isDisjoint(with: ["INBOX", "SENT"])
+        return isPinned || isRecent ? (message, providerMessage) : nil
+      }.sorted {
+        $0.0.providerInternalDateMilliseconds > $1.0.providerInternalDateMilliseconds
+      }
+      let recentIds = Set(
+        candidates.filter { !pinnedMessageIds.contains($0.0.id) }.prefix(500).map { $0.0.id }
+      )
+      let selected = candidates.filter {
+        pinnedMessageIds.contains($0.0.id) || recentIds.contains($0.0.id)
+      }
+      try await bodyService.prefetch(
+        messages: selected,
+        connection: connection,
+        pinnedMessageIds: pinnedMessageIds,
+        authorization: authorization,
+        session: session
+      )
     }
-    let recentIds = Set(
-      candidates.filter { !pinnedMessageIds.contains($0.0.id) }.prefix(500).map { $0.0.id }
-    )
-    let selected = candidates.filter {
-      pinnedMessageIds.contains($0.0.id) || recentIds.contains($0.0.id)
-    }
-    try await bodyService.prefetch(
-      messages: selected,
-      connection: connection,
-      pinnedMessageIds: pinnedMessageIds,
-      authorization: authorization,
-      session: session
-    )
   }
 
   func removeCachedMessageBody(
@@ -2236,25 +2248,31 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await authorizationForProviderAccess(connection, session: session)
-    if action == .move, targetProviderMailboxId == nil {
-      throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+    try await syncGate.withLock(connection.id) {
+      _ = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      if action == .move, targetProviderMailboxId == nil {
+        throw MailboxConnectionAdapterError.providerMailboxTargetRequired
+      }
+      if [.move, .restore, .spam].contains(action),
+        messages.contains(where: {
+          $0.providerStateIds?.contains(EWSProviderMessage.archiveHierarchyStateId) == true
+        })
+      {
+        throw MailboxConnectionAdapterError.unsupportedCapability
+      }
+      try await pendingActionService.enqueue(
+        action,
+        targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds,
+        messages: messages,
+        connection: connection,
+        session: session
+      )
     }
-    if [.move, .restore, .spam].contains(action),
-      messages.contains(where: {
-        $0.providerStateIds?.contains(EWSProviderMessage.archiveHierarchyStateId) == true
-      })
-    {
-      throw MailboxConnectionAdapterError.unsupportedCapability
-    }
-    try await pendingActionService.enqueue(
-      action,
-      targetProviderMailboxId: targetProviderMailboxId,
-      targetProviderStateIds: targetProviderStateIds,
-      messages: messages,
-      connection: connection,
-      session: session
-    )
   }
 
   func perform(
@@ -2414,11 +2432,17 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    let authorization = try await authorizationForProviderAccess(connection, session: session)
-    try await client.send(
-      message,
-      authorization: authorization
-    )
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      try await client.send(
+        message,
+        authorization: authorization
+      )
+    }
   }
 
   func deliveryStatus(
@@ -2426,11 +2450,17 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxDeliveryStatus {
-    let authorization = try await authorizationForProviderAccess(connection, session: session)
-    return try await client.deliveryStatus(
-      rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
-      authorization: authorization
-    )
+    try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      return try await client.deliveryStatus(
+        rfcMessageId: OutgoingMessage.rfcMessageId(for: idempotencyKey),
+        authorization: authorization
+      )
+    }
   }
 
   // swiftlint:disable:next function_body_length
