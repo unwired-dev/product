@@ -189,6 +189,11 @@ final class MailboxFreshnessViewModel {
     let task: Task<MailboxMetadataSyncResult, Error>
   }
 
+  private enum SyncScope: Equatable {
+    case full
+    case recent
+  }
+
   private static let activePollInterval = Duration.seconds(300)
 
   private var inFlightSyncs: [MailboxConnectionId: InFlightSync] = [:]
@@ -312,6 +317,17 @@ final class MailboxFreshnessViewModel {
   }
 
   func synchronize(connections: [MailboxConnection]) async {
+    await synchronize(connections: connections, gmailScope: .recent)
+  }
+
+  func synchronizeFully(connections: [MailboxConnection]) async {
+    await synchronize(connections: connections, gmailScope: .full)
+  }
+
+  private func synchronize(
+    connections: [MailboxConnection],
+    gmailScope: SyncScope
+  ) async {
     guard isSessionCurrent(session) else {
       cancelAll()
       return
@@ -331,7 +347,12 @@ final class MailboxFreshnessViewModel {
       }
       guard connection.capabilities.canSynchronizeMetadata else { continue }
       do {
-        let result = try await syncInbox(connection: connection, session: session)
+        let result =
+          if connection.providerId == .gmail, gmailScope == .recent {
+            try await syncRecentInbox(connection: connection, session: session)
+          } else {
+            try await syncInbox(connection: connection, session: session)
+          }
         if !result.historicalMetadataBackfillIsComplete {
           startHistoricalBackfill(connection: connection)
         }
@@ -343,10 +364,33 @@ final class MailboxFreshnessViewModel {
     }
   }
 
-  // swiftlint:disable:next function_body_length
   func syncInbox(
     connection: MailboxConnection,
     session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await synchronizeInbox(
+      connection: connection,
+      session: requestedSession,
+      scope: .full
+    )
+  }
+
+  private func syncRecentInbox(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await synchronizeInbox(
+      connection: connection,
+      session: requestedSession,
+      scope: .recent
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func synchronizeInbox(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot,
+    scope: SyncScope
   ) async throws -> MailboxMetadataSyncResult {
     guard requestedSession == session, isSessionCurrent(session) else {
       throw CancellationError()
@@ -363,10 +407,22 @@ final class MailboxFreshnessViewModel {
     )
     let syncId = UUID()
     let task = Task {
-      try await service.syncInbox(
-        connection: connection,
-        session: requestedSession
-      )
+      switch scope {
+      case .full:
+        try await service.syncInbox(
+          connection: connection,
+          session: requestedSession
+        )
+      case .recent:
+        try await service.syncRecentInbox(
+          connection: connection,
+          includingHistoryCandidates: false,
+          session: requestedSession,
+          sinceHistoryId: nil,
+          throughHistoryId: nil,
+          shouldPersist: { !Task.isCancelled }
+        )
+      }
     }
     inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
 
@@ -913,7 +969,7 @@ struct AccountView: View {
         lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         refreshMailboxes: {
-          Task { await synchronizeMailboxes() }
+          Task { await synchronizeMailboxesFully() }
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
@@ -1219,6 +1275,11 @@ extension AccountView {
 
   private func synchronizeMailboxes() async {
     await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+    await reloadObservedMailboxes()
+  }
+
+  private func synchronizeMailboxesFully() async {
+    await mailboxFreshnessViewModel.synchronizeFully(connections: gmailViewModel.connections)
     await reloadObservedMailboxes()
   }
 

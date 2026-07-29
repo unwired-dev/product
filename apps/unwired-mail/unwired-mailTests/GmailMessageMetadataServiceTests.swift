@@ -1263,7 +1263,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testMailboxFreshnessLaunchSynchronizesEveryAuthorizedConnection() async {
+  func testMailboxFreshnessLaunchRefreshesNewestPageForEveryAuthorizedConnection() async {
     let fixture = makeMailboxFreshnessFixture()
     let unauthorizedConnection = GmailProviderConnectionStatus(
       connectedAt: connection.connectedAt,
@@ -1285,8 +1285,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connections: fixture.connections + [unauthorizedConnection]
     )
 
-    let syncedConnectionIds = await fixture.service.syncedConnectionIds()
-    XCTAssertEqual(syncedConnectionIds, fixture.connections.map(\.id))
+    let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
+    let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
+    let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
+    XCTAssertEqual(recentConnectionIds, fixture.connections.map(\.id))
+    XCTAssertTrue(fullySyncedConnectionIds.isEmpty)
+    XCTAssertTrue(reconciledConnectionIds.isEmpty)
     XCTAssertEqual(
       fixture.viewModel.status(for: unauthorizedConnection).phase,
       .authorizationRequired
@@ -1299,6 +1303,46 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     XCTAssertEqual(fixture.viewModel.lastSuccessfulSyncAt, fixture.now)
+  }
+
+  @MainActor
+  func testMailboxFreshnessManualRefreshRunsFullGmailReconciliation() async {
+    let fixture = makeMailboxFreshnessFixture()
+
+    await fixture.viewModel.synchronizeFully(connections: fixture.connections)
+
+    let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
+    let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertTrue(recentConnectionIds.isEmpty)
+    XCTAssertEqual(fullySyncedConnectionIds, fixture.connections.map(\.id))
+  }
+
+  @MainActor
+  func testMailboxFreshnessKeepsNonGmailForegroundSynchronizationUnchanged() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .imapRead,
+      connectedAt: 1_781_200_000_000,
+      displayName: "IMAP",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .imapSMTP,
+          value: "imap@example.com"
+        )
+      ),
+      lastVerifiedAt: 1_781_200_000_000,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1_781_200_000_000
+    )
+
+    await fixture.viewModel.synchronize(connections: [connection])
+
+    let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
+    let fullySyncedConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertTrue(recentConnectionIds.isEmpty)
+    XCTAssertEqual(fullySyncedConnectionIds, [connection.id])
   }
 
   @MainActor
@@ -1411,6 +1455,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [statusPublished], timeout: 1)
 
     XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
+  func testMailboxFreshnessForegroundResumesInterruptedHistoricalBackfill() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete, .incomplete],
+      suspendsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts(callCount: 2)
+
+    let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
+    let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
+    XCTAssertEqual(recentConnectionIds, [connection.id, connection.id])
+    XCTAssertEqual(reconciledConnectionIds, [connection.id, connection.id])
+
+    await fixture.service.releaseHistoricalBackfill()
   }
 
   @MainActor
@@ -4244,10 +4309,12 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
 
   private var backfillConnectionIds: [MailboxConnectionId] = []
   private var backfillContinuation: CheckedContinuation<Void, Never>?
-  private var backfillStartContinuations: [CheckedContinuation<Void, Never>] = []
+  private var backfillStartContinuations:
+    [(callCount: Int, continuation: CheckedContinuation<Void, Never>)] = []
   private var connectionIds: [MailboxConnectionId] = []
   private var collections: [MailboxMessageCollection] = []
   private var outcomes: [Outcome]
+  private var recentConnectionIds: [MailboxConnectionId] = []
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
   private var syncContinuation: CheckedContinuation<Void, Error>?
   private let completesBackfill: Bool
@@ -4298,6 +4365,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     connectionIds.append(connection.id)
+    return try await nextSyncResult()
+  }
+
+  private func nextSyncResult() async throws -> MailboxMetadataSyncResult {
     let continuations = startContinuations
     startContinuations.removeAll()
     for continuation in continuations {
@@ -4335,10 +4406,11 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     backfillConnectionIds.append(connection.id)
-    let continuations = backfillStartContinuations
-    backfillStartContinuations.removeAll()
+    let callCount = backfillConnectionIds.count
+    let continuations = backfillStartContinuations.filter { $0.callCount <= callCount }
+    backfillStartContinuations.removeAll { $0.callCount <= callCount }
     for continuation in continuations {
-      continuation.resume()
+      continuation.continuation.resume()
     }
     if suspendsBackfill {
       await withTaskCancellationHandler {
@@ -4365,14 +4437,15 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
 
   // swiftlint:disable:next function_parameter_count
   func syncRecentInbox(
-    connection _: MailboxConnection,
+    connection: MailboxConnection,
     includingHistoryCandidates _: Bool,
     session _: ProductAccountSessionSnapshot,
     sinceHistoryId _: String?,
     throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    .empty
+    recentConnectionIds.append(connection.id)
+    return try await nextSyncResult()
   }
 
   func overrideCategory(
@@ -4386,7 +4459,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   }
 
   func syncCallCount() -> Int {
-    connectionIds.count
+    connectionIds.count + recentConnectionIds.count
   }
 
   func loadedCollections() -> [MailboxMessageCollection] {
@@ -4401,6 +4474,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     backfillConnectionIds
   }
 
+  func recentlySyncedConnectionIds() -> [MailboxConnectionId] {
+    recentConnectionIds
+  }
+
   func waitUntilSyncStarts() async {
     guard connectionIds.isEmpty else { return }
     await withCheckedContinuation { continuation in
@@ -4408,10 +4485,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     }
   }
 
-  func waitUntilHistoricalBackfillStarts() async {
-    guard backfillConnectionIds.isEmpty else { return }
+  func waitUntilHistoricalBackfillStarts(callCount: Int = 1) async {
+    guard backfillConnectionIds.count < callCount else { return }
     await withCheckedContinuation { continuation in
-      backfillStartContinuations.append(continuation)
+      backfillStartContinuations.append((callCount, continuation))
     }
   }
 
