@@ -2535,6 +2535,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -2582,8 +2583,26 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           restore(previousTokens, for: account, session: session)
           return nil
         }
-        _ = try await definitionSyncService.saveConnection(connection, session: session)
+        if expectedConnectionId == nil {
+          _ = try await definitionSyncService.recreateDefinition(
+            connection.definition,
+            after: removalObservation,
+            session: session
+          )
+        } else {
+          _ = try await definitionSyncService.saveConnection(connection, session: session)
+        }
         return connection
+      } catch let error as MailboxConnectionSyncError {
+        if case .connectionRemoved = error {
+          try? tokenStore.clear(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: account.id
+          )
+        } else {
+          restore(previousTokens, for: account, session: session)
+        }
+        throw error
       } catch {
         restore(previousTokens, for: account, session: session)
         throw error

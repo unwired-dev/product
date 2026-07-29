@@ -620,6 +620,7 @@ struct EWSSetupService {
     credential: String,
     emailAddress: String,
     endpoint endpointValue: String,
+    saveIntent: MailboxConnectionDefinitionSaveIntent = .authorizeExisting,
     username: String,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
@@ -700,13 +701,11 @@ struct EWSSetupService {
     )
     try authorizationStore.save(authorization, productAccountId: session.productAccountId)
     do {
-      _ = try await definitionSyncService.saveDefinition(
-        definition.synchronizedDefinition(
-          connectedAt: connectedAt,
-          displayName: account.primaryEmailAddress
-        ),
-        session: session
+      let synchronizedDefinition = definition.synchronizedDefinition(
+        connectedAt: connectedAt,
+        displayName: account.primaryEmailAddress
       )
+      try await saveDefinition(synchronizedDefinition, intent: saveIntent, session: session)
     } catch {
       if let previous {
         try? authorizationStore.save(previous, productAccountId: session.productAccountId)
@@ -730,6 +729,23 @@ struct EWSSetupService {
       trustedDeviceId: session.trustedDeviceId,
       updatedAt: timestamp
     )
+  }
+
+  private func saveDefinition(
+    _ definition: MailboxConnectionDefinition,
+    intent: MailboxConnectionDefinitionSaveIntent,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    switch intent {
+    case .add(let removalObservation):
+      _ = try await definitionSyncService.recreateDefinition(
+        definition,
+        after: removalObservation,
+        session: session
+      )
+    case .authorizeExisting:
+      _ = try await definitionSyncService.saveDefinition(definition, session: session)
+    }
   }
   // swiftlint:enable function_body_length
 }
@@ -1538,6 +1554,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   @MainActor
   func connect(
     expectedConnectionId _: MailboxConnectionId?,
+    removalObservation _: MailboxConnectionRemovalObservation?,
     session _: ProductAccountSessionSnapshot,
     isSessionCurrent _: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {

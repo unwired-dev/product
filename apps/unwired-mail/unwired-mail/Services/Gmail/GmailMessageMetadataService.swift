@@ -155,6 +155,12 @@ protocol GmailMessageMetadataPersisting {
     providerAccountIdentifier: String
   ) throws -> [GmailMessageMetadata]
 
+  func loadInboxThreadMessages(
+    additionalProviderMessageIds: Set<String>,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> [GmailMessageMetadata]
+
   func loadSyncState(
     productAccountId: String,
     providerAccountIdentifier: String
@@ -175,7 +181,38 @@ protocol GmailMessageMetadataPersisting {
   ) throws
 }
 
+enum GmailMessageMetadataStoreError: LocalizedError {
+  case inboxIndexMigrationPending
+
+  var errorDescription: String? {
+    switch self {
+    case .inboxIndexMigrationPending:
+      "Preparing cached Gmail Inbox metadata."
+    }
+  }
+}
+
 extension GmailMessageMetadataPersisting {
+  func loadInboxThreadMessages(
+    additionalProviderMessageIds: Set<String>,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> [GmailMessageMetadata] {
+    let messages = try loadMessages(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    let inboxThreadIds = Set(
+      messages
+        .filter {
+          ($0.providerLabelIds?.contains("INBOX") ?? true)
+            || additionalProviderMessageIds.contains($0.providerMessageId)
+        }
+        .map(\.providerThreadId)
+    )
+    return messages.filter { inboxThreadIds.contains($0.providerThreadId) }
+  }
+
   func loadSyncState(
     productAccountId _: String,
     providerAccountIdentifier _: String
@@ -239,6 +276,12 @@ protocol GmailMessageMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult
 
+  func loadInboxProjectionCandidates(
+    additionalProviderMessageIds: Set<String>,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult
+
   func loadMailbox(
     _ collection: MailboxMessageCollection,
     connection: GmailProviderConnectionStatus,
@@ -286,6 +329,14 @@ protocol GmailMessageSearching {
 }
 
 extension GmailMessageMetadataSyncing {
+  func loadInboxProjectionCandidates(
+    additionalProviderMessageIds _: Set<String>,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    try await loadMailbox(.role(.inbox), connection: connection, session: session)
+  }
+
   func loadMailbox(
     _ collection: MailboxMessageCollection,
     connection: GmailProviderConnectionStatus,
@@ -528,28 +579,43 @@ struct FileGmailMessageMetadataStore {
 final class DurableGmailMessageMetadataRecord {
   @Attribute(.unique) var storageKey: String
   var encodedMessage: Data
+  var isInboxVisible: Bool = false
+  var metadataIndexVersion: Int = 0
   var productAccountId: String
   var pendingRemovalScanId: String?
   var providerAccountIdentifier: String
+  var providerThreadId: String = ""
   var stableProviderMessageId: String
 
   init(
     encodedMessage: Data,
+    isInboxVisible: Bool,
     productAccountId: String,
     providerAccountIdentifier: String,
+    providerThreadId: String,
     stableProviderMessageId: String,
     storageKey: String
   ) {
     self.storageKey = storageKey
     self.encodedMessage = encodedMessage
+    self.isInboxVisible = isInboxVisible
+    metadataIndexVersion = 1
     self.productAccountId = productAccountId
     self.providerAccountIdentifier = providerAccountIdentifier
+    self.providerThreadId = providerThreadId
     self.stableProviderMessageId = stableProviderMessageId
     pendingRemovalScanId = nil
   }
 
   func message() throws -> GmailMessageMetadata {
     try JSONDecoder().decode(GmailMessageMetadata.self, from: encodedMessage)
+  }
+
+  func update(from message: GmailMessageMetadata) throws {
+    encodedMessage = try JSONEncoder().encode(message)
+    isInboxVisible = message.providerLabelIds?.contains("INBOX") ?? true
+    metadataIndexVersion = 1
+    providerThreadId = message.providerThreadId
   }
 }
 
@@ -596,6 +662,8 @@ final class GmailMetadataSyncCheckpointRecord {
 }
 
 struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
+  private static let threadFetchBatchSize = 500
+
   private let containerResult: Result<ModelContainer, Error>
   private let legacyStore: FileGmailMessageMetadataStore
 
@@ -678,30 +746,91 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     productAccountId: String,
     providerAccountIdentifier: String
   ) throws -> [GmailMessageMetadata] {
+    try migrateLegacyMessagesIfNeeded(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
     let context = try makeContext()
-    let messages = try fetchRecords(
+    let records = try fetchRecords(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier,
       context: context
     )
-    .map { try $0.message() }
-    .sorted(by: Self.messagesAreOrdered)
-    guard messages.isEmpty else { return messages }
-    let legacyMessages = try legacyStore.loadMessages(
+    var updatedIndexes = false
+    let messages = try records.map { record in
+      let message = try record.message()
+      if record.metadataIndexVersion < 1 {
+        try record.update(from: message)
+        updatedIndexes = true
+      }
+      return message
+    }
+    if updatedIndexes {
+      try context.save()
+    }
+    return messages.sorted(by: Self.messagesAreOrdered)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func loadInboxThreadMessages(
+    additionalProviderMessageIds: Set<String>,
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws -> [GmailMessageMetadata] {
+    try migrateLegacyMessagesIfNeeded(
       productAccountId: productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
-    guard !legacyMessages.isEmpty else { return [] }
-    try saveMessages(
-      legacyMessages,
+    let context = try makeContext()
+    guard
+      try rebuildOneInboxIndexBatch(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier,
+        context: context
+      )
+    else {
+      throw GmailMessageMetadataStoreError.inboxIndexMigrationPending
+    }
+    let inboxRecords = try fetchInboxRecords(
       productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
+      providerAccountIdentifier: providerAccountIdentifier,
+      context: context
     )
-    try legacyStore.clearMessages(
-      productAccountId: productAccountId,
-      providerAccountIdentifier: providerAccountIdentifier
+    let stableProviderMessageIds = Set(
+      additionalProviderMessageIds.map { "gmail:\(providerAccountIdentifier):\($0)" }
     )
-    return legacyMessages.sorted(by: Self.messagesAreOrdered)
+    let additionalRecords: [DurableGmailMessageMetadataRecord] =
+      if stableProviderMessageIds.isEmpty {
+        []
+      } else {
+        try fetchRecords(
+          productAccountId: productAccountId,
+          providerAccountIdentifier: providerAccountIdentifier,
+          stableProviderMessageIds: stableProviderMessageIds,
+          context: context
+        )
+      }
+    let providerThreadIds = Array(
+      Set((inboxRecords + additionalRecords).map(\.providerThreadId))
+    ).sorted()
+    var visibleRecords: [DurableGmailMessageMetadataRecord] = []
+    for startIndex in stride(
+      from: 0,
+      to: providerThreadIds.count,
+      by: Self.threadFetchBatchSize
+    ) {
+      let endIndex = min(startIndex + Self.threadFetchBatchSize, providerThreadIds.count)
+      visibleRecords += try fetchThreadRecords(
+        productAccountId: productAccountId,
+        providerAccountIdentifier: providerAccountIdentifier,
+        providerThreadIds: Set(providerThreadIds[startIndex..<endIndex]),
+        context: context
+      )
+    }
+    return
+      try visibleRecords
+      .map { try $0.message() }
+      .sorted(by: Self.messagesAreOrdered)
   }
 
   func loadSyncState(
@@ -741,16 +870,18 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
     )
     for message in messages {
       if let record = existingByStableId[message.stableProviderMessageId] {
-        record.encodedMessage = try JSONEncoder().encode(
-          message.preservingHistoricalBoundary(from: try record.message())
+        try record.update(
+          from: message.preservingHistoricalBoundary(from: try record.message())
         )
         record.pendingRemovalScanId = nil
       } else {
         context.insert(
           DurableGmailMessageMetadataRecord(
             encodedMessage: try JSONEncoder().encode(message),
+            isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
             productAccountId: productAccountId,
             providerAccountIdentifier: providerAccountIdentifier,
+            providerThreadId: message.providerThreadId,
             stableProviderMessageId: message.stableProviderMessageId,
             storageKey: Self.storageKey(
               productAccountId: productAccountId,
@@ -810,13 +941,15 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
 
     for message in messages {
       if let record = existingByStableId.removeValue(forKey: message.stableProviderMessageId) {
-        record.encodedMessage = try JSONEncoder().encode(message)
+        try record.update(from: message)
       } else {
         context.insert(
           DurableGmailMessageMetadataRecord(
             encodedMessage: try JSONEncoder().encode(message),
+            isInboxVisible: message.providerLabelIds?.contains("INBOX") ?? true,
             productAccountId: productAccountId,
             providerAccountIdentifier: providerAccountIdentifier,
+            providerThreadId: message.providerThreadId,
             stableProviderMessageId: message.stableProviderMessageId,
             storageKey: Self.storageKey(
               productAccountId: productAccountId,
@@ -840,6 +973,59 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
 
   private func makeContext() throws -> ModelContext {
     try ModelContext(containerResult.get())
+  }
+
+  private func migrateLegacyMessagesIfNeeded(
+    productAccountId: String,
+    providerAccountIdentifier: String
+  ) throws {
+    let context = try makeContext()
+    var descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+      predicate: #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.providerAccountIdentifier == providerAccountIdentifier
+      }
+    )
+    descriptor.fetchLimit = 1
+    guard try context.fetch(descriptor).isEmpty else { return }
+    let legacyMessages = try legacyStore.loadMessages(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    guard !legacyMessages.isEmpty else { return }
+    try saveMessages(
+      legacyMessages,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    try legacyStore.clearMessages(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+  }
+
+  private func rebuildOneInboxIndexBatch(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    context: ModelContext
+  ) throws -> Bool {
+    var descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+      predicate: #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.providerAccountIdentifier == providerAccountIdentifier
+          && $0.metadataIndexVersion < 1
+      }
+    )
+    descriptor.fetchLimit = Self.threadFetchBatchSize
+    let records = try context.fetch(descriptor)
+    for record in records {
+      try record.update(from: record.message())
+    }
+    if !records.isEmpty {
+      try context.save()
+    }
+    descriptor.fetchLimit = 1
+    return try context.fetch(descriptor).isEmpty
   }
 
   private func fetchCheckpoint(
@@ -876,6 +1062,38 @@ struct SwiftDataGmailMessageMetadataStore: GmailMessageMetadataPersisting {
           && stableProviderMessageIds.contains($0.stableProviderMessageId)
       }
     }
+    return try context.fetch(descriptor)
+  }
+
+  private func fetchInboxRecords(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    context: ModelContext
+  ) throws -> [DurableGmailMessageMetadataRecord] {
+    let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+      predicate: #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.providerAccountIdentifier == providerAccountIdentifier
+          && $0.metadataIndexVersion == 1
+          && $0.isInboxVisible
+      }
+    )
+    return try context.fetch(descriptor)
+  }
+
+  private func fetchThreadRecords(
+    productAccountId: String,
+    providerAccountIdentifier: String,
+    providerThreadIds: Set<String>,
+    context: ModelContext
+  ) throws -> [DurableGmailMessageMetadataRecord] {
+    let descriptor = FetchDescriptor<DurableGmailMessageMetadataRecord>(
+      predicate: #Predicate {
+        $0.productAccountId == productAccountId
+          && $0.providerAccountIdentifier == providerAccountIdentifier
+          && providerThreadIds.contains($0.providerThreadId)
+      }
+    )
     return try context.fetch(descriptor)
   }
 
@@ -978,15 +1196,49 @@ struct GmailMessageMetadataService:
     try await loadMailbox(.role(.inbox), connection: connection, session: session)
   }
 
+  func loadInboxProjectionCandidates(
+    additionalProviderMessageIds: Set<String>,
+    connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    let productAccountId = session.productAccountId
+    let providerAccountIdentifier = connection.providerAccountIdentifier
+    let messages = try store.loadInboxThreadMessages(
+      additionalProviderMessageIds: additionalProviderMessageIds,
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    let state = try store.loadSyncState(
+      productAccountId: productAccountId,
+      providerAccountIdentifier: providerAccountIdentifier
+    )
+    return GmailMetadataSyncResult(
+      hasInitialMailboxAvailability: state != nil || !messages.isEmpty,
+      historicalMetadataBackfillIsComplete:
+        state?.historicalMetadataBackfillIsComplete ?? false,
+      messages: messages,
+      threads: GmailInboxThread.group(messages)
+    )
+  }
+
   func loadMailbox(
     _ collection: MailboxMessageCollection,
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    let messages = try store.loadMessages(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
-    )
+    let messages =
+      if collection == .role(.inbox) {
+        try store.loadInboxThreadMessages(
+          additionalProviderMessageIds: [],
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      } else {
+        try store.loadMessages(
+          productAccountId: session.productAccountId,
+          providerAccountIdentifier: connection.providerAccountIdentifier
+        )
+      }
     let state = try store.loadSyncState(
       productAccountId: session.productAccountId,
       providerAccountIdentifier: connection.providerAccountIdentifier
@@ -1084,14 +1336,14 @@ struct GmailMessageMetadataService:
     connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
+    let existingMessages = try store.loadMessages(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: connection.providerAccountIdentifier
+    )
     let tokens = try await tokensForSync(
       connection: connection,
       deferPersistence: false,
       session: session
-    )
-    let existingMessages = try store.loadMessages(
-      productAccountId: session.productAccountId,
-      providerAccountIdentifier: connection.providerAccountIdentifier
     )
     let existingMessagesByStableId = Dictionary(
       uniqueKeysWithValues: existingMessages.map { ($0.stableProviderMessageId, $0) }

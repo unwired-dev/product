@@ -538,6 +538,7 @@ struct GenericMailSetupService {
     draft: GenericMailSetupDraft,
     credential: String,
     productAccountId: ProductAccountId,
+    saveIntent: MailboxConnectionDefinitionSaveIntent = .authorizeExisting,
     syncSession: ProductAccountSessionSnapshot? = nil,
     isSessionCurrent: () -> Bool = { true }
   ) async throws -> GenericMailConnectionDefinition {
@@ -561,6 +562,7 @@ struct GenericMailSetupService {
       verifiedDefinition,
       credential: credential,
       productAccountId: productAccountId,
+      saveIntent: saveIntent,
       syncSession: syncSession,
       isSessionCurrent: isSessionCurrent
     )
@@ -687,10 +689,12 @@ struct GenericMailSetupService {
 }
 
 extension GenericMailSetupService {
+  // swiftlint:disable:next function_parameter_count
   fileprivate func persistAuthorizationAndDefinition(
     _ definition: GenericMailConnectionDefinition,
     credential: String,
     productAccountId: ProductAccountId,
+    saveIntent: MailboxConnectionDefinitionSaveIntent,
     syncSession: ProductAccountSessionSnapshot?,
     isSessionCurrent: () -> Bool
   ) async throws {
@@ -713,8 +717,9 @@ extension GenericMailSetupService {
       }
       if let syncSession {
         do {
-          _ = try await definitionSyncService.saveDefinition(
-            definition.synchronizedDefinition(connectedAt: clock()),
+          try await saveSynchronizedDefinition(
+            definition,
+            intent: saveIntent,
             session: syncSession
           )
         } catch {
@@ -739,6 +744,27 @@ extension GenericMailSetupService {
     } catch {
       await authorizationCoordinator.release(lease)
       throw error
+    }
+  }
+
+  private func saveSynchronizedDefinition(
+    _ definition: GenericMailConnectionDefinition,
+    intent: MailboxConnectionDefinitionSaveIntent,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    let synchronizedDefinition = definition.synchronizedDefinition(connectedAt: clock())
+    switch intent {
+    case .add(let removalObservation):
+      _ = try await definitionSyncService.recreateDefinition(
+        synchronizedDefinition,
+        after: removalObservation,
+        session: session
+      )
+    case .authorizeExisting:
+      _ = try await definitionSyncService.saveDefinition(
+        synchronizedDefinition,
+        session: session
+      )
     }
   }
 }
