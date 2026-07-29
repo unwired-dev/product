@@ -3338,7 +3338,7 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) {
-    Task {
+    mailActionViewModel.startPendingAction {
       let didPerform = await mailActionViewModel.perform(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
@@ -3351,7 +3351,9 @@ struct MailShellConversationReader: View {
       )
       if didPerform {
         _ = await inboxViewModel.reloadLocal(connection: connection)
+        guard !Task.isCancelled else { return }
         await mailActionViewModel.resume(connections: [connection])
+        guard !Task.isCancelled else { return }
         _ = await inboxViewModel.reloadLocal(connection: connection)
         if let errorMessage = mailActionViewModel.errorMessage {
           readerErrorConnectionId = connection.id
@@ -4009,8 +4011,8 @@ final class GmailMailActionViewModel {
 
   private var knownConnections: [MailboxConnection] = []
   private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
-  private var deferredPendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private let outboxService: OutboxDeliveryService
+  private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
   private let service: MailboxProviderMailActing
@@ -4055,6 +4057,16 @@ final class GmailMailActionViewModel {
 
   func clearError() {
     errorMessage = nil
+  }
+
+  func startPendingAction(
+    _ operation: @escaping @MainActor @Sendable () async -> Void
+  ) {
+    let taskId = UUID()
+    pendingActionTasks[taskId] = Task { [weak self] in
+      await operation()
+      self?.pendingActionTasks[taskId] = nil
+    }
   }
 
   func perform(
@@ -4331,14 +4343,14 @@ final class GmailMailActionViewModel {
   }
 
   func prepareForSignOut() async {
-    let deferredTasks = Array(deferredPendingActionTasks.values)
-    for task in deferredTasks {
+    let pendingTasks = Array(pendingActionTasks.values)
+    for task in pendingTasks {
       task.cancel()
     }
-    for task in deferredTasks {
+    for task in pendingTasks {
       await task.value
     }
-    deferredPendingActionTasks.removeAll()
+    pendingActionTasks.removeAll()
     deferredBulkFailures.removeAll()
     outboxRetryObservationTask?.cancel()
     retryObservationTask?.cancel()
@@ -4470,9 +4482,9 @@ extension GmailMailActionViewModel {
   ) {
     let taskId = UUID()
     deferredBulkFailures[taskId] = immediateFailures.filter {
-      failedConnectionIds.contains($0.connectionId)
+      activeFailureConnectionIds.contains($0.connectionId)
     }
-    deferredPendingActionTasks[taskId] = Task { [weak self] in
+    pendingActionTasks[taskId] = Task { [weak self] in
       guard let self else { return }
       await resumeDeferredPendingActions(
         action,
@@ -4481,7 +4493,7 @@ extension GmailMailActionViewModel {
         immediateFailures: immediateFailures,
         onCompleted: onCompleted
       )
-      deferredPendingActionTasks[taskId] = nil
+      pendingActionTasks[taskId] = nil
     }
   }
 
@@ -4649,7 +4661,7 @@ extension GmailMailActionViewModel {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
     let activeImmediateFailures = immediateFailures.filter {
-      failedConnectionIds.contains($0.connectionId)
+      activeFailureConnectionIds.contains($0.connectionId)
     }
     let failures =
       (deferredBulkFailures[taskId] ?? [])
@@ -4668,10 +4680,14 @@ extension GmailMailActionViewModel {
   private func pruneDeferredBulkFailures() {
     deferredBulkFailures = deferredBulkFailures.compactMapValues { failures in
       let activeFailures = failures.filter {
-        failedConnectionIds.contains($0.connectionId)
+        activeFailureConnectionIds.contains($0.connectionId)
       }
       return activeFailures.isEmpty ? nil : activeFailures
     }
+  }
+
+  private var activeFailureConnectionIds: Set<MailboxConnectionId> {
+    Set(failedConnectionIds + blockedConnectionIds)
   }
 
   private func updateBulkActionErrorMessage(
