@@ -122,6 +122,7 @@ private struct MessageHTMLWebView: UIViewRepresentable {
     var onOpenURL: (URL) -> Void
     var onRenderingFailure: () -> Void
     private var contentSizeObservation: NSKeyValueObservation?
+    private var viewportObservation: NSKeyValueObservation?
 
     init(
       onHeightChange: @escaping (CGFloat) -> Void,
@@ -138,16 +139,19 @@ private struct MessageHTMLWebView: UIViewRepresentable {
         \.contentSize,
         options: [.initial, .new]
       ) { [weak self] scrollView, _ in
-        scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
-          for: scrollView.contentSize,
-          within: scrollView.bounds.size
-        )
-        self?.onHeightChange(MessageHTMLLayout.height(for: scrollView.contentSize))
+        self?.updateLayout(for: scrollView)
+      }
+      viewportObservation = webView.observe(
+        \.bounds,
+        options: [.new]
+      ) { [weak self] webView, _ in
+        self?.updateLayout(for: webView.scrollView)
       }
     }
 
     func stopObservingContentSize() {
       contentSizeObservation = nil
+      viewportObservation = nil
     }
 
     func webView(
@@ -177,11 +181,7 @@ private struct MessageHTMLWebView: UIViewRepresentable {
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
       isLoadingDocument = false
-      webView.scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
-        for: webView.scrollView.contentSize,
-        within: webView.scrollView.bounds.size
-      )
-      onHeightChange(MessageHTMLLayout.height(for: webView.scrollView.contentSize))
+      updateLayout(for: webView.scrollView)
     }
 
     func webView(
@@ -211,6 +211,14 @@ private struct MessageHTMLWebView: UIViewRepresentable {
     private func renderingDidFail() {
       isLoadingDocument = false
       onRenderingFailure()
+    }
+
+    private func updateLayout(for scrollView: UIScrollView) {
+      scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
+        for: scrollView.contentSize,
+        within: scrollView.bounds.size
+      )
+      onHeightChange(MessageHTMLLayout.height(for: scrollView.contentSize))
     }
   }
 }

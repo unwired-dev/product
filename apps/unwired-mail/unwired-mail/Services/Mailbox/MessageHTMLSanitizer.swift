@@ -141,9 +141,19 @@ enum MessageHTMLPresentation: Equatable, Sendable {
     body: MailboxMessageBody,
     sanitizer: @escaping @Sendable (String) throws -> SanitizedMessageHTML? =
       { try MessageHTMLSanitizer.sanitize($0) }
-  ) async -> Self {
-    await Task.detached(priority: .userInitiated) {
-      resolve(body: body, sanitizer: sanitizer)
-    }.value
+  ) async throws -> Self {
+    let preparation = Task.detached(priority: .userInitiated) {
+      try Task.checkCancellation()
+      let presentation = resolve(body: body, sanitizer: sanitizer)
+      try Task.checkCancellation()
+      return presentation
+    }
+    let presentation = try await withTaskCancellationHandler {
+      try await preparation.value
+    } onCancel: {
+      preparation.cancel()
+    }
+    try Task.checkCancellation()
+    return presentation
   }
 }

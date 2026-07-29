@@ -169,10 +169,10 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   @MainActor
-  func testPresentationPreparationSanitizesOffTheMainThread() async {
+  func testPresentationPreparationSanitizesOffTheMainThread() async throws {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
 
-    let presentation = await MessageHTMLPresentation.prepare(body: body) { _ in
+    let presentation = try await MessageHTMLPresentation.prepare(body: body) { _ in
       SanitizedMessageHTML(
         bodyHTML: "<p>Rich message</p>",
         documentHTML: Thread.isMainThread ? "main" : "background"
@@ -233,6 +233,12 @@ final class MessageHTMLPresentationTests: XCTestCase {
         within: viewportSize
       )
     )
+    XCTAssertFalse(
+      MessageHTMLLayout.isInternallyScrollable(
+        for: CGSize(width: 501, height: 128.5),
+        within: CGSize(width: 502, height: 800)
+      )
+    )
     XCTAssertEqual(
       MessageHTMLLayout.height(for: CGSize(width: 500, height: 100_000_000)),
       MessageHTMLLayout.maximumHeight
@@ -253,6 +259,33 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: urlCancellation))
     XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: policyCancellation))
     XCTAssertTrue(MessageHTMLNavigationFailure.shouldTriggerFallback(for: failure))
+  }
+}
+
+extension MessageHTMLPresentationTests {
+  func testPresentationPreparationCancelsDetachedSanitization() async {
+    let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
+    let sanitizationStarted = DispatchSemaphore(value: 0)
+    let allowSanitizationToFinish = DispatchSemaphore(value: 0)
+    let preparation = Task {
+      try await MessageHTMLPresentation.prepare(body: body) { _ in
+        sanitizationStarted.signal()
+        allowSanitizationToFinish.wait()
+        return SanitizedMessageHTML(bodyHTML: "<p>Rich message</p>", documentHTML: "document")
+      }
+    }
+
+    sanitizationStarted.wait()
+    preparation.cancel()
+    allowSanitizationToFinish.signal()
+
+    do {
+      _ = try await preparation.value
+      XCTFail("Cancelled preparation should not publish a presentation")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
   }
 }
 
