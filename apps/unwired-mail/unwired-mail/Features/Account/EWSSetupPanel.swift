@@ -227,6 +227,9 @@ struct EWSSetupPanel: View {
           .buttonStyle(.plain)
           Menu("Manage") {
             if connection.authorizationState == .authorized {
+              Button("Reauthorize on This Device") {
+                Task { await viewModel.select(connection) }
+              }
               Button("Set as Default Sending Connection") {
                 Task {
                   if await viewModel.setDefaultSendingConnection(connection) {
@@ -241,6 +244,10 @@ struct EWSSetupPanel: View {
                   await viewModel.removeLocal(connection)
                   connectionsDidChange()
                 }
+              }
+            } else {
+              Button("Authorize on This Device") {
+                Task { await viewModel.select(connection) }
               }
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {

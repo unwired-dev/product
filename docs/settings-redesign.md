@@ -1,6 +1,7 @@
 # Settings redesign
 
-Status: agreed design; not yet implemented.
+Status: implementation in progress. The adaptive shell and Email Accounts destination are
+available through development-only entry points; production still uses Account Settings.
 
 ## Goal
 
@@ -338,6 +339,12 @@ Implementation is tracked by [#115](https://github.com/unwired-dev/product/issue
 6. Enable the production Settings entry points and remove the old Account Settings sheet.
 
 Each slice includes its own tests and documentation. The new production entry points remain disabled until all destinations meet the release requirements.
+
+The first delivered slice provides the typed destination registry, adaptive compact and
+regular-width navigation, a dedicated Mac Catalyst Settings window with Command-, support,
+and complete Mailbox Connection management in Email Accounts. It reuses the existing
+provider controls so authorization, default-sender selection, synchronization, non-secret
+connection settings, Mailbox Role mapping, and removal retain their established behavior.
 
 ## Release gate
 

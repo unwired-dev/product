@@ -4,6 +4,9 @@ import SwiftUI
 // swiftlint:disable file_length
 
 extension Notification.Name {
+  static let mailboxConnectionsDidChange = Notification.Name(
+    "MailboxConnectionsDidChange"
+  )
   static let mailboxMetadataDidSynchronize = Notification.Name(
     "MailboxMetadataDidSynchronize"
   )
@@ -265,6 +268,10 @@ final class MailboxFreshnessViewModel {
       return status
     }
     return MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .syncing)
+  }
+
+  func isHistoricalBackfillActive(for connection: MailboxConnection) -> Bool {
+    historicalBackfills[connection.id] != nil
   }
 
   func recordExternalSync(
@@ -744,6 +751,7 @@ struct AccountView: View {
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
+  @Environment(\.openWindow) private var openWindow
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -764,6 +772,7 @@ struct AccountView: View {
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsBlockedActionAlert = false
   @State private var showsAccountSettings = false
+  @State private var showsDevelopmentSettings = false
 
   @MainActor
   // swiftlint:disable:next function_body_length
@@ -1000,6 +1009,13 @@ struct AccountView: View {
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
+        showDevelopmentSettings: {
+          #if targetEnvironment(macCatalyst)
+            openWindow(id: "development-settings")
+          #else
+            showsDevelopmentSettings = true
+          #endif
+        },
         syncStatus: mailboxFreshnessViewModel.status
       )
     } content: {
@@ -1048,6 +1064,31 @@ struct AccountView: View {
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
     }
+    #if DEBUG && !targetEnvironment(macCatalyst)
+      .sheet(isPresented: $showsDevelopmentSettings) {
+        AdaptiveSettingsScene(
+          isSignedIn: true,
+          showsDismissButton: true
+        ) { destination in
+          switch destination {
+          case .emailAccounts:
+            EmailAccountsSettingsView(
+              ewsViewModel: ewsSetupViewModel,
+              genericMailViewModel: genericMailSetupViewModel,
+              gmailViewModel: gmailViewModel,
+              microsoftGraphViewModel: microsoftGraphViewModel,
+              freshnessViewModel: mailboxFreshnessViewModel,
+              cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+              connectionsDidChange: {
+                Task { _ = await gmailViewModel.load() }
+              },
+              isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+            )
+          }
+        }
+        .presentationDetents([.large])
+      }
+    #endif
     .sheet(item: $compositionDraft) { draft in
       MailShellComposer(
         connections: gmailViewModel.connections,
@@ -1173,6 +1214,16 @@ struct AccountView: View {
         await reloadObservedMailboxes()
       }
     }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .mailboxConnectionsDidChange)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId
+      else { return }
+      Task { await reloadSyncedMailState() }
+    }
   }
 
   private func updateProductMailboxState() {
@@ -1200,7 +1251,7 @@ struct AccountView: View {
 }
 
 extension AccountView {
-  private static func clearGenericMailLocalData(
+  static func clearGenericMailLocalData(
     _ definition: GenericMailConnectionDefinition,
     session: ProductAccountSessionSnapshot,
     mailboxConnection: MailboxConnectionAdapter
@@ -2391,6 +2442,7 @@ private struct MailShellSidebar: View {
   let refreshMailboxes: () -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
+  let showDevelopmentSettings: () -> Void
   let syncStatus: (MailboxConnection) -> MailboxSyncStatus
 
   var body: some View {
@@ -2499,8 +2551,19 @@ private struct MailShellSidebar: View {
       }
 
       Section {
-        Button(action: showAccountSettings) {
-          Label("Account Settings", systemImage: "gearshape")
+        ForEach(SettingsEntryPointRegistry.currentEntries) { entryPoint in
+          switch entryPoint {
+          case .accountSettings:
+            Button(action: showAccountSettings) {
+              Label("Account Settings", systemImage: "gearshape")
+            }
+          case .adaptiveSettings:
+            #if DEBUG
+              Button(action: showDevelopmentSettings) {
+                Label("Development Settings", systemImage: "gearshape.2")
+              }
+            #endif
+          }
         }
       }
     }
@@ -6083,6 +6146,10 @@ final class MailboxProviderConnectionViewModel {
     connections.first { $0.id == selectedConnectionId }
   }
 
+  var sessionSnapshot: ProductAccountSessionSnapshot {
+    session
+  }
+
   func load() async -> Bool {
     isLoading = true
     defer {
@@ -6568,7 +6635,7 @@ private struct NotificationRulePanel: View {
   }
 }
 
-private struct GmailProviderConnectionPanel: View {
+struct GmailProviderConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   let isMailboxBusy: Bool
@@ -6585,7 +6652,7 @@ private struct GmailProviderConnectionPanel: View {
   }
 }
 
-private struct MicrosoftGraphConnectionPanel: View {
+struct MicrosoftGraphConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
   let connectionDidConnect: (MailboxConnection) -> Void
@@ -6606,7 +6673,7 @@ private struct MicrosoftGraphConnectionPanel: View {
   }
 }
 
-private struct MailboxProviderConnectionPanel: View {
+struct MailboxProviderConnectionPanel: View {
   struct Configuration {
     let allowsDefaultSender: Bool
     let connectingTitle: String
@@ -6635,7 +6702,7 @@ private struct MailboxProviderConnectionPanel: View {
     )
 
     static let microsoftGraph = Configuration(
-      allowsDefaultSender: false,
+      allowsDefaultSender: true,
       connectingTitle: "Connecting Microsoft mailbox...",
       emptyConnectTitle: "Sign in with Microsoft",
       loadingTitle: "Loading Microsoft mailboxes...",
@@ -6736,6 +6803,15 @@ private struct MailboxProviderConnectionPanel: View {
                 }
               }
             } else {
+              Button("Reauthorize on This Device") {
+                viewModel.selectedConnectionId = connection.id
+                connectTask?.cancel()
+                connectTask = Task {
+                  if let connected = await viewModel.connect(expectedConnection: connection) {
+                    connectionDidConnect(connected)
+                  }
+                }
+              }
               if configuration.allowsDefaultSender {
                 Button("Set as Default Sending Connection") {
                   Task {

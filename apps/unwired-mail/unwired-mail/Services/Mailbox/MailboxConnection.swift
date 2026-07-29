@@ -538,6 +538,10 @@ struct MailboxConnection: Equatable, Identifiable, Sendable {
     id.providerMailboxIdentity
   }
 
+  var mailboxAddress: String {
+    displayName
+  }
+
   func withAuthorizationGeneration(_ authorizationGeneration: Int) -> Self {
     MailboxConnection(
       authorizationGeneration: authorizationGeneration,

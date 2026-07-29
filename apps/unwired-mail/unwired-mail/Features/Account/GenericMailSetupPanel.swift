@@ -480,6 +480,7 @@ extension GenericMailSetupViewModel {
 
 struct GenericMailSetupPanel: View {
   @Bindable var viewModel: GenericMailSetupViewModel
+  var connectionsDidChange: () -> Void = {}
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -523,12 +524,32 @@ struct GenericMailSetupPanel: View {
 
               Menu("Manage") {
                 if viewModel.isAuthorized(definition) {
+                  Button("Reauthorize on This Device") {
+                    viewModel.selectSyncedDefinition(definition)
+                  }
+                  Button("Set as Default Sending Connection") {
+                    Task {
+                      await viewModel.setDefaultSendingConnection(definition)
+                      connectionsDidChange()
+                    }
+                  }
+                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
                   Button("Remove Device Authorization", role: .destructive) {
-                    Task { await viewModel.removeLocalAuthorization(definition) }
+                    Task {
+                      await viewModel.removeLocalAuthorization(definition)
+                      connectionsDidChange()
+                    }
+                  }
+                } else {
+                  Button("Authorize on This Device") {
+                    viewModel.selectSyncedDefinition(definition)
                   }
                 }
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
-                  Task { await viewModel.removeEverywhere(definition) }
+                  Task {
+                    await viewModel.removeEverywhere(definition)
+                    connectionsDidChange()
+                  }
                 }
               }
             }
@@ -627,6 +648,7 @@ struct GenericMailSetupPanel: View {
         connectTask?.cancel()
         connectTask = Task {
           await viewModel.connect()
+          connectionsDidChange()
         }
       } label: {
         Label(
