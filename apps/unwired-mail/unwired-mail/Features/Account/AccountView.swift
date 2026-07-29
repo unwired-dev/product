@@ -6716,11 +6716,13 @@ struct GmailProviderConnectionPanel: View {
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
+  var connectionsDidChange: () -> Void = {}
 
   var body: some View {
     MailboxProviderConnectionPanel(
       cancelBodyPrefetch: cancelBodyPrefetch,
       configuration: .gmail,
+      connectionsDidChange: connectionsDidChange,
       isMailboxBusy: isMailboxBusy,
       selectMailbox: selectMailbox,
       viewModel: viewModel

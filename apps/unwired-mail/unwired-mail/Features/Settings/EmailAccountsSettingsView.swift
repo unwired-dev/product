@@ -26,7 +26,8 @@ struct EmailAccountsSettingsView: View {
             cancelBodyPrefetch: cancelBodyPrefetch,
             viewModel: gmailViewModel,
             isMailboxBusy: isMailboxBusy,
-            selectMailbox: { gmailViewModel.selectedConnectionId = $0.id }
+            selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
+            connectionsDidChange: connectionsDidChange
           )
           .id(MailProviderId.gmail)
 
@@ -78,7 +79,6 @@ struct EmailAccountsSettingsView: View {
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
       freshnessViewModel.updateConnections(connections, prunesPersistedState: false)
-      connectionsDidChange()
     }
     .onReceive(
       NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)

@@ -2,6 +2,11 @@ import SwiftUI
 
 @main
 struct UnwiredMailApp: App {
+  @State private var session = ProductAccountSession(
+    appleSignInService: SignInWithAppleService(),
+    productAccountService: ConvexProductAccountService()
+  )
+
   #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var appDelegate
   #endif
@@ -15,19 +20,19 @@ struct UnwiredMailApp: App {
   var body: some Scene {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
-        RootView()
+        RootView(session: session)
       }
       .commands {
         DevelopmentSettingsCommands()
       }
 
       WindowGroup("Settings", id: "development-settings") {
-        DevelopmentSettingsRootView()
+        DevelopmentSettingsRootView(session: session)
       }
       .defaultSize(width: 920, height: 720)
     #else
       WindowGroup {
-        RootView()
+        RootView(session: session)
       }
     #endif
   }

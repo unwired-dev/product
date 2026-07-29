@@ -345,6 +345,8 @@ regular-width navigation, a dedicated Mac Catalyst Settings window with Command-
 and complete Mailbox Connection management in Email Accounts. It reuses the existing
 provider controls so authorization, default-sender selection, synchronization, non-secret
 connection settings, Mailbox Role mapping, and removal retain their established behavior.
+The Mac Catalyst Settings window shares the app's Product Account session, so sign-out
+immediately removes its mailbox controls, and provider changes notify the active mail shell.
 
 ## Release gate
 

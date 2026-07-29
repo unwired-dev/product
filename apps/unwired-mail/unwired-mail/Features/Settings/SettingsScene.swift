@@ -256,10 +256,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
 #if DEBUG
   @MainActor
   struct DevelopmentSettingsRootView: View {
-    @State private var session = ProductAccountSession(
-      appleSignInService: SignInWithAppleService(),
-      productAccountService: ConvexProductAccountService()
-    )
+    let session: ProductAccountSession
 
     var body: some View {
       Group {
@@ -285,10 +282,6 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
             snapshot: snapshot
           )
         }
-      }
-      .task {
-        guard case .loading = session.state else { return }
-        await session.bootstrap()
       }
     }
   }
