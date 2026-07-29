@@ -1979,6 +1979,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       connectionsAreAuthoritative: false,
       freshnessViewModel: fixture.viewModel
     )
+    await fixture.viewModel.synchronize(
+      connections: [],
+      snapshotIsAuthoritative: false
+    )
 
     XCTAssertTrue(fixture.viewModel.isHistoricalBackfillActive(for: connection))
     await fixture.service.releaseHistoricalBackfill()

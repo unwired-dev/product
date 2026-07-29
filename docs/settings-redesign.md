@@ -350,15 +350,17 @@ regular-width navigation, a dedicated Mac Catalyst Settings window with Command-
 and complete Mailbox Connection management in Email Accounts. It reuses the existing
 provider controls so authorization, default-sender selection, synchronization, non-secret
 connection settings, Mailbox Role mapping, and removal retain their established behavior.
-The Mac Catalyst Settings window shares the app's Product Account session, so sign-out
-immediately removes its mailbox controls, and provider changes notify the active mail shell.
-Email Accounts prunes shared freshness state only after every provider adapter returns an
-authoritative connection snapshot. Snapshot authority is published with the replacement list,
-so direct refreshes and runtime observers cannot apply a partial list using stale authority. A
-partial provider load keeps healthy providers visible without cancelling or pruning sync state for
-providers that could not load, while surfacing the provider failure for retry. Generic-mail removal
-uses the same shared mailbox-work busy
-state and cancellation boundary as Gmail, Microsoft, and EWS removal.
+The Mac Catalyst Settings window shares the app's Product Account session, so sign-out moves the
+shared session out of its signed-in state before cleanup begins, immediately removing mailbox
+controls from every window. Provider changes notify the active mail shell. Email Accounts prunes
+shared freshness state only after every provider adapter returns an authoritative connection
+snapshot. Snapshot authority is published with the replacement list and checked by every
+synchronization entry point, so direct refreshes, runtime observers, and manual synchronization
+cannot apply a partial list using stale authority. A partial provider load keeps healthy providers
+visible without cancelling or pruning sync state for providers that could not load, while surfacing
+the provider failure for retry. Generic-mail removal uses the snapshot-aware refresh path after a
+failed removal and the same shared mailbox-work busy state and cancellation boundary as Gmail,
+Microsoft, and EWS removal.
 
 ## Release gate
 

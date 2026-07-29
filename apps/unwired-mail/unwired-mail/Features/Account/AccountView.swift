@@ -395,18 +395,28 @@ final class MailboxFreshnessViewModel {
     statuses.removeAll()
   }
 
-  func synchronize(connections: [MailboxConnection]) async {
+  func synchronize(
+    connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
+  ) async {
+    guard snapshotIsAuthoritative else { return }
     _ = await synchronize(connections: connections, gmailScope: .recent)
   }
 
-  func synchronizeFully(connections: [MailboxConnection]) async {
+  func synchronizeFully(
+    connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
+  ) async {
+    guard snapshotIsAuthoritative else { return }
     _ = await synchronize(connections: connections, gmailScope: .full)
   }
 
   func synchronizeFully(
     connection: MailboxConnection,
-    among connections: [MailboxConnection]
+    among connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
   ) async {
+    guard snapshotIsAuthoritative else { return }
     let synchronizedConnectionIds = await synchronize(
       connections: connections,
       targetConnections: [connection],
@@ -649,6 +659,7 @@ final class MailboxFreshnessViewModel {
 
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
+    snapshotIsAuthoritative: @escaping () -> Bool = { true },
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionCurrent(session) {
@@ -658,7 +669,8 @@ final class MailboxFreshnessViewModel {
         return
       }
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
-      await synchronize(connections: connections())
+      guard snapshotIsAuthoritative() else { continue }
+      await synchronize(connections: connections(), snapshotIsAuthoritative: true)
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       await didSynchronize()
     }
@@ -1280,7 +1292,10 @@ struct AccountView: View {
         }
       }
       mailboxObserversAreActive = true
-      await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+      await mailboxFreshnessViewModel.synchronize(
+        connections: gmailViewModel.connections,
+        snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+      )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
     }
@@ -1288,6 +1303,7 @@ struct AccountView: View {
       guard scenePhase == .active else { return }
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
+        snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
         didSynchronize: { await reloadObservedMailboxes() }
       )
     }
@@ -1473,12 +1489,18 @@ extension AccountView {
   }
 
   private func synchronizeMailboxes() async {
-    await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+    await mailboxFreshnessViewModel.synchronize(
+      connections: gmailViewModel.connections,
+      snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+    )
     await reloadObservedMailboxes()
   }
 
   private func synchronizeMailboxesFully() async {
-    await mailboxFreshnessViewModel.synchronizeFully(connections: gmailViewModel.connections)
+    await mailboxFreshnessViewModel.synchronizeFully(
+      connections: gmailViewModel.connections,
+      snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+    )
     await reloadObservedMailboxes()
   }
 
@@ -6390,16 +6412,12 @@ final class MailboxProviderConnectionViewModel {
       selectedConnectionId = connection.id
       errorMessage = nil
     } catch {
-      if let refreshedConnections = try? await service.loadConnections(session: session) {
-        connections = refreshedConnections.sorted {
-          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-        pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
-          connections.contains { $0.id == connectionId }
-        }
-        if selectedConnectionId == connection.id {
-          selectedConnectionId = connections.first?.id
-        }
+      _ = try? await refreshConnections()
+      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+        connections.contains { $0.id == connectionId }
+      }
+      if selectedConnectionId == connection.id {
+        selectedConnectionId = connections.first?.id
       }
       errorMessage = error.localizedDescription
     }

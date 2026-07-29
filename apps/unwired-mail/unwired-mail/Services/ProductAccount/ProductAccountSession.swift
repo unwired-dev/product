@@ -154,14 +154,15 @@ final class ProductAccountSession {
   }
 
   func signOut() async {
+    let signedInSnapshot = currentSignedInSnapshot()
     isSigningOut = true
+    state = .loading
     clearMailboxFreshnessViewModel()
     defer { isSigningOut = false }
-    let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+    let snapshot = signedInSnapshot ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
-      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
-      guard refreshedSnapshot == snapshot else { return }
+      guard !signOutSnapshotWasReplaced(snapshot) else { return }
     }
     do {
       var mailboxCleanupError: Error?
@@ -170,8 +171,7 @@ final class ProductAccountSession {
           try await mailboxConnectionService.clearLocalConnection(
             session: snapshot,
             isStillCurrent: {
-              self.currentSignedInSnapshot() == snapshot
-                || (try? self.sessionStore.load()) == snapshot
+              !self.signOutSnapshotWasReplaced(snapshot)
             }
           )
         } catch {
@@ -182,8 +182,7 @@ final class ProductAccountSession {
         state = .failed(mailboxCleanupError.localizedDescription)
         return
       }
-      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
-      guard refreshedSnapshot == snapshot else { return }
+      guard !signOutSnapshotWasReplaced(snapshot) else { return }
       try sessionStore.clear()
       guard
         currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
@@ -197,6 +196,18 @@ final class ProductAccountSession {
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
     !isSigningOut && currentSignedInSnapshot() == snapshot
+  }
+
+  private func signOutSnapshotWasReplaced(
+    _ snapshot: ProductAccountSessionSnapshot?
+  ) -> Bool {
+    if let currentSnapshot = currentSignedInSnapshot() {
+      return currentSnapshot != snapshot
+    }
+    if let storedSnapshot = try? sessionStore.load() {
+      return storedSnapshot != snapshot
+    }
+    return false
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(

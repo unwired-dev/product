@@ -152,7 +152,8 @@ struct EmailAccountsSettingsView: View {
             synchronize: {
               await freshnessViewModel.synchronizeFully(
                 connection: connection,
-                among: gmailViewModel.connections
+                among: gmailViewModel.connections,
+                snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
               )
             }
           )
@@ -380,7 +381,6 @@ private struct SettingsMailboxConnectionRow: View {
       return "This provider has no additional non-secret settings."
     }
   }
-
   private var manualSynchronizationExplanation: String {
     if connection.authorizationState == .required {
       return "Manual synchronization is unavailable until this device is authorized."

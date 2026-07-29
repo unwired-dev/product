@@ -245,6 +245,33 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let cleanupGate = SignOutUnregistrationGate()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: SuspendingDevicePushUnregisterer(gate: cleanupGate),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let signOut = Task { await session.signOut() }
+    await cleanupGate.waitUntilStarted()
+
+    XCTAssertEqual(session.state, .loading)
+
+    await cleanupGate.release()
+    await signOut.value
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
   func testSignOutPreservesSessionSavedByConcurrentSignIn() async throws {
     let oldSnapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
