@@ -609,6 +609,25 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }
 
+  func testBootstrapRunsOnlyOnceForSharedMultiWindowSession() async {
+    let countingStore = ControllableProductAccountSessionStore()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: countingStore
+    )
+
+    await session.bootstrap()
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertEqual(countingStore.loadCount, 1)
+  }
+
   func testBootstrapPreservesStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -877,6 +896,7 @@ private enum ProductAccountSessionTestError: Error {
 
 private final class ControllableProductAccountSessionStore: ProductAccountSessionPersisting {
   var didClear = false
+  var loadCount = 0
   var loadError: Error?
   var saveError: Error?
 
@@ -887,6 +907,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   }
 
   func load() throws -> ProductAccountSessionSnapshot? {
+    loadCount += 1
     if let loadError {
       throw loadError
     }

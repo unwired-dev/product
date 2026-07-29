@@ -60,19 +60,36 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   @MainActor
   func testMailboxWorkCoordinatorSharesBusyStateAndCancellation() async {
     let coordinator = MailboxWorkCoordinator()
-    var didCancel = false
+    let firstRegistrationId = UUID()
+    let secondRegistrationId = UUID()
+    var cancelledWindows: Set<String> = []
 
     coordinator.register(
       productAccountId: "product-account",
-      cancelBodyPrefetch: { didCancel = true },
+      registrationId: firstRegistrationId,
+      cancelBodyPrefetch: { cancelledWindows.insert("first") },
       isBusy: true
+    )
+    coordinator.register(
+      productAccountId: "product-account",
+      registrationId: secondRegistrationId,
+      cancelBodyPrefetch: { cancelledWindows.insert("second") },
+      isBusy: false
     )
 
     XCTAssertTrue(coordinator.isBusy(productAccountId: "product-account"))
     await coordinator.cancelBodyPrefetch(productAccountId: "product-account")
-    XCTAssertTrue(didCancel)
+    XCTAssertEqual(cancelledWindows, ["first", "second"])
 
-    coordinator.unregister(productAccountId: "product-account")
+    coordinator.unregister(
+      productAccountId: "product-account",
+      registrationId: secondRegistrationId
+    )
+    XCTAssertTrue(coordinator.isBusy(productAccountId: "product-account"))
+    coordinator.unregister(
+      productAccountId: "product-account",
+      registrationId: firstRegistrationId
+    )
     XCTAssertFalse(coordinator.isBusy(productAccountId: "product-account"))
   }
 

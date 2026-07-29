@@ -30,29 +30,36 @@ final class MailboxWorkCoordinator {
     let isBusy: Bool
   }
 
-  private var registrations: [String: Registration] = [:]
+  private var registrations: [String: [UUID: Registration]] = [:]
 
   func register(
     productAccountId: String,
+    registrationId: UUID,
     cancelBodyPrefetch: @escaping () async -> Void,
     isBusy: Bool
   ) {
-    registrations[productAccountId] = Registration(
+    registrations[productAccountId, default: [:]][registrationId] = Registration(
       cancelBodyPrefetch: cancelBodyPrefetch,
       isBusy: isBusy
     )
   }
 
-  func unregister(productAccountId: String) {
-    registrations[productAccountId] = nil
+  func unregister(productAccountId: String, registrationId: UUID) {
+    registrations[productAccountId]?[registrationId] = nil
+    if registrations[productAccountId]?.isEmpty == true {
+      registrations[productAccountId] = nil
+    }
   }
 
   func cancelBodyPrefetch(productAccountId: String) async {
-    await registrations[productAccountId]?.cancelBodyPrefetch()
+    guard let productRegistrations = registrations[productAccountId] else { return }
+    for registration in productRegistrations.values {
+      await registration.cancelBodyPrefetch()
+    }
   }
 
   func isBusy(productAccountId: String) -> Bool {
-    registrations[productAccountId]?.isBusy ?? false
+    registrations[productAccountId]?.values.contains(where: \.isBusy) ?? false
   }
 }
 
@@ -380,21 +387,37 @@ final class MailboxFreshnessViewModel {
   }
 
   func synchronize(connections: [MailboxConnection]) async {
-    await synchronize(connections: connections, gmailScope: .recent)
+    _ = await synchronize(connections: connections, gmailScope: .recent)
   }
 
   func synchronizeFully(connections: [MailboxConnection]) async {
-    await synchronize(connections: connections, gmailScope: .full)
+    _ = await synchronize(connections: connections, gmailScope: .full)
   }
 
   func synchronizeFully(
     connection: MailboxConnection,
     among connections: [MailboxConnection]
   ) async {
-    await synchronize(
+    let synchronizedConnectionIds = await synchronize(
       connections: connections,
       targetConnections: [connection],
       gmailScope: .full
+    )
+    guard synchronizedConnectionIds.contains(connection.id) else { return }
+    let status = status(for: connection)
+    var userInfo: [AnyHashable: Any] = [
+      MailboxSyncNotificationUserInfoKey.connectionId: connection.id.rawValue,
+      MailboxSyncNotificationUserInfoKey.phase: status.phase,
+      MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
+      MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
+    ]
+    if let successfulSyncAt = status.lastSuccessfulSyncAt {
+      userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
+    }
+    NotificationCenter.default.post(
+      name: .mailboxMetadataDidSynchronize,
+      object: nil,
+      userInfo: userInfo
     )
   }
 
@@ -402,11 +425,12 @@ final class MailboxFreshnessViewModel {
     connections: [MailboxConnection],
     targetConnections: [MailboxConnection]? = nil,
     gmailScope: SyncScope
-  ) async {
+  ) async -> Set<MailboxConnectionId> {
     guard isSessionCurrent(session) else {
       cancelAll()
-      return
+      return []
     }
+    var synchronizedConnectionIds: Set<MailboxConnectionId> = []
     updateConnections(connections, prunesPersistedState: false)
     let connectionIds = Set(connections.map(\.id))
     statuses = statuses.filter { connectionIds.contains($0.key) }
@@ -433,12 +457,14 @@ final class MailboxFreshnessViewModel {
         {
           startHistoricalBackfill(connection: connection)
         }
+        synchronizedConnectionIds.insert(connection.id)
       } catch is CancellationError {
-        return
+        return synchronizedConnectionIds
       } catch {
         continue
       }
     }
+    return synchronizedConnectionIds
   }
 
   func syncInbox(
@@ -813,6 +839,7 @@ struct AccountView: View {
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
   @State private var mailboxObserversAreActive = false
+  @State private var mailboxWorkRegistrationId = UUID()
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
@@ -1044,7 +1071,10 @@ struct AccountView: View {
         updateMailboxWorkCoordination()
       }
       .onDisappear {
-        mailboxWorkCoordinator.unregister(productAccountId: snapshot.productAccountId)
+        mailboxWorkCoordinator.unregister(
+          productAccountId: snapshot.productAccountId,
+          registrationId: mailboxWorkRegistrationId
+        )
       }
   }
 
@@ -1055,6 +1085,7 @@ struct AccountView: View {
   private func updateMailboxWorkCoordination() {
     mailboxWorkCoordinator.register(
       productAccountId: snapshot.productAccountId,
+      registrationId: mailboxWorkRegistrationId,
       cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
       isBusy: isMailboxWorkBusy
     )

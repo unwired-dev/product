@@ -1549,11 +1549,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       phase: .backfillPending,
       successfulSyncAt: fixture.now
     )
+    let reloadPublished = expectation(description: "row synchronization reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == selectedConnection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
 
     await fixture.viewModel.synchronizeFully(
       connection: selectedConnection,
       among: fixture.connections
     )
+    await fulfillment(of: [reloadPublished], timeout: 1)
 
     let syncedConnectionIds = await fixture.service.syncedConnectionIds()
     XCTAssertEqual(syncedConnectionIds, [selectedConnection.id])

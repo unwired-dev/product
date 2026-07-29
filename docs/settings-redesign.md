@@ -78,6 +78,10 @@ Settings updates apply to the running mail experience without requiring an app r
 
 ### Email Accounts
 
+The app-scoped Product Account session bootstraps once across mail windows. Each mail window
+registers its own mailbox-work cancellation and busy state, and row-level synchronization
+notifies every open mail shell to reload observed metadata.
+
 - List every Mailbox Connection with provider, address, authorization state, and sync health.
 - Add a Mailbox Connection.
 - Select the Default Sending Connection.

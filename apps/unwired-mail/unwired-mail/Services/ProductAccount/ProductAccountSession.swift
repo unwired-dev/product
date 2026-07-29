@@ -13,6 +13,7 @@ enum ProductAccountSessionState: Equatable {
 final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
+  private var hasBootstrapped = false
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -40,7 +41,7 @@ final class ProductAccountSession {
   }
 
   func bootstrap() async {
-    state = .loading
+    guard beginBootstrap() else { return }
 
     guard let snapshot = try? sessionStore.load() else {
       state = .signedOut
@@ -91,6 +92,13 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
+  }
+
+  private func beginBootstrap() -> Bool {
+    guard !hasBootstrapped else { return false }
+    hasBootstrapped = true
+    state = .loading
+    return true
   }
 
   func signInWithApple() async {
