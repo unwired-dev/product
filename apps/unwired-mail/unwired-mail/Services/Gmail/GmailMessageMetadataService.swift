@@ -53,6 +53,7 @@ struct GmailMetadataSyncResult: Equatable {
   let hasInitialMailboxAvailability: Bool
   let historyIsExpired: Bool
   let hasUnlistedNewMessages: Bool
+  let historicalMetadataBackfillCanResume: Bool
   let historicalMetadataBackfillIsComplete: Bool
   let messages: [GmailMessageMetadata]
   let newMessageIds: Set<String>?
@@ -62,6 +63,7 @@ struct GmailMetadataSyncResult: Equatable {
     hasInitialMailboxAvailability: Bool = true,
     historyIsExpired: Bool = false,
     hasUnlistedNewMessages: Bool = false,
+    historicalMetadataBackfillCanResume: Bool = true,
     historicalMetadataBackfillIsComplete: Bool = true,
     messages: [GmailMessageMetadata],
     newMessageIds: Set<String>? = nil,
@@ -70,6 +72,7 @@ struct GmailMetadataSyncResult: Equatable {
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.historyIsExpired = historyIsExpired
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
+    self.historicalMetadataBackfillCanResume = historicalMetadataBackfillCanResume
     self.historicalMetadataBackfillIsComplete = historicalMetadataBackfillIsComplete
     self.messages = messages
     self.newMessageIds = newMessageIds
@@ -96,6 +99,7 @@ extension GmailMetadataSyncResult {
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
       historyIsExpired: historyIsExpired,
       hasUnlistedNewMessages: hasUnlistedNewMessages,
+      historicalMetadataBackfillCanResume: historicalMetadataBackfillCanResume,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete,
       messages: visibleMessages,
       newMessageIds: newMessageIds,
@@ -1214,6 +1218,7 @@ struct GmailMessageMetadataService:
     )
     return GmailMetadataSyncResult(
       hasInitialMailboxAvailability: state != nil || !messages.isEmpty,
+      historicalMetadataBackfillCanResume: state != nil,
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false,
       messages: messages,
@@ -1245,6 +1250,7 @@ struct GmailMessageMetadataService:
     )
     return GmailMetadataSyncResult(
       hasInitialMailboxAvailability: state != nil || !messages.isEmpty,
+      historicalMetadataBackfillCanResume: state != nil,
       historicalMetadataBackfillIsComplete:
         state?.historicalMetadataBackfillIsComplete ?? false,
       messages: messages,

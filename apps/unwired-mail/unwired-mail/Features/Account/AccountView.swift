@@ -189,9 +189,19 @@ final class MailboxFreshnessViewModel {
     let task: Task<MailboxMetadataSyncResult, Error>
   }
 
+  private struct InFlightSyncKey: Hashable {
+    let connectionId: MailboxConnectionId
+    let scope: SyncScope
+  }
+
+  private enum SyncScope: Hashable {
+    case full
+    case recent
+  }
+
   private static let activePollInterval = Duration.seconds(300)
 
-  private var inFlightSyncs: [MailboxConnectionId: InFlightSync] = [:]
+  private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
@@ -238,8 +248,13 @@ final class MailboxFreshnessViewModel {
     if connection.authorizationState == .required {
       return .authorizationRequired(lastSuccessfulSyncAt: lastSuccessfulSyncAt)
     }
-    return statuses[connection.id]
+    let status =
+      statuses[connection.id]
       ?? MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .idle)
+    guard hasInFlightSync(connectionId: connection.id), status.phase != .syncing else {
+      return status
+    }
+    return MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .syncing)
   }
 
   func recordExternalSync(
@@ -261,7 +276,7 @@ final class MailboxFreshnessViewModel {
       )
     }
     let reportedPhase =
-      if inFlightSyncs[connection.id] != nil, phase != .syncing {
+      if hasInFlightSync(connectionId: connection.id), phase != .syncing {
         MailboxSyncPhase.syncing
       } else {
         phase
@@ -295,9 +310,9 @@ final class MailboxFreshnessViewModel {
       historicalBackfills[connectionId]?.cancel()
       historicalBackfills[connectionId] = nil
     }
-    for connectionId in inFlightSyncs.keys where !activeConnectionIds.contains(connectionId) {
-      inFlightSyncs[connectionId]?.task.cancel()
-      inFlightSyncs[connectionId] = nil
+    for key in inFlightSyncs.keys where !activeConnectionIds.contains(key.connectionId) {
+      inFlightSyncs[key]?.task.cancel()
+      inFlightSyncs[key] = nil
     }
     for connectionId in statuses.keys where !connectionIds.contains(connectionId) {
       statuses[connectionId] = nil
@@ -312,6 +327,17 @@ final class MailboxFreshnessViewModel {
   }
 
   func synchronize(connections: [MailboxConnection]) async {
+    await synchronize(connections: connections, gmailScope: .recent)
+  }
+
+  func synchronizeFully(connections: [MailboxConnection]) async {
+    await synchronize(connections: connections, gmailScope: .full)
+  }
+
+  private func synchronize(
+    connections: [MailboxConnection],
+    gmailScope: SyncScope
+  ) async {
     guard isSessionCurrent(session) else {
       cancelAll()
       return
@@ -331,8 +357,15 @@ final class MailboxFreshnessViewModel {
       }
       guard connection.capabilities.canSynchronizeMetadata else { continue }
       do {
-        let result = try await syncInbox(connection: connection, session: session)
-        if !result.historicalMetadataBackfillIsComplete {
+        let result =
+          if connection.providerId == .gmail, gmailScope == .recent {
+            try await syncRecentInbox(connection: connection, session: session)
+          } else {
+            try await syncInbox(connection: connection, session: session)
+          }
+        if result.historicalMetadataBackfillCanResume,
+          !result.historicalMetadataBackfillIsComplete
+        {
           startHistoricalBackfill(connection: connection)
         }
       } catch is CancellationError {
@@ -343,16 +376,40 @@ final class MailboxFreshnessViewModel {
     }
   }
 
-  // swiftlint:disable:next function_body_length
   func syncInbox(
     connection: MailboxConnection,
     session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await synchronizeInbox(
+      connection: connection,
+      session: requestedSession,
+      scope: .full
+    )
+  }
+
+  private func syncRecentInbox(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    try await synchronizeInbox(
+      connection: connection,
+      session: requestedSession,
+      scope: .recent
+    )
+  }
+
+  // swiftlint:disable:next function_body_length
+  private func synchronizeInbox(
+    connection: MailboxConnection,
+    session requestedSession: ProductAccountSessionSnapshot,
+    scope: SyncScope
   ) async throws -> MailboxMetadataSyncResult {
     guard requestedSession == session, isSessionCurrent(session) else {
       throw CancellationError()
     }
     await cancelHistoricalBackfill(connectionId: connection.id)
-    if let inFlightSync = inFlightSyncs[connection.id] {
+    let syncKey = InFlightSyncKey(connectionId: connection.id, scope: scope)
+    if let inFlightSync = inFlightSyncs[syncKey] {
       return try await inFlightSync.task.value
     }
 
@@ -363,19 +420,31 @@ final class MailboxFreshnessViewModel {
     )
     let syncId = UUID()
     let task = Task {
-      try await service.syncInbox(
-        connection: connection,
-        session: requestedSession
-      )
+      switch scope {
+      case .full:
+        try await service.syncInbox(
+          connection: connection,
+          session: requestedSession
+        )
+      case .recent:
+        try await service.syncRecentInbox(
+          connection: connection,
+          includingHistoryCandidates: false,
+          session: requestedSession,
+          sinceHistoryId: nil,
+          throughHistoryId: nil,
+          shouldPersist: { !Task.isCancelled }
+        )
+      }
     }
-    inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
+    inFlightSyncs[syncKey] = InFlightSync(id: syncId, task: task)
 
     do {
       let result = try await task.value
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       let completionDate = now()
       successStore.save(
         completionDate,
@@ -389,14 +458,14 @@ final class MailboxFreshnessViewModel {
       try Task.checkCancellation()
       return result
     } catch is CancellationError {
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
         phase: .idle
       )
       throw CancellationError()
     } catch {
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       if Self.isCancellation(error) {
         statuses[connection.id] = MailboxSyncStatus(
           lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
@@ -513,9 +582,13 @@ final class MailboxFreshnessViewModel {
     }
   }
 
-  private func removeSync(connectionId: MailboxConnectionId, syncId: UUID) {
-    guard inFlightSyncs[connectionId]?.id == syncId else { return }
-    inFlightSyncs[connectionId] = nil
+  private func hasInFlightSync(connectionId: MailboxConnectionId) -> Bool {
+    inFlightSyncs.keys.contains { $0.connectionId == connectionId }
+  }
+
+  private func removeSync(key: InFlightSyncKey, syncId: UUID) {
+    guard inFlightSyncs[key]?.id == syncId else { return }
+    inFlightSyncs[key] = nil
   }
 
   private func startHistoricalBackfill(connection: MailboxConnection) {
@@ -913,7 +986,7 @@ struct AccountView: View {
         lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         refreshMailboxes: {
-          Task { await synchronizeMailboxes() }
+          Task { await synchronizeMailboxesFully() }
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
@@ -1219,6 +1292,11 @@ extension AccountView {
 
   private func synchronizeMailboxes() async {
     await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+    await reloadObservedMailboxes()
+  }
+
+  private func synchronizeMailboxesFully() async {
+    await mailboxFreshnessViewModel.synchronizeFully(connections: gmailViewModel.connections)
     await reloadObservedMailboxes()
   }
 

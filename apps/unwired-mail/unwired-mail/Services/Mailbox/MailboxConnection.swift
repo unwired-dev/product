@@ -771,6 +771,7 @@ struct MailboxThread: Equatable, Identifiable, Sendable {
 struct MailboxMetadataSyncResult: Equatable, Sendable {
   let hasUnlistedNewMessages: Bool
   let hasInitialMailboxAvailability: Bool
+  let historicalMetadataBackfillCanResume: Bool
   let historicalMetadataBackfillIsComplete: Bool
   let messages: [MailboxMessageMetadata]
   let newMessageIds: Set<String>?
@@ -784,10 +785,12 @@ struct MailboxMetadataSyncResult: Equatable, Sendable {
     providerCursorIsExpired: Bool,
     threads: [MailboxThread],
     hasInitialMailboxAvailability: Bool = true,
+    historicalMetadataBackfillCanResume: Bool = true,
     historicalMetadataBackfillIsComplete: Bool = true
   ) {
     self.hasUnlistedNewMessages = hasUnlistedNewMessages
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
+    self.historicalMetadataBackfillCanResume = historicalMetadataBackfillCanResume
     self.historicalMetadataBackfillIsComplete = historicalMetadataBackfillIsComplete
     self.messages = messages
     self.newMessageIds = newMessageIds
@@ -809,6 +812,7 @@ extension MailboxMetadataSyncResult {
       providerCursorIsExpired: providerCursorIsExpired,
       threads: MailboxThread.group(messages),
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillCanResume: historicalMetadataBackfillCanResume,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )
   }
@@ -840,6 +844,7 @@ extension MailboxMetadataSyncResult {
       providerCursorIsExpired: providerCursorIsExpired,
       threads: visibleThreads,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillCanResume: historicalMetadataBackfillCanResume,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )
   }
@@ -918,6 +923,7 @@ extension GmailMetadataSyncResult {
       providerCursorIsExpired: historyIsExpired,
       threads: threads,
       hasInitialMailboxAvailability: hasInitialMailboxAvailability,
+      historicalMetadataBackfillCanResume: historicalMetadataBackfillCanResume,
       historicalMetadataBackfillIsComplete: historicalMetadataBackfillIsComplete
     )
   }
@@ -2230,6 +2236,8 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerCursorIsExpired: recentSync.historyIsExpired,
         threads: projectedInbox.threads,
         hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
+        historicalMetadataBackfillCanResume:
+          projectedInbox.historicalMetadataBackfillCanResume,
         historicalMetadataBackfillIsComplete: projectedInbox.historicalMetadataBackfillIsComplete
       )
     }

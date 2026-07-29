@@ -355,6 +355,7 @@ actor PendingProviderActionService {
       providerCursorIsExpired: result.providerCursorIsExpired,
       threads: MailboxThread.group(projectedMessages),
       hasInitialMailboxAvailability: result.hasInitialMailboxAvailability,
+      historicalMetadataBackfillCanResume: result.historicalMetadataBackfillCanResume,
       historicalMetadataBackfillIsComplete: result.historicalMetadataBackfillIsComplete
     )
     .projected(to: collection)
