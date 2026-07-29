@@ -249,6 +249,27 @@ struct MailboxConnectionSyncSnapshot: Equatable, Sendable {
   }
 }
 
+struct MailboxConnectionRemovalObservation: Equatable, Sendable {
+  let connectionId: MailboxConnectionId
+  let removedAt: Int64
+  let tombstoneIdentifier: String?
+
+  init(
+    connectionId: MailboxConnectionId,
+    removedAt: Int64,
+    tombstoneIdentifier: String? = nil
+  ) {
+    self.connectionId = connectionId
+    self.removedAt = removedAt
+    self.tombstoneIdentifier = tombstoneIdentifier
+  }
+}
+
+enum MailboxConnectionDefinitionSaveIntent: Equatable, Sendable {
+  case add(after: MailboxConnectionRemovalObservation?)
+  case authorizeExisting
+}
+
 protocol MailboxConnectionDefinitionSyncing {
   func completedLocalCleanupGeneration(
     _ connectionId: MailboxConnectionId,
@@ -272,6 +293,13 @@ protocol MailboxConnectionDefinitionSyncing {
   @discardableResult
   func removeConnection(
     _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot
+
+  @discardableResult
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot
 

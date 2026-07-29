@@ -71,6 +71,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
 
     XCTAssertEqual(connection?.id, graphConnectionId)
     XCTAssertEqual(reconnected?.id, graphConnectionId)
+    XCTAssertEqual(definitions.recreatedDefinitionCount, 2)
     XCTAssertEqual(definitions.definitions.count, 1)
     XCTAssertEqual(connection?.authorizationState, .authorized)
     XCTAssertEqual(definitions.savedDefinition?.provider, MailProviderId.microsoftGraph.rawValue)
@@ -283,6 +284,50 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       definitions.completedCleanupGenerations[graphConnectionId],
       cleanupGeneration
+    )
+  }
+
+  func testConnectClearsExistingTokensWhenRecreationIsRejected() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService()
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: graphConnectionId,
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "previous-access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "previous-refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+
+    do {
+      _ = try await adapter.connect(
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected synchronized recreation to report the removal")
+    } catch let error as MailboxConnectionSyncError {
+      XCTAssertEqual(error, .connectionRemoved(removalObservation))
+    }
+
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
     )
   }
 
@@ -3576,6 +3621,8 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
   var definitions: [MailboxConnectionDefinition]
   var localCleanupGenerations: [MailboxConnectionId: Int]
   var removedConnectionIds: [MailboxConnectionId] = []
+  var recreatedDefinitionCount = 0
+  var recreateError: Error?
   var savedDefinition: MailboxConnectionDefinition?
   var snapshotAfterSave: MailboxConnectionSyncSnapshot?
 
@@ -3627,6 +3674,16 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
     definitions.removeAll { $0.id == connectionId }
     removedConnectionIds.append(connectionId)
     return snapshot
+  }
+
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after _: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    recreatedDefinitionCount += 1
+    if let recreateError { throw recreateError }
+    return try await saveDefinition(definition, session: session)
   }
 
   func saveConnection(

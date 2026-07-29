@@ -5,17 +5,20 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
   let provider: String
   let providerAccountIdentifier: String
   let removedAt: Int64
+  let tombstoneIdentifier: String?
 
   init(
     authorizationGeneration: Int,
     provider: String,
     providerAccountIdentifier: String,
-    removedAt: Int64
+    removedAt: Int64,
+    tombstoneIdentifier: String? = nil
   ) {
     self.authorizationGeneration = authorizationGeneration
     self.provider = provider
     self.providerAccountIdentifier = providerAccountIdentifier
     self.removedAt = removedAt
+    self.tombstoneIdentifier = tombstoneIdentifier
   }
 
   init(from decoder: Decoder) throws {
@@ -30,6 +33,10 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
       forKey: .providerAccountIdentifier
     )
     removedAt = try container.decode(Int64.self, forKey: .removedAt)
+    tombstoneIdentifier = try container.decodeIfPresent(
+      String.self,
+      forKey: .tombstoneIdentifier
+    )
   }
 
   var connectionId: MailboxConnectionId {
@@ -41,12 +48,21 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
     )
   }
 
+  var observation: MailboxConnectionRemovalObservation {
+    MailboxConnectionRemovalObservation(
+      connectionId: connectionId,
+      removedAt: removedAt,
+      tombstoneIdentifier: tombstoneIdentifier
+    )
+  }
+
   func withAuthorizationGeneration(_ authorizationGeneration: Int) -> Self {
     MailboxConnectionRemovalTombstone(
       authorizationGeneration: authorizationGeneration,
       provider: provider,
       providerAccountIdentifier: providerAccountIdentifier,
-      removedAt: removedAt
+      removedAt: removedAt,
+      tombstoneIdentifier: tombstoneIdentifier
     )
   }
 
@@ -55,6 +71,7 @@ struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
     case provider
     case providerAccountIdentifier
     case removedAt
+    case tombstoneIdentifier
   }
 }
 

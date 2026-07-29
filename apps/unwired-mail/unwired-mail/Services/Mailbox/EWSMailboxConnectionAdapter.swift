@@ -711,6 +711,7 @@ struct EWSSetupService {
     credential: String,
     emailAddress: String,
     endpoint endpointValue: String,
+    saveIntent: MailboxConnectionDefinitionSaveIntent = .authorizeExisting,
     username: String,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
@@ -785,13 +786,13 @@ struct EWSSetupService {
     let synchronizedDefinition = synchronizedSnapshot.connections
       .first(where: { $0.id == definition.connectionId })
     let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
-    let authorizationGeneration = synchronizedDefinition?.authorizationGeneration ?? 0
-    let savedSnapshot = try await definitionSyncService.saveDefinition(
+    let savedSnapshot = try await saveDefinition(
       definition.synchronizedDefinition(
-        authorizationGeneration: authorizationGeneration,
+        authorizationGeneration: synchronizedDefinition?.authorizationGeneration ?? 0,
         connectedAt: connectedAt,
         displayName: account.primaryEmailAddress
       ),
+      intent: saveIntent,
       session: session
     )
     guard isSessionCurrent(session) else { throw CancellationError() }
@@ -858,6 +859,23 @@ struct EWSSetupService {
         trustedDeviceId: session.trustedDeviceId,
         updatedAt: timestamp
       )
+    }
+  }
+
+  private func saveDefinition(
+    _ definition: MailboxConnectionDefinition,
+    intent: MailboxConnectionDefinitionSaveIntent,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    switch intent {
+    case .add(let removalObservation):
+      return try await definitionSyncService.recreateDefinition(
+        definition,
+        after: removalObservation,
+        session: session
+      )
+    case .authorizeExisting:
+      return try await definitionSyncService.saveDefinition(definition, session: session)
     }
   }
   // swiftlint:enable cyclomatic_complexity function_body_length
@@ -1656,6 +1674,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   @MainActor
   func connect(
     expectedConnectionId _: MailboxConnectionId?,
+    removalObservation _: MailboxConnectionRemovalObservation?,
     session _: ProductAccountSessionSnapshot,
     isSessionCurrent _: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {

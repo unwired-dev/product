@@ -135,12 +135,135 @@ final class GenericMailSetupServiceTests: XCTestCase {
       draft: manualDraft(),
       credential: "device-only-secret",
       productAccountId: ProductAccountId(session.productAccountId),
+      saveIntent: .add(after: nil),
       syncSession: session
     )
 
     XCTAssertEqual(store.authorization?.credential, "device-only-secret")
     XCTAssertEqual(sync.savedDefinition?.genericMailDefinition, definition)
     XCTAssertEqual(sync.savedDefinition?.connectedAt, 1_781_200_000_600)
+    XCTAssertEqual(sync.recreatedDefinition?.genericMailDefinition, definition)
+  }
+
+  @MainActor
+  // swiftlint:disable:next function_body_length
+  func testStaleLocalReauthorizationRequiresASecondExplicitRecreationAction() async {
+    let draft = manualDraft()
+    let store = RecordingGenericMailAuthorizationStore()
+    let localDefinition = GenericMailConnectionDefinition(
+      authorizationMethod: draft.authorizationMethod,
+      emailAddress: draft.emailAddress,
+      incomingEndpoint: draft.incomingEndpoint,
+      outgoingEndpoint: draft.outgoingEndpoint,
+      roleMappings: draft.roleMappings,
+      username: draft.username
+    )
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      credential: "old-secret",
+      definition: localDefinition
+    )
+    let sync = RecordingGenericSyncService(
+      removedConnectionIds: [localDefinition.connectionId]
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: localDefinition.connectionId,
+      removedAt: 1_781_200_000_500
+    )
+    sync.saveError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: store,
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+    viewModel.emailAddress = draft.emailAddress
+    viewModel.loadSaved()
+    viewModel.credential = "new-secret"
+
+    await viewModel.connect()
+
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    XCTAssertNil(sync.recreatedDefinition)
+    XCTAssertNil(store.authorization)
+
+    sync.saveError = nil
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+
+    XCTAssertEqual(sync.recreatedDefinition?.id, localDefinition.connectionId)
+    XCTAssertEqual(sync.recreationObservation, removalObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+  }
+
+  @MainActor
+  // swiftlint:disable:next function_body_length
+  func testConcurrentGenericMailRecreationClearsStaleConfirmation() async {
+    let draft = manualDraft()
+    let store = RecordingGenericMailAuthorizationStore()
+    let localDefinition = GenericMailConnectionDefinition(
+      authorizationMethod: draft.authorizationMethod,
+      emailAddress: draft.emailAddress,
+      incomingEndpoint: draft.incomingEndpoint,
+      outgoingEndpoint: draft.outgoingEndpoint,
+      roleMappings: draft.roleMappings,
+      username: draft.username
+    )
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      credential: "old-secret",
+      definition: localDefinition
+    )
+    let sync = RecordingGenericSyncService(
+      removedConnectionIds: [localDefinition.connectionId]
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: localDefinition.connectionId,
+      removedAt: 1_781_200_000_500
+    )
+    sync.saveError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: store,
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+    viewModel.emailAddress = draft.emailAddress
+    viewModel.loadSaved()
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+
+    sync.saveError = MailboxConnectionSyncError.concurrentModification
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+
+    sync.saveError = nil
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+
+    XCTAssertNil(sync.recreationObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
   func testSyncedReauthorizationWinsAgainstStaleAdapterCleanup() async throws {
@@ -1834,6 +1957,8 @@ private final class RecordingGenericSyncService:
 {
   var completedCleanupGenerations: [MailboxConnectionId: Int] = [:]
   var onSave: (() async throws -> Void)?
+  var recreatedDefinition: MailboxConnectionDefinition?
+  var recreationObservation: MailboxConnectionRemovalObservation?
   var saveError: Error?
   var removeError: Error?
   var savedDefinition: MailboxConnectionDefinition?
@@ -1905,6 +2030,23 @@ private final class RecordingGenericSyncService:
         ? nil : snapshot.defaultSendingConnectionId,
       removedConnectionIds: snapshot.removedConnectionIds + [connectionId],
       updatedAt: 1
+    )
+    return snapshot
+  }
+
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    recreatedDefinition = definition
+    recreationObservation = removalObservation
+    _ = try await saveDefinition(definition, session: session)
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: snapshot.removedConnectionIds.filter { $0 != definition.id },
+      updatedAt: snapshot.updatedAt
     )
     return snapshot
   }

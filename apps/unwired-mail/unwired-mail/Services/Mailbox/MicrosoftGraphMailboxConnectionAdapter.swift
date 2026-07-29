@@ -2607,6 +2607,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -2669,10 +2670,28 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
         localGeneration = nil
       }
-      let savedSnapshot = try await definitionSyncService.saveConnection(
-        connection,
-        session: session
-      )
+      let savedSnapshot: MailboxConnectionSyncSnapshot
+      do {
+        savedSnapshot =
+          if expectedConnectionId == nil {
+            try await definitionSyncService.recreateDefinition(
+              connection.definition,
+              after: removalObservation,
+              session: session
+            )
+          } else {
+            try await definitionSyncService.saveConnection(connection, session: session)
+          }
+      } catch let error as MailboxConnectionSyncError {
+        if case .connectionRemoved = error {
+          try? await performLocalCleanupWithinLock(
+            connection,
+            session: session,
+            reportsPushFailure: false
+          )
+        }
+        throw error
+      }
       let savedGeneration =
         savedSnapshot.connections.first(where: { $0.id == connection.id })?
         .authorizationGeneration

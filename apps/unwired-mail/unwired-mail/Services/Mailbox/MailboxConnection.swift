@@ -1016,6 +1016,7 @@ protocol MailboxConnectionManaging: MailboxConnectionClearing {
   @MainActor
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection?
@@ -1047,6 +1048,7 @@ extension MailboxConnectionManaging {
   ) async throws -> MailboxConnection? {
     try await connect(
       expectedConnectionId: nil,
+      removalObservation: nil,
       session: session,
       isSessionCurrent: isSessionCurrent
     )
@@ -1534,6 +1536,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   // swiftlint:disable:next function_body_length
   func connect(
     expectedConnectionId: MailboxConnectionId?,
+    removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot,
     isSessionCurrent: @escaping (ProductAccountSessionSnapshot) -> Bool
   ) async throws -> MailboxConnection? {
@@ -1628,7 +1631,16 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         authorizationState: .authorized
       )
       do {
-        let snapshot = try await definitionSyncService.saveConnection(connection, session: session)
+        let snapshot =
+          if expectedConnectionId == nil {
+            try await definitionSyncService.recreateDefinition(
+              connection.definition,
+              after: removalObservation,
+              session: session
+            )
+          } else {
+            try await definitionSyncService.saveConnection(connection, session: session)
+          }
         let authorizationGeneration =
           snapshot.connections.first(where: { $0.id == connection.id })?
           .authorizationGeneration
@@ -1665,7 +1677,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           authorizationState: .authorized
         )
       } catch {
-        if !hadExistingConnection {
+        var shouldClearLocalConnection = !hadExistingConnection
+        if let syncError = error as? MailboxConnectionSyncError,
+          case .connectionRemoved = syncError
+        {
+          shouldClearLocalConnection = true
+        }
+        if shouldClearLocalConnection {
           try await connectionService.clearLocalConnection(
             status,
             session: session,
@@ -2038,8 +2056,26 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    let result = try await metadataService.loadMailbox(
-      .allObserved,
+    let additionalProviderMessageIds = Set(
+      try await pendingActionService.pendingActions(session: session)
+        .filter { pendingAction in
+          guard
+            pendingAction.connectionId == connection.id.rawValue,
+            pendingAction.keepsOptimisticProjection
+          else { return false }
+          switch pendingAction.action {
+          case .notSpam, .restore:
+            return true
+          case .move:
+            return pendingAction.targetProviderMailboxId == "INBOX"
+          default:
+            return false
+          }
+        }
+        .flatMap(\.messageIds)
+    )
+    let result = try await metadataService.loadInboxProjectionCandidates(
+      additionalProviderMessageIds: additionalProviderMessageIds,
       connection: gmailConnection,
       session: session
     )
@@ -2056,6 +2092,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    if collection == .role(.inbox) {
+      return try await loadInbox(connection: connection, session: session)
+    }
     let gmailConnection = try await gmailConnectionForProviderAccess(
       connection,
       session: session

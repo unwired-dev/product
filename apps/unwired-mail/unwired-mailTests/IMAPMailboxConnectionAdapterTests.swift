@@ -1098,6 +1098,14 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
     return snapshot
   }
 
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after _: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await saveDefinition(definition, session: session)
+  }
+
   func saveConnection(
     _ connection: MailboxConnection,
     session: ProductAccountSessionSnapshot

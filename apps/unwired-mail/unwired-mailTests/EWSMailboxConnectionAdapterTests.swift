@@ -90,6 +90,144 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(first.id, second.id)
   }
 
+  func testEWSSetupViewModelRequiresExplicitRecreationRetry() async throws {
+    let definitions = RecordingEWSDefinitionSyncService()
+    let client = RecordingEWSClient()
+    let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      mailboxIdentifier: client.account.providerMailboxIdentifier
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: providerAccountIdentifier
+        )
+      ),
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    definitions.removedConnectionIds = [removalObservation.connectionId]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let localDefinition = EWSConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@corp.example",
+      endpoint: URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!,
+      providerAccountIdentifier: providerAccountIdentifier,
+      serverVersion: client.account.serverVersion,
+      username: #"CORP\reader"#
+    )
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "old-password", definition: localDefinition),
+      productAccountId: session.productAccountId
+    )
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: client,
+      definitionSyncService: definitions
+    )
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore()
+      ),
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      service: service,
+      session: session
+    )
+    viewModel.credential = "password"
+    viewModel.emailAddress = "reader@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    viewModel.username = #"CORP\reader"#
+
+    let firstAttempt = await viewModel.connect()
+
+    XCTAssertNil(firstAttempt)
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+    XCTAssertEqual(definitions.recreateDefinitionCount, 1)
+    XCTAssertNil(definitions.recreationObservation)
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: removalObservation.connectionId
+      )
+    )
+
+    definitions.recreateError = nil
+    viewModel.credential = "new-password"
+    let recreatedConnection = await viewModel.connect()
+
+    XCTAssertEqual(recreatedConnection?.id, removalObservation.connectionId)
+    XCTAssertEqual(definitions.recreationObservation, removalObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+
+    viewModel.credential = "newer-password"
+    _ = await viewModel.connect()
+
+    XCTAssertEqual(definitions.recreateDefinitionCount, 2)
+  }
+
+  func testEWSSetupViewModelClearsStaleConfirmationAfterConcurrentRecreation() async throws {
+    let definitions = RecordingEWSDefinitionSyncService()
+    let client = RecordingEWSClient()
+    let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      mailboxIdentifier: client.account.providerMailboxIdentifier
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: providerAccountIdentifier
+        )
+      ),
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    definitions.removedConnectionIds = [removalObservation.connectionId]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore()
+      ),
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      service: EWSSetupService(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions
+      ),
+      session: session
+    )
+    viewModel.credential = "password"
+    viewModel.emailAddress = "reader@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    viewModel.username = #"CORP\reader"#
+    _ = await viewModel.connect()
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+
+    definitions.recreateError = MailboxConnectionSyncError.concurrentModification
+    viewModel.credential = "password"
+    _ = await viewModel.connect()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+
+    definitions.recreateError = nil
+    viewModel.credential = "password"
+    _ = await viewModel.connect()
+
+    XCTAssertNil(definitions.recreationObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+  }
+
   func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
     let endpoint = URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!
 
@@ -134,6 +272,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       credential: " private-password ",
       emailAddress: "reader@corp.example",
       endpoint: "https://mail.corp.example/EWS/Exchange.asmx",
+      saveIntent: .add(after: nil),
       username: #"CORP\reader"#,
       session: session,
       isSessionCurrent: { $0 == self.session }
@@ -147,6 +286,7 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.savedDefinition?.provider, "exchange-web-services")
     XCTAssertEqual(definitions.savedDefinition?.displayName, "reader@corp.example")
     XCTAssertEqual(definitions.savedDefinition?.ewsDefinition?.serverVersion, .exchange2019)
+    XCTAssertEqual(definitions.recreatedDefinition?.id, connection.id)
     XCTAssertEqual(
       try authorizations.load(
         productAccountId: session.productAccountId,
@@ -4507,6 +4647,10 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   var loadSnapshotError: Error?
   var localCleanupGenerations: [MailboxConnectionId: Int]
   var providerAccessLoads = 0
+  var recreateDefinitionCount = 0
+  var recreateError: Error?
+  var recreatedDefinition: MailboxConnectionDefinition?
+  var recreationObservation: MailboxConnectionRemovalObservation?
   var removedConnectionIds: [MailboxConnectionId] = []
   var savedDefinition: MailboxConnectionDefinition?
 
@@ -4588,6 +4732,25 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
     savedDefinitions.removeAll { $0.id == connectionId }
     removedConnectionIds.append(connectionId)
     return snapshot()
+  }
+
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    recreateDefinitionCount += 1
+    recreationObservation = removalObservation
+    if let recreateError { throw recreateError }
+    recreatedDefinition = definition
+    let snapshot = try await saveDefinition(definition, session: session)
+    removedConnectionIds.removeAll { $0 == definition.id }
+    return MailboxConnectionSyncSnapshot(
+      connections: snapshot.connections,
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: removedConnectionIds,
+      updatedAt: snapshot.updatedAt
+    )
   }
 
   func saveConnection(

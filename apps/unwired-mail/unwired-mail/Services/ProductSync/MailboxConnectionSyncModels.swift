@@ -2,6 +2,7 @@ import Foundation
 
 enum MailboxConnectionSyncError: LocalizedError, Equatable {
   case concurrentModification
+  case connectionRemoved(MailboxConnectionRemovalObservation)
   case invalidDefaultSendingConnection
   case missingProductSyncKeyMaterial
 
@@ -9,6 +10,8 @@ enum MailboxConnectionSyncError: LocalizedError, Equatable {
     switch self {
     case .concurrentModification:
       return "Mailbox Connections changed on another device. Refresh and try again."
+    case .connectionRemoved:
+      return "This Mailbox Connection was removed on another device. Refresh, then add it again."
     case .invalidDefaultSendingConnection:
       return "Choose an existing Mailbox Connection as the default sender."
     case .missingProductSyncKeyMaterial:
@@ -215,8 +218,9 @@ extension MailboxConnectionSyncPayload {
         payload.connections[connectionIndex] = connection.withAuthorizationGeneration(
           committedGeneration
         )
-        let removedAt =
-          payload.removals.first(where: { $0.connectionId == floor.connectionId })?.removedAt ?? 0
+        let existingRemoval = payload.removals.first {
+          $0.connectionId == floor.connectionId
+        }
         payload.removals.removeAll { $0.connectionId == floor.connectionId }
         payload.removals.append(
           MailboxConnectionRemovalTombstone(
@@ -224,7 +228,8 @@ extension MailboxConnectionSyncPayload {
             authorizationGeneration: committedGeneration,
             provider: floor.provider,
             providerAccountIdentifier: floor.providerAccountIdentifier,
-            removedAt: removedAt
+            removedAt: existingRemoval?.removedAt ?? 0,
+            tombstoneIdentifier: existingRemoval?.tombstoneIdentifier
           )
         )
         continue

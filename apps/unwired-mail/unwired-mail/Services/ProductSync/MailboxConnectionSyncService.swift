@@ -189,7 +189,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
           ),
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
-          removedAt: clock()
+          removedAt: clock(),
+          tombstoneIdentifier: UUID().uuidString
         )
       )
       if payload.defaultSendingConnectionId == connectionId {
@@ -223,20 +224,13 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       let existingGeneration = payload.connections.first {
         $0.id == definition.id
       }?.authorizationGeneration
-      let removalGeneration = payload.removals.first {
-        $0.connectionId == definition.id
-      }?.authorizationGeneration
-      var generation =
-        existingGeneration
-        ?? removalGeneration
-        ?? definition.authorizationGeneration
-      if let removalGeneration {
-        generation = try await retainGenerationFloor(
-          definition.id,
-          minimumGeneration: max(generation, removalGeneration),
-          session: session
-        )
+      if let removal = payload.removals.first(where: { $0.connectionId == definition.id }),
+        existingGeneration == nil
+          || (existingGeneration ?? 0) < removal.authorizationGeneration
+      {
+        throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
       }
+      let generation = existingGeneration ?? definition.authorizationGeneration
       payload.connections.removeAll { $0.id == definition.id }
       payload.connections.append(definition.withAuthorizationGeneration(generation))
       return true
@@ -275,7 +269,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       var payload = storedPayload.applyingGenerationFloors(
         try decryptGenerationLedger(generationPayload, session: session)
       )
-      guard try await mutation(&payload, storedPayload) else {
+      let changed: Bool
+      do {
+        changed = try await mutation(&payload, storedPayload)
+      } catch {
+        try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+        throw error
+      }
+      guard changed else {
         try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
         return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }
@@ -422,5 +423,49 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private var generationAssociatedData: Data {
     Data(MailboxAuthorizationGenerationLedger.primaryIdentifier.utf8)
+  }
+}
+
+extension MailboxConnectionSyncService {
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await update(session: session) { payload, _ in
+      if payload.connections.contains(where: { $0.id == definition.id }) {
+        guard removalObservation?.connectionId != definition.id else {
+          throw MailboxConnectionSyncError.concurrentModification
+        }
+        return false
+      }
+      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
+      else {
+        guard removalObservation?.connectionId != definition.id else {
+          throw MailboxConnectionSyncError.concurrentModification
+        }
+        let generation =
+          payload.connections.first(where: { $0.id == definition.id })?
+          .authorizationGeneration
+          ?? definition.authorizationGeneration
+        payload.connections.removeAll { $0.id == definition.id }
+        payload.connections.append(definition.withAuthorizationGeneration(generation))
+        return true
+      }
+      guard removal.observation == removalObservation else {
+        throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
+      }
+      let generation = try await retainGenerationFloor(
+        definition.id,
+        minimumGeneration: max(
+          definition.authorizationGeneration,
+          removal.authorizationGeneration
+        ),
+        session: session
+      )
+      payload.connections.removeAll { $0.id == definition.id }
+      payload.connections.append(definition.withAuthorizationGeneration(generation))
+      return true
+    }
   }
 }
