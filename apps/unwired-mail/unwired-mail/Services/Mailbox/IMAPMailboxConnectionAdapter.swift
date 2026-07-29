@@ -2046,9 +2046,9 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
     let gmailConnections = try await gmail.loadConnections(session: session)
-    let imapConnections = (try? await imap.loadConnections(session: session)) ?? []
-    let graphConnections = (try? await microsoftGraph.loadConnections(session: session)) ?? []
-    let ewsConnections = (try? await exchangeWebServices.loadConnections(session: session)) ?? []
+    let imapConnections = try await imap.loadConnections(session: session)
+    let graphConnections = try await microsoftGraph.loadConnections(session: session)
+    let ewsConnections = try await exchangeWebServices.loadConnections(session: session)
     let connections = gmailConnections + imapConnections + graphConnections + ewsConnections
     return connections.sorted {
       if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }

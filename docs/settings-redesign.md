@@ -351,6 +351,8 @@ provider controls so authorization, default-sender selection, synchronization, n
 connection settings, Mailbox Role mapping, and removal retain their established behavior.
 The Mac Catalyst Settings window shares the app's Product Account session, so sign-out
 immediately removes its mailbox controls, and provider changes notify the active mail shell.
+Email Accounts prunes shared freshness state only after every provider adapter returns an
+authoritative connection snapshot; a partial provider load preserves existing sync state.
 
 ## Release gate
 

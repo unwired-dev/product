@@ -34,6 +34,35 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
+  func testRouterRejectsPartialSnapshotWhenAProviderLoadFails() async throws {
+    let successfulAdapter = try makeAdapter(
+      authorizationStore: RecordingIMAPAuthorizationStore(),
+      client: RecordingIMAPClient(),
+      definitions: []
+    )
+    let failingDefinitionSyncService = RecordingIMAPDefinitionSyncService(definitions: [])
+    failingDefinitionSyncService.loadError = IMAPAdapterTestError.unavailable
+    let failingAdapter = try makeAdapter(
+      authorizationStore: RecordingIMAPAuthorizationStore(),
+      client: RecordingIMAPClient(),
+      definitionSyncService: failingDefinitionSyncService,
+      definitions: []
+    )
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: successfulAdapter,
+      gmail: successfulAdapter,
+      imap: failingAdapter,
+      microsoftGraph: successfulAdapter
+    )
+
+    do {
+      _ = try await router.loadConnections(session: session)
+      XCTFail("Expected a provider load failure to reject the combined snapshot.")
+    } catch {
+      XCTAssertEqual(error as? IMAPAdapterTestError, .unavailable)
+    }
+  }
+
   // swiftlint:disable:next function_body_length
   func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = imapDefinition(username: "reader")
@@ -957,6 +986,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 }
 
+private enum IMAPAdapterTestError: Error {
+  case unavailable
+}
+
 private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   private var attempts: [OutgoingDeliveryAttempt] = []
   private(set) var saveCallCount = 0
@@ -1102,6 +1135,7 @@ private final class RecordingIMAPAuthorizationStore: GenericMailAuthorizationPer
 
 private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   var beforeLoadSnapshotReturn: ((Int) -> Void)?
+  var loadError: Error?
   private var loadSnapshotCallCount = 0
   private var snapshot: MailboxConnectionSyncSnapshot
 
@@ -1130,6 +1164,7 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
   ) async throws -> MailboxConnectionSyncSnapshot {
     loadSnapshotCallCount += 1
     beforeLoadSnapshotReturn?(loadSnapshotCallCount)
+    if let loadError { throw loadError }
     return snapshot
   }
 
