@@ -33,3 +33,23 @@ Generic IMAP and SMTP connections will use a qualified third-party protocol engi
 The deterministic synchronization fixture contains one mailbox with 10,000 messages whose metadata averages 2 KiB, plus separate no-change and 100-message-change runs after a completed backfill. The server applies a fixed 100 ms round-trip delay and 20 Mbit/s transfer limit. At the 95th percentile over 20 release-build runs on the iPhone 17 reference device, Initial Mailbox Availability must complete within 5 seconds, no-change and 100-message reconciliation within 10 seconds, and complete metadata backfill within 5 minutes. Incremental reconciliation may use at most 20 IMAP command round trips and download 5 MiB; complete backfill pages may contain at most 500 messages and use at most two fetch or search round trips per page plus ten setup and capability round trips. Synchronization may add at most 100 MiB of peak resident memory and must retain ADR-0018's 100 ms main-thread-stall cap. The iCloud Mail and Fastmail spikes use the same message counts and must meet the request, download, page-size, memory, and main-thread limits; their provider/network latency is recorded separately from the deterministic wall-clock thresholds.
 
 SwiftMail will handle IMAP and SMTP setup verification as well as runtime operations if it qualifies, avoiding duplicate protocol stacks. The existing stream implementation remains only for POP3, which SwiftMail does not support. iCloud Mail and Fastmail are certified providers; manually configured servers receive compatibility-based support.
+
+## Executable qualification boundary
+
+`MailEngine.swift` defines the provider-neutral, transient engine façade before
+any candidate dependency is adopted. It exposes negotiated transport and
+capabilities, mailbox and stable UID/UIDVALIDITY results, bounded metadata and
+selected body-part reads, IDLE, verified copy/move mappings, phase-aware SMTP
+outcomes, and Sent append. It deliberately exposes no persistence, retry,
+Mailbox Role mapping, or reconciliation API, keeping those decisions in
+product-owned services.
+
+`MailEngineQualificationTests.swift` supplies the reusable deterministic
+contract. A candidate-specific test target provides a
+`MailEngineQualificationCandidateFactory` for the same fixtures and must pass
+the contract unchanged. The reference scripted candidate proves the harness
+covers TLS and authentication ordering, certificate and server-identity
+failures, connection isolation and cancellation, UID mapping, paging and body
+selection, IDLE recovery, SMTP ambiguity, Sent-append-only recovery, and
+protocol-trace disposal. Provider-backed and performance qualification remain
+the later gates already defined above.
