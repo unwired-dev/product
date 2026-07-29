@@ -2605,6 +2605,9 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    XCTAssertFalse(
+      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [mailboxConnection])
+    )
     XCTAssertEqual(
       viewModel.historicalBackfillConnectionIds(for: [mailboxConnection, currentConnection]),
       [mailboxConnection.id]
@@ -2613,6 +2616,60 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.releaseHistoricalBackfill()
     _ = try await backfill.value
     XCTAssertFalse(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+  }
+
+  @MainActor
+  func testInboxViewModelDisablesNonGmailActionsDuringHistoricalBackfill() async throws {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      delaysHistoricalBackfill: true
+    )
+    let coordinator = MailboxFreshnessViewModel(
+      service: service,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      syncCoordinator: coordinator,
+      session: session
+    )
+    let gmailConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let graphConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: gmailConnection.capabilities,
+      connectedAt: gmailConnection.connectedAt,
+      displayName: "graph@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .microsoftGraph,
+          value: "graph-user-001"
+        )
+      ),
+      lastVerifiedAt: gmailConnection.lastVerifiedAt,
+      productAccountId: gmailConnection.productAccountId,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: gmailConnection.updatedAt
+    )
+    coordinator.updateConnections([graphConnection])
+    let backfill = Task { @MainActor in
+      try await coordinator.continueHistoricalBackfill(
+        connection: graphConnection,
+        session: session
+      )
+    }
+    await service.waitUntilHistoricalBackfillStarts()
+
+    XCTAssertTrue(
+      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [graphConnection])
+    )
+
+    await service.releaseHistoricalBackfill()
+    _ = try await backfill.value
   }
 
   @MainActor

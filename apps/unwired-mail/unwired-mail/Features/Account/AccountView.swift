@@ -1753,8 +1753,13 @@ struct MailboxBulkActionFailure: Equatable, Sendable {
 }
 
 struct MailboxBulkActionResult: Equatable, Sendable {
+  let deferredConnectionIds: Set<MailboxConnectionId>
   let failures: [MailboxBulkActionFailure]
   let succeededConnectionIds: [MailboxConnectionId]
+
+  func shouldReloadImmediately(_ connectionId: MailboxConnectionId) -> Bool {
+    !deferredConnectionIds.contains(connectionId)
+  }
 }
 
 struct MailboxBulkActionProgress: Equatable, Sendable {
@@ -3252,6 +3257,9 @@ struct MailShellConversationReader: View {
       }
       .disabled(
         batches.isEmpty || inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
+          || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(
+            for: batches.map(\.connection)
+          )
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -3297,6 +3305,7 @@ struct MailShellConversationReader: View {
       }
       .disabled(
         inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
+          || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -3441,7 +3450,7 @@ struct MailShellConversationReader: View {
       else { return }
       let attemptedConnections = batches.map(\.connection)
       let errorMessage = mailActionViewModel.errorMessage
-      for connection in attemptedConnections {
+      for connection in attemptedConnections where result.shouldReloadImmediately(connection.id) {
         _ = await inboxViewModel.reloadLocal(
           connection: connection,
           refreshesNavigationSnapshot: !deferredConnectionIds.contains(connection.id)
@@ -4470,6 +4479,7 @@ final class GmailMailActionViewModel {
 }
 
 extension GmailMailActionViewModel {
+  // swiftlint:disable:next function_body_length
   func performBulk(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
@@ -4500,6 +4510,7 @@ extension GmailMailActionViewModel {
     for batch in batches {
       remember(batch.connection)
     }
+    let operationId = UUID()
     let outcomes = await performBulkBatches(
       action,
       batches: batches,
@@ -4510,6 +4521,12 @@ extension GmailMailActionViewModel {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
     let result = bulkActionResult(outcomes)
+    let activeFailures = result.failures.filter {
+      activeFailureConnectionIds.contains($0.connectionId)
+    }
+    if !activeFailures.isEmpty {
+      deferredBulkFailures[operationId] = activeFailures
+    }
     updateBulkActionErrorMessage(adding: result.failures)
     let deferredBatches: [MailboxBulkActionBatch] = outcomes.compactMap { outcome in
       guard
@@ -4522,6 +4539,7 @@ extension GmailMailActionViewModel {
       startDeferredPendingActions(
         action,
         batches: deferredBatches,
+        taskId: operationId,
         immediateFailures: result.failures,
         onCompleted: onDeferredCompletion
       )
@@ -4532,10 +4550,10 @@ extension GmailMailActionViewModel {
   private func startDeferredPendingActions(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
+    taskId: UUID,
     immediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) {
-    let taskId = UUID()
     guard !isPreparingForSignOut, !Task.isCancelled else { return }
     deferredBulkFailures[taskId] = immediateFailures
     let nonPersistedImmediateFailures = immediateFailures.filter {
@@ -4831,6 +4849,9 @@ extension GmailMailActionViewModel {
       ]
     }
     return MailboxBulkActionResult(
+      deferredConnectionIds: Set(
+        outcomes.filter(\.deferredPendingAction).map(\.connection.id)
+      ),
       failures: failures,
       succeededConnectionIds: outcomes.compactMap { outcome in
         failures.contains { $0.connectionId == outcome.connection.id } ? nil : outcome.connection.id
@@ -4935,6 +4956,15 @@ final class GmailInboxViewModel {
 
   func isHistoricalBackfillRunning(for connections: [MailboxConnection]) -> Bool {
     !historicalBackfillConnectionIds(for: connections).isEmpty
+  }
+
+  func areProviderActionsDisabledDuringHistoricalBackfill(
+    for connections: [MailboxConnection]
+  ) -> Bool {
+    let backfillConnectionIds = historicalBackfillConnectionIds(for: connections)
+    return connections.contains {
+      $0.providerId != .gmail && backfillConnectionIds.contains($0.id)
+    }
   }
 
   var isBusy: Bool {

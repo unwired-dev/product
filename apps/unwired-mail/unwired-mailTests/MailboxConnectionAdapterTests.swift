@@ -4942,6 +4942,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(result?.shouldReloadImmediately(connection.id) ?? true)
     XCTAssertFalse(viewModel.isPerformingAction)
   }
 
@@ -5408,6 +5409,64 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       errorsSurfaced.fulfill()
     }
     await fulfillment(of: [errorsSurfaced], timeout: 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testMailActionViewModelPreservesNewerInlineFailureAfterDeferredCompletion() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let deferredCompletion = expectation(description: "deferred completion recorded")
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: currentConnection.id,
+      failedConnectionId: currentConnection.id,
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: deferredConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        )
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id],
+      onDeferredCompletion: { _ in
+        deferredCompletion.fulfill()
+      }
+    )
+    let currentResult = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    XCTAssertEqual(currentResult?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    await resumeGate.release()
+    await fulfillment(of: [deferredCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
   }
 
   func testMailActionViewModelReportsEachDeferredCompletionWithoutWaitingForOthers() async {
