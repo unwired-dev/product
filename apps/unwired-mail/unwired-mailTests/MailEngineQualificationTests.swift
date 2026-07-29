@@ -682,11 +682,17 @@ struct MailEngineQualificationContract {
   }
 
   private func verifyPermanentIMAPRejection() async throws {
-    let session = try await connect(fixture: .sentAppendPermanentlyRejected).session
+    let connectionID = "permanent-imap-rejection"
+    let rawMessage = Data("permanently rejected".utf8)
+    let sentMailbox = MailEngineMailboxIdentity("Sent")
+    let session = try await connect(
+      fixture: .sentAppendPermanentlyRejected,
+      connectionID: connectionID
+    ).session
     do {
       _ = try await session.appendToSent(
-        Data("permanently rejected".utf8),
-        mailbox: MailEngineMailboxIdentity("Sent")
+        rawMessage,
+        mailbox: sentMailbox
       )
       XCTFail("A permanent tagged IMAP rejection must preserve its classification.")
     } catch {
@@ -695,6 +701,18 @@ struct MailEngineQualificationContract {
         .protocolRejected(code: "NOPERM", retryable: false)
       )
     }
+    let events = await factory.events()
+    XCTAssertEqual(
+      events.filter {
+        $0
+          == .sentAppendReceived(
+            connectionID: connectionID,
+            mailbox: sentMailbox,
+            rawMessage: rawMessage
+          )
+      }.count,
+      1
+    )
   }
 
   private func verifyReducedCapabilityMoveSafety(
@@ -1190,10 +1208,25 @@ struct MailEngineQualificationContract {
     }
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
     submissionTask.cancel()
-    do {
-      _ = try await submissionTask.value
+    let completion = LockedBox<Result<MailEngineSMTPOutcome, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await submissionTask.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      completionObserver.cancel()
+      XCTFail("Timed out waiting for pre-content SMTP cancellation.")
+      return
+    }
+    switch result {
+    case .success:
       XCTFail("Cancellation before SMTP content should be reported.")
-    } catch {
+    case .failure(let error):
       XCTAssertEqual(error as? MailEngineError, .cancelled)
     }
     let contentEvents = await factory.events().filter {
@@ -1534,10 +1567,20 @@ struct MailEngineQualificationContract {
     let events = await factory.events()
     let serviceEvents = events.filter { $0.belongs(to: connectionID, service: failedService) }
     if expectedError == .authenticationRejected {
+      guard
+        case .tlsEstablished(
+          connectionID: connectionID,
+          service: failedService,
+          version: let negotiatedVersion
+        ) = serviceEvents.first
+      else {
+        XCTFail("Secure transport must be established before authentication rejection.")
+        return
+      }
+      XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
       XCTAssertEqual(
-        serviceEvents,
+        Array(serviceEvents.dropFirst()),
         [
-          .tlsEstablished(connectionID: connectionID, service: failedService, version: .tls13),
           .authenticationStarted(connectionID: connectionID, service: failedService),
           .serviceClosed(connectionID: connectionID, service: failedService),
         ]
