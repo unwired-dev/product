@@ -380,6 +380,15 @@ final class MailboxFreshnessViewModel {
     knownConnections = updatedConnections
   }
 
+  func updateConnections(
+    _ connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool,
+    prunesPersistedState: Bool = true
+  ) {
+    guard snapshotIsAuthoritative else { return }
+    updateConnections(connections, prunesPersistedState: prunesPersistedState)
+  }
+
   func clearPersistedState() {
     successStore.clear(productAccountId: session.productAccountId)
     knownConnections.removeAll()
@@ -999,6 +1008,7 @@ struct AccountView: View {
       .onChange(of: gmailViewModel.connections) { _, _ in
         mailboxFreshnessViewModel.updateConnections(
           gmailViewModel.connections,
+          snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
           prunesPersistedState: false
         )
         guard mailboxObserversAreActive else { return }
@@ -1317,6 +1327,7 @@ struct AccountView: View {
           let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
           mailboxFreshnessViewModel.updateConnections(
             gmailViewModel.connections,
+            snapshotIsAuthoritative: connectionsAreAuthoritative,
             prunesPersistedState: connectionsAreAuthoritative
           )
         }
@@ -1350,6 +1361,7 @@ struct AccountView: View {
     let connectionsAreAuthoritative = await gmailViewModel.load()
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
+      snapshotIsAuthoritative: connectionsAreAuthoritative,
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
@@ -6213,6 +6225,7 @@ final class GmailInboxViewModel {
 @Observable
 final class MailboxProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
+  private(set) var connectionsSnapshotIsAuthoritative = false
   var defaultSendingConnectionId: MailboxConnectionId?
   var errorMessage: String?
   var isConnecting = false
@@ -6426,6 +6439,7 @@ final class MailboxProviderConnectionViewModel {
 
   @discardableResult
   private func refreshConnections() async throws -> Bool {
+    connectionsSnapshotIsAuthoritative = false
     let snapshot =
       if let snapshotLoader = service as? any MailboxConnectionSnapshotLoading {
         try await snapshotLoader.loadConnectionSnapshot(session: session)
@@ -6439,6 +6453,7 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
+    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
     connections = loadedConnections
     do {
       defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(

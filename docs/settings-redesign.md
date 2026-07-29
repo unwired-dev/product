@@ -353,8 +353,11 @@ connection settings, Mailbox Role mapping, and removal retain their established 
 The Mac Catalyst Settings window shares the app's Product Account session, so sign-out
 immediately removes its mailbox controls, and provider changes notify the active mail shell.
 Email Accounts prunes shared freshness state only after every provider adapter returns an
-authoritative connection snapshot; a partial provider load keeps healthy providers visible and
-preserves existing sync state for providers that could not load.
+authoritative connection snapshot. Snapshot authority is published with the replacement list,
+so direct refreshes and runtime observers cannot apply a partial list using stale authority; a
+partial provider load keeps healthy providers visible without cancelling or pruning sync state
+for providers that could not load. Generic-mail removal uses the same shared mailbox-work busy
+state and cancellation boundary as Gmail, Microsoft, and EWS removal.
 
 ## Release gate
 

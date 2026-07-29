@@ -480,6 +480,8 @@ extension GenericMailSetupViewModel {
 
 struct GenericMailSetupPanel: View {
   @Bindable var viewModel: GenericMailSetupViewModel
+  var cancelMailboxWork: () async -> Void = {}
+  var isMailboxBusy = false
   var connectionsDidChange: () -> Void = {}
   @State private var connectTask: Task<Void, Never>?
 
@@ -529,8 +531,12 @@ struct GenericMailSetupPanel: View {
                   }
                   Button("Remove Device Authorization", role: .destructive) {
                     Task {
-                      await viewModel.removeLocalAuthorization(definition)
-                      connectionsDidChange()
+                      await Self.performDestructiveAction(
+                        cancelMailboxWork: cancelMailboxWork
+                      ) {
+                        await viewModel.removeLocalAuthorization(definition)
+                        connectionsDidChange()
+                      }
                     }
                   }
                 } else {
@@ -540,11 +546,16 @@ struct GenericMailSetupPanel: View {
                 }
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
                   Task {
-                    await viewModel.removeEverywhere(definition)
-                    connectionsDidChange()
+                    await Self.performDestructiveAction(
+                      cancelMailboxWork: cancelMailboxWork
+                    ) {
+                      await viewModel.removeEverywhere(definition)
+                      connectionsDidChange()
+                    }
                   }
                 }
               }
+              .disabled(viewModel.isConnecting || isMailboxBusy)
             }
           }
         }
@@ -702,5 +713,13 @@ struct GenericMailSetupPanel: View {
       }
       .pickerStyle(.segmented)
     }
+  }
+
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Void
+  ) async {
+    await cancelMailboxWork()
+    await action()
   }
 }

@@ -1136,6 +1136,18 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testGenericMailDestructiveActionCancelsMailboxWorkBeforeRemoval() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel") },
+      action: { events.append("remove") }
+    )
+
+    XCTAssertEqual(events, ["cancel", "remove"])
+  }
+
+  @MainActor
   func testDiscoveringAnotherMailboxReplacesTheUsernameAndCredential() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),

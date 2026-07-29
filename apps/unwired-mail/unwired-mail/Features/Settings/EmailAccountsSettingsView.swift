@@ -53,6 +53,8 @@ struct EmailAccountsSettingsView: View {
 
           GenericMailSetupPanel(
             viewModel: genericMailViewModel,
+            cancelMailboxWork: cancelBodyPrefetch,
+            isMailboxBusy: isMailboxBusy,
             connectionsDidChange: providerConnectionsDidChange
           )
           .id(MailProviderId.imapSMTP)
@@ -79,6 +81,7 @@ struct EmailAccountsSettingsView: View {
       await genericMailViewModel.loadSyncedDefinitions()
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
+      connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
       Self.updateFreshnessConnections(
         connections,
         connectionsAreAuthoritative: connectionsAreAuthoritative,
@@ -112,8 +115,10 @@ struct EmailAccountsSettingsView: View {
     connectionsAreAuthoritative: Bool,
     freshnessViewModel: MailboxFreshnessViewModel
   ) {
-    guard connectionsAreAuthoritative else { return }
-    freshnessViewModel.updateConnections(connections)
+    freshnessViewModel.updateConnections(
+      connections,
+      snapshotIsAuthoritative: connectionsAreAuthoritative
+    )
   }
 
   @ViewBuilder
