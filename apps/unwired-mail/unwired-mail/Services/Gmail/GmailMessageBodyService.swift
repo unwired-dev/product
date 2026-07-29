@@ -358,6 +358,10 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       productAccountId: productAccountId,
       stableProviderMessageId: stableProviderMessageId
     )
+    let metadataURL = metadataURL(for: fileURL)
+    if fileManager.fileExists(atPath: metadataURL.path) {
+      try fileManager.removeItem(at: metadataURL)
+    }
     if fileManager.fileExists(atPath: fileURL.path) {
       try fileManager.removeItem(at: fileURL)
     }
@@ -409,21 +413,37 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     to destination: URL
   ) throws -> Bool {
     let encodedEntry = try JSONEncoder().encode(entry)
-    guard encodedEntry.count <= maximumByteCount else { return false }
+    let encodedMetadata = try JSONEncoder().encode(
+      FileGmailMessageBodyCacheMetadata(
+        bodyFileIdentifier: String(repeating: "0", count: 20),
+        entry: entry
+      )
+    )
+    let destinationMetadataURL = metadataURL(for: destination)
+    let existingMetadataByteCount =
+      (try? destinationMetadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    let incomingByteCount =
+      encodedEntry.count + max(existingMetadataByteCount, encodedMetadata.count)
+    guard
+      try makeRoom(
+        for: incomingByteCount,
+        excluding: destination,
+        allowsProtectedEviction: entry.retention == .prefetched
+      )
+    else { return false }
 
-    var cachedFiles = try cachedFiles(excluding: destination)
-    var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
-    cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
-    while cachedByteCount > maximumByteCount - encodedEntry.count,
-      let eviction = cachedFiles.first(where: { !$0.isProtected })
-        ?? (entry.retention == .prefetched ? cachedFiles.first : nil)
-    {
-      try fileManager.removeItem(at: eviction.url)
-      cachedByteCount -= eviction.byteCount
-      cachedFiles.removeAll { $0.url == eviction.url }
-    }
-    guard cachedByteCount <= maximumByteCount - encodedEntry.count else { return false }
     try encodedEntry.write(to: destination, options: [.atomic])
+    let destinationMetadata = FileGmailMessageBodyCacheMetadata(
+      bodyFileIdentifier: try bodyFileIdentifier(for: destination),
+      entry: entry
+    )
+    do {
+      try JSONEncoder().encode(destinationMetadata)
+        .write(to: destinationMetadataURL, options: [.atomic])
+    } catch {
+      try? fileManager.removeItem(at: destinationMetadataURL)
+      throw error
+    }
     return true
   }
 
@@ -446,7 +466,6 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     )
   }
 
-  // swiftlint:disable:next function_body_length
   func reconcileSelection(
     productAccountId: String,
     connectionId: MailboxConnectionId,
@@ -456,10 +475,6 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     Self.fileLock.lock()
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
-    try clearProtectedSelections(
-      productAccountId: productAccountId,
-      connectionId: connectionId
-    )
     let prefix = [
       gmailSafeFileComponent(productAccountId),
       gmailSafeFileComponent("\(connectionId.rawValue):"),
@@ -475,61 +490,18 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     for fileURL in try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: [.contentModificationDateKey]
-    ) where fileURL.lastPathComponent.hasPrefix(prefix) {
-      guard let data = try dataIfPresent(at: fileURL) else { continue }
-      var entry: FileGmailMessageBodyCacheEntry
-      if let storedEntry = try? JSONDecoder().decode(
-        FileGmailMessageBodyCacheEntry.self,
-        from: data
-      ) {
-        entry = storedEntry
-      } else if let payload = try? JSONDecoder().decode(
-        ProductSyncEncryptedPayload.self,
-        from: data
-      ) {
-        let cachedAt =
-          try fileURL.resourceValues(forKeys: [.contentModificationDateKey])
-          .contentModificationDate ?? .distantPast
-        entry = FileGmailMessageBodyCacheEntry(
-          cachedAt: cachedAt,
-          isPinned: false,
-          isProtected: false,
-          lastReadAt: cachedAt,
-          payload: payload,
-          retention: .opened
-        )
-      } else {
-        try? fileManager.removeItem(at: fileURL)
-        continue
-      }
-      entry.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
-      entry.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
-      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
+    )
+    where
+      isBodyFile(fileURL)
+      && fileURL.lastPathComponent.hasPrefix(prefix)
+    {
+      guard var metadata = try metadata(for: fileURL)?.value else { continue }
+      metadata.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
+      metadata.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
+      try JSONEncoder().encode(metadata)
+        .write(to: metadataURL(for: fileURL), options: [.atomic])
     }
     try enforceMaximumByteCount()
-  }
-
-  private func clearProtectedSelections(
-    productAccountId: String,
-    connectionId: MailboxConnectionId
-  ) throws {
-    let productPrefix = [
-      gmailSafeFileComponent(productAccountId),
-      gmailSafeFileComponent("\(connectionId.rawValue):"),
-    ].joined(separator: "-")
-    for fileURL in try fileManager.contentsOfDirectory(
-      at: rootDirectory,
-      includingPropertiesForKeys: nil
-    ) where fileURL.lastPathComponent.hasPrefix(productPrefix) {
-      guard
-        var entry = try? JSONDecoder().decode(
-          FileGmailMessageBodyCacheEntry.self,
-          from: Data(contentsOf: fileURL)
-        )
-      else { continue }
-      entry.isProtected = false
-      try JSONEncoder().encode(entry).write(to: fileURL, options: [.atomic])
-    }
   }
 
   private func dataIfPresent(at fileURL: URL) throws -> Data? {
@@ -554,27 +526,10 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       stableProviderMessageId: stableProviderMessageId
     )
     guard fileManager.fileExists(atPath: fileURL.path) else { return }
-    let data = try Data(contentsOf: fileURL)
-    var entry: FileGmailMessageBodyCacheEntry
-    if let storedEntry = try? JSONDecoder().decode(
-      FileGmailMessageBodyCacheEntry.self,
-      from: data
-    ) {
-      entry = storedEntry
-    } else {
-      let payload = try JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: data)
-      entry = FileGmailMessageBodyCacheEntry(
-        cachedAt: accessedAt,
-        isPinned: false,
-        isProtected: false,
-        lastReadAt: nil,
-        payload: payload,
-        retention: .opened
-      )
-    }
-    entry.lastReadAt = accessedAt
-    entry.retention = .opened
-    _ = try writeEntryIfFits(entry, to: fileURL)
+    guard var metadata = try metadata(for: fileURL)?.value else { return }
+    metadata.lastReadAt = accessedAt
+    metadata.retention = .opened
+    _ = try writeMetadataIfFits(metadata, for: fileURL)
   }
 
   private func fileURL(productAccountId: String, stableProviderMessageId: String) -> URL {
@@ -583,68 +538,195 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     )
   }
 
+  private func metadataURL(for fileURL: URL) -> URL {
+    fileURL.deletingPathExtension()
+      .appendingPathExtension("metadata")
+      .appendingPathExtension("json")
+  }
+
+  private func isBodyFile(_ fileURL: URL) -> Bool {
+    fileURL.pathExtension == "json"
+      && !fileURL.lastPathComponent.hasSuffix(".metadata.json")
+  }
+
   private func enforceMaximumByteCount() throws {
-    var cachedFiles = try cachedFiles(excluding: nil)
+    _ = try makeRoom(
+      for: 0,
+      excluding: nil,
+      allowsProtectedEviction: true
+    )
+  }
+
+  private func writeMetadataIfFits(
+    _ metadata: FileGmailMessageBodyCacheMetadata,
+    for fileURL: URL,
+    allowsProtectedEviction: Bool = false
+  ) throws -> Bool {
+    let bodyByteCount =
+      try fileURL.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+    var metadata = metadata
+    metadata.bodyFileIdentifier = try bodyFileIdentifier(for: fileURL)
+    let encodedMetadata = try JSONEncoder().encode(metadata)
+    let existingMetadataByteCount =
+      (try? metadataURL(for: fileURL).resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+    let incomingByteCount =
+      bodyByteCount + max(existingMetadataByteCount, encodedMetadata.count)
+    guard
+      try makeRoom(
+        for: incomingByteCount,
+        excluding: fileURL,
+        allowsProtectedEviction: allowsProtectedEviction
+      )
+    else { return false }
+    try encodedMetadata.write(to: metadataURL(for: fileURL), options: [.atomic])
+    return true
+  }
+
+  private func makeRoom(
+    for incomingByteCount: Int,
+    excluding excludedURL: URL?,
+    allowsProtectedEviction: Bool
+  ) throws -> Bool {
+    guard incomingByteCount <= maximumByteCount else { return false }
+    var cachedFiles = try cachedFiles(excluding: excludedURL)
     var cachedByteCount = cachedFiles.reduce(0) { $0 + $1.byteCount }
     cachedFiles.sort(by: FileGmailMessageBodyCacheFile.evictionOrder)
-    while cachedByteCount > maximumByteCount,
-      let eviction = cachedFiles.first(where: { !$0.isProtected }) ?? cachedFiles.first
+    while cachedByteCount > maximumByteCount - incomingByteCount,
+      let eviction = cachedFiles.first(where: { !$0.isProtected })
+        ?? (allowsProtectedEviction ? cachedFiles.first : nil)
     {
-      try fileManager.removeItem(at: eviction.url)
+      try removeCachedFile(eviction)
       cachedByteCount -= eviction.byteCount
       cachedFiles.removeAll { $0.url == eviction.url }
     }
+    guard cachedByteCount <= maximumByteCount - incomingByteCount else {
+      return false
+    }
+    try writePendingMetadata(in: cachedFiles)
+    return true
+  }
+
+  private func metadata(for fileURL: URL) throws
+    -> (value: FileGmailMessageBodyCacheMetadata, needsWrite: Bool)?
+  {
+    guard fileManager.fileExists(atPath: fileURL.path) else { return nil }
+    let metadataURL = metadataURL(for: fileURL)
+    let bodyFileIdentifier = try bodyFileIdentifier(for: fileURL)
+    if let data = try dataIfPresent(at: metadataURL),
+      let metadata = try? JSONDecoder().decode(
+        FileGmailMessageBodyCacheMetadata.self,
+        from: data
+      ),
+      metadata.bodyFileIdentifier == bodyFileIdentifier
+    {
+      return (metadata, false)
+    }
+    guard let data = try dataIfPresent(at: fileURL) else { return nil }
+    let metadata: FileGmailMessageBodyCacheMetadata
+    if let storedEntry = try? JSONDecoder().decode(
+      FileGmailMessageBodyCacheEntry.self,
+      from: data
+    ) {
+      metadata = FileGmailMessageBodyCacheMetadata(entry: storedEntry)
+    } else if (try? JSONDecoder().decode(ProductSyncEncryptedPayload.self, from: data)) != nil {
+      let cachedAt =
+        try fileURL.resourceValues(forKeys: [.contentModificationDateKey])
+        .contentModificationDate ?? .distantPast
+      metadata = FileGmailMessageBodyCacheMetadata(
+        cachedAt: cachedAt,
+        isPinned: false,
+        isProtected: false,
+        lastReadAt: cachedAt,
+        retention: .opened
+      )
+    } else {
+      try? fileManager.removeItem(at: fileURL)
+      try? fileManager.removeItem(at: metadataURL)
+      return nil
+    }
+    var migratedMetadata = metadata
+    migratedMetadata.bodyFileIdentifier = bodyFileIdentifier
+    return (migratedMetadata, true)
+  }
+
+  private func bodyFileIdentifier(for fileURL: URL) throws -> String {
+    let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+    guard let fileNumber = attributes[.systemFileNumber] as? NSNumber else {
+      throw NSError(domain: NSCocoaErrorDomain, code: NSFileReadUnknownError)
+    }
+    return String(format: "%020llu", fileNumber.uint64Value)
+  }
+
+  private func removeCachedFile(_ cachedFile: FileGmailMessageBodyCacheFile) throws {
+    if fileManager.fileExists(atPath: cachedFile.metadataURL.path) {
+      try fileManager.removeItem(at: cachedFile.metadataURL)
+    }
+    try fileManager.removeItem(at: cachedFile.url)
   }
 
   private func cachedFiles(excluding excludedURL: URL?) throws
     -> [FileGmailMessageBodyCacheFile]
   {
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return [] }
-    var cachedFiles: [FileGmailMessageBodyCacheFile] = []
-    for fileURL in try fileManager.contentsOfDirectory(
+    let fileURLs = try fileManager.contentsOfDirectory(
       at: rootDirectory,
       includingPropertiesForKeys: [.contentModificationDateKey, .fileSizeKey]
-    ) where excludedURL == nil || fileURL != excludedURL {
+    )
+    let bodyURLs = Set(fileURLs.filter(isBodyFile))
+    for metadataURL in fileURLs
+    where
+      metadataURL.lastPathComponent.hasSuffix(".metadata.json")
+      && !bodyURLs.contains(bodyURL(for: metadataURL))
+    {
+      try fileManager.removeItem(at: metadataURL)
+    }
+    var cachedFiles: [FileGmailMessageBodyCacheFile] = []
+    for fileURL in fileURLs
+    where
+      isBodyFile(fileURL)
+      && (excludedURL == nil || fileURL != excludedURL)
+    {
       let values = try fileURL.resourceValues(forKeys: [
         .contentModificationDateKey, .fileSizeKey,
       ])
-      let data = try Data(contentsOf: fileURL)
-      let entry: FileGmailMessageBodyCacheEntry
-      if let storedEntry = try? JSONDecoder().decode(
-        FileGmailMessageBodyCacheEntry.self,
-        from: data
-      ) {
-        entry = storedEntry
-      } else if let legacyPayload = try? JSONDecoder().decode(
-        ProductSyncEncryptedPayload.self,
-        from: data
-      ) {
-        let cachedAt = values.contentModificationDate ?? .distantPast
-        entry = FileGmailMessageBodyCacheEntry(
-          cachedAt: cachedAt,
-          isPinned: false,
-          isProtected: false,
-          lastReadAt: cachedAt,
-          payload: legacyPayload,
-          retention: .opened
-        )
-      } else {
-        try fileManager.removeItem(at: fileURL)
-        continue
-      }
+      guard let result = try metadata(for: fileURL) else { continue }
+      let metadata = result.value
+      let metadataURL = metadataURL(for: fileURL)
+      let existingMetadataByteCount =
+        (try? metadataURL.resourceValues(forKeys: [.fileSizeKey]).fileSize) ?? 0
+      let pendingMetadata = result.needsWrite ? metadata : nil
+      let pendingMetadataByteCount =
+        try pendingMetadata.map { try JSONEncoder().encode($0).count } ?? 0
       cachedFiles.append(
         FileGmailMessageBodyCacheFile(
-          byteCount: values.fileSize ?? data.count,
-          cachedAt: entry.cachedAt,
-          isPinned: entry.isPinned,
-          isProtected: entry.isProtected,
-          lastReadAt: entry.lastReadAt,
-          retention: entry.retention,
+          byteCount: (values.fileSize ?? 0)
+            + max(existingMetadataByteCount, pendingMetadataByteCount),
+          cachedAt: metadata.cachedAt,
+          isPinned: metadata.isPinned,
+          isProtected: metadata.isProtected,
+          lastReadAt: metadata.lastReadAt,
+          metadataURL: metadataURL,
+          pendingMetadata: pendingMetadata,
+          retention: metadata.retention,
           url: fileURL
         )
       )
     }
     return cachedFiles
+  }
+
+  private func bodyURL(for metadataURL: URL) -> URL {
+    metadataURL.deletingPathExtension()
+      .deletingPathExtension()
+      .appendingPathExtension("json")
+  }
+
+  private func writePendingMetadata(in cachedFiles: [FileGmailMessageBodyCacheFile]) throws {
+    for cachedFile in cachedFiles {
+      guard let metadata = cachedFile.pendingMetadata else { continue }
+      try JSONEncoder().encode(metadata)
+        .write(to: cachedFile.metadataURL, options: [.atomic])
+    }
   }
 
 }
@@ -658,12 +740,53 @@ private struct FileGmailMessageBodyCacheEntry: Codable {
   var retention: GmailMessageBodyCacheRetention
 }
 
+private struct FileGmailMessageBodyCacheMetadata: Codable {
+  var bodyFileIdentifier: String?
+  let cachedAt: Date
+  var isPinned: Bool
+  var isProtected: Bool
+  var lastReadAt: Date?
+  var retention: GmailMessageBodyCacheRetention
+
+  init(
+    bodyFileIdentifier: String? = nil,
+    cachedAt: Date,
+    isPinned: Bool,
+    isProtected: Bool,
+    lastReadAt: Date?,
+    retention: GmailMessageBodyCacheRetention
+  ) {
+    self.bodyFileIdentifier = bodyFileIdentifier
+    self.cachedAt = cachedAt
+    self.isPinned = isPinned
+    self.isProtected = isProtected
+    self.lastReadAt = lastReadAt
+    self.retention = retention
+  }
+
+  init(
+    bodyFileIdentifier: String? = nil,
+    entry: FileGmailMessageBodyCacheEntry
+  ) {
+    self.init(
+      bodyFileIdentifier: bodyFileIdentifier,
+      cachedAt: entry.cachedAt,
+      isPinned: entry.isPinned,
+      isProtected: entry.isProtected,
+      lastReadAt: entry.lastReadAt,
+      retention: entry.retention
+    )
+  }
+}
+
 private struct FileGmailMessageBodyCacheFile {
   let byteCount: Int
   let cachedAt: Date
   let isPinned: Bool
   let isProtected: Bool
   let lastReadAt: Date?
+  let metadataURL: URL
+  let pendingMetadata: FileGmailMessageBodyCacheMetadata?
   let retention: GmailMessageBodyCacheRetention
   let url: URL
 
