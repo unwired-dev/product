@@ -82,6 +82,7 @@ struct EmailAccountsSettingsView: View {
     }
     .onReceive(
       NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
+        .receive(on: RunLoop.main)
     ) { notification in
       guard
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
@@ -134,7 +135,10 @@ struct EmailAccountsSettingsView: View {
             synchronize: {
               syncTask?.cancel()
               syncTask = Task {
-                await freshnessViewModel.synchronizeFully(connections: [connection])
+                await freshnessViewModel.synchronizeFully(
+                  connection: connection,
+                  among: gmailViewModel.connections
+                )
               }
             }
           )

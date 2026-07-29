@@ -48,6 +48,34 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertNil(SettingsDestinationRegistry.defaultDestination(isSignedIn: false))
   }
 
+  func testSignedOutSettingsHideUnavailableDestinations() {
+    XCTAssertTrue(
+      SettingsDestinationRegistry.implementedGroups(isSignedIn: false).isEmpty
+    )
+    XCTAssertTrue(
+      SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty
+    )
+  }
+
+  @MainActor
+  func testMailboxWorkCoordinatorSharesBusyStateAndCancellation() async {
+    let coordinator = MailboxWorkCoordinator()
+    var didCancel = false
+
+    coordinator.register(
+      productAccountId: "product-account",
+      cancelBodyPrefetch: { didCancel = true },
+      isBusy: true
+    )
+
+    XCTAssertTrue(coordinator.isBusy(productAccountId: "product-account"))
+    await coordinator.cancelBodyPrefetch(productAccountId: "product-account")
+    XCTAssertTrue(didCancel)
+
+    coordinator.unregister(productAccountId: "product-account")
+    XCTAssertFalse(coordinator.isBusy(productAccountId: "product-account"))
+  }
+
   func testStoredDestinationFallsBackToFirstAvailableDestination() {
     XCTAssertEqual(
       SettingsDestinationRegistry.resolveDestination(

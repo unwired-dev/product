@@ -21,6 +21,42 @@ enum MailboxSyncNotificationUserInfoKey {
 }
 
 @MainActor
+@Observable
+final class MailboxWorkCoordinator {
+  static let shared = MailboxWorkCoordinator()
+
+  private struct Registration {
+    let cancelBodyPrefetch: () async -> Void
+    let isBusy: Bool
+  }
+
+  private var registrations: [String: Registration] = [:]
+
+  func register(
+    productAccountId: String,
+    cancelBodyPrefetch: @escaping () async -> Void,
+    isBusy: Bool
+  ) {
+    registrations[productAccountId] = Registration(
+      cancelBodyPrefetch: cancelBodyPrefetch,
+      isBusy: isBusy
+    )
+  }
+
+  func unregister(productAccountId: String) {
+    registrations[productAccountId] = nil
+  }
+
+  func cancelBodyPrefetch(productAccountId: String) async {
+    await registrations[productAccountId]?.cancelBodyPrefetch()
+  }
+
+  func isBusy(productAccountId: String) -> Bool {
+    registrations[productAccountId]?.isBusy ?? false
+  }
+}
+
+@MainActor
 protocol MailboxSyncSuccessPersisting {
   func clear(
     productAccountId: String
@@ -351,8 +387,20 @@ final class MailboxFreshnessViewModel {
     await synchronize(connections: connections, gmailScope: .full)
   }
 
+  func synchronizeFully(
+    connection: MailboxConnection,
+    among connections: [MailboxConnection]
+  ) async {
+    await synchronize(
+      connections: connections,
+      targetConnections: [connection],
+      gmailScope: .full
+    )
+  }
+
   private func synchronize(
     connections: [MailboxConnection],
+    targetConnections: [MailboxConnection]? = nil,
     gmailScope: SyncScope
   ) async {
     guard isSessionCurrent(session) else {
@@ -362,7 +410,7 @@ final class MailboxFreshnessViewModel {
     updateConnections(connections, prunesPersistedState: false)
     let connectionIds = Set(connections.map(\.id))
     statuses = statuses.filter { connectionIds.contains($0.key) }
-    for connection in connections {
+    for connection in targetConnections ?? connections {
       guard connection.authorizationState == .authorized else {
         statuses[connection.id] = .authorizationRequired(
           lastSuccessfulSyncAt: successStore.load(
@@ -773,6 +821,7 @@ struct AccountView: View {
   @State private var showsBlockedActionAlert = false
   @State private var showsAccountSettings = false
   @State private var showsDevelopmentSettings = false
+  @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
   @MainActor
   // swiftlint:disable:next function_body_length
@@ -870,7 +919,7 @@ struct AccountView: View {
   }
 
   private var mailShell: some View {
-    mailShellWithCoreLifecycleHandlers
+    mailboxWorkCoordinatedMailShell
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
@@ -984,6 +1033,31 @@ struct AccountView: View {
         inboxLoadTask?.cancel()
         mailboxFreshnessViewModel.cancelAll()
       }
+  }
+
+  private var mailboxWorkCoordinatedMailShell: some View {
+    mailShellWithCoreLifecycleHandlers
+      .onAppear {
+        updateMailboxWorkCoordination()
+      }
+      .onChange(of: isMailboxWorkBusy) { _, _ in
+        updateMailboxWorkCoordination()
+      }
+      .onDisappear {
+        mailboxWorkCoordinator.unregister(productAccountId: snapshot.productAccountId)
+      }
+  }
+
+  private var isMailboxWorkBusy: Bool {
+    inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+  }
+
+  private func updateMailboxWorkCoordination() {
+    mailboxWorkCoordinator.register(
+      productAccountId: snapshot.productAccountId,
+      cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+      isBusy: isMailboxWorkBusy
+    )
   }
 
   private var mailShellWithCoreLifecycleHandlers: some View {

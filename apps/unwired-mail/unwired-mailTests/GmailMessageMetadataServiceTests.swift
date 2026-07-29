@@ -1539,6 +1539,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessRowRefreshPreservesOtherConnectionState() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let selectedConnection = fixture.connections[0]
+    let preservedConnection = fixture.connections[1]
+    fixture.viewModel.updateConnections(fixture.connections)
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: preservedConnection.id.rawValue,
+      phase: .backfillPending,
+      successfulSyncAt: fixture.now
+    )
+
+    await fixture.viewModel.synchronizeFully(
+      connection: selectedConnection,
+      among: fixture.connections
+    )
+
+    let syncedConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertEqual(syncedConnectionIds, [selectedConnection.id])
+    XCTAssertEqual(fixture.viewModel.status(for: preservedConnection).phase, .backfillPending)
+    XCTAssertEqual(
+      fixture.viewModel.status(for: preservedConnection).lastSuccessfulSyncAt,
+      fixture.now
+    )
+  }
+
+  @MainActor
   func testMailboxFreshnessKeepsNonGmailForegroundSynchronizationUnchanged() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = MailboxConnection(

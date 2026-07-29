@@ -96,11 +96,22 @@ enum SettingsDestinationRegistry {
   static let implementedDestinations = SettingsDestination.allCases
 
   static var implementedGroups: [SettingsGroup] {
-    SettingsGroup.allCases.filter { !destinations(in: $0).isEmpty }
+    implementedGroups(isSignedIn: true)
   }
 
-  static func destinations(in group: SettingsGroup) -> [SettingsDestination] {
-    implementedDestinations.filter { $0.group == group }
+  static func implementedGroups(isSignedIn: Bool) -> [SettingsGroup] {
+    SettingsGroup.allCases.filter {
+      !destinations(in: $0, isSignedIn: isSignedIn).isEmpty
+    }
+  }
+
+  static func destinations(
+    in group: SettingsGroup,
+    isSignedIn: Bool = true
+  ) -> [SettingsDestination] {
+    implementedDestinations.filter {
+      $0.group == group && (isSignedIn || $0.isAvailableWhenSignedOut)
+    }
   }
 
   static func defaultDestination(isSignedIn: Bool) -> SettingsDestination? {
@@ -181,9 +192,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   private var splitNavigation: some View {
     NavigationSplitView {
       List(selection: $selection) {
-        ForEach(SettingsDestinationRegistry.implementedGroups) { group in
+        ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
           Section(group.title) {
-            ForEach(SettingsDestinationRegistry.destinations(in: group)) { destination in
+            ForEach(
+              SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
+            ) { destination in
               destinationLabel(destination)
                 .tag(destination)
             }
@@ -210,9 +223,11 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     @ViewBuilder row: @escaping (SettingsDestination) -> Row
   ) -> some View {
     List {
-      ForEach(SettingsDestinationRegistry.implementedGroups) { group in
+      ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
         Section(group.title) {
-          ForEach(SettingsDestinationRegistry.destinations(in: group)) { destination in
+          ForEach(
+            SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
+          ) { destination in
             row(destination)
           }
         }
@@ -238,7 +253,6 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     }
   }
 }
-
 #if DEBUG
   @MainActor
   struct DevelopmentSettingsRootView: View {
@@ -289,6 +303,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
+    @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
     init(
       session: ProductAccountSession,
@@ -353,9 +368,15 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
             gmailViewModel: gmailViewModel,
             microsoftGraphViewModel: microsoftGraphViewModel,
             freshnessViewModel: freshnessViewModel,
-            cancelBodyPrefetch: {},
+            cancelBodyPrefetch: {
+              await mailboxWorkCoordinator.cancelBodyPrefetch(
+                productAccountId: snapshot.productAccountId
+              )
+            },
             connectionsDidChange: notifyConnectionsDidChange,
-            isMailboxBusy: false
+            isMailboxBusy: mailboxWorkCoordinator.isBusy(
+              productAccountId: snapshot.productAccountId
+            )
           )
         }
       }
