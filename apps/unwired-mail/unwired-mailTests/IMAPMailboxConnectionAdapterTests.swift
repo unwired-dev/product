@@ -34,9 +34,12 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
+  // swiftlint:disable:next function_body_length
   func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = RecordingIMAPAuthorizationStore()
+    let outboxStore = InMemoryIMAPOutboxStore()
+    let pendingActionStore = InMemoryIMAPPendingActionStore()
     authorizationStore.save(
       DeviceLocalGenericMailAuthorization(
         authorizationGeneration: 0,
@@ -50,11 +53,15 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       authorizationCleanupConnectionIds: [definition.connectionId],
       authorizationStore: authorizationStore,
       client: RecordingIMAPClient(),
-      definitions: [definition]
+      definitions: [definition],
+      outboxStore: outboxStore,
+      pendingActionStore: pendingActionStore
     )
 
     let staleConnections = try await adapter.loadConnections(session: session)
     let staleConnection = try XCTUnwrap(staleConnections.first)
+    let outboxCleanupCount = outboxStore.saveCallCount
+    let pendingActionCleanupCount = pendingActionStore.saveCallCount
     authorizationStore.save(
       DeviceLocalGenericMailAuthorization(
         authorizationGeneration: 1,
@@ -77,6 +84,15 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     } catch {
       XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
     }
+    let preservedAuthorization = try XCTUnwrap(
+      authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: definition.connectionId
+      )
+    )
+    XCTAssertEqual(preservedAuthorization.authorizationGeneration, 1)
+    XCTAssertEqual(outboxStore.saveCallCount, outboxCleanupCount)
+    XCTAssertEqual(pendingActionStore.saveCallCount, pendingActionCleanupCount)
   }
 
   func testLoadConnectionsReturnsConcurrentReaddObservedDuringRemovalCleanup() async throws {
@@ -703,6 +719,68 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.bodyRequestCount, 0)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testUncachedBodyLoadFinishesBeforeConnectionCleanup() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let cache = RecordingIMAPBodyCache()
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    client.bodyByUID[1] = "Private body"
+    let providerGate = TestRendezvous()
+    client.beforeBodyReturn = {
+      await providerGate.hold()
+    }
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let syncGate = MailboxConnectionSyncGate()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      syncGate: syncGate
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    let bodyLoad = Task {
+      try await adapter.loadMessageBody(message: message, session: session)
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupStarted = TestRendezvous()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      await cleanupStarted.hold()
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    await cleanupStarted.waitUntilHeld()
+    await cleanupStarted.release()
+    try await Task.sleep(for: .milliseconds(20))
+    let cleanupFinishedEarly = await cleanupFinished.value
+
+    XCTAssertFalse(cleanupFinishedEarly)
+    await providerGate.release()
+    let body = try await bodyLoad.value
+    try await cleanup.value
+    let cleanupDidFinish = await cleanupFinished.value
+
+    XCTAssertEqual(body.text, "Private body")
+    XCTAssertTrue(cleanupDidFinish)
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    )
+  }
+
   func testRepresentativeServerListTranscripts() async throws {
     let transcripts: [(String, String)] = [
       (#"* LIST (\HasNoChildren) "/" "INBOX""#, "INBOX"),
@@ -854,7 +932,8 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
     outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
     pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
-    store: IMAPMessageMetadataPersisting? = nil
+    store: IMAPMessageMetadataPersisting? = nil,
+    syncGate: MailboxConnectionSyncGate = MailboxConnectionSyncGate()
   ) throws -> IMAPMailboxConnectionAdapter {
     let metadataStore = try store ?? SwiftDataIMAPMessageMetadataStore.inMemory()
     return IMAPMailboxConnectionAdapter(
@@ -873,7 +952,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       pendingActionService: PendingProviderActionService(
         store: pendingActionStore
       ),
-      syncGate: MailboxConnectionSyncGate()
+      syncGate: syncGate
     )
   }
 }
@@ -1141,6 +1220,7 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
 }
 
 private final class RecordingIMAPClient: IMAPMailboxClient {
+  var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
   var failOnMetadataRequest: Int?
@@ -1189,6 +1269,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
     bodyRequestCount += 1
+    await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
   }
 }

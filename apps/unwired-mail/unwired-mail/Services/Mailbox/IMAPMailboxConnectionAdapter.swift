@@ -1155,22 +1155,18 @@ private struct IMAPThreadResolver {
 }
 
 struct IMAPMessageBodyService {
-  private let authorizationStore: GenericMailAuthorizationPersisting
   private let cache: GmailMessageBodyCaching
   private let client: IMAPMailboxClient
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let metadataStore: IMAPMessageMetadataPersisting
 
   init(
-    authorizationStore: GenericMailAuthorizationPersisting =
-      KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: IMAPMailboxClient = SystemIMAPMailboxClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
   ) {
-    self.authorizationStore = authorizationStore
     self.cache = cache
     self.client = client
     self.keyMaterialStore = keyMaterialStore
@@ -1193,7 +1189,8 @@ struct IMAPMessageBodyService {
 
   func loadMessageBody(
     message: MailboxMessageMetadata,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> MailboxMessageBody {
     if let cached = try loadCachedMessageBody(message: message, session: session) {
       try? cache.recordMessageBodyAccess(
@@ -1210,10 +1207,6 @@ struct IMAPMessageBodyService {
         connectionId: message.connectionId
       )
     else { throw IMAPMailboxError.missingMessage }
-    let authorization = try requiredAuthorization(
-      connectionId: message.connectionId,
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
     let body = try await client.loadTextBody(
       message: providerMessage,
       authorization: authorization
@@ -1351,20 +1344,6 @@ struct IMAPMessageBodyService {
     }
   }
 
-  private func requiredAuthorization(
-    connectionId: MailboxConnectionId,
-    productAccountId: ProductAccountId
-  ) throws -> DeviceLocalGenericMailAuthorization {
-    guard
-      let authorization = try authorizationStore.load(
-        productAccountId: productAccountId,
-        connectionId: connectionId
-      ),
-      authorization.definition.incomingEndpoint.mailProtocol == .imap
-    else { throw IMAPMailboxError.missingLocalAuthorization }
-    return authorization
-  }
-
   private func requiredKeyMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw ProductSyncKeyMaterialStoreError.recoveryRequired
@@ -1465,7 +1444,6 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     self.pendingActionService = pendingActionService
     self.syncGate = syncGate
     bodyReader = IMAPMessageBodyService(
-      authorizationStore: authorizationStore,
       cache: cache,
       client: client,
       keyMaterialStore: keyMaterialStore,
@@ -1808,14 +1786,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
-    _ = try await authorizationForProviderAccess(
-      connection: connection(id: message.connectionId, session: session),
-      session: session
-    )
-    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
-      return cached
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+        return cached
+      }
+      return try await bodyReader.loadMessageBody(
+        message: message,
+        session: session,
+        authorization: authorization
+      )
     }
-    return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
   func prefetchMessageBodies(
@@ -1908,13 +1894,17 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+    guard
+      connection.authorizationGeneration == synchronizedDefinition.authorizationGeneration
+    else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
     if try definitionSyncService.requiresLocalCleanup(
       in: snapshot,
       connectionId: connection.id,
       localAuthorizationGeneration: authorization.authorizationGeneration,
       session: session
     )
-      || connection.authorizationGeneration != synchronizedDefinition.authorizationGeneration
       || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration
     {
       if isWithinSyncGate {
