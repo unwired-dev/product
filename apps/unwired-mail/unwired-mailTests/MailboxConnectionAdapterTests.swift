@@ -3535,7 +3535,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       try encryptedBodyCache.saveMessageBody(
         keyMaterial.encryptPayload(
           GmailMessageBodyCachePayload.encode(GmailMessageBody(text: "Cached body")),
-          associatedData: Data("gmail-body-cache:\(message.id.rawValue)".utf8)
+          associatedData: Data("gmail-body-cache-v1:\(message.id.rawValue)".utf8)
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.id.rawValue

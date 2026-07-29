@@ -1139,23 +1139,36 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       throw GmailMessageBodyError.missingMessageBody
     }
 
+    var decodingError: Error?
     let plainText: String?
     if let plainTextPart {
-      plainText = try await decodedText(
-        bodyPart: plainTextPart,
-        message: message,
-        accessToken: accessToken
-      )
+      do {
+        plainText = try await decodedText(
+          bodyPart: plainTextPart,
+          message: message,
+          accessToken: accessToken
+        )
+      } catch {
+        try Task.checkCancellation()
+        decodingError = error
+        plainText = nil
+      }
     } else {
       plainText = nil
     }
     let html: String?
     if let htmlPart {
-      html = try await decodedText(
-        bodyPart: htmlPart,
-        message: message,
-        accessToken: accessToken
-      )
+      do {
+        html = try await decodedText(
+          bodyPart: htmlPart,
+          message: message,
+          accessToken: accessToken
+        )
+      } catch {
+        try Task.checkCancellation()
+        decodingError = decodingError ?? error
+        html = nil
+      }
     } else {
       html = nil
     }
@@ -1167,7 +1180,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     } else if let plainText {
       text = plainText
     } else {
-      throw GmailMessageBodyError.missingMessageBody
+      throw decodingError ?? GmailMessageBodyError.missingMessageBody
     }
     return GmailMessageBody(text: text, html: html)
   }
@@ -1300,7 +1313,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   }
 
   private func associatedData(for message: GmailMessageMetadata) -> Data {
-    Data("gmail-body-cache:\(message.stableProviderMessageId)".utf8)
+    Data("gmail-body-cache-v1:\(message.stableProviderMessageId)".utf8)
   }
 
   private func htmlText(_ value: String) -> String {
