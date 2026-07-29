@@ -189,14 +189,19 @@ final class MailboxFreshnessViewModel {
     let task: Task<MailboxMetadataSyncResult, Error>
   }
 
-  private enum SyncScope: Equatable {
+  private struct InFlightSyncKey: Hashable {
+    let connectionId: MailboxConnectionId
+    let scope: SyncScope
+  }
+
+  private enum SyncScope: Hashable {
     case full
     case recent
   }
 
   private static let activePollInterval = Duration.seconds(300)
 
-  private var inFlightSyncs: [MailboxConnectionId: InFlightSync] = [:]
+  private var inFlightSyncs: [InFlightSyncKey: InFlightSync] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private let now: () -> Date
   private let service: MailboxMetadataSyncing
@@ -266,7 +271,7 @@ final class MailboxFreshnessViewModel {
       )
     }
     let reportedPhase =
-      if inFlightSyncs[connection.id] != nil, phase != .syncing {
+      if hasInFlightSync(connectionId: connection.id), phase != .syncing {
         MailboxSyncPhase.syncing
       } else {
         phase
@@ -300,9 +305,9 @@ final class MailboxFreshnessViewModel {
       historicalBackfills[connectionId]?.cancel()
       historicalBackfills[connectionId] = nil
     }
-    for connectionId in inFlightSyncs.keys where !activeConnectionIds.contains(connectionId) {
-      inFlightSyncs[connectionId]?.task.cancel()
-      inFlightSyncs[connectionId] = nil
+    for key in inFlightSyncs.keys where !activeConnectionIds.contains(key.connectionId) {
+      inFlightSyncs[key]?.task.cancel()
+      inFlightSyncs[key] = nil
     }
     for connectionId in statuses.keys where !connectionIds.contains(connectionId) {
       statuses[connectionId] = nil
@@ -396,7 +401,8 @@ final class MailboxFreshnessViewModel {
       throw CancellationError()
     }
     await cancelHistoricalBackfill(connectionId: connection.id)
-    if let inFlightSync = inFlightSyncs[connection.id] {
+    let syncKey = InFlightSyncKey(connectionId: connection.id, scope: scope)
+    if let inFlightSync = inFlightSyncs[syncKey] {
       return try await inFlightSync.task.value
     }
 
@@ -424,14 +430,14 @@ final class MailboxFreshnessViewModel {
         )
       }
     }
-    inFlightSyncs[connection.id] = InFlightSync(id: syncId, task: task)
+    inFlightSyncs[syncKey] = InFlightSync(id: syncId, task: task)
 
     do {
       let result = try await task.value
       guard isSessionCurrent(session), knownConnections[connection.id] != nil else {
         throw CancellationError()
       }
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       let completionDate = now()
       successStore.save(
         completionDate,
@@ -445,14 +451,14 @@ final class MailboxFreshnessViewModel {
       try Task.checkCancellation()
       return result
     } catch is CancellationError {
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
         phase: .idle
       )
       throw CancellationError()
     } catch {
-      removeSync(connectionId: connection.id, syncId: syncId)
+      removeSync(key: syncKey, syncId: syncId)
       if Self.isCancellation(error) {
         statuses[connection.id] = MailboxSyncStatus(
           lastSuccessfulSyncAt: status(for: connection).lastSuccessfulSyncAt,
@@ -569,9 +575,13 @@ final class MailboxFreshnessViewModel {
     }
   }
 
-  private func removeSync(connectionId: MailboxConnectionId, syncId: UUID) {
-    guard inFlightSyncs[connectionId]?.id == syncId else { return }
-    inFlightSyncs[connectionId] = nil
+  private func hasInFlightSync(connectionId: MailboxConnectionId) -> Bool {
+    inFlightSyncs.keys.contains { $0.connectionId == connectionId }
+  }
+
+  private func removeSync(key: InFlightSyncKey, syncId: UUID) {
+    guard inFlightSyncs[key]?.id == syncId else { return }
+    inFlightSyncs[key] = nil
   }
 
   private func startHistoricalBackfill(connection: MailboxConnection) {

@@ -1371,6 +1371,30 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessDoesNotCoalesceFullSyncOntoRecentSync() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+
+    let recent = Task { @MainActor in
+      await fixture.viewModel.synchronize(connections: [connection])
+    }
+    await fixture.service.waitUntilSyncStarts()
+    let full = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts(callCount: 2)
+
+    let recentConnectionIds = await fixture.service.recentlySyncedConnectionIds()
+    let fullConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertEqual(recentConnectionIds, [connection.id])
+    XCTAssertEqual(fullConnectionIds, [connection.id])
+
+    await fixture.service.releaseSync()
+    await recent.value
+    _ = try await full.value
+  }
+
+  @MainActor
   func testMailboxFreshnessKeepsCoalescedSyncRunningWhenFirstCallerIsCancelled() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -4316,7 +4340,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   private var outcomes: [Outcome]
   private var recentConnectionIds: [MailboxConnectionId] = []
   private var startContinuations: [CheckedContinuation<Void, Never>] = []
-  private var syncContinuation: CheckedContinuation<Void, Error>?
+  private var syncContinuations: [CheckedContinuation<Void, Error>] = []
   private let completesBackfill: Bool
   private let failsBackfill: Bool
   private let suspendsBackfill: Bool
@@ -4377,7 +4401,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     if suspendsSync {
       try await withTaskCancellationHandler {
         try await withCheckedThrowingContinuation { continuation in
-          syncContinuation = continuation
+          syncContinuations.append(continuation)
         }
       } onCancel: {
         Task { await self.cancelSuspendedSync() }
@@ -4478,8 +4502,8 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     recentConnectionIds
   }
 
-  func waitUntilSyncStarts() async {
-    guard connectionIds.isEmpty else { return }
+  func waitUntilSyncStarts(callCount: Int = 1) async {
+    guard syncCallCount() < callCount else { return }
     await withCheckedContinuation { continuation in
       startContinuations.append(continuation)
     }
@@ -4503,13 +4527,19 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   }
 
   func releaseSync() {
-    syncContinuation?.resume()
-    syncContinuation = nil
+    let continuations = syncContinuations
+    syncContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
   }
 
   private func cancelSuspendedSync() {
-    syncContinuation?.resume(throwing: CancellationError())
-    syncContinuation = nil
+    let continuations = syncContinuations
+    syncContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume(throwing: CancellationError())
+    }
   }
 }
 
