@@ -1839,6 +1839,49 @@ private struct MailboxBulkActionBatchOutcome: Sendable {
   let messages: [MailboxMessageMetadata]
 }
 
+private enum UnifiedMailboxPhaseResult: Sendable {
+  case cancelled
+  case failure(String)
+  case success(MailboxMetadataSyncResult, needsBackfill: Bool)
+
+  var errorDescription: String? {
+    guard case .failure(let description) = self else { return nil }
+    return description
+  }
+
+  var isCancelled: Bool {
+    if case .cancelled = self { return true }
+    return false
+  }
+
+  var isSuccess: Bool {
+    if case .success = self { return true }
+    return false
+  }
+
+  var needsBackfill: Bool {
+    guard case .success(_, let needsBackfill) = self else { return false }
+    return needsBackfill
+  }
+
+  var result: MailboxMetadataSyncResult? {
+    guard case .success(let result, _) = self else { return nil }
+    return result
+  }
+}
+
+private enum UnifiedMailboxPhase: Sendable {
+  case cache
+  case sync
+  case backfill
+}
+
+private struct UnifiedMailboxPhaseOutcome: Sendable {
+  let connectionIndex: Int
+  let connection: MailboxConnection
+  let phaseResult: UnifiedMailboxPhaseResult
+}
+
 @MainActor
 @Observable
 // swiftlint:disable:next type_body_length
@@ -4908,30 +4951,22 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async -> [String]? {
-    var errors: [String] = []
-    for connection in connections {
-      do {
-        let result = try await loadProjectedMailbox(
-          collection,
-          connection: connection,
-          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
-        )
-        guard
-          applyUnifiedInboxResult(
-            result,
-            for: connection.id,
-            loadId: loadId,
-            connectionIds: connectionIds,
-            threadsByConnection: &threadsByConnection
-          )
-        else { return nil }
-      } catch is CancellationError {
-        return nil
-      } catch {
-        errors.append("\(connection.displayName): \(error.localizedDescription)")
-      }
-    }
-    return errors
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return nil }
+    let outcomes = await performUnifiedMailboxPhase(
+      .cache,
+      connections: connections,
+      collection: collection
+    )
+    guard
+      !outcomes.contains(where: { $0.phaseResult.isCancelled }),
+      applyUnifiedInboxResults(
+        outcomes,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &threadsByConnection
+      )
+    else { return nil }
+    return unifiedMailboxErrors(from: outcomes)
   }
 
   private func syncUnifiedInboxes(
@@ -4941,55 +4976,35 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async -> (connectionsNeedingBackfill: [MailboxConnection], errors: [String])? {
-    var connectionsNeedingBackfill: [MailboxConnection] = []
-    var errors: [String] = []
-    for connection in connections {
-      do {
-        guard
-          let needsBackfill = try await syncUnifiedInbox(
-            for: connection,
-            collection: collection,
-            loadId: loadId,
-            connectionIds: connectionIds,
-            threadsByConnection: &threadsByConnection
-          )
-        else { return nil }
-        if needsBackfill {
-          connectionsNeedingBackfill.append(connection)
-        }
-      } catch is CancellationError {
-        return nil
-      } catch {
-        errors.append("\(connection.displayName): \(error.localizedDescription)")
-      }
-    }
-    return (connectionsNeedingBackfill, errors)
-  }
-
-  private func syncUnifiedInbox(
-    for connection: MailboxConnection,
-    collection: MailboxMessageCollection,
-    loadId: UUID,
-    connectionIds: Set<MailboxConnectionId>,
-    threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) async throws -> Bool? {
-    let syncedResult = try await synchronizeInbox(connection: connection)
-    let projectedResult = try await loadProjectedMailbox(
-      collection,
-      connection: connection,
-      pinnedMessageIds: navigationSnapshot.pinnedMessageIds
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return nil }
+    let outcomes = await performUnifiedMailboxPhase(
+      .sync,
+      connections: connections,
+      collection: collection
     )
     guard
-      applyUnifiedInboxResult(
-        projectedResult,
-        for: connection.id,
+      !outcomes.contains(where: { $0.phaseResult.isCancelled }),
+      applyUnifiedInboxResults(
+        outcomes,
         loadId: loadId,
         connectionIds: connectionIds,
         threadsByConnection: &threadsByConnection
       )
     else { return nil }
-    await refreshNavigationSnapshot(for: connection)
-    return !syncedResult.historicalMetadataBackfillIsComplete
+    await withTaskGroup(of: Void.self) { group in
+      for outcome in outcomes where outcome.phaseResult.isSuccess {
+        group.addTask {
+          await self.refreshNavigationSnapshot(for: outcome.connection)
+        }
+      }
+    }
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return nil }
+    return (
+      outcomes.compactMap { outcome in
+        outcome.phaseResult.needsBackfill ? outcome.connection : nil
+      },
+      unifiedMailboxErrors(from: outcomes)
+    )
   }
 
   private func unifiedThreads(
@@ -5008,31 +5023,22 @@ final class GmailInboxViewModel {
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) async -> [String]? {
-    var errors: [String] = []
-    for connection in connections {
-      do {
-        _ = try await continueHistoricalBackfill(connection: connection)
-        let backfillResult = try await loadProjectedMailbox(
-          collection,
-          connection: connection,
-          pinnedMessageIds: navigationSnapshot.pinnedMessageIds
-        )
-        guard
-          applyUnifiedInboxResult(
-            backfillResult,
-            for: connection.id,
-            loadId: loadId,
-            connectionIds: connectionIds,
-            threadsByConnection: &threadsByConnection
-          )
-        else { return nil }
-      } catch is CancellationError {
-        return nil
-      } catch {
-        errors.append("\(connection.displayName): \(error.localizedDescription)")
-      }
-    }
-    return errors
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return nil }
+    let outcomes = await performUnifiedMailboxPhase(
+      .backfill,
+      connections: connections,
+      collection: collection
+    )
+    guard
+      !outcomes.contains(where: { $0.phaseResult.isCancelled }),
+      applyUnifiedInboxResults(
+        outcomes,
+        loadId: loadId,
+        connectionIds: connectionIds,
+        threadsByConnection: &threadsByConnection
+      )
+    else { return nil }
+    return unifiedMailboxErrors(from: outcomes)
   }
 
   func load(
@@ -5074,35 +5080,71 @@ final class GmailInboxViewModel {
     }
   }
 
-  private func updateUnifiedThreads(
-    _ updatedThreads: [MailboxThread],
-    for connectionId: MailboxConnectionId,
-    in threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
-  ) {
-    threadsByConnection[connectionId] = updatedThreads
-    threads = MailboxThread.group(
-      threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-    )
-  }
-
-  private func applyUnifiedInboxResult(
-    _ result: MailboxMetadataSyncResult,
-    for connectionId: MailboxConnectionId,
+  private func applyUnifiedInboxResults(
+    _ outcomes: [UnifiedMailboxPhaseOutcome],
     loadId: UUID,
     connectionIds: Set<MailboxConnectionId>,
     threadsByConnection: inout [MailboxConnectionId: [MailboxThread]]
   ) -> Bool {
-    guard !Task.isCancelled, unifiedLoadId == loadId, unifiedConnectionIds == connectionIds else {
-      return false
+    guard isCurrentUnifiedLoad(loadId: loadId, connectionIds: connectionIds) else { return false }
+    for outcome in outcomes {
+      if let result = outcome.phaseResult.result {
+        threadsByConnection[outcome.connection.id] = result.threads
+      }
     }
-    updateUnifiedThreads(result.threads, for: connectionId, in: &threadsByConnection)
+    if unifiedCollection == .pins {
+      let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+      let pinnedThreadIds = Set(
+        messages
+          .filter { navigationSnapshot.pinnedMessageIds.contains($0.id) }
+          .map(\.threadIdentity)
+      )
+      threads = MailboxThread.group(
+        messages.filter { pinnedThreadIds.contains($0.threadIdentity) }
+      )
+    } else {
+      threads = MailboxThread.group(
+        threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+      )
+    }
     return true
+  }
+
+  private func isCurrentUnifiedLoad(
+    loadId: UUID,
+    connectionIds: Set<MailboxConnectionId>
+  ) -> Bool {
+    !Task.isCancelled && unifiedLoadId == loadId && unifiedConnectionIds == connectionIds
+  }
+
+  private func unifiedMailboxErrors(
+    from outcomes: [UnifiedMailboxPhaseOutcome]
+  ) -> [String] {
+    outcomes.compactMap { outcome in
+      outcome.phaseResult.errorDescription.map { "\(outcome.connection.displayName): \($0)" }
+    }
   }
 
   private func loadProjectedMailbox(
     _ collection: MailboxMessageCollection,
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>
+  ) async throws -> MailboxMetadataSyncResult {
+    try await Self.loadProjectedMailbox(
+      collection,
+      connection: connection,
+      pinnedMessageIds: pinnedMessageIds,
+      service: service,
+      session: session
+    )
+  }
+
+  nonisolated private static func loadProjectedMailbox(
+    _ collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    service: MailboxMetadataSyncing,
+    session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     guard collection == .pins else {
       return try await service.loadMailbox(
@@ -5117,6 +5159,111 @@ final class GmailInboxViewModel {
       session: session
     )
     .projected(to: .pins, pinnedMessageIds: pinnedMessageIds)
+  }
+
+  private func performUnifiedMailboxPhase(
+    _ phase: UnifiedMailboxPhase,
+    connections: [MailboxConnection],
+    collection: MailboxMessageCollection
+  ) async -> [UnifiedMailboxPhaseOutcome] {
+    let pinnedMessageIds = navigationSnapshot.pinnedMessageIds
+    let service = service
+    let session = session
+    let syncCoordinator = syncCoordinator
+    return await withTaskGroup(
+      of: UnifiedMailboxPhaseOutcome.self,
+      returning: [UnifiedMailboxPhaseOutcome].self
+    ) { group in
+      for (connectionIndex, connection) in connections.enumerated() {
+        group.addTask {
+          let phaseResult = await Self.performUnifiedMailboxPhaseOperation(
+            phase,
+            collection: collection,
+            connection: connection,
+            pinnedMessageIds: pinnedMessageIds,
+            service: service,
+            session: session,
+            syncCoordinator: syncCoordinator
+          )
+          return UnifiedMailboxPhaseOutcome(
+            connectionIndex: connectionIndex,
+            connection: connection,
+            phaseResult: phaseResult
+          )
+        }
+      }
+
+      var outcomes: [UnifiedMailboxPhaseOutcome] = []
+      for await outcome in group {
+        outcomes.append(outcome)
+        if outcome.phaseResult.isCancelled {
+          group.cancelAll()
+        }
+      }
+      return outcomes.sorted { $0.connectionIndex < $1.connectionIndex }
+    }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  nonisolated private static func performUnifiedMailboxPhaseOperation(
+    _ phase: UnifiedMailboxPhase,
+    collection: MailboxMessageCollection,
+    connection: MailboxConnection,
+    pinnedMessageIds: Set<StableProviderMessageIdentity>,
+    service: MailboxMetadataSyncing,
+    session: ProductAccountSessionSnapshot,
+    syncCoordinator: MailboxFreshnessViewModel?
+  ) async -> UnifiedMailboxPhaseResult {
+    do {
+      let needsBackfill: Bool
+      switch phase {
+      case .cache:
+        needsBackfill = false
+      case .sync:
+        let syncedResult =
+          if let syncCoordinator {
+            try await syncCoordinator.syncInbox(connection: connection, session: session)
+          } else {
+            try await service.syncInbox(connection: connection, session: session)
+          }
+        needsBackfill = !syncedResult.historicalMetadataBackfillIsComplete
+      case .backfill:
+        if let syncCoordinator {
+          _ = try await syncCoordinator.continueHistoricalBackfill(
+            connection: connection,
+            session: session
+          )
+        } else {
+          _ = try await service.continueHistoricalBackfill(
+            connection: connection,
+            session: session
+          )
+        }
+        needsBackfill = false
+      }
+      let result =
+        if collection == .pins {
+          try await service.loadMailbox(
+            .allObserved,
+            connection: connection,
+            session: session
+          )
+        } else {
+          try await loadProjectedMailbox(
+            collection,
+            connection: connection,
+            pinnedMessageIds: pinnedMessageIds,
+            service: service,
+            session: session
+          )
+        }
+      try Task.checkCancellation()
+      return .success(result, needsBackfill: needsBackfill)
+    } catch is CancellationError {
+      return .cancelled
+    } catch {
+      return .failure(error.localizedDescription)
+    }
   }
 
   func loadAfterConnectionChange(
