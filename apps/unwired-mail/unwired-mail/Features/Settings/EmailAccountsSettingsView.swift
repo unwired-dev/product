@@ -12,7 +12,6 @@ struct EmailAccountsSettingsView: View {
   let isMailboxBusy: Bool
 
   @State private var detailTarget: MailProviderId?
-  @State private var syncTask: Task<Void, Never>?
 
   var body: some View {
     ScrollViewReader { proxy in
@@ -99,9 +98,6 @@ struct EmailAccountsSettingsView: View {
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
       )
     }
-    .onDisappear {
-      syncTask?.cancel()
-    }
   }
 
   @ViewBuilder
@@ -133,13 +129,10 @@ struct EmailAccountsSettingsView: View {
             status: freshnessViewModel.status(for: connection),
             showDetails: { showDetails(for: connection) },
             synchronize: {
-              syncTask?.cancel()
-              syncTask = Task {
-                await freshnessViewModel.synchronizeFully(
-                  connection: connection,
-                  among: gmailViewModel.connections
-                )
-              }
+              await freshnessViewModel.synchronizeFully(
+                connection: connection,
+                among: gmailViewModel.connections
+              )
             }
           )
         }
@@ -241,7 +234,9 @@ private struct SettingsMailboxConnectionRow: View {
   let isMailboxBusy: Bool
   let status: MailboxSyncStatus
   let showDetails: () -> Void
-  let synchronize: () -> Void
+  let synchronize: () async -> Void
+
+  @State private var syncTask: Task<Void, Never>?
 
   var body: some View {
     DisclosureGroup {
@@ -270,12 +265,17 @@ private struct SettingsMailboxConnectionRow: View {
         }
 
         if connection.capabilities.canSynchronizeMetadata {
-          Button("Synchronize", action: synchronize)
-            .disabled(
-              isMailboxBusy
-                || connection.authorizationState != .authorized
-                || status.phase == .syncing
-            )
+          Button("Synchronize") {
+            syncTask?.cancel()
+            syncTask = Task {
+              await synchronize()
+            }
+          }
+          .disabled(
+            isMailboxBusy
+              || connection.authorizationState != .authorized
+              || status.phase == .syncing
+          )
         } else {
           Text(manualSynchronizationExplanation)
             .font(.caption)
@@ -312,6 +312,9 @@ private struct SettingsMailboxConnectionRow: View {
     }
     .padding(12)
     .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
+    .onDisappear {
+      syncTask?.cancel()
+    }
   }
 
   private var providerTitle: String {
