@@ -22,8 +22,18 @@ enum MessageHTMLWebViewConfiguration {
 }
 
 enum MessageHTMLLayout {
+  static let maximumHeight: CGFloat = 20_000
+
   static func height(for contentSize: CGSize) -> CGFloat {
-    max(contentSize.height, 1)
+    min(max(contentSize.height, 1), maximumHeight)
+  }
+}
+
+enum MessageHTMLNavigationFailure {
+  static func shouldTriggerFallback(for error: Error) -> Bool {
+    let error = error as NSError
+    return error.domain != NSURLErrorDomain
+      || error.code != URLError.cancelled.rawValue
   }
 }
 
@@ -157,7 +167,9 @@ private struct MessageHTMLWebView: UIViewRepresentable {
       didFail navigation: WKNavigation?,
       withError error: Error
     ) {
-      renderingDidFail()
+      if MessageHTMLNavigationFailure.shouldTriggerFallback(for: error) {
+        renderingDidFail()
+      }
     }
 
     func webView(
@@ -165,7 +177,9 @@ private struct MessageHTMLWebView: UIViewRepresentable {
       didFailProvisionalNavigation navigation: WKNavigation?,
       withError error: Error
     ) {
-      renderingDidFail()
+      if MessageHTMLNavigationFailure.shouldTriggerFallback(for: error) {
+        renderingDidFail()
+      }
     }
 
     func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {

@@ -13,7 +13,17 @@ enum MessageHTMLSanitizer {
     let bodyHTML =
       try SwiftSoup.clean(html, "", allowlist())
       ?? ""
-    let readableText = try SwiftSoup.parseBodyFragment(bodyHTML).text()
+    let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
+    for element in try readableDocument.select("[style]") {
+      let style = try element.attr("style")
+      if style.range(
+        of: #"(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil {
+        try element.remove()
+      }
+    }
+    let readableText = try readableDocument.text()
       .trimmingCharacters(in: .whitespacesAndNewlines)
     guard !readableText.isEmpty else { return nil }
 

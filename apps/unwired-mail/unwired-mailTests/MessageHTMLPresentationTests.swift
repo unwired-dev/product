@@ -90,6 +90,17 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertNil(try MessageHTMLSanitizer.sanitize(" \n\t "))
   }
 
+  func testSanitizerRejectsContentOnlyReadableThroughHiddenPreheaderText() throws {
+    XCTAssertNil(
+      try MessageHTMLSanitizer.sanitize(
+        """
+        <div style="display: none !important">Hidden preview</div>
+        <img src="https://tracker.test/hero.png">
+        """
+      )
+    )
+  }
+
   func testSanitizedDocumentUsesRestrictiveContentSecurityPolicy() throws {
     let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
 
@@ -156,6 +167,18 @@ final class MessageHTMLPresentationTests: XCTestCase {
   func testLayoutUsesContentHeightWithAVisibleMinimum() {
     XCTAssertEqual(MessageHTMLLayout.height(for: .zero), 1)
     XCTAssertEqual(MessageHTMLLayout.height(for: CGSize(width: 500, height: 128.5)), 128.5)
+    XCTAssertEqual(
+      MessageHTMLLayout.height(for: CGSize(width: 500, height: 100_000_000)),
+      MessageHTMLLayout.maximumHeight
+    )
+  }
+
+  func testNavigationFailureIgnoresIntentionalCancellation() {
+    let cancellation = NSError(domain: NSURLErrorDomain, code: URLError.cancelled.rawValue)
+    let failure = NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)
+
+    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: cancellation))
+    XCTAssertTrue(MessageHTMLNavigationFailure.shouldTriggerFallback(for: failure))
   }
 }
 
