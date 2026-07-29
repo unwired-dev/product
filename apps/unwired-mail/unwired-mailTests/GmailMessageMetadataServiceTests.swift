@@ -1293,6 +1293,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let syncInboxCallCount = await fixture.service.syncInboxCallCount()
     XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
+    XCTAssertFalse(fixture.viewModel.isLoading)
+    XCTAssertFalse(fixture.viewModel.areCachedMetadataActionsDisabled)
 
     await fixture.service.releaseHistoricalBackfill()
     await loadTask.value

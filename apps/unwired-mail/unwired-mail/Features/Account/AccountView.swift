@@ -5224,6 +5224,7 @@ final class GmailInboxViewModel {
         threadsByConnection: &loadedThreadsByConnection
       )
     else { return }
+    isLoading = false
     guard
       let backfillErrors = await continueUnifiedInboxBackfill(
         for: syncResult.connectionsNeedingBackfill,
