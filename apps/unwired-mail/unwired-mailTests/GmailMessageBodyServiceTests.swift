@@ -453,6 +453,27 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.html, "<p>Valid content</p>")
   }
 
+  func testReadTriesLaterAlternativeAfterAttachmentBackedAlternativeFails() async throws {
+    let fixture = try makeFixture(
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":["#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/html","body":{"attachmentId":"html-001"}}]},"#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"VmFsaWQgY29udGVudA=="}}]}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body, GmailMessageBody(text: "Valid content"))
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/html-001") }.count,
+      1
+    )
+  }
+
   func testReadKeepsPlainTextWhenHTMLAlternativeIsMalformed() async throws {
     let fixture = try makeFixture(
       messageResponse:

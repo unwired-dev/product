@@ -1136,11 +1136,33 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     message: GmailMessageMetadata,
     accessToken: String
   ) async throws -> GmailMessageBodyFetchResult {
-    let (plainTextPart, htmlPart) = payload.readableBodyParts
-    guard plainTextPart != nil || htmlPart != nil else {
+    let candidates = payload.readableBodyPartCandidates
+    guard !candidates.isEmpty else {
       throw GmailMessageBodyError.missingMessageBody
     }
+    var decodingError: Error?
+    for (plainTextPart, htmlPart) in candidates {
+      do {
+        return try await decodedMessageBody(
+          plainTextPart: plainTextPart,
+          htmlPart: htmlPart,
+          message: message,
+          accessToken: accessToken
+        )
+      } catch {
+        try Task.checkCancellation()
+        decodingError = decodingError ?? error
+      }
+    }
+    throw decodingError ?? GmailMessageBodyError.missingMessageBody
+  }
 
+  private func decodedMessageBody(
+    plainTextPart: GmailMessageBodyPart?,
+    htmlPart: GmailMessageBodyPart?,
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> GmailMessageBodyFetchResult {
     var decodingError: Error?
     let plainText: String?
     if let plainTextPart {
@@ -1413,15 +1435,26 @@ private struct GmailMessageBodyPart: Decodable {
   let mimeType: String?
   let parts: [GmailMessageBodyPart]?
 
-  var readableBodyParts:
+  var readableBodyPartCandidates:
+    [(
+      plainText: GmailMessageBodyPart?,
+      html: GmailMessageBodyPart?
+    )]
+  {
+    let alternatives = readableMultipartAlternativeParts
+    if !alternatives.isEmpty {
+      return alternatives.map { ($0.readablePlainTextPart, $0.readableHTMLPart) }
+    }
+    let candidate = readableBodyParts
+    return candidate.plainText != nil || candidate.html != nil ? [candidate] : []
+  }
+
+  private var readableBodyParts:
     (
       plainText: GmailMessageBodyPart?,
       html: GmailMessageBodyPart?
     )
   {
-    if let alternative = preferredMultipartAlternativePart {
-      return (alternative.readablePlainTextPart, alternative.readableHTMLPart)
-    }
     if let plainText = readablePlainTextPart {
       return (plainText, nil)
     }
@@ -1436,16 +1469,16 @@ private struct GmailMessageBodyPart: Decodable {
     preferredNonEmptyHTMLPart ?? preferredHTMLPart
   }
 
-  private var preferredMultipartAlternativePart: GmailMessageBodyPart? {
+  private var readableMultipartAlternativeParts: [GmailMessageBodyPart] {
     guard !isAttachment else {
-      return nil
+      return []
     }
     if mimeType == "multipart/alternative",
       preferredNonEmptyPlainTextPart != nil || preferredNonEmptyHTMLPart != nil
     {
-      return self
+      return [self]
     }
-    return parts?.lazy.compactMap(\.preferredMultipartAlternativePart).first
+    return parts?.flatMap(\.readableMultipartAlternativeParts) ?? []
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
