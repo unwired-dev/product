@@ -961,6 +961,14 @@ private final class RecordingGmailProviderConnecting:
     _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) throws -> Bool { true }
+
+  func bindAuthorizationGeneration(
+    _ authorizationGeneration: Int,
+    to connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus {
+    connection.withAuthorizationGeneration(authorizationGeneration)
+  }
 }
 
 private final class RecordingDevicePushUnregisterer: DevicePushUnregistering {
@@ -1055,6 +1063,14 @@ private struct SuspendingGmailProviderConnecting:
     _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) throws -> Bool { true }
+
+  func bindAuthorizationGeneration(
+    _ authorizationGeneration: Int,
+    to connection: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus {
+    connection.withAuthorizationGeneration(authorizationGeneration)
+  }
 }
 
 private struct FailingGmailMessageReader: GmailMessageReading {

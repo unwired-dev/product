@@ -1,101 +1,24 @@
 import Foundation
 
-enum MailboxConnectionSyncError: LocalizedError, Equatable {
-  case concurrentModification
-  case connectionRemoved(MailboxConnectionRemovalObservation)
-  case invalidDefaultSendingConnection
-  case missingProductSyncKeyMaterial
-
-  var errorDescription: String? {
-    switch self {
-    case .concurrentModification:
-      return "Mailbox Connections changed on another device. Refresh and try again."
-    case .connectionRemoved:
-      return "This Mailbox Connection was removed on another device. Refresh, then add it again."
-    case .invalidDefaultSendingConnection:
-      return "Choose an existing Mailbox Connection as the default sender."
-    case .missingProductSyncKeyMaterial:
-      return "Restore Product Sync key material before changing Mailbox Connections."
-    }
-  }
-}
-
-private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
-  let provider: String
-  let providerAccountIdentifier: String
-  let removedAt: Int64
-  let tombstoneIdentifier: String?
-
-  var connectionId: MailboxConnectionId {
-    MailboxConnectionId(
-      providerMailboxIdentity: StableProviderMailboxIdentity(
-        providerId: MailProviderId(rawValue: provider),
-        value: providerAccountIdentifier
-      )
-    )
-  }
-
-  var observation: MailboxConnectionRemovalObservation {
-    MailboxConnectionRemovalObservation(
-      connectionId: connectionId,
-      removedAt: removedAt,
-      tombstoneIdentifier: tombstoneIdentifier
-    )
-  }
-}
-
-private struct MailboxConnectionSyncPayload: Codable, Equatable, Sendable {
-  static let primaryIdentifier = "mailbox-connections-primary"
-
-  var connections: [MailboxConnectionDefinition]
-  var defaultSendingConnectionProvider: String?
-  var defaultSendingProviderAccountIdentifier: String?
-  var removals: [MailboxConnectionRemovalTombstone]
-  let schemaVersion: Int
-
-  static let empty = MailboxConnectionSyncPayload(
-    connections: [],
-    defaultSendingConnectionProvider: nil,
-    defaultSendingProviderAccountIdentifier: nil,
-    removals: [],
-    schemaVersion: 1
-  )
-
-  var defaultSendingConnectionId: MailboxConnectionId? {
-    guard
-      let defaultSendingConnectionProvider,
-      let defaultSendingProviderAccountIdentifier
-    else {
-      return nil
-    }
-    return MailboxConnectionId(
-      providerMailboxIdentity: StableProviderMailboxIdentity(
-        providerId: MailProviderId(rawValue: defaultSendingConnectionProvider),
-        value: defaultSendingProviderAccountIdentifier
-      )
-    )
-  }
-
-  mutating func sort() {
-    connections.sort { $0.id.rawValue < $1.id.rawValue }
-    removals.sort { $0.connectionId.rawValue < $1.connectionId.rawValue }
-  }
-}
-
+// swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
 
   private let cacheStore: MailboxConnectionSyncCachePersisting
+  private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
   private let clock: () -> Int64
   private let decoder = JSONDecoder()
   private let encoder = JSONEncoder()
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
+  private let payloadCodec: MailboxConnectionSyncPayloadCodec
   private let transport: ProductSyncPayloadTransport
 
   init(
     cacheStore: MailboxConnectionSyncCachePersisting =
       KeychainMailboxConnectionSyncCacheStore(),
+    cleanupReceiptStore: MailboxCleanupReceiptPersisting =
+      KeychainMailboxCleanupReceiptStore(),
     clock: @escaping () -> Int64 = {
       Int64(Date().timeIntervalSince1970 * 1_000)
     },
@@ -103,32 +26,69 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     transport: ProductSyncPayloadTransport = ConvexClient()
   ) {
     self.cacheStore = cacheStore
+    self.cleanupReceiptStore = cleanupReceiptStore
     self.clock = clock
     self.keyMaterialStore = keyMaterialStore
+    payloadCodec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: keyMaterialStore
+    )
     self.transport = transport
+  }
+
+  func completedLocalCleanupGeneration(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) throws -> Int? {
+    try cleanupReceiptStore.generation(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+  }
+
+  func recordLocalCleanup(
+    _ connectionId: MailboxConnectionId,
+    generation: Int,
+    session: ProductAccountSessionSnapshot
+  ) throws {
+    try cleanupReceiptStore.record(
+      generation: generation,
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
   }
 
   func loadSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    let remotePayload = try await loadRemotePayload(session: session)
+    let (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
+      session: session,
+      transport: transport
+    )
     let payload: MailboxConnectionSyncPayload
     do {
-      payload = try decrypt(remotePayload, session: session)
+      payload = try payloadCodec.decrypt(remotePayload, session: session)
+        .applyingGenerationFloors(
+          try decryptGenerationLedger(generationPayload, session: session)
+        )
     } catch {
       try? cacheStore.clear(productAccountId: session.productAccountId)
       throw error
     }
-    try? refreshCache(remotePayload, productAccountId: session.productAccountId)
-    return snapshot(payload, updatedAt: remotePayload?.updatedAt)
+    try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+    return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
   func loadSnapshotForProviderAccess(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     let remotePayload: EncryptedProductSyncPayload?
+    let generationPayload: EncryptedProductSyncPayload?
     do {
-      remotePayload = try await loadRemotePayload(session: session)
+      (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
+        session: session,
+        transport: transport
+      )
     } catch is CancellationError {
       throw CancellationError()
     } catch {
@@ -136,21 +96,27 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       else {
         throw error
       }
-      let cached = try decrypt(cachedPayload, session: session)
-      return snapshot(cached, updatedAt: cachedPayload.updatedAt)
+      let cached = try payloadCodec.decrypt(cachedPayload, session: session)
+      return payloadCodec.snapshot(cached, updatedAt: cachedPayload.updatedAt)
     }
-    let payload = try decrypt(remotePayload, session: session)
-    try? refreshCache(remotePayload, productAccountId: session.productAccountId)
-    return snapshot(payload, updatedAt: remotePayload?.updatedAt)
+    let payload = try payloadCodec.decrypt(remotePayload, session: session)
+      .applyingGenerationFloors(
+        try decryptGenerationLedger(generationPayload, session: session)
+      )
+    try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+    return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
   func reconcileConnections(
     _ connections: [MailboxConnectionDefinition],
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    try await update(session: session) { payload in
+    return try await update(session: session) { payload, _ in
       var changed = false
-      let removedIds = Set(payload.removals.map(\.connectionId))
+      let activeIds = Set(payload.connections.map(\.id))
+      let removedIds = Set(
+        payload.removals.lazy.map(\.connectionId).filter { !activeIds.contains($0) }
+      )
       var existingIds = Set(payload.connections.map(\.id))
       for connection in connections
       where !removedIds.contains(connection.id) && !existingIds.contains(connection.id) {
@@ -162,19 +128,65 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   func removeConnection(
     _ connectionId: MailboxConnectionId,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    try await update(session: session) { payload in
-      let hadConnection = payload.connections.contains { $0.id == connectionId }
-      let hadRemoval = payload.removals.contains { $0.connectionId == connectionId }
+    let current = try await loadSnapshot(session: session)
+    guard
+      current.connections.contains(where: { $0.id == connectionId })
+        || !current.removedConnectionIds.contains(connectionId)
+    else {
+      if let removalGeneration = try await publishedRemovalGeneration(
+        connectionId,
+        session: session
+      ) {
+        _ = try await retainGenerationFloor(
+          connectionId,
+          minimumGeneration: removalGeneration,
+          isCommitted: true,
+          commitsOnlyMinimumGeneration: true,
+          session: session
+        )
+      }
+      return current
+    }
+    let currentGeneration =
+      current.connections.first { $0.id == connectionId }?.authorizationGeneration ?? 0
+    let generation = try await retainGenerationFloor(
+      connectionId,
+      minimumGeneration: currentGeneration + 1,
+      isCommitted: false,
+      session: session
+    )
+    var finalGeneration = generation
+    let snapshot = try await update(session: session) { payload, storedPayload in
+      let connection = payload.connections.first { $0.id == connectionId }
+      let storedConnection = storedPayload.connections.first { $0.id == connectionId }
+      let removal = payload.removals.first { $0.connectionId == connectionId }
+      let hadConnection = connection != nil
+      let hadRemoval = removal != nil
       guard hadConnection || !hadRemoval else { return false }
 
+      let retainedGeneration = try await retainGenerationFloor(
+        connectionId,
+        minimumGeneration: max(
+          generation,
+          (storedConnection?.authorizationGeneration ?? 0) + 1
+        ),
+        isCommitted: false,
+        session: session
+      )
+      finalGeneration = retainedGeneration
       payload.connections.removeAll { $0.id == connectionId }
       payload.removals.removeAll { $0.connectionId == connectionId }
       payload.removals.append(
         MailboxConnectionRemovalTombstone(
+          authorizationGeneration: max(
+            retainedGeneration,
+            removal?.authorizationGeneration ?? retainedGeneration
+          ),
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
           removedAt: clock(),
@@ -187,6 +199,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       }
       return true
     }
+    _ = try await retainGenerationFloor(
+      connectionId,
+      minimumGeneration: finalGeneration,
+      isCommitted: true,
+      commitsOnlyMinimumGeneration: true,
+      session: session
+    )
+    return snapshot
   }
 
   func saveConnection(
@@ -200,14 +220,20 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ definition: MailboxConnectionDefinition,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    return try await update(session: session) { payload in
-      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
-      else {
-        payload.connections.removeAll { $0.id == definition.id }
-        payload.connections.append(definition)
-        return true
+    return try await update(session: session) { payload, _ in
+      let existingGeneration = payload.connections.first {
+        $0.id == definition.id
+      }?.authorizationGeneration
+      if let removal = payload.removals.first(where: { $0.connectionId == definition.id }),
+        existingGeneration == nil
+          || (existingGeneration ?? 0) < removal.authorizationGeneration
+      {
+        throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
       }
-      throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
+      let generation = existingGeneration ?? definition.authorizationGeneration
+      payload.connections.removeAll { $0.id == definition.id }
+      payload.connections.append(definition.withAuthorizationGeneration(generation))
+      return true
     }
   }
 
@@ -215,7 +241,7 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     _ connectionId: MailboxConnectionId?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    try await update(session: session) { payload in
+    try await update(session: session) { payload, _ in
       if let connectionId,
         !payload.connections.contains(where: { $0.id == connectionId })
       {
@@ -231,32 +257,40 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private func update(
     session: ProductAccountSessionSnapshot,
-    mutation: (inout MailboxConnectionSyncPayload) throws -> Bool
+    mutation:
+      (inout MailboxConnectionSyncPayload, MailboxConnectionSyncPayload) async throws -> Bool
   ) async throws -> MailboxConnectionSyncSnapshot {
     for attempt in 0..<Self.maximumWriteAttempts {
-      let remotePayload = try await loadRemotePayload(session: session)
-      var payload = try decrypt(remotePayload, session: session)
+      let (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
+        session: session,
+        transport: transport
+      )
+      let storedPayload = try payloadCodec.decrypt(remotePayload, session: session)
+      var payload = storedPayload.applyingGenerationFloors(
+        try decryptGenerationLedger(generationPayload, session: session)
+      )
       let changed: Bool
       do {
-        changed = try mutation(&payload)
+        changed = try await mutation(&payload, storedPayload)
       } catch {
-        try? refreshCache(remotePayload, productAccountId: session.productAccountId)
+        try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
         throw error
       }
       guard changed else {
-        try refreshCache(remotePayload, productAccountId: session.productAccountId)
-        return snapshot(payload, updatedAt: remotePayload?.updatedAt)
+        try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+        return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }
       payload.sort()
 
-      let material = try await keyMaterialForWrite(
+      let material = try await payloadCodec.keyMaterialForWrite(
         session: session,
-        remotePayloadExists: remotePayload != nil
+        remotePayloadExists: remotePayload != nil,
+        transport: transport
       )
       let plaintext = try encoder.encode(payload)
       let encryptedPayload = try material.encryptPayload(
         plaintext,
-        associatedData: associatedData
+        associatedData: payloadCodec.associatedData
       )
       let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
         identityToken: session.identityToken,
@@ -273,16 +307,16 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         }
         continue
       }
-      try? refreshCache(writtenPayload, productAccountId: session.productAccountId)
-      return snapshot(payload, updatedAt: writtenPayload.updatedAt)
+      try? payloadCodec.refreshCache(payload, remotePayload: writtenPayload, session: session)
+      return payloadCodec.snapshot(payload, updatedAt: writtenPayload.updatedAt)
     }
     throw MailboxConnectionSyncError.concurrentModification
   }
 
-  private func decrypt(
+  private func decryptGenerationLedger(
     _ remotePayload: EncryptedProductSyncPayload?,
     session: ProductAccountSessionSnapshot
-  ) throws -> MailboxConnectionSyncPayload {
+  ) throws -> MailboxAuthorizationGenerationLedger {
     guard let remotePayload else { return .empty }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
@@ -290,69 +324,105 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     }
     let plaintext = try material.decryptPayload(
       remotePayload.encryptedPayload,
-      associatedData: associatedData
+      associatedData: generationAssociatedData
     )
-    return try decoder.decode(MailboxConnectionSyncPayload.self, from: plaintext)
+    return try decoder.decode(MailboxAuthorizationGenerationLedger.self, from: plaintext)
   }
 
-  private func keyMaterialForWrite(
-    session: ProductAccountSessionSnapshot,
-    remotePayloadExists: Bool
-  ) async throws -> ProductSyncKeyMaterial {
-    if let material = try keyMaterialStore.load(productAccountId: session.productAccountId) {
-      return material
-    }
-    guard !remotePayloadExists else {
-      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
-    }
-    let existingPayloads = try await transport.listEncryptedProductSyncPayloads(
-      identityToken: session.identityToken,
-      payloadIdentifierPrefix: nil
-    )
-    guard existingPayloads.isEmpty else {
-      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
-    }
-    return try keyMaterialStore.ensureMaterial(
-      productAccountId: session.productAccountId,
-      allowCreation: true
-    )
-  }
-
-  private func loadRemotePayload(
+  private func loadGenerationRemotePayload(
     session: ProductAccountSessionSnapshot
   ) async throws -> EncryptedProductSyncPayload? {
     try await transport.getEncryptedProductSyncPayload(
       identityToken: session.identityToken,
+      payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier
+    )
+  }
+
+  private func publishedRemovalGeneration(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Int? {
+    let remotePayload = try await transport.getEncryptedProductSyncPayload(
+      identityToken: session.identityToken,
       payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier
     )
-  }
-
-  private func refreshCache(
-    _ payload: EncryptedProductSyncPayload?,
-    productAccountId: String
-  ) throws {
-    try cacheStore.clear(productAccountId: productAccountId)
-    if let payload {
-      try cacheStore.save(payload, productAccountId: productAccountId)
+    let payload = try payloadCodec.decrypt(remotePayload, session: session)
+    guard !payload.connections.contains(where: { $0.id == connectionId }) else {
+      return nil
     }
+    return payload.removals.first {
+      $0.connectionId == connectionId
+    }?.authorizationGeneration
   }
 
-  private func snapshot(
-    _ payload: MailboxConnectionSyncPayload,
-    updatedAt: Int64?
-  ) -> MailboxConnectionSyncSnapshot {
-    MailboxConnectionSyncSnapshot(
-      connections: payload.connections.sorted { $0.id.rawValue < $1.id.rawValue },
-      defaultSendingConnectionId: payload.defaultSendingConnectionId,
-      removedConnectionIds: payload.removals.map(\.connectionId).sorted {
-        $0.rawValue < $1.rawValue
-      },
-      updatedAt: updatedAt
-    )
+  // swiftlint:disable:next function_body_length
+  private func retainGenerationFloor(
+    _ connectionId: MailboxConnectionId,
+    minimumGeneration: Int,
+    isCommitted: Bool = true,
+    commitsOnlyMinimumGeneration: Bool = false,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> Int {
+    guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
+    else {
+      throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
+    }
+    for attempt in 0..<Self.maximumWriteAttempts {
+      let remotePayload = try await loadGenerationRemotePayload(session: session)
+      var ledger = try decryptGenerationLedger(remotePayload, session: session)
+      let existingFloor = ledger.floors.first { $0.connectionId == connectionId }
+      let generation = max(
+        minimumGeneration,
+        existingFloor?.authorizationGeneration ?? 0
+      )
+      let commitsRetainedGeneration =
+        isCommitted
+        && (!commitsOnlyMinimumGeneration || generation == minimumGeneration)
+      let committedGeneration =
+        if commitsRetainedGeneration {
+          max(
+            minimumGeneration,
+            existingFloor?.committedAuthorizationGeneration ?? 0
+          )
+        } else {
+          existingFloor?.committedAuthorizationGeneration
+        }
+      ledger.floors.removeAll { $0.connectionId == connectionId }
+      ledger.floors.append(
+        MailboxAuthorizationGenerationFloor(
+          authorizationGeneration: generation,
+          committedAuthorizationGeneration: committedGeneration,
+          provider: connectionId.providerId.rawValue,
+          providerAccountIdentifier: connectionId.providerMailboxIdentity.value
+        )
+      )
+      ledger.sort()
+      let plaintext = try encoder.encode(ledger)
+      let encryptedPayload = try material.encryptPayload(
+        plaintext,
+        associatedData: generationAssociatedData
+      )
+      let writtenPayload = try await transport.putEncryptedProductSyncPayloadIfUnchanged(
+        identityToken: session.identityToken,
+        payloadIdentifier: MailboxAuthorizationGenerationLedger.primaryIdentifier,
+        encryptedPayload: encryptedPayload,
+        trustedDeviceId: session.trustedDeviceId,
+        expectedUpdatedAt: remotePayload?.updatedAt
+      )
+      if writtenPayload.encryptedPayload == encryptedPayload {
+        return generation
+      }
+      let isLastAttempt = (attempt == Self.maximumWriteAttempts - 1)
+      if !isLastAttempt {
+        let jitterNanoseconds = UInt64.random(in: 50_000_000...150_000_000)
+        try await Task.sleep(nanoseconds: jitterNanoseconds)
+      }
+    }
+    throw MailboxConnectionSyncError.concurrentModification
   }
 
-  private var associatedData: Data {
-    Data(MailboxConnectionSyncPayload.primaryIdentifier.utf8)
+  private var generationAssociatedData: Data {
+    Data(MailboxAuthorizationGenerationLedger.primaryIdentifier.utf8)
   }
 }
 
@@ -362,22 +432,39 @@ extension MailboxConnectionSyncService {
     after removalObservation: MailboxConnectionRemovalObservation?,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    try await update(session: session) { payload in
+    try await update(session: session) { payload, _ in
+      if payload.connections.contains(where: { $0.id == definition.id }) {
+        guard removalObservation?.connectionId != definition.id else {
+          throw MailboxConnectionSyncError.concurrentModification
+        }
+        return false
+      }
       guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
       else {
         guard removalObservation?.connectionId != definition.id else {
           throw MailboxConnectionSyncError.concurrentModification
         }
+        let generation =
+          payload.connections.first(where: { $0.id == definition.id })?
+          .authorizationGeneration
+          ?? definition.authorizationGeneration
         payload.connections.removeAll { $0.id == definition.id }
-        payload.connections.append(definition)
+        payload.connections.append(definition.withAuthorizationGeneration(generation))
         return true
       }
       guard removal.observation == removalObservation else {
         throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
       }
+      let generation = try await retainGenerationFloor(
+        definition.id,
+        minimumGeneration: max(
+          definition.authorizationGeneration,
+          removal.authorizationGeneration
+        ),
+        session: session
+      )
       payload.connections.removeAll { $0.id == definition.id }
-      payload.connections.append(definition)
-      payload.removals.removeAll { $0.connectionId == definition.id }
+      payload.connections.append(definition.withAuthorizationGeneration(generation))
       return true
     }
   }

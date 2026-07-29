@@ -34,6 +34,7 @@ struct GmailProviderTokens: Codable, Equatable {
 }
 
 struct GmailProviderConnectionStatus: Codable, Equatable {
+  let authorizationGeneration: Int
   let connectedAt: Int64
   let emailAddress: String
   let lastVerifiedAt: Int64
@@ -41,6 +42,53 @@ struct GmailProviderConnectionStatus: Codable, Equatable {
   let providerAccountIdentifier: String
   let trustedDeviceId: String
   let updatedAt: Int64
+
+  init(
+    authorizationGeneration: Int = 0,
+    connectedAt: Int64,
+    emailAddress: String,
+    lastVerifiedAt: Int64,
+    provider: String,
+    providerAccountIdentifier: String,
+    trustedDeviceId: String,
+    updatedAt: Int64
+  ) {
+    self.authorizationGeneration = authorizationGeneration
+    self.connectedAt = connectedAt
+    self.emailAddress = emailAddress
+    self.lastVerifiedAt = lastVerifiedAt
+    self.provider = provider
+    self.providerAccountIdentifier = providerAccountIdentifier
+    self.trustedDeviceId = trustedDeviceId
+    self.updatedAt = updatedAt
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    connectedAt = try container.decode(Int64.self, forKey: .connectedAt)
+    emailAddress = try container.decode(String.self, forKey: .emailAddress)
+    lastVerifiedAt = try container.decode(Int64.self, forKey: .lastVerifiedAt)
+    provider = try container.decode(String.self, forKey: .provider)
+    providerAccountIdentifier = try container.decode(
+      String.self,
+      forKey: .providerAccountIdentifier
+    )
+    trustedDeviceId = try container.decode(String.self, forKey: .trustedDeviceId)
+    updatedAt = try container.decode(Int64.self, forKey: .updatedAt)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case authorizationGeneration
+    case connectedAt
+    case emailAddress
+    case lastVerifiedAt
+    case provider
+    case providerAccountIdentifier
+    case trustedDeviceId
+    case updatedAt
+  }
 }
 
 struct GmailOperationalConnectionStatus: Codable, Equatable {
@@ -83,6 +131,20 @@ enum GmailProviderCredentialVerificationError: LocalizedError, Equatable {
     case .insufficientGmailScope:
       return "Gmail authorization does not allow reading message bodies."
     }
+  }
+}
+
+struct GmailCredentialMigrationPolicy: Equatable {
+  static let unrestricted = GmailCredentialMigrationPolicy(
+    allowsUnscopedLegacyMigration: true,
+    blockedProviderAccountIdentifiers: []
+  )
+
+  let allowsUnscopedLegacyMigration: Bool
+  let blockedProviderAccountIdentifiers: Set<String>
+
+  func allowsScopedMigration(_ providerAccountIdentifier: String) -> Bool {
+    !blockedProviderAccountIdentifiers.contains(providerAccountIdentifier)
   }
 }
 
@@ -181,6 +243,11 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
 
+  func loadConnections(
+    migrationPolicy: GmailCredentialMigrationPolicy,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus]
+
   func loadStoredConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
@@ -199,6 +266,12 @@ protocol GmailProviderConnecting {
     _ connection: GmailProviderConnectionStatus,
     session: ProductAccountSessionSnapshot
   ) throws -> Bool
+
+  func bindAuthorizationGeneration(
+    _ authorizationGeneration: Int,
+    to connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus
 
   func loadConnectionForCleanup(
     providerAccountIdentifier: String,
@@ -228,10 +301,18 @@ extension GmailProviderConnecting {
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? { nil }
 
+  func loadConnections(
+    migrationPolicy _: GmailCredentialMigrationPolicy,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try await loadConnections(session: session)
+  }
+
   func hasLocalAuthorization(
     providerAccountIdentifier _: String,
     session _: ProductAccountSessionSnapshot
   ) throws -> Bool { false }
+
 }
 
 protocol GmailProviderCredentialVerifying {
@@ -490,6 +571,16 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: providerAccountIdentifier
     )
+  }
+
+  func bindAuthorizationGeneration(
+    _ authorizationGeneration: Int,
+    to connection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) throws -> GmailProviderConnectionStatus {
+    let boundConnection = connection.withAuthorizationGeneration(authorizationGeneration)
+    try pushConnectionStore.save(boundConnection, productAccountId: session.productAccountId)
+    return boundConnection
   }
 
   func hasLocalAuthorization(
@@ -806,14 +897,23 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try await loadConnections(migrationPolicy: .unrestricted, session: session)
+  }
+
   // swiftlint:disable:next function_body_length
   func loadConnections(
+    migrationPolicy: GmailCredentialMigrationPolicy,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
     var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
     for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
-    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
+    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier })
+      && migrationPolicy.allowsScopedMigration(storedIdentifier)
+    {
       do {
         let verifiedAccount = try await credentialVerifier.verify(
           accessToken: tokens.accessToken,
@@ -840,6 +940,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
+      migrationPolicy.allowsUnscopedLegacyMigration,
       statuses.isEmpty
         || statuses.contains(where: {
           tokensByIdentifier[$0.providerAccountIdentifier] == nil
@@ -906,6 +1007,21 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       status.trustedDeviceId == session.trustedDeviceId
     else { return nil }
     return status
+  }
+}
+
+extension GmailProviderConnectionStatus {
+  func withAuthorizationGeneration(_ authorizationGeneration: Int) -> Self {
+    GmailProviderConnectionStatus(
+      authorizationGeneration: authorizationGeneration,
+      connectedAt: connectedAt,
+      emailAddress: emailAddress,
+      lastVerifiedAt: lastVerifiedAt,
+      provider: provider,
+      providerAccountIdentifier: providerAccountIdentifier,
+      trustedDeviceId: trustedDeviceId,
+      updatedAt: updatedAt
+    )
   }
 }
 extension GmailProviderConnectionService {

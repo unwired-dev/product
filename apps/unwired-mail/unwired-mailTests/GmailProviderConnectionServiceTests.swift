@@ -497,6 +497,63 @@ final class GmailProviderConnectionServiceTests: XCTestCase {
     XCTAssertEqual(transport.connectCall?.gmailIdentityToken, "gmail-identity-token")
   }
 
+  func testLoadConnectionsDoesNotVerifyBlockedStatuslessScopedTokens() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    try tokenStore.save(
+      GmailProviderTokens(accessToken: "scoped-access", refreshToken: "scoped-refresh"),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001"
+    )
+    let verifier = CountingGmailCredentialVerifier()
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: verifier
+    )
+
+    let statuses = try await service.loadConnections(
+      migrationPolicy: GmailCredentialMigrationPolicy(
+        allowsUnscopedLegacyMigration: false,
+        blockedProviderAccountIdentifiers: ["gmail-user-001"]
+      ),
+      session: session
+    )
+
+    XCTAssertTrue(statuses.isEmpty)
+    XCTAssertEqual(verifier.verificationCount, 0)
+    XCTAssertNil(transport.connectCall)
+  }
+
+  func testLoadConnectionsDoesNotVerifyLegacyTokensAcrossGenerationHistory() async throws {
+    let tokenStore = InMemoryGmailProviderTokenStore()
+    tokenStore.saveLegacy(
+      GmailProviderTokens(accessToken: "legacy-access", refreshToken: "legacy-refresh"),
+      productAccountId: session.productAccountId
+    )
+    let verifier = CountingGmailCredentialVerifier()
+    let transport = RecordingGmailConnectionTransport()
+    let service = GmailProviderConnectionService(
+      pushConnectionStore: RecordingPushConnectionStore(),
+      tokenStore: tokenStore,
+      transport: transport,
+      credentialVerifier: verifier
+    )
+
+    let statuses = try await service.loadConnections(
+      migrationPolicy: GmailCredentialMigrationPolicy(
+        allowsUnscopedLegacyMigration: false,
+        blockedProviderAccountIdentifiers: ["gmail-user-001"]
+      ),
+      session: session
+    )
+
+    XCTAssertTrue(statuses.isEmpty)
+    XCTAssertEqual(verifier.verificationCount, 0)
+    XCTAssertNil(transport.connectCall)
+  }
+
   func testLoadConnectionsIgnoresUnverifiableOrphanScopedTokens() async throws {
     let tokenStore = InMemoryGmailProviderTokenStore()
     try tokenStore.save(
@@ -2017,6 +2074,18 @@ private struct StaticGmailCredentialVerifier: GmailProviderCredentialVerifying {
     refreshToken _: String
   ) async throws -> VerifiedGmailAccount {
     account
+  }
+}
+
+private final class CountingGmailCredentialVerifier: GmailProviderCredentialVerifying {
+  var verificationCount = 0
+
+  func verify(
+    accessToken _: String,
+    refreshToken _: String
+  ) async throws -> VerifiedGmailAccount {
+    verificationCount += 1
+    throw GmailProviderConnectionTestError.tokenLoadFailed
   }
 }
 

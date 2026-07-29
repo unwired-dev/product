@@ -1155,22 +1155,18 @@ private struct IMAPThreadResolver {
 }
 
 struct IMAPMessageBodyService {
-  private let authorizationStore: GenericMailAuthorizationPersisting
   private let cache: GmailMessageBodyCaching
   private let client: IMAPMailboxClient
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
   private let metadataStore: IMAPMessageMetadataPersisting
 
   init(
-    authorizationStore: GenericMailAuthorizationPersisting =
-      KeychainGenericMailAuthorizationStore(),
     cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
     client: IMAPMailboxClient = SystemIMAPMailboxClient(),
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore()
   ) {
-    self.authorizationStore = authorizationStore
     self.cache = cache
     self.client = client
     self.keyMaterialStore = keyMaterialStore
@@ -1193,7 +1189,8 @@ struct IMAPMessageBodyService {
 
   func loadMessageBody(
     message: MailboxMessageMetadata,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    authorization: DeviceLocalGenericMailAuthorization
   ) async throws -> MailboxMessageBody {
     if let cached = try loadCachedMessageBody(message: message, session: session) {
       try? cache.recordMessageBodyAccess(
@@ -1210,10 +1207,6 @@ struct IMAPMessageBodyService {
         connectionId: message.connectionId
       )
     else { throw IMAPMailboxError.missingMessage }
-    let authorization = try requiredAuthorization(
-      connectionId: message.connectionId,
-      productAccountId: ProductAccountId(session.productAccountId)
-    )
     let body = try await client.loadTextBody(
       message: providerMessage,
       authorization: authorization
@@ -1351,20 +1344,6 @@ struct IMAPMessageBodyService {
     }
   }
 
-  private func requiredAuthorization(
-    connectionId: MailboxConnectionId,
-    productAccountId: ProductAccountId
-  ) throws -> DeviceLocalGenericMailAuthorization {
-    guard
-      let authorization = try authorizationStore.load(
-        productAccountId: productAccountId,
-        connectionId: connectionId
-      ),
-      authorization.definition.incomingEndpoint.mailProtocol == .imap
-    else { throw IMAPMailboxError.missingLocalAuthorization }
-    return authorization
-  }
-
   private func requiredKeyMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw ProductSyncKeyMaterialStoreError.recoveryRequired
@@ -1439,6 +1418,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let metadataService: IMAPMessageMetadataService
   private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
   private let syncGate: MailboxConnectionSyncGate
 
   init(
@@ -1451,15 +1432,18 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = OutboxDeliveryService(),
+    pendingActionService: PendingProviderActionService = PendingProviderActionService(),
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore
     self.cache = cache
     self.definitionSyncService = definitionSyncService
     self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
     self.syncGate = syncGate
     bodyReader = IMAPMessageBodyService(
-      authorizationStore: authorizationStore,
       cache: cache,
       client: client,
       keyMaterialStore: keyMaterialStore,
@@ -1480,8 +1464,31 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws {
     try validate(connection: connection, session: session, requiresAuthorization: false)
     try await syncGate.withLock(connection.id) {
-      try clearLocalConnectionWithoutLock(connection, session: session)
+      try await performLocalCleanupWithoutLock(connection, session: session)
     }
+  }
+
+  private func performLocalCleanupWithoutLock(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var firstError: Error?
+    do {
+      try clearLocalConnectionWithoutLock(connection, session: session)
+    } catch {
+      firstError = error
+    }
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      firstError = firstError ?? error
+    }
+    if let firstError { throw firstError }
   }
 
   private func clearLocalConnectionWithoutLock(
@@ -1522,11 +1529,13 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    for removedId in snapshot.removedConnectionIds where removedId.providerId == .imapSMTP {
-      try await syncGate.withLock(removedId) {
-        try clearLocalConnectionWithoutLock(removedId, session: session)
-      }
+    var snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
+    where connectionId.providerId == .imapSMTP {
+      snapshot = try await refreshAndClearLocalStateIfNeeded(
+        connectionId,
+        session: session
+      )
     }
     return try snapshot.connections.compactMap { definition in
       guard
@@ -1540,9 +1549,11 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       )
       let isAuthorized =
         authorization.map {
-          hasMatchingCredentials($0.definition, genericDefinition)
+          $0.authorizationGeneration == definition.authorizationGeneration
+            && hasMatchingCredentials($0.definition, genericDefinition)
         } ?? false
       return MailboxConnection(
+        authorizationGeneration: definition.authorizationGeneration,
         authorizationState: isAuthorized ? .authorized : .required,
         capabilities: isAuthorized ? .imapRead : .none,
         connectedAt: definition.connectedAt,
@@ -1553,6 +1564,49 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
         trustedDeviceId: session.trustedDeviceId,
         updatedAt: snapshot.updatedAt ?? definition.connectedAt
       )
+    }
+  }
+
+  private func refreshAndClearLocalStateIfNeeded(
+    _ connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await syncGate.withLock(connectionId) {
+      let currentSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+      let authorizationGeneration = try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )?.authorizationGeneration
+      guard
+        try definitionSyncService.requiresLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connectionId,
+          localAuthorizationGeneration: authorizationGeneration,
+          session: session
+        )
+      else {
+        return currentSnapshot
+      }
+      let removed = MailboxConnection(
+        authorizationState: .required,
+        capabilities: .none,
+        connectedAt: 0,
+        displayName: "",
+        id: connectionId,
+        lastVerifiedAt: 0,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: currentSnapshot.updatedAt ?? 0
+      )
+      try await performLocalCleanupWithoutLock(removed, session: session)
+      try definitionSyncService.recordLocalCleanup(
+        in: currentSnapshot,
+        connectionId: connectionId,
+        session: session
+      )
+      return currentSnapshot
     }
   }
 
@@ -1732,14 +1786,22 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     guard message.connectionId.providerId == .imapSMTP else {
       throw MailboxConnectionAdapterError.unsupportedProvider
     }
-    if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
-      return cached
+    let connection = try await connection(id: message.connectionId, session: session)
+    return try await syncGate.withLock(connection.id) {
+      let authorization = try await authorizationForProviderAccess(
+        connection: connection,
+        session: session,
+        isWithinSyncGate: true
+      )
+      if let cached = try bodyReader.loadCachedMessageBody(message: message, session: session) {
+        return cached
+      }
+      return try await bodyReader.loadMessageBody(
+        message: message,
+        session: session,
+        authorization: authorization
+      )
     }
-    _ = try await authorizationForProviderAccess(
-      connection: connection(id: message.connectionId, session: session),
-      session: session
-    )
-    return try await bodyReader.loadMessageBody(message: message, session: session)
   }
 
   func prefetchMessageBodies(
@@ -1798,19 +1860,25 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     throw MailboxConnectionAdapterError.unsupportedCapability
   }
 
+  // swiftlint:disable:next function_body_length
   private func authorizationForProviderAccess(
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot,
     isWithinSyncGate: Bool = false
   ) async throws -> DeviceLocalGenericMailAuthorization {
-    try validate(connection: connection, session: session, requiresAuthorization: true)
+    try validate(connection: connection, session: session, requiresAuthorization: false)
     let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
     if snapshot.removedConnectionIds.contains(connection.id) {
       if isWithinSyncGate {
-        try clearLocalConnectionWithoutLock(connection, session: session)
+        try await performLocalCleanupWithoutLock(connection, session: session)
       } else {
         try await clearLocalConnection(connection, session: session)
       }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
       throw MailboxConnectionAdapterError.connectionRemoved
     }
     guard
@@ -1821,15 +1889,41 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
       authorization.definition.incomingEndpoint.mailProtocol == .imap
     else { throw MailboxConnectionAdapterError.authorizationRequired }
     guard
-      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-        .genericMailDefinition
+      let synchronizedDefinition = snapshot.connections.first(where: { $0.id == connection.id }),
+      let definition = synchronizedDefinition.genericMailDefinition
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
+    }
+    guard
+      connection.authorizationGeneration == synchronizedDefinition.authorizationGeneration
+    else {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+    if try definitionSyncService.requiresLocalCleanup(
+      in: snapshot,
+      connectionId: connection.id,
+      localAuthorizationGeneration: authorization.authorizationGeneration,
+      session: session
+    )
+      || authorization.authorizationGeneration != synchronizedDefinition.authorizationGeneration
+    {
+      if isWithinSyncGate {
+        try await performLocalCleanupWithoutLock(connection, session: session)
+      } else {
+        try await clearLocalConnection(connection, session: session)
+      }
+      try definitionSyncService.recordLocalCleanup(
+        in: snapshot,
+        connectionId: connection.id,
+        session: session
+      )
+      throw MailboxConnectionAdapterError.authorizationRequired
     }
     guard hasMatchingCredentials(authorization.definition, definition) else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     return DeviceLocalGenericMailAuthorization(
+      authorizationGeneration: authorization.authorizationGeneration,
       credential: authorization.credential,
       definition: definition
     )
@@ -1848,29 +1942,10 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> GenericMailConnectionDefinition {
-    try validate(connection: connection, session: session, requiresAuthorization: false)
-    let snapshot = try await definitionSyncService.loadSnapshotForProviderAccess(session: session)
-    if snapshot.removedConnectionIds.contains(connection.id) {
-      try await clearLocalConnection(connection, session: session)
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
-    guard
-      let authorization = try authorizationStore.load(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connection.id
-      ),
-      authorization.definition.incomingEndpoint.mailProtocol == .imap
-    else { throw MailboxConnectionAdapterError.authorizationRequired }
-    guard
-      let definition = snapshot.connections.first(where: { $0.id == connection.id })?
-        .genericMailDefinition
-    else {
-      throw MailboxConnectionAdapterError.connectionRemoved
-    }
-    guard hasMatchingCredentials(authorization.definition, definition) else {
-      throw MailboxConnectionAdapterError.authorizationRequired
-    }
-    return definition
+    try await authorizationForProviderAccess(
+      connection: connection,
+      session: session
+    ).definition
   }
 
   private func hasMatchingCredentials(
