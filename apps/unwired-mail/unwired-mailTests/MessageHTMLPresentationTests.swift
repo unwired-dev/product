@@ -101,6 +101,20 @@ final class MessageHTMLPresentationTests: XCTestCase {
     )
   }
 
+  func testSanitizerRejectsContentOnlyReadableThroughZeroSizedPreheaderText() throws {
+    for style in ["font-size: 0", "height: 0px", "width: 0%", "line-height: 0.0em !important"] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          """
+          <div style="\(style)">Hidden preview</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        ),
+        "Expected \(style) content to be unreadable"
+      )
+    }
+  }
+
   func testSanitizedDocumentUsesRestrictiveContentSecurityPolicy() throws {
     let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
 

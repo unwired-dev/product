@@ -14,10 +14,14 @@ enum MessageHTMLSanitizer {
       try SwiftSoup.clean(html, "", allowlist())
       ?? ""
     let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
+    let hiddenStylePattern =
+      #"(?:^|;)\s*(?:display\s*:\s*none|"#
+      + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+      + #"(?:[a-z%]+)?)(?:\s*!important)?\s*(?:;|$)"#
     for element in try readableDocument.select("[style]") {
       let style = try element.attr("style")
       if style.range(
-        of: #"(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)"#,
+        of: hiddenStylePattern,
         options: [.regularExpression, .caseInsensitive]
       ) != nil {
         try element.remove()
