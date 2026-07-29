@@ -100,10 +100,10 @@ enum MessageHTMLSanitizer {
         base-uri 'none'; form-action 'none'
       ">
       <style>
-        :root { color-scheme: light dark; }
+        :root { color-scheme: light; }
         html, body {
-          background: transparent;
-          color: CanvasText;
+          background: #fff;
+          color: #111;
           font: -apple-system-body;
           margin: 0;
           overflow-wrap: anywhere;

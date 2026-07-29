@@ -128,6 +128,16 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.documentHTML.contains("<p>Hello</p>"))
   }
 
+  func testSanitizedDocumentUsesANeutralLightCanvasForFixedEmailColors() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(#"<p style="color: #000">Hello</p>"#)
+    )
+
+    XCTAssertTrue(result.bodyHTML.contains("color:#000"))
+    XCTAssertTrue(result.documentHTML.contains(":root { color-scheme: light; }"))
+    XCTAssertTrue(result.documentHTML.contains("background: #fff;"))
+  }
+
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
     let sanitized = SanitizedMessageHTML(bodyHTML: "<p>Rich message</p>", documentHTML: "document")
@@ -183,10 +193,19 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
   func testLayoutUsesContentHeightWithAVisibleMinimum() {
     XCTAssertEqual(MessageHTMLLayout.height(for: .zero), 1)
+    XCTAssertFalse(MessageHTMLLayout.isInternallyScrollable(for: .zero))
     XCTAssertEqual(MessageHTMLLayout.height(for: CGSize(width: 500, height: 128.5)), 128.5)
+    XCTAssertFalse(
+      MessageHTMLLayout.isInternallyScrollable(
+        for: CGSize(width: 500, height: MessageHTMLLayout.maximumHeight)
+      )
+    )
     XCTAssertEqual(
       MessageHTMLLayout.height(for: CGSize(width: 500, height: 100_000_000)),
       MessageHTMLLayout.maximumHeight
+    )
+    XCTAssertTrue(
+      MessageHTMLLayout.isInternallyScrollable(for: CGSize(width: 500, height: 100_000_000))
     )
   }
 
