@@ -203,26 +203,40 @@ struct MailEngineQualificationContract {
       imapTransportMode: .implicitTLS,
       smtpTransportMode: .startTLS
     )
-    try await verifyXOAUTH2Challenge(service: .imap, connectionID: "xoauth2-imap-challenge")
-    try await verifyXOAUTH2Challenge(service: .smtp, connectionID: "xoauth2-smtp-challenge")
+    let xoauth2IMAPSession = try await verifyXOAUTH2Challenge(
+      service: .imap,
+      connectionID: "xoauth2-imap-challenge"
+    )
+    let xoauth2SMTPSession = try await verifyXOAUTH2Challenge(
+      service: .smtp,
+      connectionID: "xoauth2-smtp-challenge"
+    )
+    let successfulSessions: [any MailEngineSession] = [
+      implicitConnection.session,
+      startTLSConnection.session,
+      mixedModeConnection.session,
+      xoauth2IMAPSession,
+      xoauth2SMTPSession,
+    ]
     verifySuccessfulSnapshot(implicitConnection.snapshot)
-    assertMinimumTLS(startTLSConnection.snapshot)
-    assertMinimumTLS(mixedModeConnection.snapshot)
+    verifySuccessfulSnapshot(startTLSConnection.snapshot)
+    verifySuccessfulSnapshot(mixedModeConnection.snapshot)
     await verifySetupEvents()
+    withExtendedLifetime(successfulSessions) {}
   }
 
   private func verifyXOAUTH2Challenge(
     service: MailEngineService,
     connectionID: String
-  ) async throws {
-    _ = try await connect(
+  ) async throws -> any MailEngineSession {
+    try await connect(
       fixture: .xoauth2Challenge(service: service),
       authorization: .xoauth2(
         username: "oauth-challenge@example.com",
         accessToken: "oauth-challenge-token"
       ),
       connectionID: connectionID
-    )
+    ).session
   }
 
   private func verifySuccessfulSnapshot(_ snapshot: MailEngineConnectionSnapshot) {
@@ -1024,8 +1038,10 @@ struct MailEngineQualificationContract {
   }
 
   private func verifyIDLERecovery() async throws {
+    let connectionID = "idle-recovery-success"
     let recoveringSession = try await connect(
-      fixture: .idleDisconnectThenRecover(maximumReconnectTLSVersion: nil)
+      fixture: .idleDisconnectThenRecover(maximumReconnectTLSVersion: nil),
+      connectionID: connectionID
     ).session
     let inbox = MailEngineMailboxIdentity("INBOX")
     do {
@@ -1034,19 +1050,55 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .connectionClosed)
     }
+    let eventCountBeforeRecovery = await factory.events().count
     let recoveredEvents = LockedBox<[MailEngineIdleEvent]>([])
+    let handshakeAtCallback = LockedBox<[MailEngineQualificationEvent]>([])
     let recoveryTask = Task {
       try await recoveringSession.idle(mailbox: inbox) { event in
+        let events = await factory.events()
+        handshakeAtCallback.withValue {
+          $0 = Array(events.dropFirst(eventCountBeforeRecovery)).filter {
+            $0.belongs(to: connectionID, service: .imap)
+          }
+        }
         recoveredEvents.withValue { $0.append(event) }
       }
     }
     try await waitForIdleEvents(recoveredEvents, count: 1, timeout: .seconds(2))
     XCTAssertEqual(recoveredEvents.value, [.changedUIDs([10])])
+    assertSuccessfulIDLERecoveryHandshake(
+      handshakeAtCallback.value,
+      connectionID: connectionID
+    )
     await assertIdleCancellation(
       recoveryTask,
       failureMessage: "Recovered IDLE must remain active until cancelled."
     )
     try await verifyIDLERecoveryTLSFloor()
+  }
+
+  private func assertSuccessfulIDLERecoveryHandshake(
+    _ events: [MailEngineQualificationEvent],
+    connectionID: String
+  ) {
+    guard
+      case .tlsEstablished(
+        connectionID: connectionID,
+        service: .imap,
+        version: let negotiatedVersion
+      ) = events.first
+    else {
+      XCTFail("Recovered IDLE must establish secure transport before callback delivery.")
+      return
+    }
+    XCTAssertGreaterThanOrEqual(negotiatedVersion, .tls12)
+    XCTAssertEqual(
+      Array(events.dropFirst()),
+      [
+        .authenticationStarted(connectionID: connectionID, service: .imap),
+        .authenticated(connectionID: connectionID, service: .imap),
+      ]
+    )
   }
 
   private func verifyIDLERecoveryTLSFloor() async throws {
@@ -1701,6 +1753,19 @@ struct MailEngineQualificationContract {
   func verifyConnectionLifecycle() async throws {
     let session = try await connect(fixture: .successful).session
     await session.close()
+    let eventsBeforeClosedOperations = await factory.events()
+    await assertClosedOperations(session)
+    let events = await factory.events()
+    XCTAssertEqual(
+      events,
+      eventsBeforeClosedOperations,
+      "Closed-session operations must not reach the server fixture."
+    )
+    XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
+    assertServiceTeardownEvents(events)
+  }
+
+  private func assertClosedOperations(_ session: any MailEngineSession) async {
     let inbox = MailEngineMailboxIdentity("INBOX")
     let archive = MailEngineMailboxIdentity("Archive")
     let message = MailEngineMessageIdentity(mailbox: inbox, uid: 9, uidValidity: 44)
@@ -1745,9 +1810,6 @@ struct MailEngineQualificationContract {
         rawMessage: Data("message".utf8)
       )
     }
-    let events = await factory.events()
-    XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
-    assertServiceTeardownEvents(events)
   }
 
   private func assertServiceTeardownEvents(_ events: [MailEngineQualificationEvent]) {
@@ -1847,8 +1909,8 @@ struct MailEngineQualificationContract {
     } else {
       XCTAssertEqual(
         serviceEvents,
-        [],
-        "Authentication must not start on a service whose secure setup failed."
+        [.serviceClosed(connectionID: connectionID, service: failedService)],
+        "Secure setup failures must close the failed service without starting authentication."
       )
     }
     if failedService == .smtp {
@@ -2051,6 +2113,9 @@ private struct ScriptedMailEngine: MailEngine {
       maximumService == service
     {
       guard maximumTLSVersion >= configuration.minimumTLSVersion else {
+        await state.record(
+          .serviceClosed(connectionID: configuration.connectionID, service: service)
+        )
         throw MailEngineError.tlsVersionUnsupported
       }
       negotiatedVersion = maximumTLSVersion
@@ -2105,10 +2170,10 @@ private struct ScriptedMailEngine: MailEngine {
         await state.record(
           .authenticationStarted(connectionID: configuration.connectionID, service: service)
         )
-        await state.record(
-          .serviceClosed(connectionID: configuration.connectionID, service: service)
-        )
       }
+      await state.record(
+        .serviceClosed(connectionID: configuration.connectionID, service: service)
+      )
       throw error
     }
   }
@@ -2331,6 +2396,15 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       if let maximumReconnectTLSVersion, maximumReconnectTLSVersion < .tls12 {
         throw MailEngineError.tlsVersionUnsupported
       }
+      await state.record(
+        .tlsEstablished(
+          connectionID: connectionID,
+          service: .imap,
+          version: maximumReconnectTLSVersion ?? .tls13
+        )
+      )
+      await state.record(.authenticationStarted(connectionID: connectionID, service: .imap))
+      await state.record(.authenticated(connectionID: connectionID, service: .imap))
       let event = MailEngineIdleEvent.changedUIDs([10])
       await onEvent(event)
       await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
