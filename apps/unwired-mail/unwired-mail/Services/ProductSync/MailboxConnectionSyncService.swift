@@ -2,6 +2,7 @@ import Foundation
 
 enum MailboxConnectionSyncError: LocalizedError, Equatable {
   case concurrentModification
+  case connectionRemoved(MailboxConnectionRemovalObservation)
   case invalidDefaultSendingConnection
   case missingProductSyncKeyMaterial
 
@@ -9,6 +10,8 @@ enum MailboxConnectionSyncError: LocalizedError, Equatable {
     switch self {
     case .concurrentModification:
       return "Mailbox Connections changed on another device. Refresh and try again."
+    case .connectionRemoved:
+      return "This Mailbox Connection was removed on another device. Refresh, then add it again."
     case .invalidDefaultSendingConnection:
       return "Choose an existing Mailbox Connection as the default sender."
     case .missingProductSyncKeyMaterial:
@@ -21,6 +24,7 @@ private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
   let provider: String
   let providerAccountIdentifier: String
   let removedAt: Int64
+  let tombstoneIdentifier: String?
 
   var connectionId: MailboxConnectionId {
     MailboxConnectionId(
@@ -28,6 +32,14 @@ private struct MailboxConnectionRemovalTombstone: Codable, Equatable, Sendable {
         providerId: MailProviderId(rawValue: provider),
         value: providerAccountIdentifier
       )
+    )
+  }
+
+  var observation: MailboxConnectionRemovalObservation {
+    MailboxConnectionRemovalObservation(
+      connectionId: connectionId,
+      removedAt: removedAt,
+      tombstoneIdentifier: tombstoneIdentifier
     )
   }
 }
@@ -70,6 +82,7 @@ private struct MailboxConnectionSyncPayload: Codable, Equatable, Sendable {
   }
 }
 
+// swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
 
@@ -164,7 +177,8 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
         MailboxConnectionRemovalTombstone(
           provider: connectionId.providerId.rawValue,
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
-          removedAt: clock()
+          removedAt: clock(),
+          tombstoneIdentifier: UUID().uuidString
         )
       )
       if payload.defaultSendingConnectionId == connectionId {
@@ -187,10 +201,13 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     return try await update(session: session) { payload in
-      payload.connections.removeAll { $0.id == definition.id }
-      payload.connections.append(definition)
-      payload.removals.removeAll { $0.connectionId == definition.id }
-      return true
+      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
+      else {
+        payload.connections.removeAll { $0.id == definition.id }
+        payload.connections.append(definition)
+        return true
+      }
+      throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
     }
   }
 
@@ -219,7 +236,14 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
     for attempt in 0..<Self.maximumWriteAttempts {
       let remotePayload = try await loadRemotePayload(session: session)
       var payload = try decrypt(remotePayload, session: session)
-      guard try mutation(&payload) else {
+      let changed: Bool
+      do {
+        changed = try mutation(&payload)
+      } catch {
+        try? refreshCache(remotePayload, productAccountId: session.productAccountId)
+        throw error
+      }
+      guard changed else {
         try refreshCache(remotePayload, productAccountId: session.productAccountId)
         return snapshot(payload, updatedAt: remotePayload?.updatedAt)
       }
@@ -329,5 +353,32 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
 
   private var associatedData: Data {
     Data(MailboxConnectionSyncPayload.primaryIdentifier.utf8)
+  }
+}
+
+extension MailboxConnectionSyncService {
+  func recreateDefinition(
+    _ definition: MailboxConnectionDefinition,
+    after removalObservation: MailboxConnectionRemovalObservation?,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    try await update(session: session) { payload in
+      guard let removal = payload.removals.first(where: { $0.connectionId == definition.id })
+      else {
+        guard removalObservation?.connectionId != definition.id else {
+          throw MailboxConnectionSyncError.concurrentModification
+        }
+        payload.connections.removeAll { $0.id == definition.id }
+        payload.connections.append(definition)
+        return true
+      }
+      guard removal.observation == removalObservation else {
+        throw MailboxConnectionSyncError.connectionRemoved(removal.observation)
+      }
+      payload.connections.removeAll { $0.id == definition.id }
+      payload.connections.append(definition)
+      payload.removals.removeAll { $0.connectionId == definition.id }
+      return true
+    }
   }
 }
