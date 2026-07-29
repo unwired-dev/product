@@ -233,7 +233,7 @@ The visible per-connection state of authorization, synchronization, last success
 _Avoid_: Blocking loading state, hidden sync error
 
 **Bounded Encrypted Body Cache**:
-Locally encrypted storage for prefetched recent body text and opened older body text, excluding attachments and constrained by eviction controls.
+Locally encrypted storage for prefetched recent readable body representations and opened older readable body representations, excluding attachments and constrained by eviction controls.
 _Avoid_: On-demand-only body cache, permanent body store, attachment archive
 
 **Remote Message Content**:

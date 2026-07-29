@@ -58,7 +58,10 @@ final class MessageCategorizationServiceTests: XCTestCase {
     let engine = RecordingClassificationEngine(
       decisions: [.needsBody, .assigned(categoryId: "system:invoices")]
     )
-    let bodyReader = RecordingCachedBodyReader(bodyText: "Invoice total: 42 EUR")
+    let bodyReader = RecordingCachedBodyReader(
+      bodyHTML: "<p>HTML must not reach categorization</p>",
+      bodyText: "Invoice total: 42 EUR"
+    )
     let assignmentSync = RecordingMessageCategoryAssignmentSync()
     let service = GmailMessageCategorizationService(
       assignmentSync: assignmentSync,
@@ -2169,10 +2172,12 @@ private struct FailingClassificationEngine: ClassificationEngine {
 }
 
 private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
+  private let bodyHTML: String?
   private(set) var loadedMessageIds: [String] = []
   private let bodyText: String?
 
-  init(bodyText: String?) {
+  init(bodyHTML: String? = nil, bodyText: String?) {
+    self.bodyHTML = bodyHTML
     self.bodyText = bodyText
   }
 
@@ -2181,7 +2186,7 @@ private final class RecordingCachedBodyReader: GmailCachedMessageBodyReading {
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailMessageBody? {
     loadedMessageIds.append(message.stableProviderMessageId)
-    return bodyText.map(GmailMessageBody.init(text:))
+    return bodyText.map { GmailMessageBody(text: $0, html: bodyHTML) }
   }
 }
 
