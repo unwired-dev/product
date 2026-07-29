@@ -105,6 +105,11 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
   case authenticated(connectionID: String, service: MailEngineService)
   case bodyFetchCancelled(connectionID: String)
   case bodyFetchStarted(connectionID: String)
+  case bodyPartsRequested(
+    connectionID: String,
+    message: MailEngineMessageIdentity,
+    selectors: Set<MailEngineBodyPartSelector>
+  )
   case closed(connectionID: String)
   case copyReceived(
     connectionID: String,
@@ -157,10 +162,10 @@ extension MailEngineQualificationEvent {
       eventConnectionID == connectionID && eventService == service
     case .serviceClosed(let eventConnectionID, let eventService):
       eventConnectionID == connectionID && eventService == service
-    case .bodyFetchCancelled, .bodyFetchStarted, .closed, .copyReceived, .idleCancelled,
-      .idleEventDelivered, .idleStarted, .movePreservedUnrelatedDeletedUIDs, .moveReceived,
-      .sentAppend, .sentAppendReceived, .submissionContentAccepted, .submissionReceived,
-      .submissionStarted, .submitted:
+    case .bodyFetchCancelled, .bodyFetchStarted, .bodyPartsRequested, .closed, .copyReceived,
+      .idleCancelled, .idleEventDelivered, .idleStarted, .movePreservedUnrelatedDeletedUIDs,
+      .moveReceived, .sentAppend, .sentAppendReceived, .submissionContentAccepted,
+      .submissionReceived, .submissionStarted, .submitted:
       false
     }
   }
@@ -224,7 +229,7 @@ struct MailEngineQualificationContract {
       Dictionary(uniqueKeysWithValues: snapshot.mailboxes.map { ($0.identity, $0.specialUses) }),
       [
         MailEngineMailboxIdentity("INBOX"): [],
-        MailEngineMailboxIdentity("Sent"): [.sent],
+        MailEngineMailboxIdentity("Transmitted Items"): [.sent],
       ]
     )
   }
@@ -400,10 +405,10 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(copy.destinationMailbox, archive)
     XCTAssertEqual(copy.destinationUIDValidity, 91)
     XCTAssertEqual(
-      copy.pairs,
+      Dictionary(uniqueKeysWithValues: copy.pairs.map { ($0.sourceUID, $0.destinationUID) }),
       [
-        MailEngineUIDPair(destinationUID: 105, sourceUID: 5),
-        MailEngineUIDPair(destinationUID: 104, sourceUID: 4),
+        5: 105,
+        4: 104,
       ]
     )
     XCTAssertEqual(move.sourceMailbox, inbox)
@@ -411,10 +416,10 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(move.destinationMailbox, archive)
     XCTAssertEqual(move.destinationUIDValidity, 92)
     XCTAssertEqual(
-      move.pairs,
+      Dictionary(uniqueKeysWithValues: move.pairs.map { ($0.sourceUID, $0.destinationUID) }),
       [
-        MailEngineUIDPair(destinationUID: 209, sourceUID: 9),
-        MailEngineUIDPair(destinationUID: 208, sourceUID: 8),
+        9: 209,
+        8: 208,
       ]
     )
   }
@@ -452,7 +457,10 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) async throws {
-    let copySession = try await connect(fixture: .copyOutcomeUnknown).session
+    let copySession = try await connect(
+      fixture: .copyOutcomeUnknown,
+      connectionID: "copy-outcome-unknown"
+    ).session
     do {
       _ = try await copySession.copy(
         sourceUIDs: [5],
@@ -464,7 +472,10 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
-    let moveSession = try await connect(fixture: .moveOutcomeUnknown).session
+    let moveSession = try await connect(
+      fixture: .moveOutcomeUnknown,
+      connectionID: "move-outcome-unknown"
+    ).session
     do {
       _ = try await moveSession.move(
         sourceUIDs: [5],
@@ -476,7 +487,15 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
-    let appendSession = try await connect(fixture: .sentAppendOutcomeUnknown).session
+    try await verifyUnknownAppendOutcome()
+    await assertUnknownMutationEvents(inbox: inbox, archive: archive)
+  }
+
+  private func verifyUnknownAppendOutcome() async throws {
+    let appendSession = try await connect(
+      fixture: .sentAppendOutcomeUnknown,
+      connectionID: "append-outcome-unknown"
+    ).session
     do {
       _ = try await appendSession.appendToSent(
         Data("indeterminate append".utf8),
@@ -486,6 +505,50 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
+  }
+
+  private func assertUnknownMutationEvents(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async {
+    let events = await factory.events()
+    XCTAssertEqual(
+      events.filter {
+        $0
+          == .copyReceived(
+            connectionID: "copy-outcome-unknown",
+            sourceUIDs: [5],
+            sourceUIDValidity: 44,
+            sourceMailbox: inbox,
+            destinationMailbox: archive
+          )
+      }.count,
+      1
+    )
+    XCTAssertEqual(
+      events.filter {
+        $0
+          == .moveReceived(
+            connectionID: "move-outcome-unknown",
+            sourceUIDs: [5],
+            sourceUIDValidity: 44,
+            sourceMailbox: inbox,
+            destinationMailbox: archive
+          )
+      }.count,
+      1
+    )
+    XCTAssertEqual(
+      events.filter {
+        $0
+          == .sentAppendReceived(
+            connectionID: "append-outcome-unknown",
+            mailbox: MailEngineMailboxIdentity("Sent"),
+            rawMessage: Data("indeterminate append".utf8)
+          )
+      }.count,
+      1
+    )
   }
 
   private func verifyUIDValidityReset(
@@ -727,19 +790,43 @@ struct MailEngineQualificationContract {
       )
       XCTAssertEqual(connection.snapshot.capabilities.contains(.move), hasMove)
       XCTAssertFalse(connection.snapshot.capabilities.contains(.uidPlus))
-      _ = try await connection.session.move(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: inbox,
-        to: archive
-      )
+      if hasMove {
+        _ = try await connection.session.move(
+          sourceUIDs: [9],
+          sourceUIDValidity: 44,
+          from: inbox,
+          to: archive
+        )
+      } else {
+        do {
+          _ = try await connection.session.move(
+            sourceUIDs: [9],
+            sourceUIDValidity: 44,
+            from: inbox,
+            to: archive
+          )
+          XCTFail("Move must be unsupported without MOVE or UIDPLUS.")
+        } catch {
+          XCTAssertEqual(error as? MailEngineError, .operationUnsupported)
+        }
+      }
       let events = await factory.events()
-      XCTAssertTrue(
-        events.contains(
-          .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
-        ),
-        "Reduced-capability removal must not expunge unrelated deleted messages."
-      )
+      if hasMove {
+        XCTAssertTrue(
+          events.contains(
+            .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
+          ),
+          "Reduced-capability removal must not expunge unrelated deleted messages."
+        )
+      } else {
+        XCTAssertFalse(
+          events.contains { event in
+            if case .moveReceived(let eventConnectionID, _, _, _, _) = event {
+              return eventConnectionID == connectionID
+            }
+            return false
+          })
+      }
     }
   }
 
@@ -767,10 +854,7 @@ struct MailEngineQualificationContract {
     )
     assertMetadataPagination(firstPage: firstPage, historicalPage: historicalPage)
 
-    let requestedParts: Set<MailEngineBodyPartSelector> = [
-      MailEngineBodyPartSelector("1.TEXT"),
-      MailEngineBodyPartSelector("2.MIME"),
-    ]
+    let requestedParts = requestedBodyPartSelectors
     let parts = try await session.fetchBodyParts(
       requestedParts,
       for: firstPage.messages[0].identity
@@ -795,6 +879,35 @@ struct MailEngineQualificationContract {
         MailEngineBodyPartSelector("2.MIME"): Data("INBOX-44-8-2.MIME".utf8),
       ]
     )
+    await assertBodyPartRequests(
+      messages: Array(firstPage.messages.prefix(2)),
+      selectors: requestedParts
+    )
+  }
+
+  private func assertBodyPartRequests(
+    messages: [MailEngineMessageMetadata],
+    selectors: Set<MailEngineBodyPartSelector>
+  ) async {
+    let events = await factory.events()
+    for message in messages {
+      XCTAssertTrue(
+        events.contains(
+          .bodyPartsRequested(
+            connectionID: "connection-a",
+            message: message.identity,
+            selectors: selectors
+          )
+        )
+      )
+    }
+  }
+
+  private var requestedBodyPartSelectors: Set<MailEngineBodyPartSelector> {
+    [
+      MailEngineBodyPartSelector("1.TEXT"),
+      MailEngineBodyPartSelector("2.MIME"),
+    ]
   }
 
   private func assertMetadataPagination(
@@ -868,12 +981,13 @@ struct MailEngineQualificationContract {
   private func verifyIDLERecoveryTLSFloor() async throws {
     for transportMode in [MailEngineTransportMode.implicitTLS, .startTLS] {
       for legacyVersion in [MailEngineTLSVersion.tls10, .tls11] {
+        let connectionID = "idle-reconnect-\(transportMode)-\(legacyVersion)"
         let callbacks = LockedBox<[MailEngineIdleEvent]>([])
         let session = try await connect(
           fixture: .idleDisconnectThenRecover(
             maximumReconnectTLSVersion: legacyVersion
           ),
-          connectionID: "idle-reconnect-\(transportMode)-\(legacyVersion)",
+          connectionID: connectionID,
           imapTransportMode: transportMode
         ).session
         do {
@@ -882,6 +996,13 @@ struct MailEngineQualificationContract {
         } catch {
           XCTAssertEqual(error as? MailEngineError, .connectionClosed)
         }
+        let authenticationAttemptsBeforeRecovery = await factory.events().filter {
+          $0
+            == .authenticationStarted(
+              connectionID: connectionID,
+              service: .imap
+            )
+        }.count
         do {
           try await session.idle(mailbox: MailEngineMailboxIdentity("INBOX")) { event in
             callbacks.withValue { $0.append(event) }
@@ -891,6 +1012,14 @@ struct MailEngineQualificationContract {
           XCTAssertEqual(error as? MailEngineError, .tlsVersionUnsupported)
         }
         XCTAssertEqual(callbacks.value, [])
+        let authenticationAttemptsAfterRecovery = await factory.events().filter {
+          $0
+            == .authenticationStarted(
+              connectionID: connectionID,
+              service: .imap
+            )
+        }.count
+        XCTAssertEqual(authenticationAttemptsAfterRecovery, authenticationAttemptsBeforeRecovery)
       }
     }
   }
@@ -1430,6 +1559,8 @@ struct MailEngineQualificationContract {
       ).base64EncodedData(),
       Data("\0private-password-mailbox@example.com\0private-password".utf8)
         .base64EncodedData(),
+      Data("private-password-mailbox@example.com".utf8).base64EncodedData(),
+      Data("private-password".utf8).base64EncodedData(),
     ]
     for secret in secrets.map({ Data($0.utf8) }) + encodedAuthenticationExchanges {
       XCTAssertFalse(
@@ -1885,7 +2016,7 @@ private struct ScriptedMailEngine: MailEngine {
       mailboxes: [
         MailEngineMailbox(identity: MailEngineMailboxIdentity("INBOX"), specialUses: []),
         MailEngineMailbox(
-          identity: MailEngineMailboxIdentity("Sent"),
+          identity: MailEngineMailboxIdentity("Transmitted Items"),
           specialUses: [.sent]
         ),
       ],
@@ -2028,6 +2159,13 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     for message: MailEngineMessageIdentity
   ) async throws -> [MailEngineBodyPart] {
     try ensureOpen()
+    await state.record(
+      .bodyPartsRequested(
+        connectionID: connectionID,
+        message: message,
+        selectors: selectors
+      )
+    )
     guard message.uidValidity == uidValidity(for: message.mailbox) else {
       throw MailEngineError.staleMessageIdentity
     }
@@ -2124,6 +2262,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try ensureOpen()
+    if case .reducedCapabilityMove(hasMove: false) = fixture {
+      throw MailEngineError.operationUnsupported
+    }
     await state.record(
       .moveReceived(
         connectionID: connectionID,

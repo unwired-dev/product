@@ -102,6 +102,7 @@ enum MailEngineError: Error, Equatable, Sendable {
   case cancelled
   case certificateRejected
   case connectionClosed
+  case operationUnsupported
   case operationOutcomeUnknown
   case protocolRejected(code: String, retryable: Bool)
   case serverIdentityMismatch
