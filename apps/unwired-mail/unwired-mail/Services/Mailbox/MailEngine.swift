@@ -186,8 +186,8 @@ struct MailEngineUIDMapping: Equatable, Sendable {
       throw MailEngineUIDMappingError.mismatchedCardinality
     }
     guard
-      reported.sourceUIDs.allSatisfy({ $0 > 0 }),
-      reported.destinationUIDs.allSatisfy({ $0 > 0 })
+      reported.sourceUIDs.allSatisfy({ $0 > 0 && $0 <= 4_294_967_295 }),
+      reported.destinationUIDs.allSatisfy({ $0 > 0 && $0 <= 4_294_967_295 })
     else {
       throw MailEngineUIDMappingError.invalidUID
     }
