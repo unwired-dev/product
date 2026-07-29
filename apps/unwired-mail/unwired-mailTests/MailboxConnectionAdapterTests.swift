@@ -638,6 +638,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     } catch {
       XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
     }
+    do {
+      try await currentAdapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: staleOperationConnection,
+        session: session
+      )
+      XCTFail("Expected a stale action generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   func testGmailProviderAccessRequiresPersistedAuthorizationGeneration() async throws {
@@ -5220,6 +5231,50 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [resumeStarted], timeout: 0.1)
     let resumeCount = await service.resumeCount()
     XCTAssertEqual(resumeCount, 0)
+  }
+
+  func testMailActionViewModelRetainsNonPersistedFailureThroughDeferredCompletion() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion reported")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      performFailureConnectionId: currentConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id],
+      onDeferredCompletion: { _ in
+        deferredCompletion.fulfill()
+      }
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
   }
 
   // swiftlint:disable:next function_body_length

@@ -2422,7 +2422,11 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     do {
       _ = try gmailConnection(connection, session: session, requiresAuthorization: false)
       try await pendingActionGate.withSharedLock(connection.id) {
-        try await ensureConnectionIsActive(connection.id, session: session)
+        try await ensureConnectionIsActive(
+          connection.id,
+          authorizationGeneration: connection.authorizationGeneration,
+          session: session
+        )
         try await pendingActionService.enqueue(
           action,
           targetProviderMailboxId: targetProviderMailboxId,

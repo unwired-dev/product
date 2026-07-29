@@ -4494,8 +4494,9 @@ extension GmailMailActionViewModel {
   ) {
     let taskId = UUID()
     guard !isPreparingForSignOut, !Task.isCancelled else { return }
-    deferredBulkFailures[taskId] = immediateFailures.filter {
-      activeFailureConnectionIds.contains($0.connectionId)
+    deferredBulkFailures[taskId] = immediateFailures
+    let nonPersistedImmediateFailures = immediateFailures.filter {
+      !activeFailureConnectionIds.contains($0.connectionId)
     }
     pendingActionTasks[taskId] = Task { [weak self] in
       guard let self else { return }
@@ -4503,7 +4504,7 @@ extension GmailMailActionViewModel {
         action,
         batches: batches,
         taskId: taskId,
-        immediateFailures: immediateFailures,
+        nonPersistedImmediateFailures: nonPersistedImmediateFailures,
         onCompleted: onCompleted
       )
       pendingActionTasks[taskId] = nil
@@ -4627,7 +4628,7 @@ extension GmailMailActionViewModel {
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
     taskId: UUID,
-    immediateFailures: [MailboxBulkActionFailure],
+    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     guard !Task.isCancelled else { return }
@@ -4669,7 +4670,7 @@ extension GmailMailActionViewModel {
         await recordDeferredOutcome(
           outcome,
           taskId: taskId,
-          immediateFailures: immediateFailures,
+          nonPersistedImmediateFailures: nonPersistedImmediateFailures,
           onCompleted: onCompleted
         )
       }
@@ -4680,17 +4681,14 @@ extension GmailMailActionViewModel {
   private func recordDeferredOutcome(
     _ outcome: MailboxBulkActionBatchOutcome,
     taskId: UUID,
-    immediateFailures: [MailboxBulkActionFailure],
+    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
-    let activeImmediateFailures = immediateFailures.filter {
-      activeFailureConnectionIds.contains($0.connectionId)
-    }
     let failures =
       (deferredBulkFailures[taskId] ?? [])
-      + activeImmediateFailures
+      + nonPersistedImmediateFailures
       + bulkActionResult([outcome]).failures
     deferredBulkFailures[taskId] = failures.reduce(into: []) {
       if !$0.contains($1) {
