@@ -419,6 +419,22 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.html, "<p>Actual content</p>")
   }
 
+  func testReadKeepsHTMLPairedWithPlainTextFromSameAlternative() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"Q292ZXIgbm90ZQ=="}},"#
+        + #"{"parts":[{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"TmVzdGVkIGNvbnRlbnQ="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+TmVzdGVkIGNvbnRlbnQ8L3A+"}}]}]}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Nested content")
+    XCTAssertEqual(body.html, "<p>Nested content</p>")
+  }
+
   func testReadKeepsPlainTextWhenHTMLAlternativeIsMalformed() async throws {
     let fixture = try makeFixture(
       messageResponse:
