@@ -120,7 +120,7 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
   )
   case idleCancelled(connectionID: String)
   case idleEventDelivered(connectionID: String, event: MailEngineIdleEvent)
-  case idleStarted(connectionID: String)
+  case idleStarted(connectionID: String, mailbox: MailEngineMailboxIdentity)
   case metadataPageRequested(
     connectionID: String,
     mailbox: MailEngineMailboxIdentity,
@@ -1097,6 +1097,7 @@ struct MailEngineQualificationContract {
 
   private func verifyOverlappingConnectionIsolation() async throws {
     let inbox = MailEngineMailboxIdentity("INBOX")
+    let secondIdleMailbox = MailEngineMailboxIdentity("Team Updates")
     let first = try await connect(
       fixture: .idleUntilCancelled,
       authorization: .password(username: "first@example.com", password: "first-password"),
@@ -1115,7 +1116,7 @@ struct MailEngineQualificationContract {
       }
     }
     let secondTask = Task {
-      try await second.idle(mailbox: inbox) { event in
+      try await second.idle(mailbox: secondIdleMailbox) { event in
         secondCallbacks.withValue { $0.append(event) }
       }
     }
@@ -1124,6 +1125,7 @@ struct MailEngineQualificationContract {
     try await waitForIdleEvents(secondCallbacks, count: 1, timeout: .seconds(2))
     XCTAssertEqual(firstCallbacks.value, [.changedUIDs([19])])
     XCTAssertEqual(secondCallbacks.value, [.changedUIDs([29])])
+    await assertIdleStarts(inbox: inbox, secondMailbox: secondIdleMailbox)
     try await verifyOverlappingSMTPIsolation(first: first, second: second)
 
     await assertIdleCancellation(
@@ -1131,6 +1133,10 @@ struct MailEngineQualificationContract {
     let cancellations = await idleCancellationEvents()
     XCTAssertTrue(cancellations.contains(.idleCancelled(connectionID: "connection-one")))
     XCTAssertFalse(cancellations.contains(.idleCancelled(connectionID: "connection-two")))
+    await assertTaskStillPending(
+      secondTask,
+      failureMessage: "Cancelling the first IDLE must leave the second IDLE active."
+    )
     try await verifyOverlappingMetadataIsolation(first: first, second: second, inbox: inbox)
 
     await assertIdleCancellation(
@@ -1138,6 +1144,19 @@ struct MailEngineQualificationContract {
       failureMessage: "Cancelling the second IDLE must report cancellation."
     )
     try await verifyNonIdleCancellationIsolation(inbox: inbox)
+  }
+
+  private func assertIdleStarts(
+    inbox: MailEngineMailboxIdentity,
+    secondMailbox: MailEngineMailboxIdentity
+  ) async {
+    let idleStarts = await factory.events()
+    XCTAssertTrue(
+      idleStarts.contains(.idleStarted(connectionID: "connection-one", mailbox: inbox))
+    )
+    XCTAssertTrue(
+      idleStarts.contains(.idleStarted(connectionID: "connection-two", mailbox: secondMailbox))
+    )
   }
 
   private func verifyOverlappingMetadataIsolation(
@@ -1223,17 +1242,47 @@ struct MailEngineQualificationContract {
       authorization: .xoauth2(username: "second@example.com", accessToken: "second-token"),
       connectionID: "body-fetch-two"
     ).session
-    let fetchTask = Task {
+    let firstFetchTask = Task {
       try await first.fetchBodyParts(
         [MailEngineBodyPartSelector("1.TEXT")],
         for: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44)
       )
     }
-    try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
-    fetchTask.cancel()
+    let secondFetchTask = Task {
+      try await second.fetchBodyParts(
+        [MailEngineBodyPartSelector("2.TEXT")],
+        for: MailEngineMessageIdentity(mailbox: inbox, uid: 29, uidValidity: 44)
+      )
+    }
+    try await factory.waitForBodyFetchStarts(2, timeout: .seconds(2))
+    await assertBodyFetchCancellation(
+      firstFetchTask,
+      failureMessage: "Cancelling the first body fetch must report cancellation."
+    )
+    await assertTaskStillPending(
+      secondFetchTask,
+      failureMessage: "Cancelling the first body fetch must leave the second fetch active."
+    )
+    var events = await factory.events()
+    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
+    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+
+    await assertBodyFetchCancellation(
+      secondFetchTask,
+      failureMessage: "Cancelling the second body fetch must report cancellation."
+    )
+    events = await factory.events()
+    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+  }
+
+  private func assertBodyFetchCancellation(
+    _ task: Task<[MailEngineBodyPart], Error>,
+    failureMessage: String
+  ) async {
+    task.cancel()
     let completion = LockedBox<Result<[MailEngineBodyPart], Error>?>(nil)
     let completionObserver = Task {
-      let result = await fetchTask.result
+      let result = await task.result
       completion.withValue { $0 = result }
     }
     let clock = ContinuousClock()
@@ -1248,19 +1297,24 @@ struct MailEngineQualificationContract {
     }
     switch result {
     case .success:
-      XCTFail("Cancelling the first body fetch must report cancellation.")
+      XCTFail(failureMessage)
     case .failure(let error):
       XCTAssertEqual(error as? MailEngineError, .cancelled)
     }
-    let secondPage = try await second.loadMetadataPage(
-      mailbox: inbox,
-      beforeUID: nil,
-      limit: 1
-    )
-    XCTAssertEqual(secondPage.messages.map(\.identity.uid), [29])
-    let events = await factory.events()
-    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
-    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+  }
+
+  private func assertTaskStillPending<Success>(
+    _ task: Task<Success, Error>,
+    failureMessage: String
+  ) async {
+    let completion = LockedBox<Result<Success, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await task.result
+      completion.withValue { $0 = result }
+    }
+    try? await Task.sleep(for: .milliseconds(50))
+    XCTAssertNil(completion.value, failureMessage)
+    completionObserver.cancel()
   }
 
   private func assertIdleCancellation(
@@ -2243,10 +2297,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     guard message.uidValidity == uidValidity(for: message.mailbox) else {
       throw MailEngineError.staleMessageIdentity
     }
-    if case .bodyFetchUntilCancelled = fixture,
-      case .password(let username, _) = authorization,
-      username == "first@example.com"
-    {
+    if case .bodyFetchUntilCancelled = fixture {
       await state.record(.bodyFetchStarted(connectionID: connectionID))
       do {
         while true {
@@ -2274,7 +2325,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   ) async throws {
     try ensureOpen()
     idleAttempt += 1
-    await state.record(.idleStarted(connectionID: connectionID))
+    await state.record(.idleStarted(connectionID: connectionID, mailbox: mailbox))
     if case .idleDisconnectThenRecover(let maximumReconnectTLSVersion) = fixture {
       guard idleAttempt > 1 else { throw MailEngineError.connectionClosed }
       if let maximumReconnectTLSVersion, maximumReconnectTLSVersion < .tls12 {
