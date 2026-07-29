@@ -1409,11 +1409,11 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
-            mailboxFreshnessViewModel.cancelAll()
-            mailboxFreshnessViewModel.clearPersistedState()
             Task {
-              await inboxViewModel.prepareForSignOut()
               await mailActionViewModel.prepareForSignOut()
+              mailboxFreshnessViewModel.cancelAll()
+              mailboxFreshnessViewModel.clearPersistedState()
+              await inboxViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -3391,32 +3391,20 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) {
-    mailActionViewModel.startPendingAction {
-      let didPerform = await mailActionViewModel.perform(
-        action,
-        targetProviderMailboxId: targetProviderMailboxId,
-        targetProviderStateIds: targetProviderStateIds,
-        for: selection.selectedMailboxMessages(
-          in: thread,
-          pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
-        ),
-        connection: connection
-      )
-      if didPerform {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-        guard !Task.isCancelled else { return }
-        await mailActionViewModel.resume(connections: [connection])
-        guard !Task.isCancelled else { return }
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-        if let errorMessage = mailActionViewModel.errorMessage {
-          readerErrorConnectionId = connection.id
-          readerErrorMessage = errorMessage
-        }
-      } else if let errorMessage = mailActionViewModel.errorMessage {
-        readerErrorConnectionId = connection.id
-        readerErrorMessage = errorMessage
-      }
-    }
+    performBulk(
+      action,
+      batches: [
+        MailboxBulkActionBatch(
+          connection: connection,
+          messages: selection.selectedMailboxMessages(
+            in: thread,
+            pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+          ),
+          targetProviderMailboxId: targetProviderMailboxId,
+          targetProviderStateIds: targetProviderStateIds
+        )
+      ]
+    )
   }
 
   private func performBulk(
