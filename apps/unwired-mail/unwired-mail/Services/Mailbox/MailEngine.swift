@@ -22,6 +22,11 @@ enum MailEngineTransportMode: Equatable, Sendable {
   case startTLS
 }
 
+enum MailEngineService: Equatable, Hashable, Sendable {
+  case imap
+  case smtp
+}
+
 enum MailEngineTLSVersion: Int, Comparable, Sendable {
   case tls10 = 10
   case tls11 = 11
@@ -89,7 +94,7 @@ struct MailEngineMailbox: Equatable, Sendable {
 struct MailEngineConnectionSnapshot: Equatable, Sendable {
   let capabilities: Set<MailEngineCapability>
   let mailboxes: [MailEngineMailbox]
-  let tlsVersion: MailEngineTLSVersion
+  let transportSecurity: [MailEngineService: MailEngineTLSVersion]
 }
 
 enum MailEngineError: Error, Equatable, Sendable {
@@ -97,8 +102,10 @@ enum MailEngineError: Error, Equatable, Sendable {
   case cancelled
   case certificateRejected
   case connectionClosed
+  case operationOutcomeUnknown
   case protocolRejected(code: String, retryable: Bool)
   case serverIdentityMismatch
+  case staleMessageIdentity
   case startTLSRejected
   case tlsVersionUnsupported
 }
@@ -147,6 +154,7 @@ struct MailEngineReportedUIDMapping: Equatable, Sendable {
 
 enum MailEngineUIDMappingError: Error, Equatable {
   case invalidDestinationUIDValidity
+  case invalidSourceUIDValidity
   case invalidUID
   case mismatchedCardinality
   case mismatchedSourceUIDs
@@ -158,13 +166,18 @@ struct MailEngineUIDMapping: Equatable, Sendable {
   let destinationUIDValidity: Int64
   let pairs: [MailEngineUIDPair]
   let sourceMailbox: MailEngineMailboxIdentity
+  let sourceUIDValidity: Int64
 
   static func validated(
     sourceMailbox: MailEngineMailboxIdentity,
+    sourceUIDValidity: Int64,
     destinationMailbox: MailEngineMailboxIdentity,
     requestedSourceUIDs: [Int64],
     reported: MailEngineReportedUIDMapping
   ) throws -> MailEngineUIDMapping {
+    guard sourceUIDValidity > 0 else {
+      throw MailEngineUIDMappingError.invalidSourceUIDValidity
+    }
     guard reported.destinationUIDValidity > 0 else {
       throw MailEngineUIDMappingError.invalidDestinationUIDValidity
     }
@@ -193,7 +206,8 @@ struct MailEngineUIDMapping: Equatable, Sendable {
       pairs: zip(reported.sourceUIDs, reported.destinationUIDs).map {
         MailEngineUIDPair(destinationUID: $0.1, sourceUID: $0.0)
       },
-      sourceMailbox: sourceMailbox
+      sourceMailbox: sourceMailbox,
+      sourceUIDValidity: sourceUIDValidity
     )
   }
 }
@@ -265,6 +279,7 @@ protocol MailEngineSession: Sendable {
 
   func copy(
     sourceUIDs: [Int64],
+    sourceUIDValidity: Int64,
     from sourceMailbox: MailEngineMailboxIdentity,
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
@@ -287,6 +302,7 @@ protocol MailEngineSession: Sendable {
 
   func move(
     sourceUIDs: [Int64],
+    sourceUIDValidity: Int64,
     from sourceMailbox: MailEngineMailboxIdentity,
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
