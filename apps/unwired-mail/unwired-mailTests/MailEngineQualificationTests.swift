@@ -753,6 +753,8 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async throws {
     let malformedCopySession = try await connect(fixture: .malformedCopyUIDMapping).session
+    let malformedCopyEvent = copyEvent(inbox: inbox, archive: archive)
+    let malformedCopyCount = await mutationEventCount(malformedCopyEvent)
     do {
       _ = try await malformedCopySession.copy(
         sourceUIDs: [4, 5],
@@ -764,7 +766,10 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
     }
+    await assertExactlyOneNewMutationEvent(malformedCopyEvent, after: malformedCopyCount)
     let malformedMoveSession = try await connect(fixture: .malformedMoveUIDMapping).session
+    let malformedMoveEvent = moveEvent(inbox: inbox, archive: archive)
+    let malformedMoveCount = await mutationEventCount(malformedMoveEvent)
     do {
       _ = try await malformedMoveSession.move(
         sourceUIDs: [4, 5],
@@ -776,10 +781,21 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
     }
+    await assertExactlyOneNewMutationEvent(malformedMoveEvent, after: malformedMoveCount)
     try await verifyRepeatedSourceUIDMapping(inbox: inbox, archive: archive)
+    try await verifyMismatchedCardinalityMapping(inbox: inbox, archive: archive)
+    try await verifyNonpositiveUIDMappings(inbox: inbox, archive: archive)
+  }
+
+  private func verifyMismatchedCardinalityMapping(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
     let mismatchedCardinalitySession = try await connect(
       fixture: .mismatchedUIDMappingCardinality
     ).session
+    let event = copyEvent(inbox: inbox, archive: archive)
+    let eventCount = await mutationEventCount(event)
     do {
       _ = try await mismatchedCardinalitySession.copy(
         sourceUIDs: [4, 5],
@@ -791,7 +807,10 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
     }
-    try await verifyNonpositiveUIDMappings(inbox: inbox, archive: archive)
+    await assertExactlyOneNewMutationEvent(
+      event,
+      after: eventCount
+    )
   }
 
   private func verifyRepeatedSourceUIDMapping(
@@ -799,6 +818,8 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async throws {
     let session = try await connect(fixture: .repeatedSourceUIDMapping).session
+    let event = moveEvent(inbox: inbox, archive: archive)
+    let eventCount = await mutationEventCount(event)
     do {
       _ = try await session.move(
         sourceUIDs: [4, 5],
@@ -810,6 +831,7 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
     }
+    await assertExactlyOneNewMutationEvent(event, after: eventCount)
   }
 
   private func verifyNonpositiveUIDMappings(
@@ -820,6 +842,8 @@ struct MailEngineQualificationContract {
       let nonpositiveUIDSession = try await connect(
         fixture: .nonpositiveUIDMapping(uid: invalidUID)
       ).session
+      let event = copyEvent(inbox: inbox, archive: archive)
+      let eventCount = await mutationEventCount(event)
       do {
         _ = try await nonpositiveUIDSession.copy(
           sourceUIDs: [4, 5],
@@ -831,11 +855,14 @@ struct MailEngineQualificationContract {
       } catch {
         XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
       }
+      await assertExactlyOneNewMutationEvent(event, after: eventCount)
     }
     for invalidUIDValidity in [Int64(0), -1] {
       let nonpositiveUIDValiditySession = try await connect(
         fixture: .nonpositiveUIDValidityMapping(uidValidity: invalidUIDValidity)
       ).session
+      let event = copyEvent(inbox: inbox, archive: archive)
+      let eventCount = await mutationEventCount(event)
       do {
         _ = try await nonpositiveUIDValiditySession.copy(
           sourceUIDs: [4, 5],
@@ -850,7 +877,50 @@ struct MailEngineQualificationContract {
           .invalidDestinationUIDValidity
         )
       }
+      await assertExactlyOneNewMutationEvent(event, after: eventCount)
     }
+  }
+
+  private func copyEvent(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) -> MailEngineQualificationEvent {
+    .copyReceived(
+      connectionID: "connection-a",
+      sourceUIDs: [4, 5],
+      sourceUIDValidity: 44,
+      sourceMailbox: inbox,
+      destinationMailbox: archive
+    )
+  }
+
+  private func moveEvent(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) -> MailEngineQualificationEvent {
+    .moveReceived(
+      connectionID: "connection-a",
+      sourceUIDs: [4, 5],
+      sourceUIDValidity: 44,
+      sourceMailbox: inbox,
+      destinationMailbox: archive
+    )
+  }
+
+  private func mutationEventCount(_ event: MailEngineQualificationEvent) async -> Int {
+    await factory.events().filter { $0 == event }.count
+  }
+
+  private func assertExactlyOneNewMutationEvent(
+    _ event: MailEngineQualificationEvent,
+    after previousCount: Int
+  ) async {
+    let currentCount = await mutationEventCount(event)
+    XCTAssertEqual(
+      currentCount,
+      previousCount + 1,
+      "A malformed UID mapping must not cause a mutation command retry."
+    )
   }
 
   private func verifyPermanentIMAPRejection() async throws {
@@ -1105,6 +1175,7 @@ struct MailEngineQualificationContract {
   ) {
     XCTAssertEqual(firstPage.uidValidity, 44)
     XCTAssertEqual(firstPage.nextOlderUID, 8)
+    XCTAssertEqual(historicalPage.uidValidity, 44)
     XCTAssertNil(historicalPage.nextOlderUID)
   }
 
@@ -1480,6 +1551,15 @@ struct MailEngineQualificationContract {
     var events = await factory.events()
     XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
     XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+    XCTAssertFalse(
+      events.contains {
+        if case .serviceClosed(connectionID: "body-fetch-two", service: _) = $0 {
+          return true
+        }
+        return false
+      },
+      "Cancelling one body fetch must not close the other account's transport."
+    )
 
     await assertBodyFetchCancellation(
       secondFetchTask,
@@ -1805,6 +1885,9 @@ struct MailEngineQualificationContract {
     let session = try await connect(
       fixture: .smtpStages([.cancelledAfterMessageContent])
     ).session
+    let contentAcceptancesBeforeSubmission = await submissionContentAcceptanceCount(
+      connectionID: "connection-a"
+    )
     let submissionTask = Task {
       try await session.submit(
         envelope: MailEngineEnvelope(
@@ -1814,7 +1897,10 @@ struct MailEngineQualificationContract {
         rawMessage: Data("Subject: Post-content cancellation\r\n\r\nPrivate body".utf8)
       )
     }
-    try await factory.waitForSubmissionContentStarts(1, timeout: .seconds(2))
+    try await factory.waitForSubmissionContentStarts(
+      contentAcceptancesBeforeSubmission + 1,
+      timeout: .seconds(2)
+    )
     submissionTask.cancel()
     let completion = LockedBox<Result<MailEngineSMTPOutcome, Error>?>(nil)
     let completionObserver = Task {
@@ -1915,6 +2001,8 @@ struct MailEngineQualificationContract {
       oauthSession: oauthSession,
       passwordSession: passwordSession
     )
+    await oauthSession.close()
+    await passwordSession.close()
 
     await assertCandidateOutputContainsNoQualificationSecrets()
   }
