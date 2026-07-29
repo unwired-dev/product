@@ -134,6 +134,20 @@ enum GmailProviderCredentialVerificationError: LocalizedError, Equatable {
   }
 }
 
+struct GmailCredentialMigrationPolicy: Equatable {
+  static let unrestricted = GmailCredentialMigrationPolicy(
+    allowsUnscopedLegacyMigration: true,
+    blockedProviderAccountIdentifiers: []
+  )
+
+  let allowsUnscopedLegacyMigration: Bool
+  let blockedProviderAccountIdentifiers: Set<String>
+
+  func allowsScopedMigration(_ providerAccountIdentifier: String) -> Bool {
+    !blockedProviderAccountIdentifiers.contains(providerAccountIdentifier)
+  }
+}
+
 protocol GmailProviderTokenPersisting {
   func clear(
     productAccountId: String,
@@ -229,6 +243,11 @@ protocol GmailProviderConnecting {
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
 
+  func loadConnections(
+    migrationPolicy: GmailCredentialMigrationPolicy,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus]
+
   func loadStoredConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus]
@@ -281,6 +300,13 @@ extension GmailProviderConnecting {
     providerAccountIdentifier _: String,
     session _: ProductAccountSessionSnapshot
   ) throws -> GmailProviderConnectionStatus? { nil }
+
+  func loadConnections(
+    migrationPolicy _: GmailCredentialMigrationPolicy,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try await loadConnections(session: session)
+  }
 
   func hasLocalAuthorization(
     providerAccountIdentifier _: String,
@@ -871,14 +897,23 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
     }
   }
 
+  func loadConnections(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    try await loadConnections(migrationPolicy: .unrestricted, session: session)
+  }
+
   // swiftlint:disable:next function_body_length
   func loadConnections(
+    migrationPolicy: GmailCredentialMigrationPolicy,
     session: ProductAccountSessionSnapshot
   ) async throws -> [GmailProviderConnectionStatus] {
     var statuses = try pushConnectionStore.loadAll(productAccountId: session.productAccountId)
     var tokensByIdentifier = try tokenStore.loadAll(productAccountId: session.productAccountId)
     for (storedIdentifier, tokens) in tokensByIdentifier.sorted(by: { $0.key < $1.key })
-    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier }) {
+    where !statuses.contains(where: { $0.providerAccountIdentifier == storedIdentifier })
+      && migrationPolicy.allowsScopedMigration(storedIdentifier)
+    {
       do {
         let verifiedAccount = try await credentialVerifier.verify(
           accessToken: tokens.accessToken,
@@ -905,6 +940,7 @@ struct GmailProviderConnectionService: GmailProviderConnecting {
       }
     }
     if let legacyTokens = try tokenStore.loadLegacy(productAccountId: session.productAccountId),
+      migrationPolicy.allowsUnscopedLegacyMigration,
       statuses.isEmpty
         || statuses.contains(where: {
           tokensByIdentifier[$0.providerAccountIdentifier] == nil

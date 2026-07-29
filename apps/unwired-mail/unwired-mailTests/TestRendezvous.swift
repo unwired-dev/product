@@ -42,3 +42,26 @@ actor TestRendezvous {
     }
   }
 }
+
+actor TestBarrier {
+  private var continuations: [CheckedContinuation<Void, Never>] = []
+  private let participantCount: Int
+
+  init(participantCount: Int) {
+    self.participantCount = participantCount
+  }
+
+  func arriveAndWait() async {
+    guard continuations.count + 1 < participantCount else {
+      let waiting = continuations
+      continuations.removeAll()
+      for continuation in waiting {
+        continuation.resume()
+      }
+      return
+    }
+    await withCheckedContinuation { continuation in
+      continuations.append(continuation)
+    }
+  }
+}

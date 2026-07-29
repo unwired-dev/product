@@ -194,6 +194,48 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitionSyncService.completedCleanupGenerations[synchronized.id], 1)
   }
 
+  func testGmailLoadBlocksCredentialMigrationForAnAdvancedGeneration() async throws {
+    let connectionService = RecordingAdapterConnectionService()
+    connectionService.statuses = []
+    connectionService.locallyAuthorizedIdentifiers = ["gmail-user-001"]
+    let synchronized = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .required
+    ).definition.withAuthorizationGeneration(1)
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [synchronized],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1,
+        authorizationCleanupConnectionIds: [synchronized.id],
+        localCleanupGenerations: [synchronized.id: 1]
+      )
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer(),
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    _ = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(connectionService.clearedProviderAccountIdentifiers, ["gmail-user-001"])
+    XCTAssertEqual(
+      connectionService.migrationPolicies,
+      [
+        GmailCredentialMigrationPolicy(
+          allowsUnscopedLegacyMigration: false,
+          blockedProviderAccountIdentifiers: ["gmail-user-001"]
+        )
+      ]
+    )
+  }
+
   func testGmailConnectRollbackPreservesExistingTokenOnlyAuthorization() async throws {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.statuses = []
@@ -5151,6 +5193,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
   var clearConnectionError: Error?
   var loadError: Error?
   var loadConnectionsCallCount = 0
+  var migrationPolicies: [GmailCredentialMigrationPolicy] = []
   var loadStoredConnectionError: Error?
   var loadStoredConnectionsError: Error?
   var locallyAuthorizedIdentifiers: Set<String> = []
@@ -5204,6 +5247,7 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
     statuses.removeAll {
       $0.providerAccountIdentifier == connection.providerAccountIdentifier
     }
+    locallyAuthorizedIdentifiers.remove(connection.providerAccountIdentifier)
     cleanupStatuses.removeAll {
       $0.providerAccountIdentifier == connection.providerAccountIdentifier
     }
@@ -5249,6 +5293,14 @@ private final class RecordingAdapterConnectionService: GmailProviderConnecting {
       await lifecycleEventLog?.record("connection-load-finished")
     }
     return statuses
+  }
+
+  func loadConnections(
+    migrationPolicy: GmailCredentialMigrationPolicy,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [GmailProviderConnectionStatus] {
+    migrationPolicies.append(migrationPolicy)
+    return try await loadConnections(session: session)
   }
 
   func loadStoredConnections(

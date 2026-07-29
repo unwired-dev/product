@@ -56,6 +56,11 @@ struct StableProviderMessageIdentity: Hashable, Sendable {
 /// Acquires the all-connections lock before connection locks, ordered by ascending id.
 /// Lock helpers are non-reentrant and must not be nested, including for the same id.
 actor MailboxConnectionSyncGate {
+  struct Revision: Equatable, Sendable {
+    fileprivate let allConnections: UInt64
+    fileprivate let connection: UInt64
+  }
+
   static let shared = MailboxConnectionSyncGate()
   private static let allConnectionsId = MailboxConnectionId(
     providerMailboxIdentity: StableProviderMailboxIdentity(
@@ -76,6 +81,7 @@ actor MailboxConnectionSyncGate {
   }
 
   private var exclusivelyLockedConnectionIds: Set<MailboxConnectionId> = []
+  private var exclusiveRevisions: [MailboxConnectionId: UInt64] = [:]
   private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
@@ -115,6 +121,7 @@ actor MailboxConnectionSyncGate {
     switch mode {
     case .exclusive:
       exclusivelyLockedConnectionIds.insert(connectionId)
+      exclusiveRevisions[connectionId, default: 0] += 1
     case .shared:
       sharedLockCounts[connectionId, default: 0] += 1
     }
@@ -174,6 +181,35 @@ actor MailboxConnectionSyncGate {
       throw CancellationError()
     }
     defer { release(connectionId, mode: .exclusive) }
+    return try await operation()
+  }
+
+  func revision(for connectionId: MailboxConnectionId) -> Revision {
+    Revision(
+      allConnections: exclusiveRevisions[Self.allConnectionsId, default: 0],
+      connection: exclusiveRevisions[connectionId, default: 0]
+    )
+  }
+
+  func withLock<T>(
+    _ connectionId: MailboxConnectionId,
+    ifUnchangedSince revision: Revision,
+    operation: () async throws -> T
+  ) async throws -> T {
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    guard await acquire(connectionId, mode: .exclusive) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .exclusive) }
+    guard
+      exclusiveRevisions[Self.allConnectionsId, default: 0] == revision.allConnections,
+      exclusiveRevisions[connectionId, default: 0] == revision.connection + 1
+    else {
+      throw CancellationError()
+    }
     return try await operation()
   }
 
@@ -1536,7 +1572,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session
       )
       var localAuthorizationGeneration =
-        hadExistingConnection ? existingStatus?.authorizationGeneration : nil
+        hadExistingConnection ? existingStatus?.authorizationGeneration ?? 0 : nil
       if try definitionSyncService.requiresLocalCleanup(
         in: currentSnapshot,
         connectionId: verifiedConnectionId,
@@ -1645,29 +1681,32 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let localStatuses = try await syncGate.withAllConnectionsLocked {
-      try await connectionService.loadConnections(session: session)
+    let storedStatuses = try await syncGate.withAllConnectionsLocked {
+      try await connectionService.loadStoredConnections(session: session)
     }
-    let localConnections = try localStatuses.map { status in
-      status.mailboxConnection(
-        productAccountId: session.productAccountId,
-        authorizationState: try connectionService.hasLocalAuthorization(status, session: session)
-          ? .authorized : .required
+    let storedConnections = try localConnections(from: storedStatuses, session: session)
+    let synchronizedSnapshot: MailboxConnectionSyncSnapshot
+    do {
+      synchronizedSnapshot = try await definitionSyncService.loadSnapshotForProviderAccess(
+        session: session
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return storedConnections
+    }
+    let localStatuses = try await syncGate.withAllConnectionsLocked {
+      try await connectionService.loadConnections(
+        migrationPolicy: gmailCredentialMigrationPolicy(for: synchronizedSnapshot),
+        session: session
       )
     }
+    let localConnections = try localConnections(from: localStatuses, session: session)
     let localConnectionsById = Dictionary(
       localConnections.map { ($0.id, $0) },
       uniquingKeysWith: { first, _ in first }
     )
-    let localStatusesById = Dictionary(
-      localStatuses.map { status in
-        (
-          status.mailboxConnectionId,
-          status
-        )
-      },
-      uniquingKeysWith: { first, _ in first }
-    )
+    let localStatusesById = statusesByConnectionId(localStatuses)
     guard
       let (snapshot, usedCachedSnapshot) = try await reconciledSnapshot(
         localConnections: localConnections,
@@ -1700,6 +1739,47 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           trustedDeviceId: session.trustedDeviceId
         )
       }
+  }
+
+  private func gmailCredentialMigrationPolicy(
+    for snapshot: MailboxConnectionSyncSnapshot
+  ) -> GmailCredentialMigrationPolicy {
+    let blockedConnectionIds = Set(
+      snapshot.connections.filter {
+        $0.provider == MailProviderId.gmail.rawValue && $0.authorizationGeneration > 0
+      }.map(\.id)
+        + snapshot.removedConnectionIds.filter { $0.providerId == .gmail }
+        + snapshot.authorizationCleanupConnectionIds.filter { $0.providerId == .gmail }
+    )
+    let blockedIdentifiers = Set(
+      blockedConnectionIds.map(\.providerMailboxIdentity.value)
+    )
+    return GmailCredentialMigrationPolicy(
+      allowsUnscopedLegacyMigration: blockedIdentifiers.isEmpty,
+      blockedProviderAccountIdentifiers: blockedIdentifiers
+    )
+  }
+
+  private func localConnections(
+    from statuses: [GmailProviderConnectionStatus],
+    session: ProductAccountSessionSnapshot
+  ) throws -> [MailboxConnection] {
+    try statuses.map { status in
+      status.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: try connectionService.hasLocalAuthorization(status, session: session)
+          ? .authorized : .required
+      )
+    }
+  }
+
+  private func statusesByConnectionId(
+    _ statuses: [GmailProviderConnectionStatus]
+  ) -> [MailboxConnectionId: GmailProviderConnectionStatus] {
+    Dictionary(
+      statuses.map { ($0.mailboxConnectionId, $0) },
+      uniquingKeysWith: { first, _ in first }
+    )
   }
 
   private func clearConnectionsRequiringLocalCleanup(
@@ -1741,7 +1821,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         try connectionService.hasLocalAuthorization(
           providerAccountIdentifier: connectionId.providerMailboxIdentity.value,
           session: session
-        ) ? currentLocalStatus?.authorizationGeneration : nil
+        ) ? currentLocalStatus?.authorizationGeneration ?? 0 : nil
       guard
         try definitionSyncService.requiresLocalCleanup(
           in: currentSnapshot,
