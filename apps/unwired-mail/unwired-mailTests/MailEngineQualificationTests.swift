@@ -57,18 +57,23 @@ protocol MailEngineQualificationCandidateFactory: Sendable {
   func makeEngine(
     fixture: MailEngineQualificationFixture
   ) -> any MailEngine
+  func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws
 }
 
 enum MailEngineQualificationFixture: Sendable {
+  case bodyFetchUntilCancelled
   case connectionFailure(service: MailEngineService, error: MailEngineError)
   case copyOutcomeUnknown
   case idleDisconnectThenRecover
   case idleUntilCancelled
   case malformedCopyUIDMapping
+  case mismatchedUIDMappingCardinality
   case malformedMoveUIDMapping
   case maximumTLS(service: MailEngineService, version: MailEngineTLSVersion)
+  case moveOutcomeUnknown
   case reducedCapabilityMove(hasMove: Bool)
+  case sentAppendOutcomeUnknown
   case sentAppendFailsOnce
   case sentAppendPermanentlyRejected
   case smtpStages([MailEngineSMTPStage])
@@ -93,6 +98,8 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
   case authenticationChallengeAnswered(connectionID: String, service: MailEngineService)
   case authenticationStarted(connectionID: String, service: MailEngineService)
   case authenticated(connectionID: String, service: MailEngineService)
+  case bodyFetchCancelled(connectionID: String)
+  case bodyFetchStarted(connectionID: String)
   case closed(connectionID: String)
   case idleCancelled(connectionID: String)
   case idleEventDelivered(connectionID: String, event: MailEngineIdleEvent)
@@ -129,7 +136,8 @@ extension MailEngineQualificationEvent {
       eventConnectionID == connectionID && eventService == service
     case .serviceClosed(let eventConnectionID, let eventService):
       eventConnectionID == connectionID && eventService == service
-    case .closed, .idleCancelled, .idleEventDelivered, .idleStarted,
+    case .bodyFetchCancelled, .bodyFetchStarted, .closed, .idleCancelled, .idleEventDelivered,
+      .idleStarted,
       .movePreservedUnrelatedDeletedUIDs, .sentAppend, .sentAppendReceived, .submitted,
       .submissionReceived:
       false
@@ -375,15 +383,37 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) async throws {
-    let session = try await connect(fixture: .copyOutcomeUnknown).session
+    let copySession = try await connect(fixture: .copyOutcomeUnknown).session
     do {
-      _ = try await session.copy(
+      _ = try await copySession.copy(
         sourceUIDs: [5],
         sourceUIDValidity: 44,
         from: inbox,
         to: archive
       )
       XCTFail("An indeterminate copy outcome must be classified for reconciliation.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+    }
+    let moveSession = try await connect(fixture: .moveOutcomeUnknown).session
+    do {
+      _ = try await moveSession.move(
+        sourceUIDs: [5],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("An indeterminate move outcome must be classified for reconciliation.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+    }
+    let appendSession = try await connect(fixture: .sentAppendOutcomeUnknown).session
+    do {
+      _ = try await appendSession.appendToSent(
+        Data("indeterminate append".utf8),
+        mailbox: MailEngineMailboxIdentity("Sent")
+      )
+      XCTFail("An indeterminate Sent append must be classified for reconciliation.")
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
@@ -524,6 +554,20 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
     }
+    let mismatchedCardinalitySession = try await connect(
+      fixture: .mismatchedUIDMappingCardinality
+    ).session
+    do {
+      _ = try await mismatchedCardinalitySession.copy(
+        sourceUIDs: [4, 5],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("The candidate must reject unequal source and destination UID counts.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
+    }
   }
 
   private func verifyPermanentIMAPRejection() async throws {
@@ -584,11 +628,15 @@ struct MailEngineQualificationContract {
       limit: 2
     )
 
-    XCTAssertEqual(firstPage.messages.map(\.identity.uid), [9, 8])
-    XCTAssertEqual(firstPage.uidValidity, 44)
-    XCTAssertEqual(firstPage.nextOlderUID, 8)
-    XCTAssertEqual(historicalPage.messages.map(\.identity.uid), [7])
-    XCTAssertNil(historicalPage.nextOlderUID)
+    XCTAssertEqual(
+      firstPage.messages,
+      expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [9, 8])
+    )
+    XCTAssertEqual(
+      historicalPage.messages,
+      expectedMetadata(mailbox: inbox, uidValidity: 44, uids: [7])
+    )
+    assertMetadataPagination(firstPage: firstPage, historicalPage: historicalPage)
 
     let requestedParts: Set<MailEngineBodyPartSelector> = [
       MailEngineBodyPartSelector("1.TEXT"),
@@ -618,6 +666,43 @@ struct MailEngineQualificationContract {
         Data("INBOX-44-8-2.MIME".utf8),
       ]
     )
+  }
+
+  private func assertMetadataPagination(
+    firstPage: MailEngineMetadataPage,
+    historicalPage: MailEngineMetadataPage
+  ) {
+    XCTAssertEqual(firstPage.uidValidity, 44)
+    XCTAssertEqual(firstPage.nextOlderUID, 8)
+    XCTAssertNil(historicalPage.nextOlderUID)
+  }
+
+  private func expectedMetadata(
+    mailbox: MailEngineMailboxIdentity,
+    uidValidity: Int64,
+    uids: [Int64]
+  ) -> [MailEngineMessageMetadata] {
+    uids.map { uid in
+      let flags: Set<String> =
+        switch uid {
+        case 9:
+          ["\\Seen"]
+        case 8:
+          ["\\Flagged"]
+        default:
+          ["\\Answered"]
+        }
+      return MailEngineMessageMetadata(
+        flags: flags,
+        identity: MailEngineMessageIdentity(
+          mailbox: mailbox,
+          uid: uid,
+          uidValidity: uidValidity
+        ),
+        internalDate: Date(timeIntervalSince1970: TimeInterval(uid)),
+        rfcMessageID: "<\(uid)@example.com>"
+      )
+    }
   }
 
   func verifyIDLEAndConnectionIsolation() async throws {
@@ -700,6 +785,45 @@ struct MailEngineQualificationContract {
       secondTask,
       failureMessage: "Cancelling the second IDLE must report cancellation."
     )
+    try await verifyNonIdleCancellationIsolation(inbox: inbox)
+  }
+
+  private func verifyNonIdleCancellationIsolation(
+    inbox: MailEngineMailboxIdentity
+  ) async throws {
+    let first = try await connect(
+      fixture: .bodyFetchUntilCancelled,
+      authorization: .password(username: "first@example.com", password: "first-password"),
+      connectionID: "body-fetch-one"
+    ).session
+    let second = try await connect(
+      fixture: .bodyFetchUntilCancelled,
+      authorization: .xoauth2(username: "second@example.com", accessToken: "second-token"),
+      connectionID: "body-fetch-two"
+    ).session
+    let fetchTask = Task {
+      try await first.fetchBodyParts(
+        [MailEngineBodyPartSelector("1.TEXT")],
+        for: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44)
+      )
+    }
+    try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
+    fetchTask.cancel()
+    do {
+      _ = try await fetchTask.value
+      XCTFail("Cancelling the first body fetch must report cancellation.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .cancelled)
+    }
+    let secondPage = try await second.loadMetadataPage(
+      mailbox: inbox,
+      beforeUID: nil,
+      limit: 1
+    )
+    XCTAssertEqual(secondPage.messages.map(\.identity.uid), [29])
+    let events = await factory.events()
+    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
+    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
   }
 
   private func assertIdleCancellation(
@@ -707,7 +831,22 @@ struct MailEngineQualificationContract {
     failureMessage: String
   ) async {
     task.cancel()
-    switch await task.result {
+    let completion = LockedBox<Result<Void, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await task.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      completionObserver.cancel()
+      XCTFail("Timed out waiting for IDLE cancellation.")
+      return
+    }
+    switch result {
     case .success:
       XCTFail(failureMessage)
     case .failure(let error):
@@ -759,7 +898,10 @@ struct MailEngineQualificationContract {
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
-    XCTAssertEqual(events.filter { $0 == .submitted(connectionID: "connection-a") }.count, 11)
+    XCTAssertEqual(
+      events.filter { $0 == .submitted(connectionID: "connection-a") }.count,
+      stages.count + 1
+    )
     XCTAssertEqual(
       events.filter {
         $0
@@ -783,6 +925,7 @@ struct MailEngineQualificationContract {
         .transportUnavailableBeforeSubmission,
         .authenticationRejectedBeforeSubmission,
         .recipientRejectedBeforeSubmission(code: 451),
+        .recipientRejectedBeforeSubmission(code: 550),
         .dataRejectedBeforeSubmission(code: 451),
         .dataRejectedBeforeSubmission(code: 550),
         .finalResponse(code: 451),
@@ -795,6 +938,7 @@ struct MailEngineQualificationContract {
         .notSubmitted(.transportUnavailable),
         .notSubmitted(.authentication),
         .notSubmitted(.recipientRejected(code: 451)),
+        .notSubmitted(.recipientRejected(code: 550)),
         .notSubmitted(.dataRejected(code: 451)),
         .notSubmitted(.dataRejected(code: 550)),
         .transientlyRejected(code: 451),
@@ -894,17 +1038,25 @@ struct MailEngineQualificationContract {
 
     XCTAssertEqual(sink.events, [.connected, .connected])
     let candidateOutput = await factory.capturedCandidateLogOutput()
-    for secret in [
+    let secrets = [
       "private-mailbox@example.com",
       "private-bearer-token",
       "private-password-mailbox@example.com",
       "private-password",
       "private-mailbox",
       "private message",
-    ] {
+    ]
+    let encodedAuthenticationExchanges = [
+      Data(
+        "user=private-mailbox@example.com\u{1}auth=Bearer private-bearer-token\u{1}\u{1}".utf8
+      ).base64EncodedData(),
+      Data("\0private-password-mailbox@example.com\0private-password".utf8)
+        .base64EncodedData(),
+    ]
+    for secret in secrets.map({ Data($0.utf8) }) + encodedAuthenticationExchanges {
       XCTAssertFalse(
-        candidateOutput.range(of: Data(secret.utf8)) != nil,
-        "Candidate-owned logging leaked a qualification secret: \(secret)"
+        candidateOutput.range(of: secret) != nil,
+        "Candidate-owned logging leaked a qualification secret."
       )
     }
   }
@@ -1110,6 +1262,10 @@ private final class ScriptedMailEngineQualificationFactory:
     ScriptedMailEngine(fixture: fixture, state: state)
   }
 
+  func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws {
+    try await state.waitForBodyFetchStarts(count, timeout: timeout)
+  }
+
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
     try await state.waitForIdleStarts(count, timeout: timeout)
   }
@@ -1127,13 +1283,28 @@ private actor ScriptedMailEngineState {
     candidateLogOutput.append(output)
   }
 
+  func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws {
+    try await waitForEvents(count, timeout: timeout) {
+      if case .bodyFetchStarted = $0 { return true }
+      return false
+    }
+  }
+
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
-    let clock = ContinuousClock()
-    let deadline = clock.now.advanced(by: timeout)
-    while events.filter({
+    try await waitForEvents(count, timeout: timeout) {
       if case .idleStarted = $0 { return true }
       return false
-    }).count < count {
+    }
+  }
+
+  private func waitForEvents(
+    _ count: Int,
+    timeout: Duration,
+    matching predicate: (MailEngineQualificationEvent) -> Bool
+  ) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while events.filter(predicate).count < count {
       guard clock.now < deadline else {
         throw MailEngineQualificationHarnessError.idleStartTimedOut
       }
@@ -1339,6 +1510,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         rawMessage: rawMessage
       )
     )
+    if case .sentAppendOutcomeUnknown = fixture {
+      throw MailEngineError.operationOutcomeUnknown
+    }
     if case .sentAppendFailsOnce = fixture, appendAttempt == 1 {
       throw MailEngineError.protocolRejected(code: "TRYAGAIN", retryable: true)
     }
@@ -1373,6 +1547,12 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         destinationUIDs: [104],
         sourceUIDs: [4]
       )
+    } else if case .mismatchedUIDMappingCardinality = fixture {
+      reported = MailEngineReportedUIDMapping(
+        destinationUIDValidity: 91,
+        destinationUIDs: [104],
+        sourceUIDs: sourceUIDs
+      )
     } else {
       reported = MailEngineReportedUIDMapping(
         destinationUIDValidity: 91,
@@ -1396,6 +1576,21 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     try ensureOpen()
     guard message.uidValidity == uidValidity(for: message.mailbox) else {
       throw MailEngineError.staleMessageIdentity
+    }
+    if case .bodyFetchUntilCancelled = fixture,
+      case .password(let username, _) = authorization,
+      username == "first@example.com"
+    {
+      await state.record(.bodyFetchStarted(connectionID: connectionID))
+      do {
+        while true {
+          try Task.checkCancellation()
+          try await Task.sleep(for: .milliseconds(10))
+        }
+      } catch is CancellationError {
+        await state.record(.bodyFetchCancelled(connectionID: connectionID))
+        throw MailEngineError.cancelled
+      }
     }
     return selectors.sorted { $0.rawValue < $1.rawValue }.map {
       MailEngineBodyPart(
@@ -1450,7 +1645,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     return MailEngineMetadataPage(
       messages: selectedUIDs.map {
         MailEngineMessageMetadata(
-          flags: [],
+          flags: metadataFlags(for: $0),
           identity: MailEngineMessageIdentity(
             mailbox: mailbox,
             uid: $0,
@@ -1479,6 +1674,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       await state.record(
         .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
       )
+    }
+    if case .moveOutcomeUnknown = fixture {
+      throw MailEngineError.operationOutcomeUnknown
     }
     let reported: MailEngineReportedUIDMapping
     if case .malformedMoveUIDMapping = fixture {
@@ -1577,6 +1775,17 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       [29, 28, 27]
     default:
       [9, 8, 7]
+    }
+  }
+
+  private func metadataFlags(for uid: Int64) -> Set<String> {
+    switch uid {
+    case 9, 19, 29:
+      ["\\Seen"]
+    case 8, 18, 28:
+      ["\\Flagged"]
+    default:
+      ["\\Answered"]
     }
   }
 
