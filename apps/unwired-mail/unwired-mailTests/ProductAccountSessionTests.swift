@@ -48,6 +48,29 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testMailboxFreshnessViewModelIsSharedAcrossSessionViews() {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: store
+    )
+
+    let mailViewModel = session.sharedMailboxFreshnessViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+    let settingsViewModel = session.sharedMailboxFreshnessViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+
+    XCTAssertTrue(mailViewModel === settingsViewModel)
+  }
+
   func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
     let invalidTokens = [
       "not-an-identity-token",

@@ -904,10 +904,9 @@ struct AccountView: View {
         session: snapshot
       )
     )
-    let mailboxFreshnessViewModel = MailboxFreshnessViewModel(
-      service: mailboxConnection,
-      session: snapshot,
-      isSessionCurrent: { session.isCurrent($0) }
+    let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
+      for: snapshot,
+      service: mailboxConnection
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(

@@ -13,6 +13,8 @@ enum ProductAccountSessionState: Equatable {
 final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
+  @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   private var hasBootstrapped = false
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
@@ -151,6 +153,7 @@ final class ProductAccountSession {
 
   func signOut() async {
     isSigningOut = true
+    clearMailboxFreshnessViewModel()
     defer { isSigningOut = false }
     let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     if let snapshot {
@@ -255,5 +258,32 @@ final class ProductAccountSession {
     }
 
     return snapshot
+  }
+}
+
+extension ProductAccountSession {
+  func sharedMailboxFreshnessViewModel(
+    for snapshot: ProductAccountSessionSnapshot,
+    service: MailboxMetadataSyncing
+  ) -> MailboxFreshnessViewModel {
+    if mailboxFreshnessSession == snapshot, let mailboxFreshnessViewModel {
+      return mailboxFreshnessViewModel
+    }
+
+    clearMailboxFreshnessViewModel()
+    let viewModel = MailboxFreshnessViewModel(
+      service: service,
+      session: snapshot,
+      isSessionCurrent: { self.isCurrent($0) }
+    )
+    mailboxFreshnessSession = snapshot
+    mailboxFreshnessViewModel = viewModel
+    return viewModel
+  }
+
+  private func clearMailboxFreshnessViewModel() {
+    mailboxFreshnessViewModel?.cancelAll()
+    mailboxFreshnessSession = nil
+    mailboxFreshnessViewModel = nil
   }
 }

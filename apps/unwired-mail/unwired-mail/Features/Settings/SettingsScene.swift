@@ -312,10 +312,9 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         )
       )
       _freshnessViewModel = State(
-        initialValue: MailboxFreshnessViewModel(
-          service: mailboxConnection,
-          session: snapshot,
-          isSessionCurrent: { session.isCurrent($0) }
+        initialValue: session.sharedMailboxFreshnessViewModel(
+          for: snapshot,
+          service: mailboxConnection
         )
       )
       _genericMailViewModel = State(
@@ -374,7 +373,6 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         }
       }
       .onDisappear {
-        freshnessViewModel.cancelAll()
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()
       }
