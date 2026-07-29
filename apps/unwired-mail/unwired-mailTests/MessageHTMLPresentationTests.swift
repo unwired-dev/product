@@ -19,13 +19,13 @@ final class MessageHTMLPresentationTests: XCTestCase {
       )
     )
 
-    XCTAssertTrue(result.bodyHTML.contains("<table"))
-    XCTAssertTrue(result.bodyHTML.contains("width=\"100%\""))
-    XCTAssertTrue(result.bodyHTML.contains("cellpadding=\"8\""))
-    XCTAssertTrue(result.bodyHTML.contains("border-collapse:collapse"))
-    XCTAssertTrue(result.bodyHTML.contains("font-weight:bold"))
-    XCTAssertFalse(result.bodyHTML.contains("background-image"))
-    XCTAssertTrue(result.bodyHTML.contains("<strong>Receipt</strong>"))
+    XCTAssertTrue(result.documentHTML.contains("<table"))
+    XCTAssertTrue(result.documentHTML.contains("width=\"100%\""))
+    XCTAssertTrue(result.documentHTML.contains("cellpadding=\"8\""))
+    XCTAssertTrue(result.documentHTML.contains("border-collapse:collapse"))
+    XCTAssertTrue(result.documentHTML.contains("font-weight:bold"))
+    XCTAssertFalse(result.documentHTML.contains("background-image"))
+    XCTAssertTrue(result.documentHTML.contains("<strong>Receipt</strong>"))
   }
 
   func testSanitizerRemovesActiveContentUnsafeURLsAndRemoteImageSources() throws {
@@ -44,10 +44,10 @@ final class MessageHTMLPresentationTests: XCTestCase {
         """
       )
     )
-    let sanitized = result.bodyHTML.lowercased()
+    let sanitized = result.documentHTML.lowercased()
 
     for forbidden in [
-      "<meta", "<script", "<form", "<input", "<iframe", "<object", "onclick",
+      "http-equiv=\"refresh\"", "<script", "<form", "<input", "<iframe", "<object", "onclick",
       "javascript:", "onerror", "tracker.test",
     ] {
       XCTAssertFalse(sanitized.contains(forbidden), "Unexpected active content: \(forbidden)")
@@ -73,11 +73,11 @@ final class MessageHTMLPresentationTests: XCTestCase {
       )
     )
 
-    XCTAssertTrue(result.bodyHTML.contains("href=\"https://example.com\""))
-    XCTAssertTrue(result.bodyHTML.contains("href=\"mailto:person@example.com\""))
-    XCTAssertTrue(result.bodyHTML.contains("href=\"tel:+420123456789\""))
-    XCTAssertFalse(result.bodyHTML.contains("ftp://"))
-    XCTAssertFalse(result.bodyHTML.contains("href=\"/relative\""))
+    XCTAssertTrue(result.documentHTML.contains("href=\"https://example.com\""))
+    XCTAssertTrue(result.documentHTML.contains("href=\"mailto:person@example.com\""))
+    XCTAssertTrue(result.documentHTML.contains("href=\"tel:+420123456789\""))
+    XCTAssertFalse(result.documentHTML.contains("ftp://"))
+    XCTAssertFalse(result.documentHTML.contains("href=\"/relative\""))
   }
 
   func testSanitizerHandlesMalformedMarkupAndRejectsEmptyActiveContent() throws {
@@ -85,7 +85,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
       MessageHTMLSanitizer.sanitize("<table><tr><td><b>Readable")
     )
 
-    XCTAssertTrue(malformed.bodyHTML.contains("<b>Readable</b>"))
+    XCTAssertTrue(malformed.documentHTML.contains("<b>Readable</b>"))
     XCTAssertNil(try MessageHTMLSanitizer.sanitize("<script>alert('only active content')</script>"))
     XCTAssertNil(try MessageHTMLSanitizer.sanitize(" \n\t "))
   }
@@ -103,6 +103,20 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
   func testSanitizerRejectsContentOnlyReadableThroughZeroSizedPreheaderText() throws {
     for style in ["font-size: 0", "height: 0px", "width: 0%", "line-height: 0.0em !important"] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          """
+          <div style="\(style)">Hidden preview</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        ),
+        "Expected \(style) content to be unreadable"
+      )
+    }
+  }
+
+  func testSanitizerRejectsContentOnlyReadableThroughOffCanvasPreheaderText() throws {
+    for style in ["text-indent: -9999px", "text-indent: -0.5em !important"] {
       XCTAssertNil(
         try MessageHTMLSanitizer.sanitize(
           """
@@ -138,8 +152,8 @@ final class MessageHTMLPresentationTests: XCTestCase {
       )
     )
 
-    XCTAssertFalse(result.bodyHTML.contains("color:"))
-    XCTAssertFalse(result.bodyHTML.contains("background"))
+    XCTAssertFalse(result.documentHTML.contains("style=\"color:"))
+    XCTAssertFalse(result.documentHTML.contains("background-image"))
     XCTAssertTrue(result.documentHTML.contains(":root { color-scheme: light; }"))
     XCTAssertTrue(result.documentHTML.contains("background: #fff;"))
     XCTAssertTrue(result.documentHTML.contains("color: #111;"))
@@ -147,7 +161,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {
     let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
-    let sanitized = SanitizedMessageHTML(bodyHTML: "<p>Rich message</p>", documentHTML: "document")
+    let sanitized = SanitizedMessageHTML(documentHTML: "document")
 
     XCTAssertEqual(
       MessageHTMLPresentation.resolve(body: body) { _ in sanitized },
@@ -181,7 +195,6 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
     let presentation = try await MessageHTMLPresentation.prepare(body: body) { _ in
       SanitizedMessageHTML(
-        bodyHTML: "<p>Rich message</p>",
         documentHTML: Thread.isMainThread ? "main" : "background"
       )
     }
@@ -190,7 +203,6 @@ final class MessageHTMLPresentationTests: XCTestCase {
       presentation,
       .html(
         SanitizedMessageHTML(
-          bodyHTML: "<p>Rich message</p>",
           documentHTML: "background"
         )
       )
@@ -278,7 +290,7 @@ extension MessageHTMLPresentationTests {
       try await MessageHTMLPresentation.prepare(body: body) { _ in
         sanitizationStarted.signal()
         allowSanitizationToFinish.wait()
-        return SanitizedMessageHTML(bodyHTML: "<p>Rich message</p>", documentHTML: "document")
+        return SanitizedMessageHTML(documentHTML: "document")
       }
     }
 

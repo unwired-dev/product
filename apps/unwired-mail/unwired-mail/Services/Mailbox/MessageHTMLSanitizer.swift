@@ -2,7 +2,6 @@ import Foundation
 import SwiftSoup
 
 struct SanitizedMessageHTML: Equatable, Sendable {
-  let bodyHTML: String
   let documentHTML: String
 }
 
@@ -17,7 +16,8 @@ enum MessageHTMLSanitizer {
     let hiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?)(?:\s*!important)?\s*(?:;|$)"#
+      + #"(?:[a-z%]+)?|text-indent\s*:\s*-(?:[1-9]\d*(?:\.\d+)?|"#
+      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?)(?:\s*!important)?\s*(?:;|$)"#
     for element in try readableDocument.select("[style]") {
       let style = try element.attr("style")
       if style.range(
@@ -31,10 +31,7 @@ enum MessageHTMLSanitizer {
       .trimmingCharacters(in: .whitespacesAndNewlines)
     guard !readableText.isEmpty else { return nil }
 
-    return SanitizedMessageHTML(
-      bodyHTML: bodyHTML,
-      documentHTML: document(bodyHTML: bodyHTML)
-    )
+    return SanitizedMessageHTML(documentHTML: document(bodyHTML: bodyHTML))
   }
 
   private static func allowlist() throws -> Whitelist {
