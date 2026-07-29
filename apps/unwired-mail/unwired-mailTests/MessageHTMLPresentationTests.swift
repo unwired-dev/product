@@ -116,15 +116,15 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   func testSanitizerRejectsContentOnlyReadableThroughOffCanvasPreheaderText() throws {
-    for style in ["text-indent: -9999px", "text-indent: -0.5em !important"] {
+    for property in ["text-indent", "margin-left", "margin-right", "margin-top"] {
       XCTAssertNil(
         try MessageHTMLSanitizer.sanitize(
           """
-          <div style="\(style)">Hidden preview</div>
+          <div style="\(property): -9999px">Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
         ),
-        "Expected \(style) content to be unreadable"
+        "Expected negative \(property) content to be unreadable"
       )
     }
   }

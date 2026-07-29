@@ -16,7 +16,8 @@ enum MessageHTMLSanitizer {
     let hiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?|text-indent\s*:\s*-(?:[1-9]\d*(?:\.\d+)?|"#
+      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
+      + #"(?:[1-9]\d*(?:\.\d+)?|"#
       + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?)(?:\s*!important)?\s*(?:;|$)"#
     for element in try readableDocument.select("[style]") {
       let style = try element.attr("style")
