@@ -4896,6 +4896,46 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [errorsSurfaced], timeout: 1)
   }
 
+  func testMailActionViewModelReportsEachDeferredCompletionWithoutWaitingForOthers() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    resumeStarted.expectedFulfillmentCount = 2
+    let firstCompleted = expectation(description: "first deferred batch completes")
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: secondConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ],
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id],
+      onDeferredCompletion: { connection in
+        if connection.id == firstConnection.id {
+          firstCompleted.fulfill()
+        }
+      }
+    )
+
+    await fulfillment(of: [resumeStarted, firstCompleted], timeout: 1)
+    await resumeGate.release()
+  }
+
   func testMailActionViewModelCancelsDeferredResumesBeforeSignOut() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",

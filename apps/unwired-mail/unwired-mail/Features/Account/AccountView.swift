@@ -4595,7 +4595,7 @@ extension GmailMailActionViewModel {
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     guard !Task.isCancelled else { return }
-    let outcomes = await withTaskGroup(
+    _ = await withTaskGroup(
       of: MailboxBulkActionBatchOutcome.self,
       returning: [MailboxBulkActionBatchOutcome].self
     ) { group in
@@ -4627,23 +4627,42 @@ extension GmailMailActionViewModel {
       }
       var outcomes: [MailboxBulkActionBatchOutcome] = []
       for await outcome in group {
+        guard !Task.isCancelled else { return outcomes }
         outcomes.append(outcome)
+        await recordDeferredOutcome(
+          outcome,
+          taskId: taskId,
+          immediateFailures: immediateFailures,
+          onCompleted: onCompleted
+        )
       }
       return outcomes.sorted { $0.batchIndex < $1.batchIndex }
     }
-    guard !Task.isCancelled else { return }
+  }
+
+  private func recordDeferredOutcome(
+    _ outcome: MailboxBulkActionBatchOutcome,
+    taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
+    onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
-    let result = bulkActionResult(outcomes)
     let activeImmediateFailures = immediateFailures.filter {
       failedConnectionIds.contains($0.connectionId)
     }
-    deferredBulkFailures[taskId] = activeImmediateFailures + result.failures
-    updateBulkActionErrorMessage()
-    for batch in batches {
-      guard !Task.isCancelled else { return }
-      await onCompleted(batch.connection)
+    let failures =
+      (deferredBulkFailures[taskId] ?? [])
+      + activeImmediateFailures
+      + bulkActionResult([outcome]).failures
+    deferredBulkFailures[taskId] = failures.reduce(into: []) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
     }
+    updateBulkActionErrorMessage()
+    guard !Task.isCancelled else { return }
+    await onCompleted(outcome.connection)
   }
 
   private func pruneDeferredBulkFailures() {
