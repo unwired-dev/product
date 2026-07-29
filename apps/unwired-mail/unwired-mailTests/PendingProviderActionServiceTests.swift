@@ -59,6 +59,39 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertTrue(projected.messages.isEmpty)
   }
 
+  func testOptimisticProjectionPreservesHistoricalBackfillResumeAvailability() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "message-001",
+      providerStateIds: ["INBOX", "UNREAD"]
+    )
+
+    try await service.perform(
+      .markRead,
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let projected = try await service.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message]),
+        historicalMetadataBackfillCanResume: false
+      ),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(projected.historicalMetadataBackfillCanResume)
+  }
+
   func testFailureDetailsExcludePendingActions() async throws {
     let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
     let message = pendingActionMessage(
