@@ -365,18 +365,23 @@ extension GenericMailSetupViewModel {
     isLoadingSyncedDefinitions = true
     defer { isLoadingSyncedDefinitions = false }
     do {
-      let definitions = try await service.loadSyncedDefinitions(session: syncSession)
-        .sorted { $0.emailAddress < $1.emailAddress }
+      let syncedConnections = try await service.loadSyncedDefinitions(session: syncSession)
+        .sorted {
+          $0.definition.emailAddress.localizedCaseInsensitiveCompare(
+            $1.definition.emailAddress
+          ) == .orderedAscending
+        }
+      let definitions = syncedConnections.map(\.definition)
       defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
         session: syncSession
       )
       syncedDefinitions = definitions
       authorizedSyncedConnectionIds = try Set(
-        definitions.compactMap { definition in
+        syncedConnections.compactMap { syncedDefinition in
           try service.hasLocalAuthorization(
-            definition,
+            syncedDefinition,
             productAccountId: productAccountId
-          ) ? definition.connectionId : nil
+          ) ? syncedDefinition.definition.connectionId : nil
         }
       )
       if let selectedSyncedConnectionId,

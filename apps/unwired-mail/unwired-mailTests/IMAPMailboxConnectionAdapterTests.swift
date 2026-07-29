@@ -34,6 +34,114 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = RecordingIMAPAuthorizationStore()
+    let outboxStore = InMemoryIMAPOutboxStore()
+    let pendingActionStore = InMemoryIMAPPendingActionStore()
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 0,
+        credential: "secret",
+        definition: definition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let adapter = try makeAdapter(
+      authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [definition],
+      outboxStore: outboxStore,
+      pendingActionStore: pendingActionStore
+    )
+
+    let staleConnections = try await adapter.loadConnections(session: session)
+    let staleConnection = try XCTUnwrap(staleConnections.first)
+    let outboxCleanupCount = outboxStore.saveCallCount
+    let pendingActionCleanupCount = pendingActionStore.saveCallCount
+    authorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        authorizationGeneration: 1,
+        credential: "secret",
+        definition: definition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let authorizedConnections = try await adapter.loadConnections(session: session)
+    let authorizedConnection = try XCTUnwrap(authorizedConnections.first)
+
+    XCTAssertEqual(staleConnection.authorizationState, .required)
+    XCTAssertEqual(authorizedConnection.authorizationState, .authorized)
+    do {
+      _ = try await adapter.syncInbox(
+        connection: authorizedConnection.withAuthorizationGeneration(0),
+        session: session
+      )
+      XCTFail("Expected a stale operation generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    let preservedAuthorization = try XCTUnwrap(
+      authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: definition.connectionId
+      )
+    )
+    XCTAssertEqual(preservedAuthorization.authorizationGeneration, 1)
+    XCTAssertEqual(outboxStore.saveCallCount, outboxCleanupCount)
+    XCTAssertEqual(pendingActionStore.saveCallCount, pendingActionCleanupCount)
+  }
+
+  func testLoadConnectionsReturnsConcurrentReaddObservedDuringRemovalCleanup() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let definitions = RecordingIMAPDefinitionSyncService(
+      definitions: [],
+      removedConnectionIds: [definition.connectionId]
+    )
+    definitions.beforeLoadSnapshotReturn = { callCount in
+      guard callCount == 2 else { return }
+      definitions.replaceSnapshot(definitions: [definition], removedConnectionIds: [])
+    }
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      client: RecordingIMAPClient(),
+      definitionSyncService: definitions,
+      definitions: []
+    )
+
+    let connections = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
+    XCTAssertEqual(connections.first?.authorizationState, .authorized)
+  }
+
+  func testRemovalCleanupClearsPendingActionsAndOutboxBeforeRecordingReceipt() async throws {
+    let definition = imapDefinition(username: "reader")
+    let definitions = RecordingIMAPDefinitionSyncService(
+      definitions: [],
+      removedConnectionIds: [definition.connectionId]
+    )
+    let outboxStore = InMemoryIMAPOutboxStore()
+    let pendingActionStore = InMemoryIMAPPendingActionStore()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizedStore(definition),
+      client: RecordingIMAPClient(),
+      definitionSyncService: definitions,
+      definitions: [],
+      outboxStore: outboxStore,
+      pendingActionStore: pendingActionStore
+    )
+
+    _ = try await adapter.loadConnections(session: session)
+
+    XCTAssertEqual(outboxStore.saveCallCount, 1)
+    XCTAssertEqual(pendingActionStore.saveCallCount, 1)
+  }
+
   func testInitialFiftyMessagesRemainUsableWhileBackfillResumesAfterRecreation() async throws {
     let definition = imapDefinition(username: "reader")
     let authorizationStore = authorizedStore(definition)
@@ -487,15 +595,190 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       keyStore: keyStore,
       store: store
     )
-    try authorizationStore.remove(
-      productAccountId: ProductAccountId(session.productAccountId),
-      connectionId: connection.id
-    )
     let second = try await recreated.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(first.text, "Private body")
     XCTAssertEqual(second, first)
     XCTAssertEqual(client.bodyRequestCount, 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testCachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    client.bodyByUID[1] = "Private body"
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    _ = try await adapter.loadMessageBody(message: message, session: session)
+    let staleAdapter = try makeAdapter(
+      authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+
+    do {
+      _ = try await staleAdapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected stale authorization to reject a cached body fetch")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+    XCTAssertNil(
+      try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connection.id
+      )
+    )
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    )
+    XCTAssertEqual(client.bodyRequestCount, 1)
+  }
+
+  func testUncachedBodyRejectsStaleAuthorizationGenerationAndClearsLocalData() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    client.bodyByUID[1] = "Private body"
+    let store = try SwiftDataIMAPMessageMetadataStore.inMemory()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent(UUID().uuidString, isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(rootDirectory: rootDirectory)
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    let staleAdapter = try makeAdapter(
+      authorizationGeneration: 1,
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      store: store
+    )
+
+    do {
+      _ = try await staleAdapter.loadMessageBody(message: message, session: session)
+      XCTFail("Expected stale authorization to reject an uncached body fetch")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
+
+    XCTAssertNil(
+      try authorizationStore.load(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connection.id
+      )
+    )
+    XCTAssertEqual(client.bodyRequestCount, 0)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testUncachedBodyLoadFinishesBeforeConnectionCleanup() async throws {
+    let definition = imapDefinition(username: "reader")
+    let authorizationStore = authorizedStore(definition)
+    let cache = RecordingIMAPBodyCache()
+    let client = RecordingIMAPClient()
+    client.messagesByUsername[definition.username] = [imapMessage(uid: 1)]
+    client.bodyByUID[1] = "Private body"
+    let providerGate = TestRendezvous()
+    client.beforeBodyReturn = {
+      await providerGate.hold()
+    }
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let syncGate = MailboxConnectionSyncGate()
+    let adapter = try makeAdapter(
+      authorizationStore: authorizationStore,
+      cache: cache,
+      client: client,
+      definitions: [definition],
+      keyStore: keyStore,
+      syncGate: syncGate
+    )
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+    let inbox = try await adapter.syncInbox(connection: connection, session: session)
+    let message = try XCTUnwrap(inbox.messages.first)
+    let bodyLoad = Task {
+      try await adapter.loadMessageBody(message: message, session: session)
+    }
+    await providerGate.waitUntilHeld()
+    let cleanupStarted = TestRendezvous()
+    let cleanupFinished = TestFlag()
+    let cleanup = Task {
+      await cleanupStarted.hold()
+      try await adapter.clearLocalConnection(connection, session: session)
+      await cleanupFinished.set()
+    }
+    await cleanupStarted.waitUntilHeld()
+    await cleanupStarted.release()
+    try await Task.sleep(for: .milliseconds(20))
+    let cleanupFinishedEarly = await cleanupFinished.value
+
+    XCTAssertFalse(cleanupFinishedEarly)
+    await providerGate.release()
+    let body = try await bodyLoad.value
+    try await cleanup.value
+    let cleanupDidFinish = await cleanupFinished.value
+
+    XCTAssertEqual(body.text, "Private body")
+    XCTAssertTrue(cleanupDidFinish)
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    )
   }
 
   func testRepresentativeServerListTranscripts() async throws {
@@ -639,25 +922,74 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 
   private func makeAdapter(
+    authorizationGeneration: Int = 0,
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
     authorizationStore: RecordingIMAPAuthorizationStore,
     cache: GmailMessageBodyCaching = RecordingIMAPBodyCache(),
     client: RecordingIMAPClient,
+    definitionSyncService: MailboxConnectionDefinitionSyncing? = nil,
     definitions: [GenericMailConnectionDefinition],
     keyStore: ProductSyncKeyMaterialPersisting = InMemoryProductSyncKeyMaterialStore(),
-    store: IMAPMessageMetadataPersisting? = nil
+    outboxStore: InMemoryIMAPOutboxStore = InMemoryIMAPOutboxStore(),
+    pendingActionStore: InMemoryIMAPPendingActionStore = InMemoryIMAPPendingActionStore(),
+    store: IMAPMessageMetadataPersisting? = nil,
+    syncGate: MailboxConnectionSyncGate = MailboxConnectionSyncGate()
   ) throws -> IMAPMailboxConnectionAdapter {
     let metadataStore = try store ?? SwiftDataIMAPMessageMetadataStore.inMemory()
     return IMAPMailboxConnectionAdapter(
       authorizationStore: authorizationStore,
       cache: cache,
       client: client,
-      definitionSyncService: RecordingIMAPDefinitionSyncService(
-        definitions: definitions
-      ),
+      definitionSyncService: definitionSyncService
+        ?? RecordingIMAPDefinitionSyncService(
+          authorizationGeneration: authorizationGeneration,
+          authorizationCleanupConnectionIds: authorizationCleanupConnectionIds,
+          definitions: definitions
+        ),
       keyMaterialStore: keyStore,
       metadataStore: metadataStore,
-      syncGate: MailboxConnectionSyncGate()
+      outboxService: OutboxDeliveryService(store: outboxStore),
+      pendingActionService: PendingProviderActionService(
+        store: pendingActionStore
+      ),
+      syncGate: syncGate
     )
+  }
+}
+
+private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
+  private var attempts: [OutgoingDeliveryAttempt] = []
+  private(set) var saveCallCount = 0
+
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    attempts.filter { $0.productAccountId.rawValue == productAccountId }
+  }
+
+  func save(
+    _ attempts: [OutgoingDeliveryAttempt],
+    productAccountId _: String
+  ) throws {
+    saveCallCount += 1
+    self.attempts = attempts
+  }
+}
+
+private final class InMemoryIMAPPendingActionStore:
+  PendingProviderActionPersisting, @unchecked Sendable
+{
+  private var actions: [PendingProviderAction] = []
+  private(set) var saveCallCount = 0
+
+  func load(productAccountId: String) throws -> [PendingProviderAction] {
+    actions.filter { $0.productAccountId == productAccountId }
+  }
+
+  func save(
+    _ actions: [PendingProviderAction],
+    productAccountId _: String
+  ) throws {
+    saveCallCount += 1
+    self.actions = actions
   }
 }
 
@@ -769,23 +1101,54 @@ private final class RecordingIMAPAuthorizationStore: GenericMailAuthorizationPer
 }
 
 private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinitionSyncing {
+  var beforeLoadSnapshotReturn: ((Int) -> Void)?
+  private var loadSnapshotCallCount = 0
   private var snapshot: MailboxConnectionSyncSnapshot
 
-  init(definitions: [GenericMailConnectionDefinition]) {
+  init(
+    authorizationGeneration: Int = 0,
+    authorizationCleanupConnectionIds: [MailboxConnectionId] = [],
+    definitions: [GenericMailConnectionDefinition],
+    removedConnectionIds: [MailboxConnectionId] = []
+  ) {
     snapshot = MailboxConnectionSyncSnapshot(
       connections: definitions.enumerated().map {
-        $0.element.synchronizedDefinition(connectedAt: Int64($0.offset + 1))
+        $0.element.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: Int64($0.offset + 1)
+        )
       },
       defaultSendingConnectionId: nil,
-      removedConnectionIds: [],
-      updatedAt: 10
+      removedConnectionIds: removedConnectionIds,
+      updatedAt: 10,
+      authorizationCleanupConnectionIds: authorizationCleanupConnectionIds
     )
   }
 
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
-    snapshot
+    loadSnapshotCallCount += 1
+    beforeLoadSnapshotReturn?(loadSnapshotCallCount)
+    return snapshot
+  }
+
+  func replaceSnapshot(
+    authorizationGeneration: Int = 0,
+    definitions: [GenericMailConnectionDefinition],
+    removedConnectionIds: [MailboxConnectionId]
+  ) {
+    snapshot = MailboxConnectionSyncSnapshot(
+      connections: definitions.enumerated().map {
+        $0.element.synchronizedDefinition(
+          authorizationGeneration: authorizationGeneration,
+          connectedAt: Int64($0.offset + 1)
+        )
+      },
+      defaultSendingConnectionId: snapshot.defaultSendingConnectionId,
+      removedConnectionIds: removedConnectionIds,
+      updatedAt: snapshot.updatedAt
+    )
   }
 
   func reconcileConnections(
@@ -857,6 +1220,7 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
 }
 
 private final class RecordingIMAPClient: IMAPMailboxClient {
+  var beforeBodyReturn: (() async -> Void)?
   var bodyByUID: [Int64: String] = [:]
   private(set) var bodyRequestCount = 0
   var failOnMetadataRequest: Int?
@@ -905,6 +1269,7 @@ private final class RecordingIMAPClient: IMAPMailboxClient {
     authorization _: DeviceLocalGenericMailAuthorization
   ) async throws -> String {
     bodyRequestCount += 1
+    await beforeBodyReturn?()
     return bodyByUID[message.uid] ?? "Body \(message.uid)"
   }
 }

@@ -123,8 +123,99 @@ struct GenericMailConnectionDefinition: Codable, Equatable, Sendable {
 }
 
 struct DeviceLocalGenericMailAuthorization: Codable, Equatable, Sendable {
+  let authorizationGeneration: Int
   let credential: String
   let definition: GenericMailConnectionDefinition
+
+  init(
+    authorizationGeneration: Int = 0,
+    credential: String,
+    definition: GenericMailConnectionDefinition
+  ) {
+    self.authorizationGeneration = authorizationGeneration
+    self.credential = credential
+    self.definition = definition
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    authorizationGeneration =
+      try container.decodeIfPresent(Int.self, forKey: .authorizationGeneration) ?? 0
+    credential = try container.decode(String.self, forKey: .credential)
+    definition = try container.decode(GenericMailConnectionDefinition.self, forKey: .definition)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case authorizationGeneration
+    case credential
+    case definition
+  }
+}
+
+struct SyncedGenericMailConnectionDefinition: Equatable, Sendable {
+  let authorizationGeneration: Int
+  let definition: GenericMailConnectionDefinition
+}
+
+protocol GenericMailLocalStateClearing {
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws
+}
+
+struct GenericMailLocalStateCleaner: GenericMailLocalStateClearing {
+  private let authorizationStore: GenericMailAuthorizationPersisting
+  private let cache: GmailMessageBodyCaching
+  private let metadataStore: IMAPMessageMetadataPersisting
+  private let outboxService: OutboxDeliveryService
+  private let pendingActionService: PendingProviderActionService
+
+  init(
+    authorizationStore: GenericMailAuthorizationPersisting =
+      KeychainGenericMailAuthorizationStore(),
+    cache: GmailMessageBodyCaching = FileGmailMessageBodyCache(),
+    metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared
+  ) {
+    self.authorizationStore = authorizationStore
+    self.cache = cache
+    self.metadataStore = metadataStore
+    self.outboxService = outboxService
+    self.pendingActionService = pendingActionService
+  }
+
+  func clear(
+    connectionId: MailboxConnectionId,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try metadataStore.clear(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    try cache.clearMessageBodies(
+      productAccountId: session.productAccountId,
+      connectionId: connectionId
+    )
+    let connection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: .none,
+      connectedAt: 0,
+      displayName: "",
+      id: connectionId,
+      lastVerifiedAt: 0,
+      productAccountId: ProductAccountId(session.productAccountId),
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 0
+    )
+    try await pendingActionService.clear(connection: connection, session: session)
+    try await outboxService.clear(connection: connection, session: session)
+    try authorizationStore.remove(
+      productAccountId: ProductAccountId(session.productAccountId),
+      connectionId: connectionId
+    )
+  }
 }
 
 enum MailTransportVersion: Int, Equatable, Sendable {
@@ -420,6 +511,8 @@ struct GenericMailSetupService {
   private let clock: () -> Int64
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private let discovery: GenericMailEndpointDiscovering
+  private let localStateCleaner: GenericMailLocalStateClearing
+  private let syncGate: MailboxConnectionSyncGate
   private let verifier: GenericMailEndpointVerifying
 
   init(
@@ -432,6 +525,8 @@ struct GenericMailSetupService {
     definitionSyncService: MailboxConnectionDefinitionSyncing =
       MailboxConnectionSyncService(),
     discovery: GenericMailEndpointDiscovering = BundledMailProviderCatalog(),
+    localStateCleaner: GenericMailLocalStateClearing? = nil,
+    syncGate: MailboxConnectionSyncGate = .shared,
     verifier: GenericMailEndpointVerifying = SystemGenericMailEndpointVerifier()
   ) {
     self.authorizationStore = authorizationStore
@@ -439,6 +534,9 @@ struct GenericMailSetupService {
     self.clock = clock
     self.definitionSyncService = definitionSyncService
     self.discovery = discovery
+    self.localStateCleaner =
+      localStateCleaner ?? GenericMailLocalStateCleaner(authorizationStore: authorizationStore)
+    self.syncGate = syncGate
     self.verifier = verifier
   }
 
@@ -463,32 +561,6 @@ struct GenericMailSetupService {
     ) { _ in
       try authorizationStore.clearAll(productAccountId: productAccountId)
     }
-  }
-
-  func hasLocalAuthorization(
-    _ definition: GenericMailConnectionDefinition,
-    productAccountId: ProductAccountId
-  ) throws -> Bool {
-    try authorizationStore.load(
-      productAccountId: productAccountId,
-      connectionId: definition.connectionId
-    ) != nil
-  }
-
-  func loadSyncedDefinitions(
-    session: ProductAccountSessionSnapshot
-  ) async throws -> [GenericMailConnectionDefinition] {
-    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
-    for connectionId in snapshot.removedConnectionIds
-    where connectionId.providerId.rawValue == "imap-smtp"
-      || connectionId.providerId.rawValue == "pop3-smtp"
-    {
-      try authorizationStore.remove(
-        productAccountId: ProductAccountId(session.productAccountId),
-        connectionId: connectionId
-      )
-    }
-    return snapshot.connections.compactMap(\.genericMailDefinition)
   }
 
   func loadDefaultSendingConnectionId(
@@ -689,7 +761,59 @@ struct GenericMailSetupService {
 }
 
 extension GenericMailSetupService {
-  // swiftlint:disable:next function_parameter_count
+  func hasLocalAuthorization(
+    _ syncedDefinition: SyncedGenericMailConnectionDefinition,
+    productAccountId: ProductAccountId
+  ) throws -> Bool {
+    guard
+      let authorization = try authorizationStore.load(
+        productAccountId: productAccountId,
+        connectionId: syncedDefinition.definition.connectionId
+      )
+    else {
+      return false
+    }
+    return authorization.authorizationGeneration == syncedDefinition.authorizationGeneration
+  }
+
+  func loadSyncedDefinitions(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> [SyncedGenericMailConnectionDefinition] {
+    let snapshot = try await definitionSyncService.loadSnapshot(session: session)
+    for connectionId in snapshot.connectionIdsRequiringLocalCleanup
+    where connectionId.providerId == .imapSMTP || connectionId.providerId == .pop3SMTP {
+      try await syncGate.withLock(connectionId) {
+        let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+        let authorizationGeneration = try authorizationStore.load(
+          productAccountId: ProductAccountId(session.productAccountId),
+          connectionId: connectionId
+        )?.authorizationGeneration
+        guard
+          try definitionSyncService.requiresLocalCleanup(
+            in: currentSnapshot,
+            connectionId: connectionId,
+            localAuthorizationGeneration: authorizationGeneration,
+            session: session
+          )
+        else {
+          return
+        }
+        try authorizationStore.remove(
+          productAccountId: ProductAccountId(session.productAccountId),
+          connectionId: connectionId
+        )
+      }
+    }
+    return snapshot.connections.compactMap { connection in
+      guard let definition = connection.genericMailDefinition else { return nil }
+      return SyncedGenericMailConnectionDefinition(
+        authorizationGeneration: connection.authorizationGeneration,
+        definition: definition
+      )
+    }
+  }
+
+  // swiftlint:disable:next function_body_length function_parameter_count
   fileprivate func persistAuthorizationAndDefinition(
     _ definition: GenericMailConnectionDefinition,
     credential: String,
@@ -699,45 +823,101 @@ extension GenericMailSetupService {
     isSessionCurrent: () -> Bool
   ) async throws {
     var previousAuthorization: DeviceLocalGenericMailAuthorization?
-    var persistenceCleanupGeneration: UInt64?
     let lease = await authorizationCoordinator.retain(productAccountId: productAccountId)
     do {
-      try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+      let persistenceCleanupGeneration = try await authorizationCoordinator.withLock(
+        lease: lease
+      ) { cleanupGeneration in
         try Task.checkCancellation()
         guard isSessionCurrent() else { throw CancellationError() }
         previousAuthorization = try authorizationStore.load(
           productAccountId: productAccountId,
           connectionId: definition.connectionId
         )
-        try authorizationStore.save(
-          DeviceLocalGenericMailAuthorization(credential: credential, definition: definition),
-          productAccountId: productAccountId
-        )
-        persistenceCleanupGeneration = cleanupGeneration
+        return cleanupGeneration
       }
       if let syncSession {
-        do {
-          try await saveSynchronizedDefinition(
-            definition,
-            intent: saveIntent,
+        let snapshot = try await saveSynchronizedDefinition(
+          definition,
+          authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+          intent: saveIntent,
+          session: syncSession
+        )
+        let authorizationGeneration =
+          snapshot.connections.first(where: { $0.id == definition.connectionId })?
+          .authorizationGeneration
+          ?? 0
+        try await syncGate.withLock(definition.connectionId) {
+          if try definitionSyncService.requiresLocalCleanup(
+            in: snapshot,
+            connectionId: definition.connectionId,
+            localAuthorizationGeneration: previousAuthorization?.authorizationGeneration,
+            session: syncSession
+          ) {
+            try await localStateCleaner.clear(
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+            try definitionSyncService.recordLocalCleanup(
+              in: snapshot,
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+          }
+          let currentSnapshot = try await definitionSyncService.loadSnapshot(
             session: syncSession
           )
-        } catch {
-          await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
-            guard cleanupGeneration == persistenceCleanupGeneration else { return }
-            if let previousAuthorization {
-              try? authorizationStore.save(
-                previousAuthorization,
-                productAccountId: productAccountId
-              )
-            } else {
-              try? authorizationStore.remove(
-                productAccountId: productAccountId,
-                connectionId: definition.connectionId
-              )
-            }
+          guard
+            !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
+            let currentDefinition = currentSnapshot.connections.first(where: {
+              $0.id == definition.connectionId
+            })
+          else {
+            throw MailboxConnectionAdapterError.connectionRemoved
           }
-          throw error
+          if try definitionSyncService.requiresLocalCleanup(
+            in: currentSnapshot,
+            connectionId: definition.connectionId,
+            localAuthorizationGeneration: authorizationGeneration,
+            session: syncSession
+          ) {
+            try await localStateCleaner.clear(
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+            try definitionSyncService.recordLocalCleanup(
+              in: currentSnapshot,
+              connectionId: definition.connectionId,
+              session: syncSession
+            )
+          }
+          try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+            guard cleanupGeneration == persistenceCleanupGeneration else {
+              throw CancellationError()
+            }
+            try authorizationStore.save(
+              DeviceLocalGenericMailAuthorization(
+                authorizationGeneration: currentDefinition.authorizationGeneration,
+                credential: credential,
+                definition: definition
+              ),
+              productAccountId: productAccountId
+            )
+          }
+        }
+      } else {
+        try await authorizationCoordinator.withLock(lease: lease) { cleanupGeneration in
+          guard cleanupGeneration == persistenceCleanupGeneration else {
+            throw CancellationError()
+          }
+          try authorizationStore.save(
+            DeviceLocalGenericMailAuthorization(
+              authorizationGeneration: previousAuthorization?.authorizationGeneration ?? 0,
+              credential: credential,
+              definition: definition
+            ),
+            productAccountId: productAccountId
+          )
         }
       }
       await authorizationCoordinator.release(lease)
@@ -749,19 +929,23 @@ extension GenericMailSetupService {
 
   private func saveSynchronizedDefinition(
     _ definition: GenericMailConnectionDefinition,
+    authorizationGeneration: Int,
     intent: MailboxConnectionDefinitionSaveIntent,
     session: ProductAccountSessionSnapshot
-  ) async throws {
-    let synchronizedDefinition = definition.synchronizedDefinition(connectedAt: clock())
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: authorizationGeneration,
+      connectedAt: clock()
+    )
     switch intent {
     case .add(let removalObservation):
-      _ = try await definitionSyncService.recreateDefinition(
+      return try await definitionSyncService.recreateDefinition(
         synchronizedDefinition,
         after: removalObservation,
         session: session
       )
     case .authorizeExisting:
-      _ = try await definitionSyncService.saveDefinition(
+      return try await definitionSyncService.saveDefinition(
         synchronizedDefinition,
         session: session
       )
