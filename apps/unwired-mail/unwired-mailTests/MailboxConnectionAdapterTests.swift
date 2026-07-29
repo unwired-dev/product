@@ -4921,6 +4921,30 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(viewModel.isPerformingAction)
   }
 
+  func testMailActionViewModelSkipsGatedReloadForDeferredBulkAction() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id],
+      onEnqueued: { _ in
+        XCTFail("Deferred batches must return before the gated cache reload")
+      }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+  }
+
   func testMailActionViewModelRechecksBackfillBeforeResumingBulkAction() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",

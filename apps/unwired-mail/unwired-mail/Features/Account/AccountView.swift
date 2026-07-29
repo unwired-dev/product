@@ -4575,7 +4575,6 @@ extension GmailMailActionViewModel {
         connection: batch.connection,
         session: session
       )
-      await onEnqueued(batch.connection)
       let newlyDefersPendingActions = await shouldDeferPendingActions(batch.connection)
       let defersPendingActions =
         defersPendingActions || newlyDefersPendingActions
@@ -4589,6 +4588,7 @@ extension GmailMailActionViewModel {
           wasEnqueued: true
         )
       }
+      await onEnqueued(batch.connection)
       let resumeError = await service.resumePendingActions(
         connection: batch.connection,
         session: session
