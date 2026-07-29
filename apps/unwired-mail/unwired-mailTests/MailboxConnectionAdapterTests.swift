@@ -7,6 +7,11 @@ import XCTest
 
 // swiftlint:disable file_length type_body_length
 
+private let gmailAdapterMessageBody = MailboxMessageBody(
+  text: "Decrypted body",
+  html: "<p>Decrypted body</p>"
+)
+
 private let adapterGmailMessage = GmailMessageMetadata(
   categoryId: nil,
   from: "Sender <sender@example.com>",
@@ -1499,7 +1504,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(loaded.messages, [message])
     XCTAssertEqual(synced.messages, [message])
     XCTAssertEqual(searched, [message])
-    XCTAssertEqual(body, MailboxMessageBody(text: "Decrypted body"))
+    XCTAssertEqual(body, gmailAdapterMessageBody)
     XCTAssertEqual(metadataService.loadedConnection, gmailStatus)
     XCTAssertEqual(metadataService.syncedConnection, gmailStatus)
     XCTAssertEqual(searchService.query, "private phrase")
@@ -3529,8 +3534,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     for message in threadsByConnection.values.flatMap({ $0 }).flatMap(\.messages) {
       try encryptedBodyCache.saveMessageBody(
         keyMaterial.encryptPayload(
-          Data("Cached body".utf8),
-          associatedData: Data("gmail-body-cache:\(message.id.rawValue)".utf8)
+          GmailMessageBodyCachePayload.encode(GmailMessageBody(text: "Cached body")),
+          associatedData: Data("gmail-body-cache-v1:\(message.id.rawValue)".utf8)
         ),
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.id.rawValue
@@ -6835,7 +6840,7 @@ private final class RecordingAdapterMessageReader: GmailMessageReading {
       }
       return cached
     }
-    return GmailMessageBody(text: "Decrypted body")
+    return GmailMessageBody(text: gmailAdapterMessageBody.text, html: gmailAdapterMessageBody.html)
   }
 
   func prefetchMessageBodies(
