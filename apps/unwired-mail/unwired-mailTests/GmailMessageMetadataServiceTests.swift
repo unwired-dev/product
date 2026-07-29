@@ -1834,6 +1834,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     XCTAssertTrue(viewModel.isRefreshDisabled)
     XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
+    XCTAssertTrue(viewModel.isHistoricalBackfillRunning)
     XCTAssertEqual(service.syncInboxCallCount, 0)
 
     await service.releaseHistoricalBackfill()
@@ -1849,6 +1850,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     XCTAssertFalse(viewModel.isRefreshDisabled)
     XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
+    XCTAssertFalse(viewModel.isHistoricalBackfillRunning)
   }
 
   @MainActor

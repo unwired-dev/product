@@ -2262,6 +2262,56 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testGmailMailboxRemovalFencesActionsBeforeWritingTombstone() async throws {
+    let removalGate = AdapterLifecycleOperationGate()
+    let pendingActionStore = AdapterPendingActionStore()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt
+      ),
+      removeGate: removalGate
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: definitionSyncService,
+      pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      pendingActionGate: MailboxConnectionSyncGate(),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await removalGate.waitUntilStarted()
+    let actionTask = Task {
+      try await adapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      )
+    }
+    await Task.yield()
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+
+    await removalGate.release()
+    try await removalTask.value
+    do {
+      try await actionTask.value
+      XCTFail("Expected the action racing with removal to observe the tombstone")
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+    }
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
   // swiftlint:disable:next function_body_length
   func testGmailMailboxRemovalWaitsForCredentialWritingProviderReads() async throws {
     let eventLog = AdapterLifecycleEventLog()
@@ -4304,6 +4354,29 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(viewModel.isPerformingAction)
   }
 
+  func testMailActionViewModelResumesEnqueuedBulkActionsInBackground() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let service = DeferredBulkResumeService(resumeStarted: resumeStarted)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      resumesPendingActions: false
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+    await fulfillment(of: [resumeStarted], timeout: 1)
+    let resumeCount = await service.resumeCount()
+    XCTAssertEqual(resumeCount, 1)
+  }
+
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -5143,14 +5216,17 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   var removeError: Error?
   var saveError: Error?
   private let reconcileGate: AdapterLifecycleOperationGate?
+  private let removeGate: AdapterLifecycleOperationGate?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   init(
     snapshot: MailboxConnectionSyncSnapshot,
-    reconcileGate: AdapterLifecycleOperationGate? = nil
+    reconcileGate: AdapterLifecycleOperationGate? = nil,
+    removeGate: AdapterLifecycleOperationGate? = nil
   ) {
     self.snapshot = snapshot
     self.reconcileGate = reconcileGate
+    self.removeGate = removeGate
   }
 
   func loadSnapshot(
@@ -5195,6 +5271,7 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
       removedConnectionIds: snapshot.removedConnectionIds + [connectionId],
       updatedAt: snapshot.updatedAt
     )
+    await removeGate?.waitForRelease()
     return snapshot
   }
 
@@ -6114,6 +6191,41 @@ private struct ConnectionPendingActionFailureService: MailboxProviderMailActing 
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxProviderActionFailureDetail]? {
     []
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor DeferredBulkResumeService: MailboxProviderMailActing {
+  private var recordedResumeCount = 0
+  private let resumeStarted: XCTestExpectation
+
+  init(resumeStarted: XCTestExpectation) {
+    self.resumeStarted = resumeStarted
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    recordedResumeCount += 1
+    resumeStarted.fulfill()
+    return nil
+  }
+
+  func resumeCount() -> Int {
+    recordedResumeCount
   }
 
   func send(

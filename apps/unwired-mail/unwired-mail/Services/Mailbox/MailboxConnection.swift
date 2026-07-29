@@ -1718,8 +1718,10 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     try await syncGate.withAllConnectionsLocked {
       let gmailStatus = try gmailConnection(
         connection, session: session, requiresAuthorization: false)
-      _ = try await definitionSyncService.removeConnection(connection.id, session: session)
-      try await clearRemovedConnection(connection, session: session)
+      try await pendingActionGate.withLock(connection.id) {
+        _ = try await definitionSyncService.removeConnection(connection.id, session: session)
+        try await clearRemovedConnectionWhilePendingActionLocked(connection, session: session)
+      }
       try await connectionService.clearLocalConnection(
         gmailStatus,
         session: session,
@@ -1733,20 +1735,27 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await pendingActionGate.withLock(connection.id) {
-      var cleanupError: Error?
-      do {
-        try await pendingActionService.clear(connection: connection, session: session)
-      } catch {
-        cleanupError = error
-      }
-      do {
-        try await outboxService.clear(connection: connection, session: session)
-      } catch {
-        cleanupError = cleanupError ?? error
-      }
-      if let cleanupError {
-        throw cleanupError
-      }
+      try await clearRemovedConnectionWhilePendingActionLocked(connection, session: session)
+    }
+  }
+
+  private func clearRemovedConnectionWhilePendingActionLocked(
+    _ connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    var cleanupError: Error?
+    do {
+      try await pendingActionService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = error
+    }
+    do {
+      try await outboxService.clear(connection: connection, session: session)
+    } catch {
+      cleanupError = cleanupError ?? error
+    }
+    if let cleanupError {
+      throw cleanupError
     }
   }
 

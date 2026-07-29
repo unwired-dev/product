@@ -2744,7 +2744,7 @@ private struct MailShellMailboxTools: View {
               }
             }
           }
-          .disabled(areCachedMetadataActionsDisabled)
+          .disabled(areCachedBodyActionsDisabled)
           if let cacheErrorMessage {
             Text(cacheErrorMessage)
               .foregroundStyle(.red)
@@ -2768,6 +2768,10 @@ private struct MailShellMailboxTools: View {
   private var areCachedMetadataActionsDisabled: Bool {
     isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
       || viewModel.isAssigningCategory
+  }
+
+  private var areCachedBodyActionsDisabled: Bool {
+    areCachedMetadataActionsDisabled || viewModel.isHistoricalBackfillRunning
   }
 
   private var providerDisplayName: String {
@@ -4391,7 +4395,7 @@ extension GmailMailActionViewModel {
     }
   }
 
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_parameter_count function_body_length
   nonisolated private static func performBulkBatch(
     _ action: ProviderMailAction,
     batch: MailboxBulkActionBatch,
@@ -4412,6 +4416,11 @@ extension GmailMailActionViewModel {
       )
       await onEnqueued(batch.connection)
       guard resumesPendingActions else {
+        schedulePendingActionResume(
+          service: service,
+          connection: batch.connection,
+          session: session
+        )
         return bulkActionOutcome(
           batch,
           index: batchIndex,
@@ -4447,6 +4456,16 @@ extension GmailMailActionViewModel {
         errorDescription: error.localizedDescription,
         failureDetails: nil
       )
+    }
+  }
+
+  nonisolated private static func schedulePendingActionResume(
+    service: MailboxProviderMailActing,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) {
+    Task {
+      _ = await service.resumePendingActions(connection: connection, session: session)
     }
   }
 
