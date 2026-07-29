@@ -206,11 +206,11 @@ struct MailEngineQualificationContract {
       imapTransportMode: .implicitTLS,
       smtpTransportMode: .startTLS
     )
-    let xoauth2IMAPSession = try await verifyXOAUTH2Challenge(
+    let xoauth2IMAPConnection = try await verifyXOAUTH2Challenge(
       service: .imap,
       connectionID: "xoauth2-imap-challenge"
     )
-    let xoauth2SMTPSession = try await verifyXOAUTH2Challenge(
+    let xoauth2SMTPConnection = try await verifyXOAUTH2Challenge(
       service: .smtp,
       connectionID: "xoauth2-smtp-challenge"
     )
@@ -218,12 +218,14 @@ struct MailEngineQualificationContract {
       implicitConnection.session,
       startTLSConnection.session,
       mixedModeConnection.session,
-      xoauth2IMAPSession,
-      xoauth2SMTPSession,
+      xoauth2IMAPConnection.session,
+      xoauth2SMTPConnection.session,
     ]
     verifySuccessfulSnapshot(implicitConnection.snapshot)
     verifySuccessfulSnapshot(startTLSConnection.snapshot)
     verifySuccessfulSnapshot(mixedModeConnection.snapshot)
+    verifySuccessfulSnapshot(xoauth2IMAPConnection.snapshot)
+    verifySuccessfulSnapshot(xoauth2SMTPConnection.snapshot)
     await verifySetupEvents()
     withExtendedLifetime(successfulSessions) {}
   }
@@ -231,7 +233,10 @@ struct MailEngineQualificationContract {
   private func verifyXOAUTH2Challenge(
     service: MailEngineService,
     connectionID: String
-  ) async throws -> any MailEngineSession {
+  ) async throws -> (
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  ) {
     try await connect(
       fixture: .xoauth2Challenge(service: service),
       authorization: .xoauth2(
@@ -239,7 +244,7 @@ struct MailEngineQualificationContract {
         accessToken: "oauth-challenge-token"
       ),
       connectionID: connectionID
-    ).session
+    )
   }
 
   private func verifySuccessfulSnapshot(_ snapshot: MailEngineConnectionSnapshot) {
@@ -458,27 +463,33 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async {
     let events = await factory.events()
-    XCTAssertTrue(
-      events.contains(
+    let mutationEvents = events.filter { event in
+      switch event {
+      case .copyReceived, .moveReceived:
+        true
+      default:
+        false
+      }
+    }
+    XCTAssertEqual(
+      mutationEvents,
+      [
         .copyReceived(
           connectionID: "connection-a",
           sourceUIDs: [5, 4],
           sourceUIDValidity: 44,
           sourceMailbox: inbox,
           destinationMailbox: archive
-        )
-      )
-    )
-    XCTAssertTrue(
-      events.contains(
+        ),
         .moveReceived(
           connectionID: "connection-a",
           sourceUIDs: [9, 8],
           sourceUIDValidity: 44,
           sourceMailbox: inbox,
           destinationMailbox: archive
-        )
-      )
+        ),
+      ],
+      "Each successful UID mutation command must be sent exactly once."
     )
   }
 
@@ -1457,6 +1468,7 @@ struct MailEngineQualificationContract {
       )
     }
     try await factory.waitForBodyFetchStarts(2, timeout: .seconds(2))
+    await assertBodyFetchRequests(inbox: inbox)
     await assertBodyFetchCancellation(
       firstFetchTask,
       failureMessage: "Cancelling the first body fetch must report cancellation."
@@ -1475,6 +1487,28 @@ struct MailEngineQualificationContract {
     )
     events = await factory.events()
     XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+  }
+
+  private func assertBodyFetchRequests(inbox: MailEngineMailboxIdentity) async {
+    let bodyRequests = await factory.events().filter { event in
+      if case .bodyPartsRequested(let connectionID, _, _) = event {
+        return connectionID == "body-fetch-one" || connectionID == "body-fetch-two"
+      }
+      return false
+    }
+    let firstRequest = MailEngineQualificationEvent.bodyPartsRequested(
+      connectionID: "body-fetch-one",
+      message: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44),
+      selectors: [MailEngineBodyPartSelector("1.TEXT")]
+    )
+    let secondRequest = MailEngineQualificationEvent.bodyPartsRequested(
+      connectionID: "body-fetch-two",
+      message: MailEngineMessageIdentity(mailbox: inbox, uid: 29, uidValidity: 44),
+      selectors: [MailEngineBodyPartSelector("2.TEXT")]
+    )
+    XCTAssertEqual(bodyRequests.count, 2)
+    XCTAssertEqual(bodyRequests.filter { $0 == firstRequest }.count, 1)
+    XCTAssertEqual(bodyRequests.filter { $0 == secondRequest }.count, 1)
   }
 
   private func assertBodyFetchCancellation(
@@ -1572,20 +1606,17 @@ struct MailEngineQualificationContract {
   func verifySMTPAndSentAppend() async throws {
     let (stages, expectedOutcomes) = smtpStagesAndExpectedOutcomes()
     let session = try await connect(fixture: .smtpStages(stages)).session
-    var observed: [MailEngineSMTPOutcome] = []
     let envelope = MailEngineEnvelope(
       recipients: ["first-recipient@example.com", "second-recipient@example.com"],
       sender: "sender@example.com"
     )
     let rawMessage = Data("Subject: Contract\r\n\r\nBody".utf8)
-    for _ in stages {
-      observed.append(
-        try await session.submit(
-          envelope: envelope,
-          rawMessage: rawMessage
-        )
-      )
-    }
+    let observed = try await submitSMTPStages(
+      stages,
+      session: session,
+      envelope: envelope,
+      rawMessage: rawMessage
+    )
     XCTAssertEqual(observed, expectedOutcomes)
     try await verifySMTPCancellation()
     try await verifyPostContentSMTPCancellation()
@@ -1609,6 +1640,55 @@ struct MailEngineQualificationContract {
       stages.count
     )
     XCTAssertEqual(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count, 2)
+  }
+
+  private func submitSMTPStages(
+    _ stages: [MailEngineSMTPStage],
+    session: any MailEngineSession,
+    envelope: MailEngineEnvelope,
+    rawMessage: Data
+  ) async throws -> [MailEngineSMTPOutcome] {
+    var observed: [MailEngineSMTPOutcome] = []
+    for stage in stages {
+      let contentAcceptancesBeforeSubmission = await submissionContentAcceptanceCount(
+        connectionID: "connection-a"
+      )
+      observed.append(
+        try await session.submit(
+          envelope: envelope,
+          rawMessage: rawMessage
+        )
+      )
+      if shouldWithholdMessageContent(for: stage) {
+        let contentAcceptancesAfterSubmission = await submissionContentAcceptanceCount(
+          connectionID: "connection-a"
+        )
+        XCTAssertEqual(
+          contentAcceptancesAfterSubmission,
+          contentAcceptancesBeforeSubmission,
+          "A pre-DATA rejection must not transmit message content."
+        )
+      }
+    }
+    return observed
+  }
+
+  private func submissionContentAcceptanceCount(connectionID: String) async -> Int {
+    await factory.events().filter {
+      $0 == .submissionContentAccepted(connectionID: connectionID)
+    }.count
+  }
+
+  private func shouldWithholdMessageContent(for stage: MailEngineSMTPStage) -> Bool {
+    switch stage {
+    case .authenticationRejectedBeforeSubmission, .dataRejectedBeforeSubmission,
+      .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
+      .senderRejectedBeforeSubmission, .transportUnavailableBeforeSubmission:
+      true
+    case .accepted, .cancelledAfterMessageContent, .cancelledBeforeSubmission,
+      .connectionLostAfterSubmission, .finalResponse:
+      false
+    }
   }
 
   private func verifyPartialRecipientRejectionStopsBeforeContent() async throws {
@@ -1916,7 +1996,14 @@ struct MailEngineQualificationContract {
       Data("private-password-mailbox@example.com".utf8).base64EncodedData(),
       Data("private-password".utf8).base64EncodedData(),
     ]
-    for secret in secrets.map({ Data($0.utf8) }) + encodedAuthenticationExchanges {
+    let encodedMessagePayloads = [
+      Data("private-mailbox-44-19-private-body.TEXT".utf8),
+      Data("Subject: private SMTP message\r\n\r\nprivate SMTP body".utf8),
+      Data("Subject: private append message\r\n\r\nprivate append body".utf8),
+    ].map { $0.base64EncodedData() }
+    for secret in secrets.map({ Data($0.utf8) }) + encodedAuthenticationExchanges
+      + encodedMessagePayloads
+    {
       XCTAssertFalse(
         candidateOutput.range(of: secret) != nil,
         "Candidate-owned logging leaked a qualification secret."
