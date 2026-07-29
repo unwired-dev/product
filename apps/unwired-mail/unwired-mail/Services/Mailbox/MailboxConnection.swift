@@ -1802,8 +1802,26 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection,
       session: session
     )
-    let result = try await metadataService.loadMailbox(
-      .allObserved,
+    let additionalProviderMessageIds = Set(
+      try await pendingActionService.pendingActions(session: session)
+        .filter { pendingAction in
+          guard
+            pendingAction.connectionId == connection.id.rawValue,
+            pendingAction.keepsOptimisticProjection
+          else { return false }
+          switch pendingAction.action {
+          case .notSpam, .restore:
+            return true
+          case .move:
+            return pendingAction.targetProviderMailboxId == "INBOX"
+          default:
+            return false
+          }
+        }
+        .flatMap(\.messageIds)
+    )
+    let result = try await metadataService.loadInboxProjectionCandidates(
+      additionalProviderMessageIds: additionalProviderMessageIds,
       connection: gmailConnection,
       session: session
     )
@@ -1820,6 +1838,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
+    if collection == .role(.inbox) {
+      return try await loadInbox(connection: connection, session: session)
+    }
     let gmailConnection = try await gmailConnectionForProviderAccess(
       connection,
       session: session
