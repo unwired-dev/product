@@ -651,6 +651,37 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(countingStore.loadCount, 1)
   }
 
+  func testBootstrapSurvivesCancellationOfFirstWindowCaller() async throws {
+    let snapshot = Self.restorableSnapshot
+    let countingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    let restoreGate = BootstrapRestoreGate()
+    let session = ProductAccountSession(
+      appleSignInService: SuspendingAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        ),
+        gate: restoreGate
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: countingStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let firstWindowBootstrap = Task { await session.bootstrap() }
+    await restoreGate.waitUntilStarted()
+    let survivingWindowBootstrap = Task { await session.bootstrap() }
+    firstWindowBootstrap.cancel()
+    await restoreGate.release()
+    await survivingWindowBootstrap.value
+    await firstWindowBootstrap.value
+
+    guard case .signedIn = session.state else {
+      return XCTFail("Expected the shared bootstrap to finish for the surviving window.")
+    }
+    XCTAssertEqual(countingStore.loadCount, 1)
+  }
+
   func testBootstrapPreservesStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -907,6 +938,52 @@ private struct RevokedAppleSignInService: AppleSignInPerforming {
   ) async throws -> AppleSignInCredential {
     _ = snapshot
     throw AppleSignInError.notAuthorized
+  }
+}
+
+private actor BootstrapRestoreGate {
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+}
+
+private struct SuspendingAppleSignInService: AppleSignInPerforming {
+  let credential: AppleSignInCredential
+  let gate: BootstrapRestoreGate
+
+  func signIn() async throws -> AppleSignInCredential {
+    credential
+  }
+
+  func restoreSession(
+    snapshot _: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    await gate.waitForRelease()
+    return credential
   }
 }
 

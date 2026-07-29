@@ -34,8 +34,22 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
-  func testRouterRejectsPartialSnapshotWhenAProviderLoadFails() async throws {
-    let successfulAdapter = try makeAdapter(
+  func testRouterPreservesHealthyProvidersAndMarksPartialSnapshotNonAuthoritative() async throws {
+    let healthyDefinition = imapDefinition(username: "healthy-provider")
+    let healthyAuthorizationStore = RecordingIMAPAuthorizationStore()
+    healthyAuthorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        credential: "healthy-secret",
+        definition: healthyDefinition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let healthyAdapter = try makeAdapter(
+      authorizationStore: healthyAuthorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [healthyDefinition]
+    )
+    let emptyAdapter = try makeAdapter(
       authorizationStore: RecordingIMAPAuthorizationStore(),
       client: RecordingIMAPClient(),
       definitions: []
@@ -49,18 +63,26 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
       definitions: []
     )
     let router = MailboxConnectionRouter(
-      exchangeWebServices: successfulAdapter,
-      gmail: successfulAdapter,
+      exchangeWebServices: emptyAdapter,
+      gmail: healthyAdapter,
       imap: failingAdapter,
-      microsoftGraph: successfulAdapter
+      microsoftGraph: emptyAdapter
     )
 
-    do {
-      _ = try await router.loadConnections(session: session)
-      XCTFail("Expected a provider load failure to reject the combined snapshot.")
-    } catch {
-      XCTAssertEqual(error as? IMAPAdapterTestError, .unavailable)
-    }
+    let snapshot = try await router.loadConnectionSnapshot(session: session)
+    let connections = try await router.loadConnections(session: session)
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: router,
+      isSessionCurrent: { _ in true },
+      session: session
+    )
+    let viewModelSnapshotIsAuthoritative = await viewModel.load()
+
+    XCTAssertEqual(snapshot.connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertFalse(snapshot.isAuthoritative)
+    XCTAssertEqual(connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertEqual(viewModel.connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertFalse(viewModelSnapshotIsAuthoritative)
   }
 
   // swiftlint:disable:next function_body_length

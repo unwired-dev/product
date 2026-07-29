@@ -1976,7 +1976,7 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
   }
 }
 
-struct MailboxConnectionRouter: MailboxConnectionAdapter {
+struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnapshotLoading {
   private let exchangeWebServices: MailboxConnectionAdapter
   private let gmail: MailboxConnectionAdapter
   private let imap: MailboxConnectionAdapter
@@ -2045,15 +2045,30 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter {
   func loadConnections(
     session: ProductAccountSessionSnapshot
   ) async throws -> [MailboxConnection] {
-    let gmailConnections = try await gmail.loadConnections(session: session)
-    let imapConnections = try await imap.loadConnections(session: session)
-    let graphConnections = try await microsoftGraph.loadConnections(session: session)
-    let ewsConnections = try await exchangeWebServices.loadConnections(session: session)
-    let connections = gmailConnections + imapConnections + graphConnections + ewsConnections
-    return connections.sorted {
-      if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
-      return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    try await loadConnectionSnapshot(session: session).connections
+  }
+
+  func loadConnectionSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionLoadSnapshot {
+    var connections: [MailboxConnection] = []
+    var isAuthoritative = true
+    for adapter in [gmail, imap, microsoftGraph, exchangeWebServices] {
+      do {
+        connections += try await adapter.loadConnections(session: session)
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        isAuthoritative = false
+      }
     }
+    return MailboxConnectionLoadSnapshot(
+      connections: connections.sorted {
+        if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
+        return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+      },
+      isAuthoritative: isAuthoritative
+    )
   }
 
   func loadDefaultSendingConnectionId(

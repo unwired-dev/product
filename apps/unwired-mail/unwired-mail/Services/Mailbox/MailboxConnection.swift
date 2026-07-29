@@ -1409,6 +1409,17 @@ protocol MailboxConnectionAdapter:
   MailboxProviderMailActing
 {}
 
+struct MailboxConnectionLoadSnapshot {
+  let connections: [MailboxConnection]
+  let isAuthoritative: Bool
+}
+
+protocol MailboxConnectionSnapshotLoading {
+  func loadConnectionSnapshot(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionLoadSnapshot
+}
+
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {
   case authorizationRequired
   case connectionRemoved

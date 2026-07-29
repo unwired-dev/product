@@ -6260,15 +6260,15 @@ final class MailboxProviderConnectionViewModel {
     }
 
     do {
-      try await refreshConnections()
+      let connectionsAreAuthoritative = try await refreshConnections()
       await completeLoadingConnections()
-      return true
+      return connectionsAreAuthoritative
     } catch {
       let originalError = error
       do {
-        try await refreshConnections()
+        let connectionsAreAuthoritative = try await refreshConnections()
         await completeLoadingConnections()
-        return true
+        return connectionsAreAuthoritative
       } catch {
         errorMessage = originalError.localizedDescription
         return false
@@ -6278,10 +6278,10 @@ final class MailboxProviderConnectionViewModel {
 
   func refreshSnapshot() async -> Bool {
     do {
-      try await refreshConnections()
+      let connectionsAreAuthoritative = try await refreshConnections()
       restoreSelection()
       errorMessage = nil
-      return true
+      return connectionsAreAuthoritative
     } catch {
       errorMessage = error.localizedDescription
       return false
@@ -6418,13 +6418,33 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  private func refreshConnections() async throws {
-    let loadedConnections = try await service.loadConnections(session: session)
+  @discardableResult
+  private func refreshConnections() async throws -> Bool {
+    let snapshot =
+      if let snapshotLoader = service as? any MailboxConnectionSnapshotLoading {
+        try await snapshotLoader.loadConnectionSnapshot(session: session)
+      } else {
+        MailboxConnectionLoadSnapshot(
+          connections: try await service.loadConnections(session: session),
+          isAuthoritative: true
+        )
+      }
+    let loadedConnections = snapshot.connections
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
     connections = loadedConnections
-    defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(session: session)
+    do {
+      defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+        session: session
+      )
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      defaultSendingConnectionId = nil
+      return false
+    }
+    return snapshot.isAuthoritative
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {

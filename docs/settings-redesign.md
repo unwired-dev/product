@@ -78,7 +78,8 @@ Settings updates apply to the running mail experience without requiring an app r
 
 ### Email Accounts
 
-The app-scoped Product Account session bootstraps once across mail windows. Each mail window
+The app-scoped Product Account session shares one bootstrap task across mail windows, so closing
+the first window cannot cancel session restoration for surviving windows. Each mail window
 registers its own mailbox-work cancellation and busy state, and row-level synchronization
 notifies every open mail shell to reload observed metadata.
 
@@ -352,7 +353,8 @@ connection settings, Mailbox Role mapping, and removal retain their established 
 The Mac Catalyst Settings window shares the app's Product Account session, so sign-out
 immediately removes its mailbox controls, and provider changes notify the active mail shell.
 Email Accounts prunes shared freshness state only after every provider adapter returns an
-authoritative connection snapshot; a partial provider load preserves existing sync state.
+authoritative connection snapshot; a partial provider load keeps healthy providers visible and
+preserves existing sync state for providers that could not load.
 
 ## Release gate
 

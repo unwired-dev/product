@@ -13,9 +13,9 @@ enum ProductAccountSessionState: Equatable {
 final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
+  @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
-  private var hasBootstrapped = false
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -43,8 +43,17 @@ final class ProductAccountSession {
   }
 
   func bootstrap() async {
-    guard beginBootstrap() else { return }
+    if let bootstrapTask {
+      await bootstrapTask.value
+      return
+    }
+    state = .loading
+    let task = Task { await performBootstrap() }
+    bootstrapTask = task
+    await task.value
+  }
 
+  private func performBootstrap() async {
     guard let snapshot = try? sessionStore.load() else {
       state = .signedOut
       return
@@ -94,13 +103,6 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
-  }
-
-  private func beginBootstrap() -> Bool {
-    guard !hasBootstrapped else { return false }
-    hasBootstrapped = true
-    state = .loading
-    return true
   }
 
   func signInWithApple() async {
