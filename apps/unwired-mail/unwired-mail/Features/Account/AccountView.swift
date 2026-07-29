@@ -6301,15 +6301,17 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  func setDefaultSendingConnection(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func setDefaultSendingConnection(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     do {
       try await service.setDefaultSendingConnection(connection, session: session)
       defaultSendingConnectionId = connection.id
       selectedConnectionId = connection.id
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -6815,7 +6817,9 @@ struct MailboxProviderConnectionPanel: View {
               if configuration.allowsDefaultSender {
                 Button("Set as Default Sending Connection") {
                   Task {
-                    await viewModel.setDefaultSendingConnection(connection)
+                    if await viewModel.setDefaultSendingConnection(connection) {
+                      connectionsDidChange()
+                    }
                   }
                 }
                 .disabled(viewModel.defaultSendingConnectionId == connection.id)

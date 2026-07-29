@@ -784,6 +784,36 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testViewModelReportsSuccessfulDefaultSenderChange() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+
+    let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
+
+    XCTAssertTrue(didSetDefault)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+  }
+
   func testViewModelReportsLoadErrorWhenConnectionsCannotLoad() async {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadError = AdapterTestError.unavailable

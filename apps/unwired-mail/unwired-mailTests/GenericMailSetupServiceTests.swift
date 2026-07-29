@@ -5,6 +5,37 @@ import XCTest
 // swiftlint:disable file_length type_body_length
 final class GenericMailSetupServiceTests: XCTestCase {
   @MainActor
+  func testSettingsSummaryIncludesAuthorizedPOP3Definition() {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "legacy@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .pop3, hostname: "pop.example.com", port: 995, security: .implicitTLS),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp, hostname: "smtp.example.com", port: 465, security: .implicitTLS),
+      roleMappings: [:],
+      username: "legacy@example.com"
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    let connections = EmailAccountsSettingsView.makeSummaryConnections(
+      routedConnections: [],
+      genericDefinitions: [definition],
+      authorizedGenericConnectionIds: [definition.connectionId],
+      session: session
+    )
+
+    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
+    XCTAssertEqual(connections.first?.authorizationState, .authorized)
+    XCTAssertEqual(connections.first?.providerId, .pop3SMTP)
+  }
+
+  @MainActor
   func testConnectionReloadKeyChangesWhenSyncedDefinitionContentChanges() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),

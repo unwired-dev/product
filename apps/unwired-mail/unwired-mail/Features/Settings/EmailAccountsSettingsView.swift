@@ -115,14 +115,14 @@ struct EmailAccountsSettingsView: View {
       .font(.subheadline)
       .foregroundStyle(.secondary)
 
-      if gmailViewModel.connections.isEmpty, !gmailViewModel.isLoading {
+      if summaryConnections.isEmpty, !gmailViewModel.isLoading {
         ContentUnavailableView(
           "No Mailbox Connections",
           systemImage: "tray",
           description: Text("Use a provider setup section below to add one.")
         )
       } else {
-        ForEach(gmailViewModel.connections) { connection in
+        ForEach(summaryConnections) { connection in
           SettingsMailboxConnectionRow(
             connection: connection,
             isDefaultSender: gmailViewModel.defaultSendingConnectionId == connection.id,
@@ -146,6 +146,45 @@ struct EmailAccountsSettingsView: View {
   private var productAccountId: String {
     gmailViewModel.connections.first?.productAccountId.rawValue
       ?? gmailViewModel.sessionSnapshot.productAccountId
+  }
+
+  private var summaryConnections: [MailboxConnection] {
+    Self.makeSummaryConnections(
+      routedConnections: gmailViewModel.connections,
+      genericDefinitions: genericMailViewModel.syncedDefinitions,
+      authorizedGenericConnectionIds: genericMailViewModel.authorizedSyncedConnectionIds,
+      session: gmailViewModel.sessionSnapshot
+    )
+  }
+
+  static func makeSummaryConnections(
+    routedConnections: [MailboxConnection],
+    genericDefinitions: [GenericMailConnectionDefinition],
+    authorizedGenericConnectionIds: Set<MailboxConnectionId>,
+    session: ProductAccountSessionSnapshot
+  ) -> [MailboxConnection] {
+    let routedConnectionIds = Set(routedConnections.map(\.id))
+    let pop3Connections: [MailboxConnection] = genericDefinitions.compactMap { definition in
+      guard
+        definition.connectionId.providerId == .pop3SMTP,
+        !routedConnectionIds.contains(definition.connectionId)
+      else { return nil }
+      return MailboxConnection(
+        authorizationState: authorizedGenericConnectionIds.contains(definition.connectionId)
+          ? .authorized : .required,
+        capabilities: .none,
+        connectedAt: 0,
+        displayName: definition.emailAddress,
+        id: definition.connectionId,
+        lastVerifiedAt: 0,
+        productAccountId: ProductAccountId(session.productAccountId),
+        trustedDeviceId: session.trustedDeviceId,
+        updatedAt: 0
+      )
+    }
+    return (routedConnections + pop3Connections).sorted {
+      $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
+    }
   }
 
   private func providerSectionId(for providerId: MailProviderId) -> MailProviderId {

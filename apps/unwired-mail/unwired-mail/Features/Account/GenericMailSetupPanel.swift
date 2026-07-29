@@ -527,13 +527,6 @@ struct GenericMailSetupPanel: View {
                   Button("Reauthorize on This Device") {
                     viewModel.selectSyncedDefinition(definition)
                   }
-                  Button("Set as Default Sending Connection") {
-                    Task {
-                      await viewModel.setDefaultSendingConnection(definition)
-                      connectionsDidChange()
-                    }
-                  }
-                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
                   Button("Remove Device Authorization", role: .destructive) {
                     Task {
                       await viewModel.removeLocalAuthorization(definition)
