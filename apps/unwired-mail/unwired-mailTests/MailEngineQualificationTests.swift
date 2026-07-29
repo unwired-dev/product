@@ -45,11 +45,17 @@ final class MailEngineQualificationTests: XCTestCase {
 
 /// Candidate adapters qualify by providing this factory against the same deterministic fixtures.
 protocol MailEngineQualificationCandidateFactory: Sendable {
+  func configuration(
+    fixture: MailEngineQualificationFixture,
+    authorization: MailEngineAuthorization,
+    connectionID: String,
+    transportMode: MailEngineTransportMode
+  ) -> MailEngineConfiguration
   func events() async -> [MailEngineQualificationEvent]
   func makeEngine(
     fixture: MailEngineQualificationFixture
   ) -> any MailEngine
-  func waitForIdleStarts(_ count: Int) async
+  func waitForIdleStarts(_ count: Int, timeout: Duration) async throws
 }
 
 enum MailEngineQualificationFixture: Sendable {
@@ -68,6 +74,7 @@ enum MailEngineQualificationFixture: Sendable {
 enum MailEngineSMTPStage: Sendable {
   case accepted(serverMessageID: String?)
   case authenticationRejectedBeforeSubmission
+  case cancelledBeforeSubmission
   case connectionLostAfterSubmission
   case finalResponse(code: Int)
   case recipientRejectedBeforeSubmission(code: Int)
@@ -503,7 +510,7 @@ struct MailEngineQualificationContract {
         secondCallbacks.withValue { $0.append(event) }
       }
     }
-    await factory.waitForIdleStarts(4)
+    try await factory.waitForIdleStarts(4, timeout: .seconds(2))
 
     firstTask.cancel()
     switch await firstTask.result {
@@ -562,7 +569,7 @@ struct MailEngineQualificationContract {
     var observed: [MailEngineSMTPOutcome] = []
     for _ in stages {
       observed.append(
-        await session.submit(
+        try await session.submit(
           envelope: MailEngineEnvelope(
             recipients: ["recipient@example.com"],
             sender: "sender@example.com"
@@ -572,6 +579,7 @@ struct MailEngineQualificationContract {
       )
     }
     XCTAssertEqual(observed, expectedOutcomes)
+    try await verifySMTPCancellation()
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
@@ -579,9 +587,27 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count, 2)
   }
 
+  private func verifySMTPCancellation() async throws {
+    let cancelledSession = try await connect(
+      fixture: .smtpStages([.cancelledBeforeSubmission])
+    ).session
+    do {
+      _ = try await cancelledSession.submit(
+        envelope: MailEngineEnvelope(
+          recipients: ["recipient@example.com"],
+          sender: "sender@example.com"
+        ),
+        rawMessage: Data("Subject: Cancelled\r\n\r\nBody".utf8)
+      )
+      XCTFail("Cancellation before SMTP submission should be reported.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .cancelled)
+    }
+  }
+
   private func verifySentAppendRecovery() async throws {
     let sentRecoverySession = try await connect(fixture: .sentAppendFailsOnce).session
-    let accepted = await sentRecoverySession.submit(
+    let accepted = try await sentRecoverySession.submit(
       envelope: MailEngineEnvelope(
         recipients: ["recipient@example.com"],
         sender: "sender@example.com"
@@ -615,6 +641,7 @@ struct MailEngineQualificationContract {
 
     _ = try await factory.makeEngine(fixture: .successful).connect(
       configuration: configuration(
+        fixture: .successful,
         authorization: .xoauth2(
           username: "private-mailbox@example.com",
           accessToken: "private-bearer-token"
@@ -624,6 +651,7 @@ struct MailEngineQualificationContract {
     )
     _ = try await factory.makeEngine(fixture: .successful).connect(
       configuration: configuration(
+        fixture: .successful,
         authorization: .password(
           username: "private-password-mailbox@example.com",
           password: "private-password"
@@ -667,6 +695,7 @@ struct MailEngineQualificationContract {
   ) {
     try await factory.makeEngine(fixture: fixture).connect(
       configuration: configuration(
+        fixture: fixture,
         authorization: authorization,
         connectionID: connectionID,
         transportMode: transportMode
@@ -689,6 +718,7 @@ struct MailEngineQualificationContract {
     do {
       _ = try await factory.makeEngine(fixture: fixture).connect(
         configuration: configuration(
+          fixture: fixture,
           authorization: authorization,
           connectionID: connectionID,
           transportMode: transportMode
@@ -719,12 +749,34 @@ struct MailEngineQualificationContract {
   }
 
   private func configuration(
+    fixture: MailEngineQualificationFixture,
     authorization: MailEngineAuthorization = .password(
       username: "private-mailbox@example.com",
       password: "private-password"
     ),
     connectionID: String = "connection-a",
     transportMode: MailEngineTransportMode = .implicitTLS
+  ) -> MailEngineConfiguration {
+    factory.configuration(
+      fixture: fixture,
+      authorization: authorization,
+      connectionID: connectionID,
+      transportMode: transportMode
+    )
+  }
+}
+
+private final class ScriptedMailEngineQualificationFactory:
+  MailEngineQualificationCandidateFactory,
+  @unchecked Sendable
+{
+  private let state = ScriptedMailEngineState()
+
+  func configuration(
+    fixture _: MailEngineQualificationFixture,
+    authorization: MailEngineAuthorization,
+    connectionID: String,
+    transportMode: MailEngineTransportMode
   ) -> MailEngineConfiguration {
     MailEngineConfiguration(
       authorization: authorization,
@@ -741,13 +793,6 @@ struct MailEngineQualificationContract {
       )
     )
   }
-}
-
-private final class ScriptedMailEngineQualificationFactory:
-  MailEngineQualificationCandidateFactory,
-  @unchecked Sendable
-{
-  private let state = ScriptedMailEngineState()
 
   func events() async -> [MailEngineQualificationEvent] {
     await state.events
@@ -757,38 +802,35 @@ private final class ScriptedMailEngineQualificationFactory:
     ScriptedMailEngine(fixture: fixture, state: state)
   }
 
-  func waitForIdleStarts(_ count: Int) async {
-    await state.waitForIdleStarts(count)
+  func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
+    try await state.waitForIdleStarts(count, timeout: timeout)
   }
 }
 
 private actor ScriptedMailEngineState {
   private(set) var events: [MailEngineQualificationEvent] = []
-  private var idleWaiters: [(count: Int, continuation: CheckedContinuation<Void, Never>)] = []
 
   func record(_ event: MailEngineQualificationEvent) {
     events.append(event)
-    let idleStartCount = events.filter {
-      if case .idleStarted = $0 { return true }
-      return false
-    }.count
-    let ready = idleWaiters.filter { $0.count <= idleStartCount }
-    idleWaiters.removeAll { $0.count <= idleStartCount }
-    for waiter in ready {
-      waiter.continuation.resume()
-    }
   }
 
-  func waitForIdleStarts(_ count: Int) async {
-    let currentCount = events.filter {
+  func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while events.filter({
       if case .idleStarted = $0 { return true }
       return false
-    }.count
-    guard currentCount < count else { return }
-    await withCheckedContinuation { continuation in
-      idleWaiters.append((count: count, continuation: continuation))
+    }).count < count {
+      guard clock.now < deadline else {
+        throw MailEngineQualificationHarnessError.idleStartTimedOut
+      }
+      try await Task.sleep(for: .milliseconds(10))
     }
   }
+}
+
+private enum MailEngineQualificationHarnessError: Error {
+  case idleStartTimedOut
 }
 
 private struct ScriptedMailEngine: MailEngine {
@@ -1087,13 +1129,18 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   func submit(
     envelope _: MailEngineEnvelope,
     rawMessage _: Data
-  ) async -> MailEngineSMTPOutcome {
+  ) async throws -> MailEngineSMTPOutcome {
     guard !isClosed else { return .notSubmitted(.transportUnavailable) }
-    await state.record(.submitted(connectionID: connectionID))
     if case .smtpStages(let stages) = fixture, smtpStageIndex < stages.count {
       defer { smtpStageIndex += 1 }
-      return classifySMTPStage(stages[smtpStageIndex])
+      let stage = stages[smtpStageIndex]
+      if case .cancelledBeforeSubmission = stage {
+        throw MailEngineError.cancelled
+      }
+      await state.record(.submitted(connectionID: connectionID))
+      return classifySMTPStage(stage)
     }
+    await state.record(.submitted(connectionID: connectionID))
     return .accepted(serverMessageID: "smtp-message-1")
   }
 
@@ -1103,6 +1150,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       .accepted(serverMessageID: serverMessageID)
     case .authenticationRejectedBeforeSubmission:
       .notSubmitted(.authentication)
+    case .cancelledBeforeSubmission:
+      preconditionFailure("Cancellation is reported as MailEngineError.cancelled.")
     case .connectionLostAfterSubmission:
       .ambiguous
     case .finalResponse(let code) where code >= 500:

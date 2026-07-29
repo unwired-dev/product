@@ -46,11 +46,12 @@ product-owned services.
 
 `MailEngineQualificationTests.swift` supplies the reusable deterministic
 contract. A candidate-specific test file in the `unwired-mailTests` target
-provides a `MailEngineQualificationCandidateFactory` for the same fixtures and
-must pass the contract unchanged. The reference scripted candidate proves the
+provides a `MailEngineQualificationCandidateFactory` for the same fixtures,
+including fixture-specific bound IMAP and SMTP endpoints, and must pass the
+contract unchanged. The reference scripted candidate proves the
 harness covers per-service TLS and authentication ordering, certificate and
 server-identity failures, connection isolation and cancellation, UID mapping
-and UIDVALIDITY resets, paging and body selection, IDLE recovery, SMTP
-ambiguity, Sent-append-only recovery, and protocol-trace disposal.
+and UIDVALIDITY resets, paging and body selection, bounded IDLE recovery waits,
+SMTP cancellation and ambiguity, Sent-append-only recovery, and protocol-trace disposal.
 Provider-backed, MIME, search, mutation, and performance qualification remain
 the later gates already defined above.

@@ -310,5 +310,5 @@ protocol MailEngineSession: Sendable {
   func submit(
     envelope: MailEngineEnvelope,
     rawMessage: Data
-  ) async -> MailEngineSMTPOutcome
+  ) async throws -> MailEngineSMTPOutcome
 }
