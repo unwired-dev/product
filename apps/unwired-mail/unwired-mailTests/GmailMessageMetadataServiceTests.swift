@@ -1962,6 +1962,30 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    EmailAccountsSettingsView.updateFreshnessConnections(
+      [],
+      connectionsAreAuthoritative: false,
+      freshnessViewModel: fixture.viewModel
+    )
+
+    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillActive(for: connection))
+    await fixture.service.releaseHistoricalBackfill()
+    _ = try await backfill.value
+  }
+
+  @MainActor
   func testMailboxFreshnessPreemptsBackfillForForegroundSync() async throws {
     let fixture = makeMailboxFreshnessFixture(
       suspendsBackfill: true

@@ -1057,7 +1057,6 @@ struct AccountView: View {
       }
       .onDisappear {
         inboxLoadTask?.cancel()
-        mailboxFreshnessViewModel.cancelAll()
       }
   }
 

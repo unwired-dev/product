@@ -70,9 +70,10 @@ struct EmailAccountsSettingsView: View {
     }
     .task {
       let connectionsAreAuthoritative = await gmailViewModel.load()
-      freshnessViewModel.updateConnections(
+      Self.updateFreshnessConnections(
         gmailViewModel.connections,
-        prunesPersistedState: connectionsAreAuthoritative
+        connectionsAreAuthoritative: connectionsAreAuthoritative,
+        freshnessViewModel: freshnessViewModel
       )
       await genericMailViewModel.loadSyncedDefinitions()
     }
@@ -98,6 +99,16 @@ struct EmailAccountsSettingsView: View {
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
       )
     }
+  }
+
+  @MainActor
+  static func updateFreshnessConnections(
+    _ connections: [MailboxConnection],
+    connectionsAreAuthoritative: Bool,
+    freshnessViewModel: MailboxFreshnessViewModel
+  ) {
+    guard connectionsAreAuthoritative else { return }
+    freshnessViewModel.updateConnections(connections)
   }
 
   @ViewBuilder
