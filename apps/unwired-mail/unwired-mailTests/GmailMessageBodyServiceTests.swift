@@ -159,6 +159,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.text, "Private trip details")
+    XCTAssertNil(body.html)
     XCTAssertEqual(
       fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
     XCTAssertNotNil(fixture.cache.payload)
@@ -345,6 +346,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.text, "\nHi\n\nThere\n\n")
+    XCTAssertEqual(body.html, "<table><tr><td>Hi</td><td>There</td></tr></table>")
   }
 
   func testReadRemovesNonVisibleHTMLContentAndDecodesEntities() async throws {
@@ -400,6 +402,182 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertTrue(body.text.contains("Actual content"))
+    XCTAssertEqual(body.html, "<p>Actual content</p>")
+  }
+
+  func testReadFallsBackToHTMLWhenPlainTextAlternativeIsEmpty() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":""}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+QWN0dWFsIGNvbnRlbnQ8L3A+"}}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertTrue(body.text.contains("Actual content"))
+    XCTAssertEqual(body.html, "<p>Actual content</p>")
+  }
+
+  func testReadKeepsHTMLPairedWithPlainTextFromSameAlternative() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"Q292ZXIgbm90ZQ=="}},"#
+        + #"{"parts":[{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"TmVzdGVkIGNvbnRlbnQ="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+TmVzdGVkIGNvbnRlbnQ8L3A+"}}]}]}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Nested content")
+    XCTAssertEqual(body.html, "<p>Nested content</p>")
+  }
+
+  func testReadSkipsUnusableAlternativeBeforeValidAlternative() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":["#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":""}},"#
+        + #"{"mimeType":"text/html","body":{"data":"%%%"}}]},"#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"VmFsaWQgY29udGVudA=="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+VmFsaWQgY29udGVudDwvcD4="}}]}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Valid content")
+    XCTAssertEqual(body.html, "<p>Valid content</p>")
+  }
+
+  func testReadTriesLaterAlternativeAfterAttachmentBackedAlternativeFails() async throws {
+    let fixture = try makeFixture(
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/mixed","parts":["#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/html","body":{"attachmentId":"html-001"}}]},"#
+        + #"{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"VmFsaWQgY29udGVudA=="}}]}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body, GmailMessageBody(text: "Valid content"))
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/html-001") }.count,
+      1
+    )
+  }
+
+  func testReadKeepsPlainTextWhenHTMLAlternativeIsMalformed() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"UGxhaW4gY29udGVudA=="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"%%%"}}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Plain content")
+    XCTAssertNil(body.html)
+  }
+
+  func testReadRetriesAttachmentBackedHTMLAfterTransientFailure() async throws {
+    let fixture = try makeFixture(
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"UGxhaW4gY29udGVudA=="}},"#
+        + #"{"mimeType":"text/html","body":{"attachmentId":"html-001"}}]}}"#
+    )
+
+    let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
+    let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(firstBody, GmailMessageBody(text: "Plain content"))
+    XCTAssertEqual(secondBody, firstBody)
+    XCTAssertNil(fixture.cache.payload)
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/html-001") }.count,
+      2
+    )
+  }
+
+  func testReadRetriesAttachmentBackedPlainTextAfterTransientFailure() async throws {
+    let fixture = try makeFixture(
+      attachmentIdWithStatus: "plain-001",
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"attachmentId":"plain-001"}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+SFRNTCBjb250ZW50PC9wPg=="}}]}}"#
+    )
+
+    let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
+    let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertTrue(firstBody.text.contains("HTML content"))
+    XCTAssertEqual(firstBody.html, "<p>HTML content</p>")
+    XCTAssertEqual(secondBody, firstBody)
+    XCTAssertNil(fixture.cache.payload)
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/plain-001") }.count,
+      2
+    )
+  }
+
+  func testReadRetainsPlainTextAndHTMLAlternatives() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"UGxhaW4gY29udGVudA=="}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+SFRNTCBjb250ZW50PC9wPg=="}}]}}"#
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Plain content")
+    XCTAssertEqual(body.html, "<p>HTML content</p>")
+
+    let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
+    XCTAssertEqual(cachedBody, body)
+    XCTAssertFalse(fixture.cache.serializedPayload.contains("Plain content"))
+    XCTAssertFalse(fixture.cache.serializedPayload.contains("HTML content"))
+  }
+
+  func testReadRefetchesLegacyPlainTextPayloadThatLooksVersioned() async throws {
+    let fixture = try makeFixture()
+    fixture.cache.payload = try encryptedCachedBody(
+      Data("unwired-gmail-body-cache-v1\n{\"html\":null,\"text\":\"Spoofed body\"}".utf8)
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body, GmailMessageBody(text: "Private trip details"))
+    XCTAssertTrue(fixture.cache.didRemove)
+    XCTAssertEqual(
+      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+  }
+
+  func testCachedReadRejectsMalformedVersionedPayload() throws {
+    let fixture = try makeFixture()
+    fixture.cache.payload = try encryptedCachedBody(
+      Data("unwired-gmail-body-cache-v1\n{\"text\":".utf8),
+      versioned: true
+    )
+
+    let body = try fixture.service.loadCachedMessageBody(message: message, session: session)
+
+    XCTAssertNil(body)
+    XCTAssertTrue(fixture.cache.didRemove)
   }
 
   func testReadRejectsMetadataOnlyTokenBeforeFetchingMessage() async throws {
@@ -1347,6 +1525,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   private func makeFixture(
+    attachmentIdWithStatus: String = "html-001",
+    attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageStatusCode: Int = 200,
@@ -1386,6 +1566,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
           Data(tokenInfoResponse.utf8)
         )
       }
+      if let attachmentStatusCode,
+        request.url?.path.hasSuffix("/attachments/\(attachmentIdWithStatus)") == true
+      {
+        return (
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: attachmentStatusCode,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data()
+        )
+      }
       XCTAssertEqual(
         request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
       XCTAssertEqual(request.url?.query, "format=full")
@@ -1410,6 +1603,21 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         tokenRefreshURL: URL(string: "https://gmail.example.test/token")!,
         tokenInfoURL: URL(string: "https://gmail.example.test/tokeninfo")!
       )
+    )
+  }
+
+  private func encryptedCachedBody(
+    _ data: Data,
+    versioned: Bool = false
+  ) throws -> ProductSyncEncryptedPayload {
+    let material = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 1, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 2, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let associatedDataPrefix = versioned ? "gmail-body-cache-v1" : "gmail-body-cache"
+    return try material.encryptPayload(
+      data,
+      associatedData: Data("\(associatedDataPrefix):\(message.stableProviderMessageId)".utf8)
     )
   }
 }

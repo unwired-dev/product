@@ -630,7 +630,13 @@ struct HistoricalCategorizationScope: Equatable, Sendable {
 }
 
 struct MailboxMessageBody: Equatable, Sendable {
+  let html: String?
   let text: String
+
+  init(text: String, html: String? = nil) {
+    self.html = html
+    self.text = text
+  }
 }
 
 struct MailboxMessageMetadata: Equatable, Identifiable, Sendable {
@@ -2347,7 +2353,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           message: message.gmailMetadata,
           session: session
         )
-        return MailboxMessageBody(text: body.text)
+        return MailboxMessageBody(text: body.text, html: body.html)
       }
     } catch MailboxConnectionAdapterError.connectionRemoved {
       try? await syncGate.withLock(message.connectionId) {
