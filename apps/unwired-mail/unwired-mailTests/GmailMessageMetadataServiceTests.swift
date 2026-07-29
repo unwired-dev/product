@@ -1235,6 +1235,44 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelReprojectsUnifiedPinsFromCurrentPhaseData() async {
+    let syncStarts = expectation(description: "both pin syncs start")
+    syncStarts.expectedFulfillmentCount = 2
+    let phaseGate = UnifiedInboxPhaseGate { phase in
+      if phase == .sync {
+        syncStarts.fulfill()
+      }
+    }
+    let fixture = makeUnifiedInboxViewModelFixture(phaseGate: phaseGate)
+    let originalPin = StableProviderMessageIdentity(
+      connectionId: fixture.connections[1].id,
+      providerMessageId: "message-second"
+    )
+    let replacementPin = StableProviderMessageIdentity(
+      connectionId: fixture.connections[0].id,
+      providerMessageId: "message-first"
+    )
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [originalPin])
+    )
+
+    let loadTask = Task { @MainActor in
+      await fixture.viewModel.loadUnifiedMailbox(.pins, connections: fixture.connections)
+    }
+    await fulfillment(of: [syncStarts], timeout: 1)
+    fixture.viewModel.updateProductMailboxState(
+      MailShellProductMailboxState(outboxStates: [], pinnedMessageIds: [replacementPin])
+    )
+    await phaseGate.release(.sync)
+    await loadTask.value
+
+    XCTAssertEqual(
+      fixture.viewModel.threads.flatMap(\.messages).map(\.id),
+      [replacementPin]
+    )
+  }
+
+  @MainActor
   func testInboxViewModelLoadsAllUnifiedConnectionsBeforeHistoricalBackfill() async {
     let fixture = makeUnifiedInboxViewModelFixture(
       historicalMessagesByProviderAccount: [

@@ -5014,10 +5014,16 @@ final class GmailInboxViewModel {
         threadsByConnection[outcome.connection.id] = result.threads
       }
     }
-    if unifiedCollection == .pins,
-      connectionIds.allSatisfy({ navigationSnapshot.messagesByConnection[$0] != nil })
-    {
-      reprojectPinsIfNeeded()
+    if unifiedCollection == .pins {
+      let messages = threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+      let pinnedThreadIds = Set(
+        messages
+          .filter { navigationSnapshot.pinnedMessageIds.contains($0.id) }
+          .map(\.threadIdentity)
+      )
+      threads = MailboxThread.group(
+        messages.filter { pinnedThreadIds.contains($0.threadIdentity) }
+      )
     } else {
       threads = MailboxThread.group(
         threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
@@ -5157,13 +5163,22 @@ final class GmailInboxViewModel {
         }
         needsBackfill = false
       }
-      let result = try await loadProjectedMailbox(
-        collection,
-        connection: connection,
-        pinnedMessageIds: pinnedMessageIds,
-        service: service,
-        session: session
-      )
+      let result =
+        if collection == .pins {
+          try await service.loadMailbox(
+            .allObserved,
+            connection: connection,
+            session: session
+          )
+        } else {
+          try await loadProjectedMailbox(
+            collection,
+            connection: connection,
+            pinnedMessageIds: pinnedMessageIds,
+            service: service,
+            session: session
+          )
+        }
       try Task.checkCancellation()
       return .success(result, needsBackfill: needsBackfill)
     } catch is CancellationError {
