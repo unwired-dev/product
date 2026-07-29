@@ -76,7 +76,7 @@ enum MailEngineQualificationFixture: Sendable {
   case moveOutcomeUnknown
   case nonpositiveUIDMapping(uid: Int64)
   case nonpositiveUIDValidityMapping(uidValidity: Int64)
-  case reducedCapabilityMove(hasMove: Bool)
+  case reducedCapabilityMove(hasMove: Bool, hasUIDPlus: Bool)
   case sentAppendOutcomeUnknown
   case sentAppendFailsOnce
   case sentAppendPermanentlyRejected
@@ -94,6 +94,7 @@ enum MailEngineSMTPStage: Sendable {
   case connectionLostAfterSubmission
   case dataRejectedBeforeSubmission(code: Int)
   case finalResponse(code: Int)
+  case recipientRejectedAfterAccepted(code: Int)
   case recipientRejectedBeforeSubmission(code: Int)
   case senderRejectedBeforeSubmission(code: Int)
   case transportUnavailableBeforeSubmission
@@ -331,6 +332,11 @@ struct MailEngineQualificationContract {
           smtpTransportMode: transportMode
         )
         XCTAssertEqual(tls12Connection.snapshot.transportSecurity[service], .tls12)
+        assertSetupEvents(
+          await factory.events(),
+          connectionID: "tls12-\(service)-\(transportMode)",
+          service: service
+        )
         for legacyVersion in [MailEngineTLSVersion.tls10, .tls11] {
           await assertConnectionFails(
             fixture: .maximumTLS(service: service, version: legacyVersion),
@@ -600,15 +606,10 @@ struct MailEngineQualificationContract {
       failureMessage: "UIDVALIDITY-reset IDLE must remain active until cancelled."
     )
     XCTAssertEqual(archivePageBeforeReset.uidValidity, 73)
-    do {
-      _ = try await session.fetchBodyParts(
-        [MailEngineBodyPartSelector("1.TEXT")],
-        for: pageBeforeReset.messages[0].identity
-      )
-      XCTFail("A message identity from the prior UIDVALIDITY must be rejected.")
-    } catch {
-      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
-    }
+    await verifyStaleBodyFetchIsRejectedBeforeRequest(
+      session: session,
+      message: pageBeforeReset.messages[0].identity
+    )
     await verifyStaleMutationInputs(
       session: session,
       message: pageBeforeReset.messages[0].identity,
@@ -625,6 +626,38 @@ struct MailEngineQualificationContract {
       session: session,
       pageBeforeReset: archivePageBeforeReset,
       inbox: inbox
+    )
+  }
+
+  private func verifyStaleBodyFetchIsRejectedBeforeRequest(
+    session: any MailEngineSession,
+    message: MailEngineMessageIdentity
+  ) async {
+    let requestsBeforeStaleFetch = await factory.events().filter { event in
+      if case .bodyPartsRequested(let connectionID, let requestedMessage, _) = event {
+        return connectionID == "connection-a" && requestedMessage == message
+      }
+      return false
+    }.count
+    do {
+      _ = try await session.fetchBodyParts(
+        [MailEngineBodyPartSelector("1.TEXT")],
+        for: message
+      )
+      XCTFail("A message identity from the prior UIDVALIDITY must be rejected.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+    }
+    let requestsAfterStaleFetch = await factory.events().filter { event in
+      if case .bodyPartsRequested(let connectionID, let requestedMessage, _) = event {
+        return connectionID == "connection-a" && requestedMessage == message
+      }
+      return false
+    }.count
+    XCTAssertEqual(
+      requestsAfterStaleFetch,
+      requestsBeforeStaleFetch,
+      "A stale identity must be rejected before any body request reaches IMAP."
     )
   }
 
@@ -825,53 +858,87 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) async throws {
-    for hasMove in [false, true] {
-      let connectionID = hasMove ? "move-without-uidplus" : "copy-delete-without-uidplus"
-      let connection = try await connect(
-        fixture: .reducedCapabilityMove(hasMove: hasMove),
-        connectionID: connectionID
+    let profiles = [
+      (connectionID: "move-without-uidplus", hasMove: true, hasUIDPlus: false),
+      (connectionID: "copy-delete-with-uidplus", hasMove: false, hasUIDPlus: true),
+      (connectionID: "move-without-capabilities", hasMove: false, hasUIDPlus: false),
+    ]
+    for profile in profiles {
+      try await verifyReducedCapabilityMoveProfile(
+        connectionID: profile.connectionID,
+        hasMove: profile.hasMove,
+        hasUIDPlus: profile.hasUIDPlus,
+        inbox: inbox,
+        archive: archive
       )
-      XCTAssertEqual(connection.snapshot.capabilities.contains(.move), hasMove)
-      XCTAssertFalse(connection.snapshot.capabilities.contains(.uidPlus))
-      if hasMove {
-        let mapping = try await connection.session.move(
-          sourceUIDs: [9],
-          sourceUIDValidity: 44,
-          from: inbox,
-          to: archive
-        )
-        assertReducedCapabilityMoveMapping(mapping, inbox: inbox, archive: archive)
-      } else {
-        do {
-          _ = try await connection.session.move(
-            sourceUIDs: [9],
-            sourceUIDValidity: 44,
-            from: inbox,
-            to: archive
-          )
-          XCTFail("Move must be unsupported without MOVE or UIDPLUS.")
-        } catch {
-          XCTAssertEqual(error as? MailEngineError, .operationUnsupported)
-        }
-      }
-      let events = await factory.events()
-      if hasMove {
-        XCTAssertTrue(
-          events.contains(
-            .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
-          ),
-          "Reduced-capability removal must not expunge unrelated deleted messages."
-        )
-      } else {
-        XCTAssertFalse(
-          events.contains { event in
-            if case .moveReceived(let eventConnectionID, _, _, _, _) = event {
-              return eventConnectionID == connectionID
-            }
-            return false
-          })
-      }
     }
+  }
+
+  private func verifyReducedCapabilityMoveProfile(
+    connectionID: String,
+    hasMove: Bool,
+    hasUIDPlus: Bool,
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
+    let connection = try await connect(
+      fixture: .reducedCapabilityMove(hasMove: hasMove, hasUIDPlus: hasUIDPlus),
+      connectionID: connectionID
+    )
+    XCTAssertEqual(connection.snapshot.capabilities.contains(.move), hasMove)
+    XCTAssertEqual(connection.snapshot.capabilities.contains(.uidPlus), hasUIDPlus)
+    guard hasMove || hasUIDPlus else {
+      await assertMoveUnsupported(
+        connection.session,
+        connectionID: connectionID,
+        inbox: inbox,
+        archive: archive
+      )
+      return
+    }
+
+    let mapping = try await connection.session.move(
+      sourceUIDs: [9],
+      sourceUIDValidity: 44,
+      from: inbox,
+      to: archive
+    )
+    assertReducedCapabilityMoveMapping(mapping, inbox: inbox, archive: archive)
+    let events = await factory.events()
+    XCTAssertTrue(
+      events.contains(
+        .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
+      ),
+      "Reduced-capability removal must not expunge unrelated deleted messages."
+    )
+  }
+
+  private func assertMoveUnsupported(
+    _ session: any MailEngineSession,
+    connectionID: String,
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async {
+    do {
+      _ = try await session.move(
+        sourceUIDs: [9],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("Move must be unsupported without MOVE or UIDPLUS.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .operationUnsupported)
+    }
+    let events = await factory.events()
+    XCTAssertFalse(
+      events.contains { event in
+        if case .moveReceived(let eventConnectionID, _, _, _, _) = event {
+          return eventConnectionID == connectionID
+        }
+        return false
+      }
+    )
   }
 
   private func assertReducedCapabilityMoveMapping(
@@ -1143,6 +1210,11 @@ struct MailEngineQualificationContract {
             )
         }.count
         XCTAssertEqual(authenticationAttemptsAfterRecovery, authenticationAttemptsBeforeRecovery)
+        let recoveryEvents = await factory.events()
+        XCTAssertTrue(
+          recoveryEvents.contains(.serviceClosed(connectionID: connectionID, service: .imap)),
+          "A rejected recovery transport must be closed."
+        )
       }
     }
   }
@@ -1260,24 +1332,27 @@ struct MailEngineQualificationContract {
       secondOutcome,
       .accepted(serverMessageID: "smtp-message-1")
     )
-    let events = await factory.events()
-    XCTAssertTrue(
-      events.contains(
+    let submissionEvents = await factory.events().filter { event in
+      if case .submissionReceived(let connectionID, _, _) = event {
+        return connectionID == "connection-one" || connectionID == "connection-two"
+      }
+      return false
+    }
+    XCTAssertEqual(
+      submissionEvents,
+      [
         .submissionReceived(
           connectionID: "connection-one",
           envelope: firstEnvelope,
           rawMessage: firstMessage
-        )
-      )
-    )
-    XCTAssertTrue(
-      events.contains(
+        ),
         .submissionReceived(
           connectionID: "connection-two",
           envelope: secondEnvelope,
           rawMessage: secondMessage
-        )
-      )
+        ),
+      ],
+      "Each SMTP submission must reach only its owning account transport."
     )
   }
 
@@ -1439,6 +1514,7 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(observed, expectedOutcomes)
     try await verifySMTPCancellation()
     try await verifyPostContentSMTPCancellation()
+    try await verifyPartialRecipientRejectionStopsBeforeContent()
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
@@ -1458,6 +1534,28 @@ struct MailEngineQualificationContract {
       stages.count
     )
     XCTAssertEqual(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count, 2)
+  }
+
+  private func verifyPartialRecipientRejectionStopsBeforeContent() async throws {
+    let connectionID = "partial-recipient-rejection"
+    let session = try await connect(
+      fixture: .smtpStages([.recipientRejectedAfterAccepted(code: 550)]),
+      connectionID: connectionID
+    ).session
+    let outcome = try await session.submit(
+      envelope: MailEngineEnvelope(
+        recipients: ["accepted@example.com", "rejected@example.com"],
+        sender: "sender@example.com"
+      ),
+      rawMessage: Data("Subject: Must not be transmitted\r\n\r\nPrivate body".utf8)
+    )
+
+    XCTAssertEqual(outcome, .notSubmitted(.recipientRejected(code: 550)))
+    let events = await factory.events()
+    XCTAssertFalse(
+      events.contains(.submissionContentAccepted(connectionID: connectionID)),
+      "DATA must not begin after any recipient is rejected."
+    )
   }
 
   private func smtpStagesAndExpectedOutcomes() -> (
@@ -1751,18 +1849,59 @@ struct MailEngineQualificationContract {
   }
 
   func verifyConnectionLifecycle() async throws {
-    let session = try await connect(fixture: .successful).session
+    let session = try await connect(fixture: .idleUntilCancelled).session
+    let callbacks = LockedBox<[MailEngineIdleEvent]>([])
+    let idleTask = Task {
+      try await session.idle(mailbox: MailEngineMailboxIdentity("INBOX")) { event in
+        callbacks.withValue { $0.append(event) }
+      }
+    }
+    try await factory.waitForIdleStarts(1, timeout: .seconds(2))
+    try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
     await session.close()
+    await assertInFlightOperationClosed(idleTask)
     let eventsBeforeClosedOperations = await factory.events()
+    let callbacksBeforeClosedOperations = callbacks.value
     await assertClosedOperations(session)
+    try? await Task.sleep(for: .milliseconds(50))
     let events = await factory.events()
     XCTAssertEqual(
       events,
       eventsBeforeClosedOperations,
       "Closed-session operations must not reach the server fixture."
     )
+    XCTAssertEqual(
+      callbacks.value,
+      callbacksBeforeClosedOperations,
+      "No callback may be delivered after the session closes."
+    )
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
     assertServiceTeardownEvents(events)
+  }
+
+  private func assertInFlightOperationClosed(_ task: Task<Void, Error>) async {
+    let completion = LockedBox<Result<Void, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await task.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      task.cancel()
+      completionObserver.cancel()
+      XCTFail("Closing the session must terminate in-flight operations.")
+      return
+    }
+    switch result {
+    case .success:
+      XCTFail("An in-flight operation must not succeed after session closure.")
+    case .failure(let error):
+      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+    }
   }
 
   private func assertClosedOperations(_ session: any MailEngineSession) async {
@@ -2198,9 +2337,15 @@ private struct ScriptedMailEngine: MailEngine {
   private func snapshot(
     transportSecurity: [MailEngineService: MailEngineTLSVersion]
   ) -> MailEngineConnectionSnapshot {
-    let capabilities: Set<MailEngineCapability>
-    if case .reducedCapabilityMove(let hasMove) = fixture {
-      capabilities = hasMove ? [.idle, .move, .specialUse] : [.idle, .specialUse]
+    var capabilities: Set<MailEngineCapability>
+    if case .reducedCapabilityMove(let hasMove, let hasUIDPlus) = fixture {
+      capabilities = [.idle, .specialUse]
+      if hasMove {
+        capabilities.insert(.move)
+      }
+      if hasUIDPlus {
+        capabilities.insert(.uidPlus)
+      }
     } else {
       capabilities = [.idle, .move, .specialUse, .uidPlus]
     }
@@ -2352,6 +2497,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     for message: MailEngineMessageIdentity
   ) async throws -> [MailEngineBodyPart] {
     try ensureOpen()
+    guard message.uidValidity == uidValidity(for: message.mailbox) else {
+      throw MailEngineError.staleMessageIdentity
+    }
     await state.record(
       .bodyPartsRequested(
         connectionID: connectionID,
@@ -2359,13 +2507,11 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         selectors: selectors
       )
     )
-    guard message.uidValidity == uidValidity(for: message.mailbox) else {
-      throw MailEngineError.staleMessageIdentity
-    }
     if case .bodyFetchUntilCancelled = fixture {
       await state.record(.bodyFetchStarted(connectionID: connectionID))
       do {
         while true {
+          try ensureOpen()
           try Task.checkCancellation()
           try await Task.sleep(for: .milliseconds(10))
         }
@@ -2394,6 +2540,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .idleDisconnectThenRecover(let maximumReconnectTLSVersion) = fixture {
       guard idleAttempt > 1 else { throw MailEngineError.connectionClosed }
       if let maximumReconnectTLSVersion, maximumReconnectTLSVersion < .tls12 {
+        await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
         throw MailEngineError.tlsVersionUnsupported
       }
       await state.record(
@@ -2469,7 +2616,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try ensureOpen()
-    if case .reducedCapabilityMove(hasMove: false) = fixture {
+    if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: false) = fixture {
       throw MailEngineError.operationUnsupported
     }
     guard sourceUIDValidity == uidValidity(for: sourceMailbox) else {
@@ -2582,7 +2729,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       .permanentlyRejected(code: code)
     case .finalResponse(let code):
       .transientlyRejected(code: code)
-    case .recipientRejectedBeforeSubmission(let code):
+    case .recipientRejectedAfterAccepted(let code),
+      .recipientRejectedBeforeSubmission(let code):
       .notSubmitted(.recipientRejected(code: code))
     case .senderRejectedBeforeSubmission(let code):
       .notSubmitted(.senderRejected(code: code))
@@ -2598,6 +2746,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func waitForIdleCancellation() async throws {
     do {
       while true {
+        try ensureOpen()
         try Task.checkCancellation()
         try await Task.sleep(for: .milliseconds(10))
       }
