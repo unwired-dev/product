@@ -219,6 +219,7 @@ struct MailEngineEnvelope: Equatable, Sendable {
 
 enum MailEnginePreSubmissionFailure: Equatable, Sendable {
   case authentication
+  case dataRejected(code: Int)
   case recipientRejected(code: Int)
   case transportUnavailable
 }
