@@ -88,10 +88,17 @@ final class EWSSetupViewModel {
     } catch is CancellationError {
       return nil
     } catch let error as MailboxConnectionSyncError {
-      if case .connectionRemoved(let observation) = error {
+      switch error {
+      case .connectionRemoved(let observation):
         removalObservation = observation
         selectedConnectionId = nil
         try? await reloadAfterMutation()
+      case .concurrentModification:
+        removalObservation = nil
+        selectedConnectionId = nil
+        try? await reloadAfterMutation()
+      default:
+        break
       }
       errorMessage = error.localizedDescription
       return nil

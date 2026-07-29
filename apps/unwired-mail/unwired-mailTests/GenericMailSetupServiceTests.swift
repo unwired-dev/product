@@ -205,6 +205,67 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
+  @MainActor
+  // swiftlint:disable:next function_body_length
+  func testConcurrentGenericMailRecreationClearsStaleConfirmation() async {
+    let draft = manualDraft()
+    let store = RecordingGenericMailAuthorizationStore()
+    let localDefinition = GenericMailConnectionDefinition(
+      authorizationMethod: draft.authorizationMethod,
+      emailAddress: draft.emailAddress,
+      incomingEndpoint: draft.incomingEndpoint,
+      outgoingEndpoint: draft.outgoingEndpoint,
+      roleMappings: draft.roleMappings,
+      username: draft.username
+    )
+    store.authorization = DeviceLocalGenericMailAuthorization(
+      credential: "old-secret",
+      definition: localDefinition
+    )
+    let sync = RecordingGenericSyncService(
+      removedConnectionIds: [localDefinition.connectionId]
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: localDefinition.connectionId,
+      removedAt: 1_781_200_000_500
+    )
+    sync.saveError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: store,
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+    viewModel.emailAddress = draft.emailAddress
+    viewModel.loadSaved()
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+
+    sync.saveError = MailboxConnectionSyncError.concurrentModification
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+
+    sync.saveError = nil
+    viewModel.credential = "new-secret"
+    await viewModel.connect()
+
+    XCTAssertNil(sync.recreationObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+  }
+
   func testSyncFailureRollsBackNewDeviceAuthorization() async {
     let store = RecordingGenericMailAuthorizationStore()
     let sync = RecordingGenericSyncService()

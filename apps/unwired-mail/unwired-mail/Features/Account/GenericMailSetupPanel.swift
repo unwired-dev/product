@@ -319,11 +319,19 @@ final class GenericMailSetupViewModel {
   }
 
   private func handleSyncError(_ error: MailboxConnectionSyncError) async {
-    if case .connectionRemoved(let observation) = error {
+    switch error {
+    case .connectionRemoved(let observation):
       locallyLoadedConnectionId = nil
       removalObservation = observation
       selectedSyncedConnectionId = nil
       await loadSyncedDefinitions()
+    case .concurrentModification:
+      locallyLoadedConnectionId = nil
+      removalObservation = nil
+      selectedSyncedConnectionId = nil
+      await loadSyncedDefinitions()
+    default:
+      break
     }
     errorMessage = error.localizedDescription
   }

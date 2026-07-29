@@ -171,6 +171,63 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.recreateDefinitionCount, 2)
   }
 
+  func testEWSSetupViewModelClearsStaleConfirmationAfterConcurrentRecreation() async throws {
+    let definitions = RecordingEWSDefinitionSyncService()
+    let client = RecordingEWSClient()
+    let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      mailboxIdentifier: client.account.providerMailboxIdentifier
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: providerAccountIdentifier
+        )
+      ),
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    definitions.removedConnectionIds = [removalObservation.connectionId]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore()
+      ),
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      service: EWSSetupService(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions
+      ),
+      session: session
+    )
+    viewModel.credential = "password"
+    viewModel.emailAddress = "reader@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    viewModel.username = #"CORP\reader"#
+    _ = await viewModel.connect()
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+
+    definitions.recreateError = MailboxConnectionSyncError.concurrentModification
+    viewModel.credential = "password"
+    _ = await viewModel.connect()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+
+    definitions.recreateError = nil
+    viewModel.credential = "password"
+    _ = await viewModel.connect()
+
+    XCTAssertNil(definitions.recreationObservation)
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+  }
+
   func testEWSRedirectsAndCredentialChallengesStayOnConfiguredOrigin() {
     let endpoint = URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!
 
