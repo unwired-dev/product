@@ -3735,9 +3735,11 @@ struct MailShellMessageBody: View {
       do {
         let loadedMessageBody = try await load()
         guard generation == loadGeneration else { return }
+        let presentation = await MessageHTMLPresentation.prepare(body: loadedMessageBody)
+        guard generation == loadGeneration else { return }
         loadedContent = MailShellLoadedMessageContent(
           fallbackText: loadedMessageBody.text,
-          presentation: MessageHTMLPresentation.resolve(body: loadedMessageBody)
+          presentation: presentation
         )
         errorMessage = nil
         isCleared = false

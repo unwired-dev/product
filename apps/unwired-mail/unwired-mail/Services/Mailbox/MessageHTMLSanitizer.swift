@@ -120,7 +120,7 @@ enum MessageHTMLSanitizer {
   }
 }
 
-enum MessageHTMLPresentation: Equatable {
+enum MessageHTMLPresentation: Equatable, Sendable {
   case html(SanitizedMessageHTML)
   case plainText(String)
 
@@ -135,5 +135,15 @@ enum MessageHTMLPresentation: Equatable {
       return .plainText(body.text)
     }
     return .html(sanitizedHTML)
+  }
+
+  static func prepare(
+    body: MailboxMessageBody,
+    sanitizer: @escaping @Sendable (String) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0) }
+  ) async -> Self {
+    await Task.detached(priority: .userInitiated) {
+      resolve(body: body, sanitizer: sanitizer)
+    }.value
   }
 }

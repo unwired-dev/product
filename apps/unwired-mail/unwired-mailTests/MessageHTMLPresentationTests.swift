@@ -168,6 +168,28 @@ final class MessageHTMLPresentationTests: XCTestCase {
     )
   }
 
+  @MainActor
+  func testPresentationPreparationSanitizesOffTheMainThread() async {
+    let body = MailboxMessageBody(text: "Readable fallback", html: "<p>Rich message</p>")
+
+    let presentation = await MessageHTMLPresentation.prepare(body: body) { _ in
+      SanitizedMessageHTML(
+        bodyHTML: "<p>Rich message</p>",
+        documentHTML: Thread.isMainThread ? "main" : "background"
+      )
+    }
+
+    XCTAssertEqual(
+      presentation,
+      .html(
+        SanitizedMessageHTML(
+          bodyHTML: "<p>Rich message</p>",
+          documentHTML: "background"
+        )
+      )
+    )
+  }
+
   func testLinkPolicyOpensAllowedSchemesOnlyForUserActivation() throws {
     let webURL = try XCTUnwrap(URL(string: "https://example.com/path"))
     let mailURL = try XCTUnwrap(URL(string: "mailto:person@example.com"))
@@ -191,13 +213,24 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertFalse(webView.allowsLinkPreview)
   }
 
-  func testLayoutUsesContentHeightWithAVisibleMinimum() {
+  func testLayoutUsesContentSizeAndViewportWithAVisibleMinimum() {
+    let viewportSize = CGSize(width: 500, height: 800)
+
     XCTAssertEqual(MessageHTMLLayout.height(for: .zero), 1)
-    XCTAssertFalse(MessageHTMLLayout.isInternallyScrollable(for: .zero))
+    XCTAssertFalse(
+      MessageHTMLLayout.isInternallyScrollable(for: .zero, within: viewportSize)
+    )
     XCTAssertEqual(MessageHTMLLayout.height(for: CGSize(width: 500, height: 128.5)), 128.5)
     XCTAssertFalse(
       MessageHTMLLayout.isInternallyScrollable(
-        for: CGSize(width: 500, height: MessageHTMLLayout.maximumHeight)
+        for: CGSize(width: 500, height: MessageHTMLLayout.maximumHeight),
+        within: viewportSize
+      )
+    )
+    XCTAssertTrue(
+      MessageHTMLLayout.isInternallyScrollable(
+        for: CGSize(width: 501, height: 128.5),
+        within: viewportSize
       )
     )
     XCTAssertEqual(
@@ -205,7 +238,10 @@ final class MessageHTMLPresentationTests: XCTestCase {
       MessageHTMLLayout.maximumHeight
     )
     XCTAssertTrue(
-      MessageHTMLLayout.isInternallyScrollable(for: CGSize(width: 500, height: 100_000_000))
+      MessageHTMLLayout.isInternallyScrollable(
+        for: CGSize(width: 500, height: 100_000_000),
+        within: viewportSize
+      )
     )
   }
 

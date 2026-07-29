@@ -32,8 +32,11 @@ enum MessageHTMLLayout {
     min(max(contentSize.height, 1), maximumHeight)
   }
 
-  static func isInternallyScrollable(for contentSize: CGSize) -> Bool {
-    contentSize.height > maximumHeight
+  static func isInternallyScrollable(
+    for contentSize: CGSize,
+    within viewportSize: CGSize
+  ) -> Bool {
+    contentSize.height > maximumHeight || contentSize.width > viewportSize.width
   }
 }
 
@@ -136,7 +139,8 @@ private struct MessageHTMLWebView: UIViewRepresentable {
         options: [.initial, .new]
       ) { [weak self] scrollView, _ in
         scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
-          for: scrollView.contentSize
+          for: scrollView.contentSize,
+          within: scrollView.bounds.size
         )
         self?.onHeightChange(MessageHTMLLayout.height(for: scrollView.contentSize))
       }
@@ -174,7 +178,8 @@ private struct MessageHTMLWebView: UIViewRepresentable {
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation?) {
       isLoadingDocument = false
       webView.scrollView.isScrollEnabled = MessageHTMLLayout.isInternallyScrollable(
-        for: webView.scrollView.contentSize
+        for: webView.scrollView.contentSize,
+        within: webView.scrollView.bounds.size
       )
       onHeightChange(MessageHTMLLayout.height(for: webView.scrollView.contentSize))
     }
