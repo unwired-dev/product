@@ -175,7 +175,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   }
 
   private var compactNavigation: some View {
-    NavigationStack {
+    NavigationStack(path: compactPath) {
       settingsList { destination in
         NavigationLink(value: destination) {
           destinationLabel(destination)
@@ -187,6 +187,13 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
       .toolbar { dismissToolbar }
     }
+  }
+
+  private var compactPath: Binding<[SettingsDestination]> {
+    Binding(
+      get: { selection.map { [$0] } ?? [] },
+      set: { selection = $0.last }
+    )
   }
 
   private var splitNavigation: some View {

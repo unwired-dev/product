@@ -1181,11 +1181,17 @@ struct AccountView: View {
               gmailViewModel: gmailViewModel,
               microsoftGraphViewModel: microsoftGraphViewModel,
               freshnessViewModel: mailboxFreshnessViewModel,
-              cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+              cancelBodyPrefetch: {
+                await mailboxWorkCoordinator.cancelBodyPrefetch(
+                  productAccountId: snapshot.productAccountId
+                )
+              },
               connectionsDidChange: {
                 Task { _ = await gmailViewModel.load() }
               },
-              isMailboxBusy: inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+              isMailboxBusy: mailboxWorkCoordinator.isBusy(
+                productAccountId: snapshot.productAccountId
+              )
             )
           }
         }

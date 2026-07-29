@@ -11,6 +11,7 @@ struct EmailAccountsSettingsView: View {
   let connectionsDidChange: () -> Void
   let isMailboxBusy: Bool
 
+  @State private var connectionsAreAuthoritative = false
   @State private var detailTarget: MailProviderId?
 
   var body: some View {
@@ -26,7 +27,7 @@ struct EmailAccountsSettingsView: View {
             viewModel: gmailViewModel,
             isMailboxBusy: isMailboxBusy,
             selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
-            connectionsDidChange: connectionsDidChange
+            connectionsDidChange: providerConnectionsDidChange
           )
           .id(MailProviderId.gmail)
 
@@ -69,7 +70,7 @@ struct EmailAccountsSettingsView: View {
       }
     }
     .task {
-      let connectionsAreAuthoritative = await gmailViewModel.load()
+      connectionsAreAuthoritative = await gmailViewModel.load()
       Self.updateFreshnessConnections(
         gmailViewModel.connections,
         connectionsAreAuthoritative: connectionsAreAuthoritative,
@@ -78,7 +79,11 @@ struct EmailAccountsSettingsView: View {
       await genericMailViewModel.loadSyncedDefinitions()
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
-      freshnessViewModel.updateConnections(connections, prunesPersistedState: false)
+      Self.updateFreshnessConnections(
+        connections,
+        connectionsAreAuthoritative: connectionsAreAuthoritative,
+        freshnessViewModel: freshnessViewModel
+      )
     }
     .onReceive(
       NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
@@ -232,7 +237,13 @@ struct EmailAccountsSettingsView: View {
 
   private func providerConnectionsDidChange() {
     Task {
-      _ = await gmailViewModel.load()
+      connectionsAreAuthoritative = false
+      connectionsAreAuthoritative = await gmailViewModel.load()
+      Self.updateFreshnessConnections(
+        gmailViewModel.connections,
+        connectionsAreAuthoritative: connectionsAreAuthoritative,
+        freshnessViewModel: freshnessViewModel
+      )
       connectionsDidChange()
     }
   }
