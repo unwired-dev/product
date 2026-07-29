@@ -839,6 +839,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
+  func testViewModelPreservesDefaultSenderWhenRefreshingItFails() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    definitionSyncService.loadError = AdapterTestError.unavailable
+
+    let refreshed = await viewModel.refreshSnapshot()
+
+    XCTAssertFalse(refreshed)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   func testViewModelRequiresExplicitRetryToRecreateAnObservedRemoval() async {
     let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
     let removalObservation = MailboxConnectionRemovalObservation(

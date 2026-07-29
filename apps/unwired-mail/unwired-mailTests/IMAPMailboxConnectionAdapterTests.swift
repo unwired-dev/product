@@ -84,6 +84,7 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.connections.map(\.id), [healthyDefinition.connectionId])
     XCTAssertFalse(viewModelSnapshotIsAuthoritative)
     XCTAssertFalse(viewModel.connectionsSnapshotIsAuthoritative)
+    XCTAssertNotNil(viewModel.errorMessage)
   }
 
   // swiftlint:disable:next function_body_length

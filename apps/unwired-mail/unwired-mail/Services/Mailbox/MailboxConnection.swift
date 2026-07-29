@@ -1412,12 +1412,34 @@ protocol MailboxConnectionAdapter:
 struct MailboxConnectionLoadSnapshot {
   let connections: [MailboxConnection]
   let isAuthoritative: Bool
+  let loadErrorDescription: String?
+
+  init(
+    connections: [MailboxConnection],
+    isAuthoritative: Bool,
+    loadErrorDescription: String? = nil
+  ) {
+    self.connections = connections
+    self.isAuthoritative = isAuthoritative
+    self.loadErrorDescription = loadErrorDescription
+  }
 }
 
 protocol MailboxConnectionSnapshotLoading {
   func loadConnectionSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionLoadSnapshot
+}
+
+enum MailboxConnectionLoadError: LocalizedError, Equatable {
+  case partialProviderLoad(String)
+
+  var errorDescription: String? {
+    switch self {
+    case .partialProviderLoad(let description):
+      return description
+    }
+  }
 }
 
 enum MailboxConnectionAdapterError: LocalizedError, Equatable {

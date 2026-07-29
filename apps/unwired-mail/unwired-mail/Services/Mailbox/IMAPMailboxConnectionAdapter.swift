@@ -2053,6 +2053,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
   ) async throws -> MailboxConnectionLoadSnapshot {
     var connections: [MailboxConnection] = []
     var isAuthoritative = true
+    var loadErrorDescription: String?
     for adapter in [gmail, imap, microsoftGraph, exchangeWebServices] {
       do {
         connections += try await adapter.loadConnections(session: session)
@@ -2060,6 +2061,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
         throw CancellationError()
       } catch {
         isAuthoritative = false
+        loadErrorDescription = loadErrorDescription ?? error.localizedDescription
       }
     }
     return MailboxConnectionLoadSnapshot(
@@ -2067,7 +2069,8 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
         if $0.displayName == $1.displayName { return $0.id.rawValue < $1.id.rawValue }
         return $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       },
-      isAuthoritative: isAuthoritative
+      isAuthoritative: isAuthoritative,
+      loadErrorDescription: loadErrorDescription
     )
   }
 

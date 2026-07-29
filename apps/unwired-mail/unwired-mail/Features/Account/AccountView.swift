@@ -6462,8 +6462,10 @@ final class MailboxProviderConnectionViewModel {
     } catch is CancellationError {
       throw CancellationError()
     } catch {
-      defaultSendingConnectionId = nil
-      return false
+      throw error
+    }
+    if let loadErrorDescription = snapshot.loadErrorDescription {
+      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
     }
     return snapshot.isAuthoritative
   }
