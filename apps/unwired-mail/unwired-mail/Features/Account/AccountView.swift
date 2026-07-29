@@ -5014,9 +5014,15 @@ final class GmailInboxViewModel {
         threadsByConnection[outcome.connection.id] = result.threads
       }
     }
-    threads = MailboxThread.group(
-      threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
-    )
+    if unifiedCollection == .pins,
+      connectionIds.allSatisfy({ navigationSnapshot.messagesByConnection[$0] != nil })
+    {
+      reprojectPinsIfNeeded()
+    } else {
+      threads = MailboxThread.group(
+        threadsByConnection.values.flatMap { $0 }.flatMap(\.messages)
+      )
+    }
     return true
   }
 
