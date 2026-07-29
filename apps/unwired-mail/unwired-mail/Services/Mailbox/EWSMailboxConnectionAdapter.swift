@@ -782,27 +782,6 @@ struct EWSSetupService {
     let commitRevision = await syncGate.revision(for: definition.connectionId)
     let synchronizedSnapshot = try await definitionSyncService.loadSnapshot(session: session)
     guard isSessionCurrent(session) else { throw CancellationError() }
-    var localAuthorizationGeneration = try authorizationStore.load(
-      productAccountId: session.productAccountId,
-      connectionId: definition.connectionId
-    )?.authorizationGeneration
-    if try definitionSyncService.requiresLocalCleanup(
-      in: synchronizedSnapshot,
-      connectionId: definition.connectionId,
-      localAuthorizationGeneration: localAuthorizationGeneration,
-      session: session
-    ) {
-      try await localStateCleaner.clear(
-        connectionId: definition.connectionId,
-        session: session
-      )
-      try definitionSyncService.recordLocalCleanup(
-        in: synchronizedSnapshot,
-        connectionId: definition.connectionId,
-        session: session
-      )
-      localAuthorizationGeneration = nil
-    }
     let synchronizedDefinition = synchronizedSnapshot.connections
       .first(where: { $0.id == definition.connectionId })
     let connectedAt = synchronizedDefinition?.connectedAt ?? timestamp
@@ -818,46 +797,60 @@ struct EWSSetupService {
     guard isSessionCurrent(session) else { throw CancellationError() }
     guard
       !savedSnapshot.removedConnectionIds.contains(definition.connectionId),
-      let savedDefinition = savedSnapshot.connections.first(where: {
+      savedSnapshot.connections.contains(where: {
         $0.id == definition.connectionId
       })
     else {
       throw MailboxConnectionAdapterError.connectionRemoved
     }
-    if try definitionSyncService.requiresLocalCleanup(
-      in: savedSnapshot,
-      connectionId: definition.connectionId,
-      localAuthorizationGeneration: localAuthorizationGeneration,
-      session: session
-    ) {
-      try await localStateCleaner.clear(
-        connectionId: definition.connectionId,
-        session: session
-      )
-      try definitionSyncService.recordLocalCleanup(
-        in: savedSnapshot,
-        connectionId: definition.connectionId,
-        session: session
-      )
-    }
-    let savedAuthorization = DeviceLocalEWSAuthorization(
-      authorizationGeneration: savedDefinition.authorizationGeneration,
-      credential: authorization.credential,
-      definition: authorization.definition,
-      hasOnlineArchive: authorization.hasOnlineArchive
-    )
     return try await syncGate.withLock(
       definition.connectionId,
       ifUnchangedSince: commitRevision
     ) {
       guard isSessionCurrent(session) else { throw CancellationError() }
       try Task.checkCancellation()
+      let currentSnapshot = try await definitionSyncService.loadSnapshot(session: session)
+      guard isSessionCurrent(session) else { throw CancellationError() }
+      guard
+        !currentSnapshot.removedConnectionIds.contains(definition.connectionId),
+        let currentDefinition = currentSnapshot.connections.first(where: {
+          $0.id == definition.connectionId
+        })
+      else {
+        throw MailboxConnectionAdapterError.connectionRemoved
+      }
+      let localAuthorizationGeneration = try authorizationStore.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )?.authorizationGeneration
+      if try definitionSyncService.requiresLocalCleanup(
+        in: currentSnapshot,
+        connectionId: definition.connectionId,
+        localAuthorizationGeneration: localAuthorizationGeneration,
+        session: session
+      ) {
+        try await localStateCleaner.clear(
+          connectionId: definition.connectionId,
+          session: session
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: currentSnapshot,
+          connectionId: definition.connectionId,
+          session: session
+        )
+      }
+      let savedAuthorization = DeviceLocalEWSAuthorization(
+        authorizationGeneration: currentDefinition.authorizationGeneration,
+        credential: authorization.credential,
+        definition: authorization.definition,
+        hasOnlineArchive: authorization.hasOnlineArchive
+      )
       try authorizationStore.save(savedAuthorization, productAccountId: session.productAccountId)
       return MailboxConnection(
         authorizationGeneration: savedAuthorization.authorizationGeneration,
         authorizationState: .authorized,
         capabilities: .exchangeWebServices(hasOnlineArchive: resolvedRoles.contains(.archive)),
-        connectedAt: connectedAt,
+        connectedAt: currentDefinition.connectedAt,
         displayName: account.primaryEmailAddress,
         id: definition.connectionId,
         lastVerifiedAt: timestamp,

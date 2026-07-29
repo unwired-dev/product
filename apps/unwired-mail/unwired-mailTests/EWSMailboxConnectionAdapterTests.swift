@@ -328,6 +328,105 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.completedCleanupGenerations[definition.connectionId], 1)
   }
 
+  func testEWSReauthorizationWaitsForInFlightProviderWorkBeforeCleanup() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: 1,
+      connectedAt: 1_781_200_000_000,
+      displayName: definition.emailAddress
+    )
+    let definitions = RecordingEWSDefinitionSyncService(
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      definition: synchronizedDefinition,
+      localCleanupGenerations: [definition.connectionId: 1]
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        authorizationGeneration: 0,
+        credential: "stale-password",
+        definition: definition
+      ),
+      productAccountId: session.productAccountId
+    )
+    let syncGate = MailboxConnectionSyncGate()
+    let providerGate = TestRendezvous()
+    let providerOperation = Task {
+      try await syncGate.withLock(definition.connectionId) {
+        await providerGate.hold()
+      }
+    }
+    await providerGate.waitUntilHeld()
+    let saveGate = TestRendezvous()
+    definitions.beforeSaveDefinitionReturn = {
+      await saveGate.hold()
+    }
+    let localStateCleaner = RecordingEWSLocalStateCleaner()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      localStateCleaner: localStateCleaner,
+      syncGate: syncGate
+    )
+    let setup = Task {
+      try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+    }
+    await saveGate.waitUntilHeld()
+    await saveGate.release()
+    try await Task.sleep(for: .milliseconds(20))
+
+    XCTAssertTrue(localStateCleaner.clearedConnectionIds.isEmpty)
+    await providerGate.release()
+    try await providerOperation.value
+    _ = try await setup.value
+    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+  }
+
+  func testEWSSetupRechecksRemoteRemovalBeforeSavingAuthorization() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService()
+    definitions.beforeSaveDefinitionReturn = {
+      _ = try? await definitions.removeConnection(definition.connectionId, session: self.session)
+    }
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    do {
+      _ = try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected the remote removal to abort authorization persistence")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .connectionRemoved)
+    }
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+  }
+
   func testEWSSetupRejectsConcurrentRemoveAndReaddWithoutHoldingTheConnectionGate()
     async throws
   {
@@ -4117,6 +4216,23 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
       emailAddress: "reader@corp.example",
       endpoint: URL(string: "https://mail.corp.example/EWS/Exchange.asmx")!,
       providerAccountIdentifier: "ews-account-001",
+      serverVersion: .exchange2019,
+      username: #"CORP\reader"#
+    )
+  }
+
+  private func makeVerifiedEWSDefinition() throws -> EWSConnectionDefinition {
+    let endpoint = try XCTUnwrap(
+      URL(string: "https://mail.corp.example/EWS/Exchange.asmx")
+    )
+    return EWSConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "reader@corp.example",
+      endpoint: endpoint,
+      providerAccountIdentifier: try EWSConnectionDefinition.stableProviderAccountIdentifier(
+        endpoint: endpoint,
+        mailboxIdentifier: "mailbox-id"
+      ),
       serverVersion: .exchange2019,
       username: #"CORP\reader"#
     )
