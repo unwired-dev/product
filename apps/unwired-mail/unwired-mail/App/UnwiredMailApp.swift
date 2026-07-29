@@ -2,10 +2,7 @@ import SwiftUI
 
 @main
 struct UnwiredMailApp: App {
-  @State private var session = ProductAccountSession(
-    appleSignInService: SignInWithAppleService(),
-    productAccountService: ConvexProductAccountService()
-  )
+  @State private var session: ProductAccountSession
 
   #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var appDelegate
@@ -15,6 +12,12 @@ struct UnwiredMailApp: App {
     #if DEBUG
       DotEnvFile.loadDefaultsIfPresent()
     #endif
+    _session = State(
+      initialValue: ProductAccountSession(
+        appleSignInService: SignInWithAppleService(),
+        productAccountService: ConvexProductAccountService()
+      )
+    )
   }
 
   var body: some Scene {
