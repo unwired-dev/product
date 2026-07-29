@@ -50,9 +50,9 @@ provides a `MailEngineQualificationCandidateFactory` for the same fixtures,
 including fixture-specific bound IMAP and SMTP endpoints, and must pass the
 contract unchanged. The reference scripted candidate proves the
 harness covers per-service TLS and authentication ordering, complete snapshots
-across transport modes, certificate and server-identity failure teardown, connection isolation and cancellation, UID mapping
-and UIDVALIDITY resets, order-independent mailbox and body-part results, paging and body selection, bounded IDLE recovery waits with the TLS floor reapplied,
+across transport modes and accepted TLS 1.2 paths, certificate and server-identity failure teardown, connection isolation and cancellation, UID mapping
+and UIDVALIDITY resets, order-independent mailbox and body-part results, exact connection-scoped paging and body-selection requests, bounded IDLE recovery waits with the TLS floor reapplied,
 successful IDLE recovery authentication before callback delivery, actual metadata mailbox/cursor/limit requests, pre- and post-content SMTP task cancellation, sender/recipient/`DATA` rejection, accepted responses without message IDs, exact multi-recipient SMTP and Sent-append payloads,
-Sent-append-only recovery, partial-setup cleanup, and complete candidate trace capture.
+Sent-append-only recovery, partial-setup cleanup, concurrent IDLE and body-fetch termination on close, and complete candidate trace capture across distinct sessions.
 Provider-backed, MIME, search, mutation, and performance qualification remain
 the later gates already defined above.
