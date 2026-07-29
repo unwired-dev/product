@@ -468,6 +468,72 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.completedCleanupGenerations[definition.connectionId], 1)
   }
 
+  func testEWSReauthorizationDoesNotRestoreAuthorizationAfterSessionCleanup() async throws {
+    let definition = try makeVerifiedEWSDefinition()
+    let synchronizedDefinition = definition.synchronizedDefinition(
+      authorizationGeneration: 1,
+      connectedAt: 1_781_200_000_000,
+      displayName: definition.emailAddress
+    )
+    let definitions = RecordingEWSDefinitionSyncService(
+      authorizationCleanupConnectionIds: [definition.connectionId],
+      definition: synchronizedDefinition,
+      localCleanupGenerations: [definition.connectionId: 1]
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(
+        authorizationGeneration: 0,
+        credential: "stale-password",
+        definition: definition
+      ),
+      productAccountId: session.productAccountId
+    )
+    let cleanupGate = TestRendezvous()
+    let localStateCleaner = RecordingEWSLocalStateCleaner()
+    localStateCleaner.onClear = {
+      try authorizations.clear(
+        productAccountId: self.session.productAccountId,
+        connectionId: definition.connectionId
+      )
+      await cleanupGate.hold()
+    }
+    let service = EWSSetupService(
+      authorizationStore: authorizations,
+      client: RecordingEWSClient(),
+      definitionSyncService: definitions,
+      localStateCleaner: localStateCleaner,
+      syncGate: MailboxConnectionSyncGate()
+    )
+    var sessionIsCurrent = true
+    let setup = Task {
+      try await service.connect(
+        authorizationMethod: .password,
+        credential: "fresh-password",
+        emailAddress: definition.emailAddress,
+        endpoint: definition.endpoint.absoluteString,
+        username: definition.username,
+        session: session,
+        isSessionCurrent: { _ in sessionIsCurrent }
+      )
+    }
+    await cleanupGate.waitUntilHeld()
+    sessionIsCurrent = false
+    await cleanupGate.release()
+
+    do {
+      _ = try await setup.value
+      XCTFail("Expected session cleanup to cancel authorization persistence")
+    } catch is CancellationError {
+    }
+    XCTAssertNil(
+      try authorizations.load(
+        productAccountId: session.productAccountId,
+        connectionId: definition.connectionId
+      )
+    )
+  }
+
   func testEWSReauthorizationWaitsForInFlightProviderWorkBeforeCleanup() async throws {
     let definition = try makeVerifiedEWSDefinition()
     let synchronizedDefinition = definition.synchronizedDefinition(
@@ -4788,12 +4854,14 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
 
 private final class RecordingEWSLocalStateCleaner: EWSLocalStateClearing {
   var clearedConnectionIds: [MailboxConnectionId] = []
+  var onClear: (() async throws -> Void)?
 
   func clear(
     connectionId: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     clearedConnectionIds.append(connectionId)
+    try await onClear?()
   }
 }
 

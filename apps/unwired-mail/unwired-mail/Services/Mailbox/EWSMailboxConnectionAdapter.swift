@@ -840,6 +840,8 @@ struct EWSSetupService {
           session: session
         )
       }
+      guard isSessionCurrent(session) else { throw CancellationError() }
+      try Task.checkCancellation()
       let savedAuthorization = DeviceLocalEWSAuthorization(
         authorizationGeneration: currentDefinition.authorizationGeneration,
         credential: authorization.credential,
