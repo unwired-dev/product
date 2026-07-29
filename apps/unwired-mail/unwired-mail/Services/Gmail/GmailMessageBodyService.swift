@@ -4,7 +4,13 @@ import Foundation
 // swiftlint:disable file_length type_body_length
 
 struct GmailMessageBody: Equatable {
+  let html: String?
   let text: String
+
+  init(text: String, html: String? = nil) {
+    self.html = html
+    self.text = text
+  }
 }
 
 struct GmailMessageBodyPrefetchPlan {
@@ -912,11 +918,17 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     )
     let body = try await fetchMessageBody(
       message: message, accessToken: refreshedTokens.accessToken)
-    try? cache.saveMessageBody(
-      material.encryptPayload(Data(body.text.utf8), associatedData: associatedData(for: message)),
-      productAccountId: session.productAccountId,
-      stableProviderMessageId: message.stableProviderMessageId
-    )
+    if let payload = try? encryptedPayload(
+      for: body,
+      keyMaterial: material,
+      message: message
+    ) {
+      try? cache.saveMessageBody(
+        payload,
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    }
     return body
   }
 
@@ -994,9 +1006,10 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       return true
     }
     try Task.checkCancellation()
-    let encryptedPayload = try context.keyMaterial.encryptPayload(
-      Data(body.text.utf8),
-      associatedData: associatedData(for: message)
+    let encryptedPayload = try encryptedPayload(
+      for: body,
+      keyMaterial: context.keyMaterial,
+      message: message
     )
     return try cache.saveMessageBody(
       GmailMessageBodyCacheWrite(
@@ -1051,10 +1064,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     do {
       let decrypted = try material.decryptPayload(
         cached, associatedData: associatedData(for: message))
-      guard let text = String(bytes: decrypted, encoding: .utf8) else {
-        throw GmailMessageBodyError.missingMessageBody
-      }
-      return GmailMessageBody(text: text)
+      return try GmailMessageBodyCachePayload.decode(decrypted)
     } catch {
       try? cache.removeMessageBody(
         productAccountId: session.productAccountId,
@@ -1111,28 +1121,55 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     }
 
     let responseBody = try JSONDecoder().decode(GmailMessageBodyResponse.self, from: data)
-    guard let bodyPart = responseBody.payload.preferredBodyPart else {
-      throw GmailMessageBodyError.missingMessageBody
-    }
-    let encodedBody = try await encodedBodyData(
-      bodyPart: bodyPart,
+    return try await decodedMessageBody(
+      responseBody.payload,
       message: message,
       accessToken: accessToken
     )
-    guard let data = Data(gmailBase64URLEncoded: encodedBody),
-      let decodedText = String(data: data, encoding: bodyPart.textEncoding)
-    else {
+  }
+
+  private func decodedMessageBody(
+    _ payload: GmailMessageBodyPart,
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> GmailMessageBody {
+    let plainTextPart = payload.readablePlainTextPart
+    let htmlPart = payload.readableHTMLPart
+    guard plainTextPart != nil || htmlPart != nil else {
       throw GmailMessageBodyError.missingMessageBody
     }
-    let text: String
-    if bodyPart.mimeType == "text/html" {
-      text = await MainActor.run {
-        htmlText(decodedText)
-      }
+
+    let plainText: String?
+    if let plainTextPart {
+      plainText = try await decodedText(
+        bodyPart: plainTextPart,
+        message: message,
+        accessToken: accessToken
+      )
     } else {
-      text = decodedText
+      plainText = nil
     }
-    return GmailMessageBody(text: text)
+    let html: String?
+    if let htmlPart {
+      html = try await decodedText(
+        bodyPart: htmlPart,
+        message: message,
+        accessToken: accessToken
+      )
+    } else {
+      html = nil
+    }
+    let text: String
+    if let plainText, !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+      text = plainText
+    } else if let html {
+      text = await MainActor.run { htmlText(html) }
+    } else if let plainText {
+      text = plainText
+    } else {
+      throw GmailMessageBodyError.missingMessageBody
+    }
+    return GmailMessageBody(text: text, html: html)
   }
 
   private func refreshedTokens(
@@ -1227,6 +1264,34 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return encodedBody
   }
 
+  private func decodedText(
+    bodyPart: GmailMessageBodyPart,
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> String {
+    let encodedBody = try await encodedBodyData(
+      bodyPart: bodyPart,
+      message: message,
+      accessToken: accessToken
+    )
+    guard
+      let data = Data(gmailBase64URLEncoded: encodedBody),
+      let decodedText = String(data: data, encoding: bodyPart.textEncoding)
+    else {
+      throw GmailMessageBodyError.missingMessageBody
+    }
+    return decodedText
+  }
+
+  private func encryptedPayload(
+    for body: GmailMessageBody,
+    keyMaterial: ProductSyncKeyMaterial,
+    message: GmailMessageMetadata
+  ) throws -> ProductSyncEncryptedPayload {
+    let data = try GmailMessageBodyCachePayload.encode(body)
+    return try keyMaterial.encryptPayload(data, associatedData: associatedData(for: message))
+  }
+
   private func requiredKeyMaterial(productAccountId: String) throws -> ProductSyncKeyMaterial {
     guard let material = try keyMaterialStore.load(productAccountId: productAccountId) else {
       throw ProductSyncKeyMaterialStoreError.recoveryRequired
@@ -1283,6 +1348,30 @@ private struct GmailMessageBodyResponse: Decodable {
   let payload: GmailMessageBodyPart
 }
 
+struct GmailMessageBodyCachePayload: Codable {
+  private static let header = Data("unwired-gmail-body-cache-v1\n".utf8)
+
+  let html: String?
+  let text: String
+
+  static func encode(_ body: GmailMessageBody) throws -> Data {
+    var data = header
+    data.append(try JSONEncoder().encode(Self(html: body.html, text: body.text)))
+    return data
+  }
+
+  static func decode(_ data: Data) throws -> GmailMessageBody {
+    guard data.starts(with: header) else {
+      throw GmailMessageBodyError.missingMessageBody
+    }
+    let payload = try JSONDecoder().decode(
+      Self.self,
+      from: Data(data.dropFirst(header.count))
+    )
+    return GmailMessageBody(text: payload.text, html: payload.html)
+  }
+}
+
 private struct GmailMessageBodyPart: Decodable {
   let body: GmailMessageBodyData?
   let filename: String?
@@ -1290,32 +1379,12 @@ private struct GmailMessageBodyPart: Decodable {
   let mimeType: String?
   let parts: [GmailMessageBodyPart]?
 
-  var preferredBodyPart: GmailMessageBodyPart? {
-    guard !isAttachment else {
-      return nil
-    }
-    if mimeType == "text/plain", hasNonWhitespacePlainTextBodyData {
-      return self
-    }
-    if let plainTextPart = parts?.lazy.compactMap(\.preferredNonEmptyPlainTextPart).first {
-      return plainTextPart
-    }
-    if mimeType == "text/html", hasNonEmptyBodyData {
-      return self
-    }
-    if let htmlPart = parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first {
-      return htmlPart
-    }
-    if mimeType == "text/plain", hasBodyData {
-      return self
-    }
-    if let plainTextPart = parts?.lazy.compactMap(\.preferredPlainTextPart).first {
-      return plainTextPart
-    }
-    if mimeType == "text/html", hasBodyData {
-      return self
-    }
-    return parts?.lazy.compactMap(\.preferredHTMLPart).first
+  var readablePlainTextPart: GmailMessageBodyPart? {
+    preferredNonEmptyPlainTextPart ?? preferredPlainTextPart
+  }
+
+  var readableHTMLPart: GmailMessageBodyPart? {
+    preferredNonEmptyHTMLPart ?? preferredHTMLPart
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
