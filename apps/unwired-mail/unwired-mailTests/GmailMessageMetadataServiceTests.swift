@@ -1293,6 +1293,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     let syncInboxCallCount = await fixture.service.syncInboxCallCount()
     XCTAssertEqual(syncInboxCallCount, fixture.connections.count)
     XCTAssertEqual(Set(fixture.viewModel.threads.map(\.id.connectionId)).count, 2)
+    XCTAssertFalse(fixture.viewModel.isLoading)
+    XCTAssertFalse(fixture.viewModel.areCachedMetadataActionsDisabled)
 
     await fixture.service.releaseHistoricalBackfill()
     await loadTask.value
@@ -1698,6 +1700,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
     XCTAssertEqual(reconciledConnectionIds, [connection.id])
+    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertFalse(
+      fixture.viewModel.isHistoricalBackfillRunning(for: [fixture.connections[1].id])
+    )
     XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
     XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
 
@@ -2628,7 +2634,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelDisablesRefreshWhileHistoricalBackfillRuns() async {
+  func testInboxViewModelDisablesRefreshButAllowsCachedActionsDuringHistoricalBackfill() async {
     let cachedMessage = metadata(
       messageId: "message-cached",
       threadId: "thread-cached",
@@ -2661,6 +2667,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isRefreshDisabled)
+    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
+    XCTAssertTrue(viewModel.isHistoricalBackfillRunning)
     let syncInboxCallCount = await service.syncInboxCallCount()
     XCTAssertEqual(syncInboxCallCount, 0)
 
@@ -2676,6 +2684,118 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [backfillCompletion], timeout: 1)
 
     XCTAssertFalse(viewModel.isRefreshDisabled)
+    XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
+    XCTAssertFalse(viewModel.isHistoricalBackfillRunning)
+  }
+
+  @MainActor
+  func testInboxViewModelObservesCoordinatorHistoricalBackfill() async throws {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      delaysHistoricalBackfill: true
+    )
+    let coordinator = MailboxFreshnessViewModel(
+      service: service,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      syncCoordinator: coordinator,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let currentConnection = GmailProviderConnectionStatus(
+      connectedAt: 1,
+      emailAddress: "current@example.com",
+      lastVerifiedAt: 1,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-current",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    coordinator.updateConnections([mailboxConnection, currentConnection])
+    let backfill = Task { @MainActor in
+      try await coordinator.continueHistoricalBackfill(
+        connection: mailboxConnection,
+        session: session
+      )
+    }
+    await service.waitUntilHistoricalBackfillStarts()
+
+    XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    XCTAssertFalse(
+      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [mailboxConnection])
+    )
+    XCTAssertEqual(
+      viewModel.historicalBackfillConnectionIds(for: [mailboxConnection, currentConnection]),
+      [mailboxConnection.id]
+    )
+
+    await service.releaseHistoricalBackfill()
+    _ = try await backfill.value
+    XCTAssertFalse(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+  }
+
+  @MainActor
+  func testInboxViewModelDisablesNonGmailActionsDuringHistoricalBackfill() async throws {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      delaysHistoricalBackfill: true
+    )
+    let coordinator = MailboxFreshnessViewModel(
+      service: service,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      syncCoordinator: coordinator,
+      session: session
+    )
+    let gmailConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let graphConnection = MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: gmailConnection.capabilities,
+      connectedAt: gmailConnection.connectedAt,
+      displayName: "graph@example.com",
+      id: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .microsoftGraph,
+          value: "graph-user-001"
+        )
+      ),
+      lastVerifiedAt: gmailConnection.lastVerifiedAt,
+      productAccountId: gmailConnection.productAccountId,
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: gmailConnection.updatedAt
+    )
+    coordinator.updateConnections([graphConnection])
+    let backfill = Task { @MainActor in
+      try await coordinator.continueHistoricalBackfill(
+        connection: graphConnection,
+        session: session
+      )
+    }
+    await service.waitUntilHistoricalBackfillStarts()
+
+    XCTAssertTrue(
+      viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [graphConnection])
+    )
+
+    await service.releaseHistoricalBackfill()
+    _ = try await backfill.value
   }
 
   @MainActor
@@ -3363,6 +3483,33 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       ["message-003", "message-002", "message-000"]
     )
     XCTAssertEqual(fixture.store.savedMessages, result.messages)
+  }
+
+  func testSyncRecentInboxPreservesIncompleteHistoricalBackfillState() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+    let initial = try await fixture.service.syncInbox(
+      connection: connection,
+      session: session
+    )
+
+    let recent = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    XCTAssertFalse(recent.historicalMetadataBackfillIsComplete)
+  }
+
+  func testSyncRecentInboxTreatsMissingHistoricalBackfillStateAsIncomplete() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
   }
 
   func testSyncRecentInboxRemovesMessagesExcludedByGmailHistory() async throws {

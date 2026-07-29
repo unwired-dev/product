@@ -234,6 +234,16 @@ final class MailboxFreshnessViewModel {
     !inFlightSyncs.isEmpty
   }
 
+  func isHistoricalBackfillRunning(for connectionIds: Set<MailboxConnectionId>) -> Bool {
+    !connectionIds.isDisjoint(with: historicalBackfills.keys)
+  }
+
+  func historicalBackfillConnectionIds(
+    in connectionIds: Set<MailboxConnectionId>
+  ) -> Set<MailboxConnectionId> {
+    connectionIds.intersection(historicalBackfills.keys)
+  }
+
   var lastSuccessfulSyncAt: Date? {
     knownConnections.values.compactMap { status(for: $0).lastSuccessfulSyncAt }.max()
   }
@@ -1477,11 +1487,11 @@ extension AccountView {
           Button("Sign Out", role: .destructive) {
             ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
-            mailboxFreshnessViewModel.cancelAll()
-            mailboxFreshnessViewModel.clearPersistedState()
             Task {
-              await inboxViewModel.prepareForSignOut()
               await mailActionViewModel.prepareForSignOut()
+              mailboxFreshnessViewModel.cancelAll()
+              mailboxFreshnessViewModel.clearPersistedState()
+              await inboxViewModel.prepareForSignOut()
               await session.signOut()
             }
           }
@@ -1821,8 +1831,13 @@ struct MailboxBulkActionFailure: Equatable, Sendable {
 }
 
 struct MailboxBulkActionResult: Equatable, Sendable {
+  let deferredConnectionIds: Set<MailboxConnectionId>
   let failures: [MailboxBulkActionFailure]
   let succeededConnectionIds: [MailboxConnectionId]
+
+  func shouldReloadImmediately(_ connectionId: MailboxConnectionId) -> Bool {
+    !deferredConnectionIds.contains(connectionId)
+  }
 }
 
 struct MailboxBulkActionProgress: Equatable, Sendable {
@@ -1834,9 +1849,11 @@ struct MailboxBulkActionProgress: Equatable, Sendable {
 private struct MailboxBulkActionBatchOutcome: Sendable {
   let batchIndex: Int
   let connection: MailboxConnection
+  let deferredPendingAction: Bool
   let errorDescription: String?
   let failureDetails: [MailboxProviderActionFailureDetail]?
   let messages: [MailboxMessageMetadata]
+  let wasEnqueued: Bool
 }
 
 private enum UnifiedMailboxPhaseResult: Sendable {
@@ -2849,7 +2866,7 @@ private struct MailShellMailboxTools: View {
               )
             )
           }
-          .disabled(isDisabled || trimmedQuery.isEmpty)
+          .disabled(areCachedMetadataActionsDisabled || trimmedQuery.isEmpty)
           if connection?.capabilities.canSearchProvider == true {
             Button("Search \(providerDisplayName) Full Text") {
               guard let connection else { return }
@@ -2918,7 +2935,7 @@ private struct MailShellMailboxTools: View {
               }
             }
           }
-          .disabled(isDisabled)
+          .disabled(areCachedBodyActionsDisabled)
           if let cacheErrorMessage {
             Text(cacheErrorMessage)
               .foregroundStyle(.red)
@@ -2937,6 +2954,15 @@ private struct MailShellMailboxTools: View {
 
   private var isDisabled: Bool {
     isConnectionBusy || viewModel.isRefreshDisabled || viewModel.isAssigningCategory
+  }
+
+  private var areCachedMetadataActionsDisabled: Bool {
+    isConnectionBusy || viewModel.areCachedMetadataActionsDisabled
+      || viewModel.isAssigningCategory
+  }
+
+  private var areCachedBodyActionsDisabled: Bool {
+    areCachedMetadataActionsDisabled || viewModel.isHistoricalBackfillRunning
   }
 
   private var providerDisplayName: String {
@@ -3308,7 +3334,10 @@ struct MailShellConversationReader: View {
         Label("Actions", systemImage: "ellipsis.circle")
       }
       .disabled(
-        batches.isEmpty || inboxViewModel.isRefreshDisabled || isConnectionBusy
+        batches.isEmpty || inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
+          || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(
+            for: batches.map(\.connection)
+          )
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -3353,7 +3382,8 @@ struct MailShellConversationReader: View {
         Label("Actions", systemImage: "ellipsis.circle")
       }
       .disabled(
-        inboxViewModel.isRefreshDisabled || isConnectionBusy
+        inboxViewModel.areCachedMetadataActionsDisabled || isConnectionBusy
+          || inboxViewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [connection])
           || mailActionViewModel.isPerformingAction
       )
     }
@@ -3439,50 +3469,58 @@ struct MailShellConversationReader: View {
     thread: MailboxThread,
     connection: MailboxConnection
   ) {
-    Task {
-      let didPerform = await mailActionViewModel.perform(
-        action,
-        targetProviderMailboxId: targetProviderMailboxId,
-        targetProviderStateIds: targetProviderStateIds,
-        for: selection.selectedMailboxMessages(
-          in: thread,
-          pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
-        ),
-        connection: connection
-      )
-      if didPerform {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-        await mailActionViewModel.resume(connections: [connection])
-        _ = await inboxViewModel.reloadLocal(connection: connection)
-        if let errorMessage = mailActionViewModel.errorMessage {
-          readerErrorConnectionId = connection.id
-          readerErrorMessage = errorMessage
-        }
-      } else if let errorMessage = mailActionViewModel.errorMessage {
-        readerErrorConnectionId = connection.id
-        readerErrorMessage = errorMessage
-      }
-    }
+    performBulk(
+      action,
+      batches: [
+        MailboxBulkActionBatch(
+          connection: connection,
+          messages: selection.selectedMailboxMessages(
+            in: thread,
+            pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
+          ),
+          targetProviderMailboxId: targetProviderMailboxId,
+          targetProviderStateIds: targetProviderStateIds
+        )
+      ]
+    )
   }
 
   private func performBulk(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch]
   ) {
-    Task {
+    mailActionViewModel.startPendingAction {
+      let deferredConnectionIds = inboxViewModel.historicalBackfillConnectionIds(
+        for: batches.map(\.connection)
+      )
       guard
         let result = await mailActionViewModel.performBulk(
           action,
           batches: batches,
+          deferredPendingActionConnectionIds: deferredConnectionIds,
           onEnqueued: { connection in
+            _ = await inboxViewModel.reloadLocal(
+              connection: connection,
+              refreshesNavigationSnapshot: !inboxViewModel.isHistoricalBackfillRunning(
+                for: [connection]
+              )
+            )
+          },
+          onDeferredCompletion: { connection in
             _ = await inboxViewModel.reloadLocal(connection: connection)
+          },
+          shouldDeferPendingActions: { connection in
+            inboxViewModel.isHistoricalBackfillRunning(for: [connection])
           }
         )
       else { return }
       let attemptedConnections = batches.map(\.connection)
       let errorMessage = mailActionViewModel.errorMessage
-      for connection in attemptedConnections {
-        _ = await inboxViewModel.reloadLocal(connection: connection)
+      for connection in attemptedConnections where result.shouldReloadImmediately(connection.id) {
+        _ = await inboxViewModel.reloadLocal(
+          connection: connection,
+          refreshesNavigationSnapshot: !deferredConnectionIds.contains(connection.id)
+        )
       }
       guard let errorMessage else { return }
       readerErrorConnectionId = result.failures.first?.connectionId
@@ -4096,7 +4134,10 @@ final class GmailMailActionViewModel {
   private(set) var outboxItems: [OutgoingDeliveryAttempt] = []
 
   private var knownConnections: [MailboxConnection] = []
+  private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
+  private var isPreparingForSignOut = false
   private let outboxService: OutboxDeliveryService
+  private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
   private var retryObservationTask: Task<Void, Never>?
   private let service: MailboxProviderMailActing
@@ -4141,6 +4182,17 @@ final class GmailMailActionViewModel {
 
   func clearError() {
     errorMessage = nil
+  }
+
+  func startPendingAction(
+    _ operation: @escaping @MainActor @Sendable () async -> Void
+  ) {
+    guard !isPreparingForSignOut else { return }
+    let taskId = UUID()
+    pendingActionTasks[taskId] = Task { [weak self] in
+      await operation()
+      self?.pendingActionTasks[taskId] = nil
+    }
   }
 
   func perform(
@@ -4237,6 +4289,10 @@ final class GmailMailActionViewModel {
       session: session
     )
     await refreshAfterResolution(nil)
+    if !deferredBulkFailures.isEmpty {
+      pruneDeferredBulkFailures()
+      updateBulkActionErrorMessage()
+    }
   }
 
   private func refreshAfterResolution(_ resolutionError: String?) async {
@@ -4413,6 +4469,16 @@ final class GmailMailActionViewModel {
   }
 
   func prepareForSignOut() async {
+    isPreparingForSignOut = true
+    let pendingTasks = Array(pendingActionTasks.values)
+    for task in pendingTasks {
+      task.cancel()
+    }
+    for task in pendingTasks {
+      await task.value
+    }
+    pendingActionTasks.removeAll()
+    deferredBulkFailures.removeAll()
     outboxRetryObservationTask?.cancel()
     retryObservationTask?.cancel()
     do {
@@ -4479,10 +4545,15 @@ final class GmailMailActionViewModel {
 }
 
 extension GmailMailActionViewModel {
+  // swiftlint:disable:next function_body_length
   func performBulk(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
+    deferredPendingActionConnectionIds: Set<MailboxConnectionId> = [],
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in },
+    onDeferredCompletion: @escaping @Sendable (MailboxConnection) async -> Void = { _ in },
+    shouldDeferPendingActions:
+      @escaping @MainActor @Sendable (MailboxConnection) -> Bool = { _ in false }
   ) async -> MailboxBulkActionResult? {
     guard !batches.isEmpty,
       batches.allSatisfy({
@@ -4505,24 +4576,75 @@ extension GmailMailActionViewModel {
     for batch in batches {
       remember(batch.connection)
     }
+    let operationId = UUID()
     let outcomes = await performBulkBatches(
       action,
       batches: batches,
-      onEnqueued: onEnqueued
+      deferredPendingActionConnectionIds: deferredPendingActionConnectionIds,
+      onEnqueued: onEnqueued,
+      shouldDeferPendingActions: shouldDeferPendingActions
     )
     await refreshFailureConnections(knownConnections)
+    pruneDeferredBulkFailures()
     let result = bulkActionResult(outcomes)
-    errorMessage =
-      result.failures.isEmpty
-      ? nil
-      : result.failures.map(Self.failureDescription).joined(separator: "\n")
+    let activeFailures = result.failures.filter {
+      activeFailureConnectionIds.contains($0.connectionId)
+    }
+    if !activeFailures.isEmpty {
+      deferredBulkFailures[operationId] = activeFailures
+    }
+    updateBulkActionErrorMessage(adding: result.failures)
+    let deferredBatches: [MailboxBulkActionBatch] = outcomes.compactMap { outcome in
+      guard
+        outcome.wasEnqueued,
+        outcome.deferredPendingAction
+      else { return nil }
+      return batches[outcome.batchIndex]
+    }
+    if !deferredBatches.isEmpty {
+      startDeferredPendingActions(
+        action,
+        batches: deferredBatches,
+        taskId: operationId,
+        immediateFailures: result.failures,
+        onCompleted: onDeferredCompletion
+      )
+    }
     return result
+  }
+
+  private func startDeferredPendingActions(
+    _ action: ProviderMailAction,
+    batches: [MailboxBulkActionBatch],
+    taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
+    onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
+  ) {
+    guard !isPreparingForSignOut, !Task.isCancelled else { return }
+    deferredBulkFailures[taskId] = immediateFailures
+    let nonPersistedImmediateFailures = immediateFailures.filter {
+      !activeFailureConnectionIds.contains($0.connectionId)
+    }
+    pendingActionTasks[taskId] = Task { [weak self] in
+      guard let self else { return }
+      await resumeDeferredPendingActions(
+        action,
+        batches: batches,
+        taskId: taskId,
+        nonPersistedImmediateFailures: nonPersistedImmediateFailures,
+        onCompleted: onCompleted
+      )
+      pendingActionTasks[taskId] = nil
+    }
   }
 
   private func performBulkBatches(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+    deferredPendingActionConnectionIds: Set<MailboxConnectionId>,
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void,
+    shouldDeferPendingActions:
+      @escaping @MainActor @Sendable (MailboxConnection) -> Bool
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
     let session = self.session
@@ -4538,7 +4660,11 @@ extension GmailMailActionViewModel {
             batchIndex: batchIndex,
             service: service,
             session: session,
-            onEnqueued: onEnqueued
+            defersPendingActions: deferredPendingActionConnectionIds.contains(
+              batch.connection.id
+            ),
+            onEnqueued: onEnqueued,
+            shouldDeferPendingActions: shouldDeferPendingActions
           )
         }
       }
@@ -4555,14 +4681,17 @@ extension GmailMailActionViewModel {
     }
   }
 
-  // swiftlint:disable:next function_parameter_count
+  // swiftlint:disable:next function_body_length function_parameter_count
   nonisolated private static func performBulkBatch(
     _ action: ProviderMailAction,
     batch: MailboxBulkActionBatch,
     batchIndex: Int,
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+    defersPendingActions: Bool,
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void,
+    shouldDeferPendingActions:
+      @escaping @MainActor @Sendable (MailboxConnection) -> Bool
   ) async -> MailboxBulkActionBatchOutcome {
     do {
       try await service.perform(
@@ -4573,6 +4702,19 @@ extension GmailMailActionViewModel {
         connection: batch.connection,
         session: session
       )
+      let newlyDefersPendingActions = await shouldDeferPendingActions(batch.connection)
+      let defersPendingActions =
+        defersPendingActions || newlyDefersPendingActions
+      guard !defersPendingActions else {
+        return bulkActionOutcome(
+          batch,
+          index: batchIndex,
+          deferredPendingAction: true,
+          errorDescription: nil,
+          failureDetails: nil,
+          wasEnqueued: true
+        )
+      }
       await onEnqueued(batch.connection)
       let resumeError = await service.resumePendingActions(
         connection: batch.connection,
@@ -4591,18 +4733,127 @@ extension GmailMailActionViewModel {
       return bulkActionOutcome(
         batch,
         index: batchIndex,
+        deferredPendingAction: false,
         errorDescription: failureDetails?.isEmpty != false
           ? combinedErrorDescription([resumeError, retryError]) : nil,
-        failureDetails: failureDetails
+        failureDetails: failureDetails,
+        wasEnqueued: true
       )
     } catch {
       return bulkActionOutcome(
         batch,
         index: batchIndex,
+        deferredPendingAction: false,
         errorDescription: error.localizedDescription,
-        failureDetails: nil
+        failureDetails: nil,
+        wasEnqueued: false
       )
     }
+  }
+
+  private func resumeDeferredPendingActions(
+    _ action: ProviderMailAction,
+    batches: [MailboxBulkActionBatch],
+    taskId: UUID,
+    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
+    onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async {
+    guard !Task.isCancelled else { return }
+    _ = await withTaskGroup(
+      of: MailboxBulkActionBatchOutcome.self,
+      returning: [MailboxBulkActionBatchOutcome].self
+    ) { group in
+      for (batchIndex, batch) in batches.enumerated() {
+        group.addTask { [service, session] in
+          let resumeError = await service.resumePendingActions(
+            connection: batch.connection,
+            session: session
+          )
+          let retryError = await service.waitForPendingActionRetries(
+            connection: batch.connection,
+            session: session
+          )
+          let failureDetails = await service.pendingActionFailureDetails(
+            action,
+            messages: batch.messages,
+            connection: batch.connection,
+            session: session
+          )
+          return Self.bulkActionOutcome(
+            batch,
+            index: batchIndex,
+            deferredPendingAction: true,
+            errorDescription: failureDetails?.isEmpty != false
+              ? Self.combinedErrorDescription([resumeError, retryError]) : nil,
+            failureDetails: failureDetails,
+            wasEnqueued: true
+          )
+        }
+      }
+      var outcomes: [MailboxBulkActionBatchOutcome] = []
+      for await outcome in group {
+        guard !Task.isCancelled else { return outcomes }
+        outcomes.append(outcome)
+        await recordDeferredOutcome(
+          outcome,
+          taskId: taskId,
+          nonPersistedImmediateFailures: nonPersistedImmediateFailures,
+          onCompleted: onCompleted
+        )
+      }
+      return outcomes.sorted { $0.batchIndex < $1.batchIndex }
+    }
+  }
+
+  private func recordDeferredOutcome(
+    _ outcome: MailboxBulkActionBatchOutcome,
+    taskId: UUID,
+    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
+    onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
+  ) async {
+    await refreshFailureConnections(knownConnections)
+    pruneDeferredBulkFailures()
+    let failures =
+      (deferredBulkFailures[taskId] ?? [])
+      + nonPersistedImmediateFailures
+      + bulkActionResult([outcome]).failures
+    deferredBulkFailures[taskId] = failures.reduce(into: []) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
+    }
+    updateBulkActionErrorMessage()
+    guard !Task.isCancelled else { return }
+    await onCompleted(outcome.connection)
+  }
+
+  private func pruneDeferredBulkFailures() {
+    deferredBulkFailures = deferredBulkFailures.compactMapValues { failures in
+      let activeFailures = failures.filter {
+        activeFailureConnectionIds.contains($0.connectionId)
+      }
+      return activeFailures.isEmpty ? nil : activeFailures
+    }
+  }
+
+  private var activeFailureConnectionIds: Set<MailboxConnectionId> {
+    Set(failedConnectionIds + blockedConnectionIds)
+  }
+
+  private func updateBulkActionErrorMessage(
+    adding failures: [MailboxBulkActionFailure] = []
+  ) {
+    let failures = (deferredBulkFailures.values.flatMap { $0 } + failures).reduce(
+      into: [MailboxBulkActionFailure]()
+    ) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
+    }
+    errorMessage =
+      failures.isEmpty
+      ? nil
+      : failures.map(Self.failureDescription).joined(separator: "\n")
   }
 
   nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
@@ -4614,18 +4865,23 @@ extension GmailMailActionViewModel {
     return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
   }
 
+  // swiftlint:disable:next function_parameter_count
   nonisolated private static func bulkActionOutcome(
     _ batch: MailboxBulkActionBatch,
     index: Int,
+    deferredPendingAction: Bool,
     errorDescription: String?,
-    failureDetails: [MailboxProviderActionFailureDetail]?
+    failureDetails: [MailboxProviderActionFailureDetail]?,
+    wasEnqueued: Bool
   ) -> MailboxBulkActionBatchOutcome {
     MailboxBulkActionBatchOutcome(
       batchIndex: index,
       connection: batch.connection,
+      deferredPendingAction: deferredPendingAction,
       errorDescription: errorDescription,
       failureDetails: failureDetails,
-      messages: batch.messages
+      messages: batch.messages,
+      wasEnqueued: wasEnqueued
     )
   }
 
@@ -4659,6 +4915,9 @@ extension GmailMailActionViewModel {
       ]
     }
     return MailboxBulkActionResult(
+      deferredConnectionIds: Set(
+        outcomes.filter(\.deferredPendingAction).map(\.connection.id)
+      ),
       failures: failures,
       succeededConnectionIds: outcomes.compactMap { outcome in
         failures.contains { $0.connectionId == outcome.connection.id } ? nil : outcome.connection.id
@@ -4737,6 +4996,41 @@ final class GmailInboxViewModel {
 
   var isRefreshDisabled: Bool {
     isCategorizingHistorical || isLoading || isSearching || isSyncing || backfillTask != nil
+  }
+
+  var areCachedMetadataActionsDisabled: Bool {
+    isCategorizingHistorical || isLoading || isSearching || isSyncing
+  }
+
+  var isHistoricalBackfillRunning: Bool {
+    backfillTask != nil
+  }
+
+  func historicalBackfillConnectionIds(
+    for connections: [MailboxConnection]
+  ) -> Set<MailboxConnectionId> {
+    let connectionIds = Set(connections.map(\.id))
+    var backfillConnectionIds =
+      syncCoordinator?.historicalBackfillConnectionIds(in: connectionIds) ?? []
+    if isHistoricalBackfillRunning, let currentConnectionId,
+      connectionIds.contains(currentConnectionId)
+    {
+      backfillConnectionIds.insert(currentConnectionId)
+    }
+    return backfillConnectionIds
+  }
+
+  func isHistoricalBackfillRunning(for connections: [MailboxConnection]) -> Bool {
+    !historicalBackfillConnectionIds(for: connections).isEmpty
+  }
+
+  func areProviderActionsDisabledDuringHistoricalBackfill(
+    for connections: [MailboxConnection]
+  ) -> Bool {
+    let backfillConnectionIds = historicalBackfillConnectionIds(for: connections)
+    return connections.contains {
+      $0.providerId != .gmail && backfillConnectionIds.contains($0.id)
+    }
   }
 
   var isBusy: Bool {
@@ -4930,6 +5224,7 @@ final class GmailInboxViewModel {
         threadsByConnection: &loadedThreadsByConnection
       )
     else { return }
+    isLoading = false
     guard
       let backfillErrors = await continueUnifiedInboxBackfill(
         for: syncResult.connectionsNeedingBackfill,
@@ -5486,7 +5781,10 @@ final class GmailInboxViewModel {
     }
   }
 
-  func reloadLocal(connection: MailboxConnection) async -> Bool {
+  func reloadLocal(
+    connection: MailboxConnection,
+    refreshesNavigationSnapshot: Bool = true
+  ) async -> Bool {
     do {
       if currentConnectionId == connection.id {
         let result = try await loadProjectedMailbox(
@@ -5510,7 +5808,9 @@ final class GmailInboxViewModel {
           .flatMap(\.messages)
         threads = MailboxThread.group(otherMessages + result.threads.flatMap(\.messages))
       }
-      await refreshNavigationSnapshot(for: connection)
+      if refreshesNavigationSnapshot {
+        await refreshNavigationSnapshot(for: connection)
+      }
       errorMessage = nil
       return true
     } catch is CancellationError {

@@ -638,6 +638,17 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     } catch {
       XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
     }
+    do {
+      try await currentAdapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: staleOperationConnection,
+        session: session
+      )
+      XCTFail("Expected a stale action generation to require authorization")
+    } catch {
+      XCTAssertEqual(error as? MailboxConnectionAdapterError, .authorizationRequired)
+    }
   }
 
   func testGmailProviderAccessRequiresPersistedAuthorizationGeneration() async throws {
@@ -2754,6 +2765,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         )
       ),
       pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      pendingActionGate: MailboxConnectionSyncGate(),
       outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
       syncGate: MailboxConnectionSyncGate()
     )
@@ -2779,6 +2791,57 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await removalTask.value
     let events = await eventLog.snapshot()
     XCTAssertEqual(events, ["local-state-cleared"])
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+  }
+
+  func testGmailMailboxRemovalFencesActionsBeforeWritingTombstone() async throws {
+    let removalGate = AdapterLifecycleOperationGate()
+    let pendingActionStore = AdapterPendingActionStore()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt
+      ),
+      removeGate: removalGate
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: definitionSyncService,
+      pendingActionService: PendingProviderActionService(store: pendingActionStore),
+      pendingActionGate: MailboxConnectionSyncGate(),
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let removalTask = Task {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+    }
+    await removalGate.waitUntilStarted()
+    let actionTask = Task {
+      try await adapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      )
+    }
+    await Task.yield()
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
+
+    await removalGate.release()
+    try await removalTask.value
+    do {
+      try await actionTask.value
+      XCTFail("Expected the action racing with removal to observe the tombstone")
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+    }
+    XCTAssertTrue(try pendingActionStore.load(productAccountId: session.productAccountId).isEmpty)
   }
 
   // swiftlint:disable:next function_body_length
@@ -3122,6 +3185,140 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(result.hasUnlistedNewMessages)
     XCTAssertEqual(result.newMessageIds, ["message-001"])
     XCTAssertTrue(result.providerCursorIsExpired)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testGmailAdapterKeepsOptimisticActionAcrossIncompleteRecentSync() async throws {
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let metadataService = RecordingAdapterMetadataService()
+    var staleGmailMessage = adapterGmailMessage
+    staleGmailMessage.providerLabelIds = ["INBOX"]
+    let staleMessage = staleGmailMessage.mailboxMetadata(connectionId: adapterConnectionId)
+    let newestGmailMessage = GmailMessageMetadata(
+      categoryId: nil,
+      from: "New Sender <new@example.com>",
+      isHistorical: false,
+      providerAccountIdentifier: "gmail-user-001",
+      providerInternalDateMilliseconds: 1_781_200_001_000,
+      providerMessageId: "message-002",
+      providerThreadId: "thread-002",
+      replyTo: nil,
+      snippet: "New private message",
+      stableProviderMessageId: "gmail:gmail-user-001:message-002",
+      subject: "New subject",
+      rfcMessageId: "<message-002@example.com>"
+    )
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      messages: [staleGmailMessage, newestGmailMessage],
+      threads: GmailInboxThread.group([staleGmailMessage, newestGmailMessage])
+    )
+    metadataService.recentSyncResult = GmailMetadataSyncResult(
+      historicalMetadataBackfillIsComplete: false,
+      messages: [newestGmailMessage],
+      threads: GmailInboxThread.group([newestGmailMessage])
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    try await pendingActionService.perform(
+      .archive,
+      messages: [staleMessage],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+
+    let result = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: true,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    let actionStates = try await pendingActionService.pendingActions(session: session).map(\.state)
+    XCTAssertEqual(result.messages.map(\.providerMessageId), ["message-002"])
+    XCTAssertEqual(actionStates, [.providerConfirmed])
+  }
+
+  func testGmailAdapterReconcilesOptimisticActionsWhenHistoricalBackfillCompletes() async throws {
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let metadataService = RecordingAdapterMetadataService()
+    var staleGmailMessage = adapterGmailMessage
+    staleGmailMessage.providerLabelIds = ["INBOX"]
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      historicalMetadataBackfillIsComplete: true,
+      messages: [staleGmailMessage],
+      threads: GmailInboxThread.group([staleGmailMessage])
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    try await pendingActionService.perform(
+      .archive,
+      messages: [staleGmailMessage.mailboxMetadata(connectionId: connection.id)],
+      connection: connection,
+      session: session
+    ) { _, _, _ in }
+
+    _ = try await adapter.continueHistoricalBackfill(
+      connection: connection,
+      session: session
+    )
+
+    let actions = try await pendingActionService.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
+  func testGmailAdapterEnqueuesCachedActionDuringHistoricalBackfill() async throws {
+    let backfillGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(historicalBackfillGate: backfillGate)
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService,
+      pendingActionGate: MailboxConnectionSyncGate(),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let backfillTask = Task {
+      try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    }
+    await backfillGate.waitUntilStarted()
+    let actionEnqueued = expectation(description: "Cached action enqueued during backfill")
+    let actionTask = Task {
+      try await adapter.perform(
+        .archive,
+        messages: [adapterMessage],
+        connection: connection,
+        session: session
+      )
+      actionEnqueued.fulfill()
+    }
+
+    await fulfillment(of: [actionEnqueued], timeout: 1)
+    let queuedActions = try await pendingActionService.pendingActions(session: session)
+    XCTAssertEqual(queuedActions.map(\.action), [.archive])
+
+    await backfillGate.release()
+    _ = try await backfillTask.value
+    try await actionTask.value
   }
 
   func testMailShellPreservesSelectedThreadAcrossReordering() {
@@ -4702,6 +4899,689 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailActionViewModelLeavesBulkActionsEnqueuedDuringHistoricalBackfill() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertNil(viewModel.errorMessage)
+    XCTAssertFalse(viewModel.isPerformingAction)
+  }
+
+  func testMailActionViewModelSkipsGatedReloadForDeferredBulkAction() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id],
+      onEnqueued: { _ in
+        XCTFail("Deferred batches must return before the gated cache reload")
+      }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(result?.shouldReloadImmediately(connection.id) ?? true)
+    XCTAssertFalse(viewModel.isPerformingAction)
+  }
+
+  func testMailActionViewModelRechecksBackfillBeforeResumingBulkAction() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume in background")
+    let service = DeferredBulkResumeService(resumeStarted: resumeStarted)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      shouldDeferPendingActions: { _ in true }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+    await fulfillment(of: [resumeStarted], timeout: 1)
+    let resumeCount = await service.resumeCount()
+    XCTAssertEqual(resumeCount, 1)
+  }
+
+  func testMailActionViewModelResumesEnqueuedBulkActionsInBackground() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion reported")
+    let service = DeferredBulkResumeService(resumeStarted: resumeStarted)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id],
+      onDeferredCompletion: { completedConnection in
+        XCTAssertEqual(completedConnection.id, connection.id)
+        deferredCompletion.fulfill()
+      }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
+    let resumeCount = await service.resumeCount()
+    XCTAssertEqual(resumeCount, 1)
+  }
+
+  func testMailActionViewModelResumesOnlyNonBackfillingConnectionsInline() async {
+    let backfillingConnection = mailShellConnection(
+      emailAddress: "backfilling@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: currentConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: backfillingConnection,
+          suffix: "backfilling",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [backfillingConnection.id]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [backfillingConnection.id])
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "current@example.com — Subject message-current "
+        + "[gmail:gmail-user-002:message-current]: The provider connection failed."
+    )
+    await fulfillment(of: [resumesStarted], timeout: 1)
+  }
+
+  func testMailActionViewModelSurfacesDeferredBulkResumeFailures() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionId: connection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+    let errorSurfaced = expectation(description: "deferred error surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage == nil {
+        await Task.yield()
+      }
+      errorSurfaced.fulfill()
+    }
+    await fulfillment(of: [resumeStarted, errorSurfaced], timeout: 1)
+    XCTAssertEqual(viewModel.failedConnectionIds, [connection.id])
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
+    )
+  }
+
+  func testMailActionViewModelAggregatesDeferredBulkResumeFailures() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionIds: [firstConnection.id, secondConnection.id]
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ],
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id]
+    )
+
+    XCTAssertEqual(
+      Set(result?.succeededConnectionIds ?? []),
+      [firstConnection.id, secondConnection.id]
+    )
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let errorsSurfaced = expectation(description: "deferred errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage == nil {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed.\n"
+        + "second@example.com — Subject message-second "
+        + "[gmail:gmail-user-002:message-second]: The provider connection failed."
+    )
+  }
+
+  func testMailActionViewModelPreservesBlockedDeferredBulkResumeFailures() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection requires attention.",
+      blockedConnectionIds: [firstConnection.id, secondConnection.id]
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ],
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id]
+    )
+
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let errorsSurfaced = expectation(description: "blocked errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("first@example.com") != true
+        || viewModel.errorMessage?.contains("second@example.com") != true
+      {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testMailActionViewModelPreservesInlineFailureWhenDeferredBatchFails() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionIds: [deferredConnection.id, currentConnection.id]
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let errorsSurfaced = expectation(description: "inline and deferred errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("deferred@example.com") != true {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "current@example.com — Subject message-current "
+        + "[gmail:gmail-user-002:message-current]: The provider connection failed.\n"
+        + "deferred@example.com — Subject message-deferred "
+        + "[gmail:gmail-user-001:message-deferred]: The provider connection failed."
+    )
+  }
+
+  func testMailActionViewModelDoesNotResumeDeferredBatchThatFailedToEnqueue() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    resumeStarted.isInverted = true
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      performFailureConnectionId: connection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [connection.id])
+    await fulfillment(of: [resumeStarted], timeout: 0.1)
+    let resumeCount = await service.resumeCount()
+    XCTAssertEqual(resumeCount, 0)
+  }
+
+  func testMailActionViewModelRetainsNonPersistedFailureThroughDeferredCompletion() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion reported")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      performFailureConnectionId: currentConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id],
+      onDeferredCompletion: { _ in
+        deferredCompletion.fulfill()
+      }
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testMailActionViewModelDropsAcknowledgedInlineFailureBeforeDeferredCompletion() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    resumeStarted.expectedFulfillmentCount = 2
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionIds: [deferredConnection.id, currentConnection.id],
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: deferredConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id]
+    )
+    await fulfillment(of: [resumeStarted], timeout: 1)
+    await service.acknowledgePendingActionFailures(
+      connection: currentConnection,
+      session: session
+    )
+    await resumeGate.release()
+
+    let deferredErrorSurfaced = expectation(description: "deferred error surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("deferred@example.com") != true {
+        await Task.yield()
+      }
+      deferredErrorSurfaced.fulfill()
+    }
+    await fulfillment(of: [deferredErrorSurfaced], timeout: 1)
+    XCTAssertFalse(viewModel.errorMessage?.contains("current@example.com") ?? true)
+  }
+
+  func testMailActionViewModelAggregatesOverlappingDeferredOperations() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    resumeStarted.expectedFulfillmentCount = 2
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionIds: [firstConnection.id, secondConnection.id],
+      resumeGate: resumeGate
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200)
+      ],
+      deferredPendingActionConnectionIds: [firstConnection.id]
+    )
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100)
+      ],
+      deferredPendingActionConnectionIds: [secondConnection.id]
+    )
+    await fulfillment(of: [resumeStarted], timeout: 1)
+    await resumeGate.release()
+
+    let errorsSurfaced = expectation(description: "overlapping errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("first@example.com") != true
+        || viewModel.errorMessage?.contains("second@example.com") != true
+      {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testMailActionViewModelPreservesNewerInlineFailureAfterDeferredCompletion() async {
+    let deferredConnection = mailShellConnection(
+      emailAddress: "deferred@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let deferredCompletion = expectation(description: "deferred completion recorded")
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: currentConnection.id,
+      failedConnectionId: currentConnection.id,
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: deferredConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: deferredConnection,
+          suffix: "deferred",
+          receivedAt: 200
+        )
+      ],
+      deferredPendingActionConnectionIds: [deferredConnection.id],
+      onDeferredCompletion: { _ in
+        deferredCompletion.fulfill()
+      }
+    )
+    let currentResult = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    XCTAssertEqual(currentResult?.failures.map(\.connectionId), [currentConnection.id])
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    await resumeGate.release()
+    await fulfillment(of: [deferredCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+  }
+
+  func testMailActionViewModelReportsEachDeferredCompletionWithoutWaitingForOthers() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    resumeStarted.expectedFulfillmentCount = 2
+    let firstCompleted = expectation(description: "first deferred batch completes")
+    let resumeGate = AdapterLifecycleOperationGate()
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: secondConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ],
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id],
+      onDeferredCompletion: { connection in
+        if connection.id == firstConnection.id {
+          firstCompleted.fulfill()
+        }
+      }
+    )
+
+    await fulfillment(of: [resumeStarted, firstCompleted], timeout: 1)
+    await resumeGate.release()
+  }
+
+  func testMailActionViewModelCancelsDeferredResumesBeforeSignOut() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      suspendsResumeUntilCancelled: true
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: service,
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id]
+    )
+    await fulfillment(of: [resumeStarted], timeout: 1)
+
+    await viewModel.prepareForSignOut()
+
+    let resumeWasCancelled = await service.resumeWasCancelled()
+    XCTAssertTrue(resumeWasCancelled)
+  }
+
+  func testMailActionViewModelCancelsSingleActionContinuationsBeforeSignOut() async {
+    let actionStarted = expectation(description: "single action continuation started")
+    let providerResumeStarted = expectation(description: "provider resume started")
+    providerResumeStarted.isInverted = true
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+
+    viewModel.startPendingAction {
+      actionStarted.fulfill()
+      do {
+        try await Task.sleep(for: .seconds(60))
+      } catch {
+        return
+      }
+      providerResumeStarted.fulfill()
+    }
+    await fulfillment(of: [actionStarted], timeout: 1)
+
+    await viewModel.prepareForSignOut()
+
+    await fulfillment(of: [providerResumeStarted], timeout: 0.1)
+  }
+
+  func testMailActionViewModelRejectsBulkTaskRegistrationAfterSignOutBegins() async {
+    let operationStarted = expectation(description: "bulk task starts")
+    operationStarted.isInverted = true
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    await viewModel.prepareForSignOut()
+
+    viewModel.startPendingAction {
+      operationStarted.fulfill()
+    }
+
+    await fulfillment(of: [operationStarted], timeout: 0.1)
+  }
+
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -5571,14 +6451,17 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
   var saveError: Error?
   var snapshotAfterSave: MailboxConnectionSyncSnapshot?
   private let reconcileGate: AdapterLifecycleOperationGate?
+  private let removeGate: AdapterLifecycleOperationGate?
   private var snapshot: MailboxConnectionSyncSnapshot
 
   init(
     snapshot: MailboxConnectionSyncSnapshot,
-    reconcileGate: AdapterLifecycleOperationGate? = nil
+    reconcileGate: AdapterLifecycleOperationGate? = nil,
+    removeGate: AdapterLifecycleOperationGate? = nil
   ) {
     self.snapshot = snapshot
     self.reconcileGate = reconcileGate
+    self.removeGate = removeGate
   }
 
   func loadSnapshot(
@@ -5638,6 +6521,7 @@ private final class RecordingAdapterDefinitionSyncService: MailboxConnectionDefi
       removedConnectionIds: snapshot.removedConnectionIds + [connectionId],
       updatedAt: snapshot.updatedAt
     )
+    await removeGate?.waitForRelease()
     return snapshot
   }
 
@@ -5716,20 +6600,24 @@ extension MailboxConnectionSyncSnapshot {
 
 private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing {
   private let eventLog: RecordingAdapterEventLog?
+  private let historicalBackfillGate: AdapterLifecycleOperationGate?
   private let loadGate: AdapterLifecycleOperationGate?
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
-  var recentSyncResult = RecordingAdapterMetadataService.result
+  var inboxSyncResult = RecordingAdapterMetadataService.defaultResult
+  var recentSyncResult = RecordingAdapterMetadataService.defaultResult
   var providerDelayNanoseconds: UInt64 = 0
   var syncedConnection: GmailProviderConnectionStatus?
   var syncedProviderAccountIdentifiers: [String] = []
 
   init(
     eventLog: RecordingAdapterEventLog? = nil,
+    historicalBackfillGate: AdapterLifecycleOperationGate? = nil,
     loadGate: AdapterLifecycleOperationGate? = nil
   ) {
     self.eventLog = eventLog
+    self.historicalBackfillGate = historicalBackfillGate
     self.loadGate = loadGate
   }
 
@@ -5738,7 +6626,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
-    Self.result
+    inboxSyncResult
   }
 
   func loadInbox(
@@ -5746,7 +6634,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
     loadedConnection = connection
-    return Self.result
+    return inboxSyncResult
   }
 
   func loadInboxProjectionCandidates(
@@ -5771,7 +6659,17 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
       eventLog?.events.append("inbox")
     }
     await loadGate?.waitForRelease()
-    return collection == .allObserved ? Self.result : Self.result.projected(to: collection)
+    return
+      collection == .allObserved
+      ? inboxSyncResult : inboxSyncResult.projected(to: collection)
+  }
+
+  func continueHistoricalBackfill(
+    connection _: GmailProviderConnectionStatus,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> GmailMetadataSyncResult {
+    await historicalBackfillGate?.waitForRelease()
+    return inboxSyncResult
   }
 
   func syncInbox(
@@ -5783,7 +6681,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     }
     syncedConnection = connection
     syncedProviderAccountIdentifiers.append(connection.providerAccountIdentifier)
-    return Self.result
+    return inboxSyncResult
   }
 
   // swiftlint:disable:next function_parameter_count
@@ -5806,7 +6704,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     message.assigningCategory(categoryId)
   }
 
-  private static let result = GmailMetadataSyncResult(
+  private static let defaultResult = GmailMetadataSyncResult(
     messages: [adapterGmailMessage],
     threads: GmailInboxThread.group([adapterGmailMessage])
   )
@@ -6582,6 +7480,113 @@ private struct ConnectionPendingActionFailureService: MailboxProviderMailActing 
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxProviderActionFailureDetail]? {
     []
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private actor DeferredBulkResumeService: MailboxProviderMailActing {
+  private let blockedConnectionIds: Set<MailboxConnectionId>
+  private var failedConnectionIds: Set<MailboxConnectionId>
+  private let gatedResumeConnectionId: MailboxConnectionId?
+  private let performFailureConnectionId: MailboxConnectionId?
+  private var recordedResumeCount = 0
+  private let resumeGate: AdapterLifecycleOperationGate?
+  private let resumeError: String?
+  private let resumeErrorConnectionId: MailboxConnectionId?
+  private let resumeStarted: XCTestExpectation
+  private var recordedResumeWasCancelled = false
+  private let suspendsResumeUntilCancelled: Bool
+
+  init(
+    resumeStarted: XCTestExpectation,
+    resumeError: String? = nil,
+    resumeErrorConnectionId: MailboxConnectionId? = nil,
+    failedConnectionId: MailboxConnectionId? = nil,
+    failedConnectionIds: Set<MailboxConnectionId> = [],
+    blockedConnectionIds: Set<MailboxConnectionId> = [],
+    performFailureConnectionId: MailboxConnectionId? = nil,
+    resumeGate: AdapterLifecycleOperationGate? = nil,
+    gatedResumeConnectionId: MailboxConnectionId? = nil,
+    suspendsResumeUntilCancelled: Bool = false
+  ) {
+    self.blockedConnectionIds = blockedConnectionIds
+    self.failedConnectionIds = failedConnectionIds
+    if let failedConnectionId {
+      self.failedConnectionIds.insert(failedConnectionId)
+    }
+    self.gatedResumeConnectionId = gatedResumeConnectionId
+    self.performFailureConnectionId = performFailureConnectionId
+    self.resumeGate = resumeGate
+    self.resumeError = resumeError
+    self.resumeErrorConnectionId = resumeErrorConnectionId
+    self.resumeStarted = resumeStarted
+    self.suspendsResumeUntilCancelled = suspendsResumeUntilCancelled
+  }
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    if connection.id == performFailureConnectionId {
+      throw AdapterTestError.unavailable
+    }
+  }
+
+  func resumePendingActions(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    recordedResumeCount += 1
+    resumeStarted.fulfill()
+    if gatedResumeConnectionId == nil || gatedResumeConnectionId == connection.id {
+      await resumeGate?.waitForRelease()
+    }
+    if suspendsResumeUntilCancelled {
+      do {
+        try await Task.sleep(for: .seconds(60))
+      } catch {
+        recordedResumeWasCancelled = true
+        return nil
+      }
+    }
+    return resumeErrorConnectionId == nil || resumeErrorConnectionId == connection.id
+      ? resumeError : nil
+  }
+
+  func failedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    return connections.map(\.id).filter { failedConnectionIds.contains($0) }
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    connections.map(\.id).filter { blockedConnectionIds.contains($0) }
+  }
+
+  func acknowledgePendingActionFailures(
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async {
+    failedConnectionIds.remove(connection.id)
+  }
+
+  func resumeCount() -> Int {
+    recordedResumeCount
+  }
+
+  func resumeWasCancelled() -> Bool {
+    recordedResumeWasCancelled
   }
 
   func send(
