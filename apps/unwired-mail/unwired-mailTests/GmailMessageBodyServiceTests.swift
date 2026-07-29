@@ -547,6 +547,56 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReconcileSkipsLegacyEntryEvictedFromDirectorySnapshot() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    try FileManager.default.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let encodedPayload = try JSONEncoder().encode(payload)
+    let messageIds = [
+      "gmail:gmail-user-001:legacy-001",
+      "gmail:gmail-user-001:legacy-002",
+    ]
+    for messageId in messageIds {
+      try encodedPayload.write(
+        to: bodyCacheURL(rootDirectory: rootDirectory, stableProviderMessageId: messageId)
+      )
+    }
+    let maximumByteCount = try encodedCacheEntrySize(
+      payload: payload,
+      rootDirectory: sizingDirectory
+    )
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: maximumByteCount,
+      rootDirectory: rootDirectory
+    )
+
+    try cache.reconcileSelection(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001",
+      protectedMessageIds: [],
+      pinnedMessageIds: []
+    )
+
+    XCTAssertLessThanOrEqual(
+      try cacheByteCount(rootDirectory: rootDirectory),
+      maximumByteCount
+    )
+  }
+
   func testPrefetchedBodyCanEvictProtectedCacheEntryWhenNecessary() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -720,6 +770,318 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         productAccountId: session.productAccountId,
         stableProviderMessageId: pinnedId
       )
+    )
+  }
+
+  func testFileCacheAdmissionUsesMetadataWithoutReadingUnrelatedPayloads() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    let unlimitedCache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let openedId = "gmail:gmail-user-001:opened"
+    let pinnedId = "gmail:gmail-user-002:pinned"
+    let incomingId = "gmail:gmail-user-001:incoming"
+    XCTAssertTrue(
+      try unlimitedCache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .opened, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: openedId
+      )
+    )
+    XCTAssertTrue(
+      try unlimitedCache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: pinnedId
+      )
+    )
+    let pinnedURL = bodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: pinnedId
+    )
+    try Data("unreadable encrypted payload".utf8).write(to: pinnedURL)
+    let incomingSize = try encodedCacheEntrySize(
+      payload: payload,
+      rootDirectory: sizingDirectory
+    )
+
+    try saveForcingOneEviction(
+      payload: payload,
+      stableProviderMessageId: incomingId,
+      incomingSize: incomingSize,
+      rootDirectory: rootDirectory
+    )
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: pinnedURL.path))
+    XCTAssertNil(
+      try unlimitedCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: openedId
+      )
+    )
+    XCTAssertNotNil(
+      try unlimitedCache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: incomingId
+      )
+    )
+  }
+
+  func testFileCacheAccessUsesMetadataWithoutReadingUnrelatedPayloads() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(maximumByteCount: .max, rootDirectory: rootDirectory)
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let accessedId = "gmail:gmail-user-001:accessed"
+    let unrelatedId = "gmail:gmail-user-002:unrelated"
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: accessedId
+      )
+    )
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: unrelatedId
+      )
+    )
+    let unrelatedURL = bodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: unrelatedId
+    )
+    try Data("unreadable encrypted payload".utf8).write(to: unrelatedURL)
+
+    try cache.recordMessageBodyAccess(
+      productAccountId: session.productAccountId,
+      stableProviderMessageId: accessedId,
+      accessedAt: Date(timeIntervalSince1970: 3)
+    )
+
+    XCTAssertTrue(FileManager.default.fileExists(atPath: unrelatedURL.path))
+  }
+
+  func testFileCacheRejectsStaleMetadataAfterInterruptedBodyReplacement() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    let cache = FileGmailMessageBodyCache(maximumByteCount: .max, rootDirectory: rootDirectory)
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let replacedId = "gmail:gmail-user-001:replaced"
+    let prefetchedId = "gmail:gmail-user-002:prefetched"
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, isPinned: true, cachedAt: 2),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: replacedId
+      )
+    )
+    try JSONEncoder().encode(payload).write(
+      to: bodyCacheURL(
+        rootDirectory: rootDirectory,
+        stableProviderMessageId: replacedId
+      ),
+      options: [.atomic]
+    )
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: prefetchedId
+      )
+    )
+    let incomingSize = try encodedCacheEntrySize(
+      payload: payload,
+      rootDirectory: sizingDirectory
+    )
+
+    try saveForcingOneEviction(
+      payload: payload,
+      stableProviderMessageId: "gmail:gmail-user-001:incoming",
+      incomingSize: incomingSize,
+      rootDirectory: rootDirectory
+    )
+
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: replacedId
+      )
+    )
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: prefetchedId
+      )
+    )
+  }
+
+  func testFileCacheAdmissionPrunesOrphanedMetadataWithinMaximumByteCount() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let orphanedId = "gmail:gmail-user-001:orphaned"
+    let unlimitedCache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    XCTAssertTrue(
+      try unlimitedCache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: orphanedId
+      )
+    )
+    let orphanedBodyURL = bodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: orphanedId
+    )
+    let orphanedMetadataURL = orphanedBodyURL.deletingPathExtension()
+      .appendingPathExtension("metadata")
+      .appendingPathExtension("json")
+    try FileManager.default.removeItem(at: orphanedBodyURL)
+    XCTAssertTrue(FileManager.default.fileExists(atPath: orphanedMetadataURL.path))
+
+    let incomingSize = try encodedCacheEntrySize(
+      payload: payload,
+      rootDirectory: sizingDirectory
+    )
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: incomingSize,
+      rootDirectory: rootDirectory
+    )
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 2),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: "gmail:gmail-user-001:incoming"
+      )
+    )
+
+    XCTAssertFalse(FileManager.default.fileExists(atPath: orphanedMetadataURL.path))
+    XCTAssertLessThanOrEqual(
+      try cacheByteCount(rootDirectory: rootDirectory),
+      incomingSize
+    )
+  }
+
+  func testFileCacheOverwriteReservesExistingLargerMetadataSidecar() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    let sizingDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+      try? FileManager.default.removeItem(at: sizingDirectory)
+    }
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let destinationId = "gmail:gmail-user-001:destination"
+    let otherId = "gmail:gmail-user-002:other"
+    let unlimitedCache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    for messageId in [destinationId, otherId] {
+      XCTAssertTrue(
+        try unlimitedCache.saveMessageBody(
+          cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+          productAccountId: session.productAccountId,
+          stableProviderMessageId: messageId
+        )
+      )
+    }
+    let entrySize = try encodedCacheEntrySize(
+      payload: payload,
+      rootDirectory: sizingDirectory
+    )
+    let destinationURL = bodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: destinationId
+    )
+    let destinationMetadataURL = destinationURL.deletingPathExtension()
+      .appendingPathExtension("metadata")
+      .appendingPathExtension("json")
+    try Data(repeating: 0, count: entrySize).write(to: destinationMetadataURL)
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: entrySize * 2,
+      rootDirectory: rootDirectory
+    )
+
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: destinationId
+      )
+    )
+
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: otherId
+      )
+    )
+    XCTAssertLessThanOrEqual(
+      try cacheByteCount(rootDirectory: rootDirectory),
+      entrySize * 2
     )
   }
 
