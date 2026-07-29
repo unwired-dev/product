@@ -3752,7 +3752,10 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
         providerAccountIdentifier: connection.providerMailboxIdentity.value
       )
     else { throw MailboxConnectionAdapterError.authorizationRequired }
-    guard tokens.authorizationGeneration == definition.authorizationGeneration else {
+    guard
+      connection.authorizationGeneration == definition.authorizationGeneration,
+      tokens.authorizationGeneration == definition.authorizationGeneration
+    else {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
     let refreshed: MicrosoftGraphTokens

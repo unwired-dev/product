@@ -1771,6 +1771,7 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(client.accessTokens.last, authorizer.refreshResult.accessToken)
   }
 
+  // swiftlint:disable:next function_body_length
   func testRejectedAccessTokenDoesNotRefreshAfterAuthorizationGenerationAdvances()
     async throws
   {
@@ -1781,9 +1782,6 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     let definitions = RecordingMicrosoftGraphDefinitionSyncService(
       definitions: [graphConnectionDefinition]
     )
-    client.onRejectedAccessToken = {
-      definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
-    }
     let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
     try tokenStore.save(
       MicrosoftGraphTokens(
@@ -1795,6 +1793,20 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId,
       providerAccountIdentifier: graphAccount.id
     )
+    client.onRejectedAccessToken = {
+      definitions.definitions = [graphConnectionDefinition.withAuthorizationGeneration(1)]
+      try tokenStore.save(
+        MicrosoftGraphTokens(
+          accessToken: "replacement-token",
+          authorizationGeneration: 1,
+          expiresAtMilliseconds: 4_000_000_000_000,
+          grantedScopes: fullGraphMailScopes,
+          refreshToken: "replacement-refresh-token"
+        ),
+        productAccountId: self.session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    }
     let adapter = try makeAdapter(
       authorizer: authorizer,
       client: client,
@@ -1812,6 +1824,13 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     }
     XCTAssertEqual(authorizer.refreshedTokens, 0)
     XCTAssertEqual(client.accessTokens, ["access-token"])
+    XCTAssertEqual(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )?.accessToken,
+      "replacement-token"
+    )
   }
 
   func testWrappedSendUnauthorizedErrorRefreshesAndRetries() async throws {
@@ -3064,7 +3083,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var metadataPageDidLoad: (() -> Void)?
   var moveAttempts = 0
   var moveErrors: [Error] = []
-  var onRejectedAccessToken: (() -> Void)?
+  var onRejectedAccessToken: (() throws -> Void)?
   var pages: [String: MicrosoftGraphMetadataPage] = [:]
   var rejectedAccessTokens: Set<String> = []
   var requestedContinuations: [String?] = []
@@ -3178,7 +3197,7 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
 
   private func validate(_ accessToken: String) throws {
     if rejectedAccessTokens.contains(accessToken) {
-      onRejectedAccessToken?()
+      try onRejectedAccessToken?()
       throw MicrosoftGraphClientError.requestFailed(401)
     }
   }
