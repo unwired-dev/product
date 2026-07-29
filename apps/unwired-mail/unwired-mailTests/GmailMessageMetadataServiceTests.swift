@@ -1395,6 +1395,29 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessKeepsSyncingStatusUntilEveryScopeFinishes() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
+    let connection = fixture.connections[0]
+
+    let recent = Task { @MainActor in
+      await fixture.viewModel.synchronize(connections: [connection])
+    }
+    await fixture.service.waitUntilSyncStarts()
+    let full = Task { @MainActor in
+      try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    }
+    await fixture.service.waitUntilSyncStarts(callCount: 2)
+
+    await fixture.service.releaseNextSync()
+    await recent.value
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+
+    await fixture.service.releaseNextSync()
+    _ = try await full.value
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
   func testMailboxFreshnessKeepsCoalescedSyncRunningWhenFirstCallerIsCancelled() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsSync: true)
     let connection = fixture.connections[0]
@@ -1478,6 +1501,18 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fixture.service.releaseHistoricalBackfill()
     await fulfillment(of: [statusPublished], timeout: 1)
 
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
+  func testMailboxFreshnessDoesNotStartBackfillWithoutDurableCheckpoint() async {
+    let fixture = makeMailboxFreshnessFixture(outcomes: [.incompleteWithoutCheckpoint])
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+
+    let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
+    XCTAssertTrue(reconciledConnectionIds.isEmpty)
     XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
   }
 
@@ -4327,6 +4362,7 @@ private actor OneShotMailboxPollSleeper {
 private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   enum Outcome {
     case incomplete
+    case incompleteWithoutCheckpoint
     case offline
     case success
   }
@@ -4416,6 +4452,16 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
         newMessageIds: nil,
         providerCursorIsExpired: false,
         threads: [],
+        historicalMetadataBackfillIsComplete: false
+      )
+    case .incompleteWithoutCheckpoint:
+      return MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: [],
+        historicalMetadataBackfillCanResume: false,
         historicalMetadataBackfillIsComplete: false
       )
     case .offline:
@@ -4532,6 +4578,11 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     for continuation in continuations {
       continuation.resume()
     }
+  }
+
+  func releaseNextSync() {
+    guard !syncContinuations.isEmpty else { return }
+    syncContinuations.removeFirst().resume()
   }
 
   private func cancelSuspendedSync() {

@@ -248,8 +248,13 @@ final class MailboxFreshnessViewModel {
     if connection.authorizationState == .required {
       return .authorizationRequired(lastSuccessfulSyncAt: lastSuccessfulSyncAt)
     }
-    return statuses[connection.id]
+    let status =
+      statuses[connection.id]
       ?? MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .idle)
+    guard hasInFlightSync(connectionId: connection.id), status.phase != .syncing else {
+      return status
+    }
+    return MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .syncing)
   }
 
   func recordExternalSync(
@@ -358,7 +363,9 @@ final class MailboxFreshnessViewModel {
           } else {
             try await syncInbox(connection: connection, session: session)
           }
-        if !result.historicalMetadataBackfillIsComplete {
+        if result.historicalMetadataBackfillCanResume,
+          !result.historicalMetadataBackfillIsComplete
+        {
           startHistoricalBackfill(connection: connection)
         }
       } catch is CancellationError {
