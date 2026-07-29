@@ -1483,7 +1483,7 @@ struct GmailMessageMetadataService:
       try store.loadSyncState(
         productAccountId: session.productAccountId,
         providerAccountIdentifier: connection.providerAccountIdentifier
-      )?.historicalMetadataBackfillIsComplete ?? true
+      )?.historicalMetadataBackfillIsComplete ?? false
     let addedMessageIds = inboxHistoryChanges?.addedMessageIds
     let visibleMessages = inboxMessages(fetchedMessages)
     return GmailMetadataSyncResult(

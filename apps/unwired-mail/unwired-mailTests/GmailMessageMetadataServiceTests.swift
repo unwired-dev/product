@@ -2554,6 +2554,17 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(recent.historicalMetadataBackfillIsComplete)
   }
 
+  func testSyncRecentInboxTreatsMissingHistoricalBackfillStateAsIncomplete() async throws {
+    let fixture = try makeSyncFixture(usesPagination: true)
+
+    let result = try await fixture.service.syncRecentInbox(
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(result.historicalMetadataBackfillIsComplete)
+  }
+
   func testSyncRecentInboxRemovesMessagesExcludedByGmailHistory() async throws {
     let fixture = try makeSyncFixture(
       historyResponseData: Data(

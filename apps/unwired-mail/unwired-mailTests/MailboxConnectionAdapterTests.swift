@@ -4282,6 +4282,28 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailActionViewModelLeavesBulkActionsEnqueuedDuringHistoricalBackfill() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      resumesPendingActions: false
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertNil(viewModel.errorMessage)
+    XCTAssertFalse(viewModel.isPerformingAction)
+  }
+
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
