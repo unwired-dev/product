@@ -10,7 +10,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
         """
         <table width="100%" cellpadding="8" cellspacing="0" style="border-collapse: collapse">
           <tr>
-            <td align="center" style="color: #123456; background-image: url(https://tracker.test/pixel)">
+            <td align="center" style="font-weight: bold; background-image: url(https://tracker.test/pixel)">
               <strong>Receipt</strong>
             </td>
           </tr>
@@ -23,7 +23,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.bodyHTML.contains("width=\"100%\""))
     XCTAssertTrue(result.bodyHTML.contains("cellpadding=\"8\""))
     XCTAssertTrue(result.bodyHTML.contains("border-collapse:collapse"))
-    XCTAssertTrue(result.bodyHTML.contains("color:#123456"))
+    XCTAssertTrue(result.bodyHTML.contains("font-weight:bold"))
     XCTAssertFalse(result.bodyHTML.contains("background-image"))
     XCTAssertTrue(result.bodyHTML.contains("<strong>Receipt</strong>"))
   }
@@ -128,14 +128,21 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.documentHTML.contains("<p>Hello</p>"))
   }
 
-  func testSanitizedDocumentUsesANeutralLightCanvasForFixedEmailColors() throws {
+  func testSanitizedDocumentNormalizesEmailColorsOntoANeutralLightCanvas() throws {
     let result = try XCTUnwrap(
-      MessageHTMLSanitizer.sanitize(#"<p style="color: #000">Hello</p>"#)
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p style="color: #fff; background-color: #000;
+          background-image: url(https://example.com/background.png)">Hello</p>
+        """
+      )
     )
 
-    XCTAssertTrue(result.bodyHTML.contains("color:#000"))
+    XCTAssertFalse(result.bodyHTML.contains("color:"))
+    XCTAssertFalse(result.bodyHTML.contains("background"))
     XCTAssertTrue(result.documentHTML.contains(":root { color-scheme: light; }"))
     XCTAssertTrue(result.documentHTML.contains("background: #fff;"))
+    XCTAssertTrue(result.documentHTML.contains("color: #111;"))
   }
 
   func testPresentationUsesHTMLAndFallsBackForMissingSanitizationOrRenderingFailure() {

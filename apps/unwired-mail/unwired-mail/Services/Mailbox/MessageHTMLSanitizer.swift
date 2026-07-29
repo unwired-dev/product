@@ -73,17 +73,17 @@ enum MessageHTMLSanitizer {
       .addEnforcedAttribute("a", "rel", "noreferrer noopener")
       .addCSSProperties(
         ":all",
-        "background-color", "border", "border-bottom", "border-bottom-color",
-        "border-bottom-style", "border-bottom-width", "border-collapse", "border-color",
+        "border", "border-bottom", "border-bottom-color", "border-bottom-style",
+        "border-bottom-width", "border-collapse", "border-color",
         "border-left", "border-left-color", "border-left-style", "border-left-width",
         "border-right", "border-right-color", "border-right-style", "border-right-width",
         "border-spacing", "border-style", "border-top", "border-top-color",
-        "border-top-style", "border-top-width", "border-width", "color", "display",
-        "font-family", "font-size", "font-style", "font-weight", "height", "letter-spacing",
-        "line-height", "margin", "margin-bottom", "margin-left", "margin-right", "margin-top",
-        "max-width", "min-width", "padding", "padding-bottom", "padding-left",
-        "padding-right", "padding-top", "text-align", "text-decoration", "text-indent",
-        "text-transform", "vertical-align", "white-space", "width", "word-break", "word-wrap"
+        "border-top-style", "border-top-width", "border-width", "display", "font-family",
+        "font-size", "font-style", "font-weight", "height", "letter-spacing", "line-height",
+        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-width",
+        "min-width", "padding", "padding-bottom", "padding-left", "padding-right", "padding-top",
+        "text-align", "text-decoration", "text-indent", "text-transform", "vertical-align",
+        "white-space", "width", "word-break", "word-wrap"
       )
   }
 
