@@ -2593,6 +2593,16 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
           _ = try await definitionSyncService.saveConnection(connection, session: session)
         }
         return connection
+      } catch let error as MailboxConnectionSyncError {
+        if case .connectionRemoved = error {
+          try? tokenStore.clear(
+            productAccountId: session.productAccountId,
+            providerAccountIdentifier: account.id
+          )
+        } else {
+          restore(previousTokens, for: account, session: session)
+        }
+        throw error
       } catch {
         restore(previousTokens, for: account, session: session)
         throw error

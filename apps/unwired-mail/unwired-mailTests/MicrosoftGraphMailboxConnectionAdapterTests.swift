@@ -88,6 +88,50 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(definitionJSON.contains(authorizer.authorizedTokens.refreshToken))
   }
 
+  func testConnectClearsExistingTokensWhenRecreationIsRejected() async throws {
+    let authorizer = RecordingMicrosoftGraphAuthorizer()
+    let definitions = RecordingMicrosoftGraphDefinitionSyncService()
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: graphConnectionId,
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let tokenStore = InMemoryMicrosoftGraphAuthorizationStore()
+    try tokenStore.save(
+      MicrosoftGraphTokens(
+        accessToken: "previous-access-token",
+        expiresAtMilliseconds: 4_000_000_000_000,
+        grantedScopes: fullGraphMailScopes,
+        refreshToken: "previous-refresh-token"
+      ),
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: graphAccount.id
+    )
+    let adapter = try makeAdapter(
+      authorizer: authorizer,
+      client: RecordingMicrosoftGraphClient(),
+      definitions: definitions,
+      tokenStore: tokenStore
+    )
+
+    do {
+      _ = try await adapter.connect(
+        session: session,
+        isSessionCurrent: { $0 == self.session }
+      )
+      XCTFail("Expected synchronized recreation to report the removal")
+    } catch let error as MailboxConnectionSyncError {
+      XCTAssertEqual(error, .connectionRemoved(removalObservation))
+    }
+
+    XCTAssertNil(
+      try tokenStore.load(
+        productAccountId: session.productAccountId,
+        providerAccountIdentifier: graphAccount.id
+      )
+    )
+  }
+
   func testFullCapabilitiesRequestWriteAndSendScopes() throws {
     let request = MicrosoftGraphOAuthRequest(
       callbackScheme: "msauth.dev.unwired.mail",
@@ -3224,6 +3268,7 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
   var definitions: [MailboxConnectionDefinition]
   var removedConnectionIds: [MailboxConnectionId] = []
   var recreatedDefinitionCount = 0
+  var recreateError: Error?
   var savedDefinition: MailboxConnectionDefinition?
 
   init(definitions: [MailboxConnectionDefinition] = []) {
@@ -3261,6 +3306,7 @@ private final class RecordingMicrosoftGraphDefinitionSyncService:
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     recreatedDefinitionCount += 1
+    if let recreateError { throw recreateError }
     return try await saveDefinition(definition, session: session)
   }
 

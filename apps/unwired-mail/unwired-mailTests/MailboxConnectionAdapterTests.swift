@@ -504,6 +504,36 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
+  func testViewModelClearsRecreationObservationAfterConcurrentModification() async {
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: adapterConnectionId,
+      removedAt: 1_781_200_000_500
+    )
+    definitionSyncService.recreateError =
+      MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      credentialVerifier: RecordingAdapterCredentialVerifier(),
+      definitionSyncService: definitionSyncService,
+      oauthAuthorizer: RecordingAdapterOAuthAuthorizer()
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.connect()
+    definitionSyncService.recreateError = MailboxConnectionSyncError.concurrentModification
+
+    _ = await viewModel.connect()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
+    definitionSyncService.recreateError = nil
+    _ = await viewModel.connect()
+    XCTAssertNil(definitionSyncService.recreationObservation)
+  }
+
   func testViewModelRefreshesItsConnectionSnapshotAfterMetadataSync() async throws {
     let connectionService = RecordingAdapterConnectionService()
     let adapter = GmailMailboxConnectionAdapter(

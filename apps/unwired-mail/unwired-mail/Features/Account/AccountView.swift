@@ -5547,10 +5547,17 @@ final class MailboxProviderConnectionViewModel {
       }
     } catch is CancellationError {
     } catch let error as MailboxConnectionSyncError {
-      if case .connectionRemoved(let observation) = error {
+      switch error {
+      case .connectionRemoved(let observation):
         removalObservation = observation
         try? await refreshConnections()
         restoreSelection()
+      case .concurrentModification:
+        removalObservation = nil
+        try? await refreshConnections()
+        restoreSelection()
+      case .invalidDefaultSendingConnection, .missingProductSyncKeyMaterial:
+        break
       }
       errorMessage = error.localizedDescription
     } catch {
