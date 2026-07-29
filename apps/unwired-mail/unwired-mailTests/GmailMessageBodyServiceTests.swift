@@ -547,6 +547,47 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReconcileScansCacheOnceForSelectionAndOnceForCapacity() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let fileManager = CountingFileManager()
+    let cache = FileGmailMessageBodyCache(
+      fileManager: fileManager,
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: "ciphertext",
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let messageIds = [
+      "gmail:gmail-user-001:message-001",
+      "gmail:gmail-user-001:message-002",
+    ]
+    for messageId in messageIds {
+      try cache.saveMessageBody(
+        payload,
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: messageId
+      )
+    }
+    fileManager.contentsOfDirectoryCallCount = 0
+
+    try cache.reconcileSelection(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001",
+      protectedMessageIds: [messageIds[0]],
+      pinnedMessageIds: [messageIds[1]]
+    )
+
+    XCTAssertEqual(fileManager.contentsOfDirectoryCallCount, 2)
+  }
+
   func testReconcileSkipsLegacyEntryEvictedFromDirectorySnapshot() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -1369,6 +1410,23 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         tokenRefreshURL: URL(string: "https://gmail.example.test/token")!,
         tokenInfoURL: URL(string: "https://gmail.example.test/tokeninfo")!
       )
+    )
+  }
+}
+
+private final class CountingFileManager: FileManager, @unchecked Sendable {
+  var contentsOfDirectoryCallCount = 0
+
+  override func contentsOfDirectory(
+    at url: URL,
+    includingPropertiesForKeys keys: [URLResourceKey]?,
+    options mask: DirectoryEnumerationOptions = []
+  ) throws -> [URL] {
+    contentsOfDirectoryCallCount += 1
+    return try super.contentsOfDirectory(
+      at: url,
+      includingPropertiesForKeys: keys,
+      options: mask
     )
   }
 }

@@ -475,10 +475,6 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     Self.fileLock.lock()
     defer { Self.fileLock.unlock() }
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
-    try clearProtectedSelections(
-      productAccountId: productAccountId,
-      connectionId: connectionId
-    )
     let prefix = [
       gmailSafeFileComponent(productAccountId),
       gmailSafeFileComponent("\(connectionId.rawValue):"),
@@ -502,31 +498,10 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       guard var metadata = try metadata(for: fileURL)?.value else { continue }
       metadata.isPinned = pinnedFileNames.contains(fileURL.lastPathComponent)
       metadata.isProtected = protectedFileNames.contains(fileURL.lastPathComponent)
-      try writeMetadata(metadata, for: fileURL)
+      try JSONEncoder().encode(metadata)
+        .write(to: metadataURL(for: fileURL), options: [.atomic])
     }
     try enforceMaximumByteCount()
-  }
-
-  private func clearProtectedSelections(
-    productAccountId: String,
-    connectionId: MailboxConnectionId
-  ) throws {
-    let productPrefix = [
-      gmailSafeFileComponent(productAccountId),
-      gmailSafeFileComponent("\(connectionId.rawValue):"),
-    ].joined(separator: "-")
-    for fileURL in try fileManager.contentsOfDirectory(
-      at: rootDirectory,
-      includingPropertiesForKeys: nil
-    )
-    where
-      isBodyFile(fileURL)
-      && fileURL.lastPathComponent.hasPrefix(productPrefix)
-    {
-      guard var metadata = try metadata(for: fileURL)?.value else { continue }
-      metadata.isProtected = false
-      try writeMetadata(metadata, for: fileURL)
-    }
   }
 
   private func dataIfPresent(at fileURL: URL) throws -> Data? {
@@ -629,23 +604,6 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     }
     try writePendingMetadata(in: cachedFiles)
     return true
-  }
-
-  private func writeMetadata(
-    _ metadata: FileGmailMessageBodyCacheMetadata,
-    for fileURL: URL
-  ) throws {
-    guard
-      try writeMetadataIfFits(
-        metadata,
-        for: fileURL,
-        allowsProtectedEviction: true
-      )
-    else {
-      try? fileManager.removeItem(at: metadataURL(for: fileURL))
-      try fileManager.removeItem(at: fileURL)
-      return
-    }
   }
 
   private func metadata(for fileURL: URL) throws
