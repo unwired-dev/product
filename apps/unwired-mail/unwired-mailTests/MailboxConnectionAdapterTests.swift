@@ -4453,6 +4453,56 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailActionViewModelAggregatesDeferredBulkResumeFailures() async {
+    let firstConnection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let secondConnection = mailShellConnection(
+      emailAddress: "second@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed."
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
+        mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
+      ],
+      resumesPendingActions: false
+    )
+
+    XCTAssertEqual(
+      Set(result?.succeededConnectionIds ?? []),
+      [firstConnection.id, secondConnection.id]
+    )
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let errorsSurfaced = expectation(description: "deferred errors surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage == nil {
+        await Task.yield()
+      }
+      errorsSurfaced.fulfill()
+    }
+    await fulfillment(of: [errorsSurfaced], timeout: 1)
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed.\n"
+        + "second@example.com — Subject message-second "
+        + "[gmail:gmail-user-002:message-second]: The provider connection failed."
+    )
+  }
+
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",

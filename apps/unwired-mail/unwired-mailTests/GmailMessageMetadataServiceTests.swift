@@ -1130,6 +1130,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     let reconciledConnectionIds = await fixture.service.reconciledConnectionIds()
     XCTAssertEqual(reconciledConnectionIds, [connection.id])
+    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertFalse(
+      fixture.viewModel.isHistoricalBackfillRunning(for: [fixture.connections[1].id])
+    )
     XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
     XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
 
@@ -1851,6 +1855,43 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertFalse(viewModel.isRefreshDisabled)
     XCTAssertFalse(viewModel.areCachedMetadataActionsDisabled)
     XCTAssertFalse(viewModel.isHistoricalBackfillRunning)
+  }
+
+  @MainActor
+  func testInboxViewModelObservesCoordinatorHistoricalBackfill() async throws {
+    let service = DelayedMailboxSwitchingService(
+      messagesByProviderAccountIdentifier: [:],
+      delaysHistoricalBackfill: true
+    )
+    let coordinator = MailboxFreshnessViewModel(
+      service: service,
+      session: session,
+      isSessionCurrent: { _ in true }
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      syncCoordinator: coordinator,
+      session: session
+    )
+    let mailboxConnection = connection.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    coordinator.updateConnections([mailboxConnection])
+    let backfill = Task { @MainActor in
+      try await coordinator.continueHistoricalBackfill(
+        connection: mailboxConnection,
+        session: session
+      )
+    }
+    await service.waitUntilHistoricalBackfillStarts()
+
+    XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+
+    await service.releaseHistoricalBackfill()
+    _ = try await backfill.value
+    XCTAssertFalse(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
   }
 
   @MainActor
