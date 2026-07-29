@@ -4910,6 +4910,29 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertFalse(viewModel.isPerformingAction)
   }
 
+  func testMailActionViewModelRechecksBackfillBeforeResumingBulkAction() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume in background")
+    let service = DeferredBulkResumeService(resumeStarted: resumeStarted)
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      shouldDeferPendingActions: { _ in true }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertFalse(viewModel.isPerformingAction)
+    await fulfillment(of: [resumeStarted], timeout: 1)
+    let resumeCount = await service.resumeCount()
+    XCTAssertEqual(resumeCount, 1)
+  }
+
   func testMailActionViewModelResumesEnqueuedBulkActionsInBackground() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -5402,6 +5425,23 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await viewModel.prepareForSignOut()
 
     await fulfillment(of: [providerResumeStarted], timeout: 0.1)
+  }
+
+  func testMailActionViewModelRejectsBulkTaskRegistrationAfterSignOutBegins() async {
+    let operationStarted = expectation(description: "bulk task starts")
+    operationStarted.isInverted = true
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    await viewModel.prepareForSignOut()
+
+    viewModel.startPendingAction {
+      operationStarted.fulfill()
+    }
+
+    await fulfillment(of: [operationStarted], timeout: 0.1)
   }
 
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
