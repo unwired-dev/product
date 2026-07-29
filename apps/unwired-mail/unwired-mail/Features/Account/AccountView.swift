@@ -4346,7 +4346,10 @@ extension GmailMailActionViewModel {
       action,
       batches: batches,
       resumesPendingActions: resumesPendingActions,
-      onEnqueued: onEnqueued
+      onEnqueued: onEnqueued,
+      onDeferredResume: { [weak self] action, batch in
+        await self?.resumeDeferredPendingActions(action, batch: batch)
+      }
     )
     await refreshFailureConnections(knownConnections)
     let result = bulkActionResult(outcomes)
@@ -4361,7 +4364,9 @@ extension GmailMailActionViewModel {
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
     resumesPendingActions: Bool,
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void,
+    onDeferredResume:
+      @escaping @Sendable (ProviderMailAction, MailboxBulkActionBatch) async -> Void
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
     let session = self.session
@@ -4378,7 +4383,8 @@ extension GmailMailActionViewModel {
             service: service,
             session: session,
             resumesPendingActions: resumesPendingActions,
-            onEnqueued: onEnqueued
+            onEnqueued: onEnqueued,
+            onDeferredResume: onDeferredResume
           )
         }
       }
@@ -4395,7 +4401,7 @@ extension GmailMailActionViewModel {
     }
   }
 
-  // swiftlint:disable:next function_parameter_count function_body_length
+  // swiftlint:disable:next function_parameter_count
   nonisolated private static func performBulkBatch(
     _ action: ProviderMailAction,
     batch: MailboxBulkActionBatch,
@@ -4403,7 +4409,9 @@ extension GmailMailActionViewModel {
     service: MailboxProviderMailActing,
     session: ProductAccountSessionSnapshot,
     resumesPendingActions: Bool,
-    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
+    onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void,
+    onDeferredResume:
+      @escaping @Sendable (ProviderMailAction, MailboxBulkActionBatch) async -> Void
   ) async -> MailboxBulkActionBatchOutcome {
     do {
       try await service.perform(
@@ -4416,11 +4424,9 @@ extension GmailMailActionViewModel {
       )
       await onEnqueued(batch.connection)
       guard resumesPendingActions else {
-        schedulePendingActionResume(
-          service: service,
-          connection: batch.connection,
-          session: session
-        )
+        Task {
+          await onDeferredResume(action, batch)
+        }
         return bulkActionOutcome(
           batch,
           index: batchIndex,
@@ -4459,13 +4465,36 @@ extension GmailMailActionViewModel {
     }
   }
 
-  nonisolated private static func schedulePendingActionResume(
-    service: MailboxProviderMailActing,
-    connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
-  ) {
-    Task {
-      _ = await service.resumePendingActions(connection: connection, session: session)
+  private func resumeDeferredPendingActions(
+    _ action: ProviderMailAction,
+    batch: MailboxBulkActionBatch
+  ) async {
+    let resumeError = await service.resumePendingActions(
+      connection: batch.connection,
+      session: session
+    )
+    let retryError = await service.waitForPendingActionRetries(
+      connection: batch.connection,
+      session: session
+    )
+    let failureDetails = await service.pendingActionFailureDetails(
+      action,
+      messages: batch.messages,
+      connection: batch.connection,
+      session: session
+    )
+    await refreshFailureConnections(knownConnections)
+    let result = bulkActionResult([
+      Self.bulkActionOutcome(
+        batch,
+        index: 0,
+        errorDescription: failureDetails?.isEmpty != false
+          ? Self.combinedErrorDescription([resumeError, retryError]) : nil,
+        failureDetails: failureDetails
+      )
+    ])
+    if !result.failures.isEmpty {
+      errorMessage = result.failures.map(Self.failureDescription).joined(separator: "\n")
     }
   }
 

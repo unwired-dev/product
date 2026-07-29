@@ -1858,14 +1858,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMetadataSyncResult {
     try await syncGate.withLock(connection.id) {
       try Task.checkCancellation()
+      let gmailConnection = try await gmailConnectionForProviderAccess(
+        connection,
+        session: session,
+        connectionIsLocked: true
+      )
       let result = try await metadataService.continueHistoricalBackfill(
-        connection: try await gmailConnectionForProviderAccess(
-          connection,
-          session: session,
-          connectionIsLocked: true
-        ),
+        connection: gmailConnection,
         session: session
       )
+      if result.historicalMetadataBackfillIsComplete {
+        let observedMessages = try await metadataService.loadMailbox(
+          .allObserved,
+          connection: gmailConnection,
+          session: session
+        )
+        try await reconcileAndResumePendingActions(
+          messages: observedMessages.messages.map {
+            $0.mailboxMetadata(connectionId: connection.id)
+          },
+          removesContradictedActions: true,
+          connection: connection,
+          session: session
+        )
+      }
       return result.mailboxResult(connectionId: connection.id)
     }
   }
