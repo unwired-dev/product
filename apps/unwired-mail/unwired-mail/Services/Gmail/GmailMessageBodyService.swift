@@ -1441,7 +1441,7 @@ private struct GmailMessageBodyPart: Decodable {
       return nil
     }
     if mimeType == "multipart/alternative",
-      readablePlainTextPart != nil || readableHTMLPart != nil
+      preferredNonEmptyPlainTextPart != nil || preferredNonEmptyHTMLPart != nil
     {
       return self
     }
@@ -1482,7 +1482,7 @@ private struct GmailMessageBodyPart: Decodable {
     guard !isAttachment else {
       return nil
     }
-    if mimeType == "text/html", hasNonEmptyBodyData {
+    if mimeType == "text/html", hasDecodableNonEmptyBodyData {
       return self
     }
     return parts?.lazy.compactMap(\.preferredNonEmptyHTMLPart).first
@@ -1522,8 +1522,11 @@ private struct GmailMessageBodyPart: Decodable {
     body?.attachmentId != nil || body?.data != nil
   }
 
-  private var hasNonEmptyBodyData: Bool {
-    body?.attachmentId != nil || body?.data?.isEmpty == false
+  private var hasDecodableNonEmptyBodyData: Bool {
+    guard let encodedBody = body?.data else {
+      return body?.attachmentId != nil
+    }
+    return Data(gmailBase64URLEncoded: encodedBody)?.isEmpty == false
   }
 
   private var hasNonWhitespacePlainTextBodyData: Bool {
