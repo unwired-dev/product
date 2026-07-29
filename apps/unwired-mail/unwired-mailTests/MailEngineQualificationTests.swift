@@ -59,6 +59,7 @@ protocol MailEngineQualificationCandidateFactory: Sendable {
   ) -> any MailEngine
   func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws
+  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws
 }
 
 enum MailEngineQualificationFixture: Sendable {
@@ -91,6 +92,7 @@ enum MailEngineSMTPStage: Sendable {
   case dataRejectedBeforeSubmission(code: Int)
   case finalResponse(code: Int)
   case recipientRejectedBeforeSubmission(code: Int)
+  case senderRejectedBeforeSubmission(code: Int)
   case transportUnavailableBeforeSubmission
 }
 
@@ -101,10 +103,24 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
   case bodyFetchCancelled(connectionID: String)
   case bodyFetchStarted(connectionID: String)
   case closed(connectionID: String)
+  case copyReceived(
+    connectionID: String,
+    sourceUIDs: [Int64],
+    sourceUIDValidity: Int64,
+    sourceMailbox: MailEngineMailboxIdentity,
+    destinationMailbox: MailEngineMailboxIdentity
+  )
   case idleCancelled(connectionID: String)
   case idleEventDelivered(connectionID: String, event: MailEngineIdleEvent)
   case idleStarted(connectionID: String)
   case movePreservedUnrelatedDeletedUIDs(connectionID: String, uids: [Int64])
+  case moveReceived(
+    connectionID: String,
+    sourceUIDs: [Int64],
+    sourceUIDValidity: Int64,
+    sourceMailbox: MailEngineMailboxIdentity,
+    destinationMailbox: MailEngineMailboxIdentity
+  )
   case serviceClosed(connectionID: String, service: MailEngineService)
   case sentAppend(connectionID: String)
   case sentAppendReceived(
@@ -113,6 +129,7 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
     rawMessage: Data
   )
   case submitted(connectionID: String)
+  case submissionContentAccepted(connectionID: String)
   case submissionReceived(
     connectionID: String,
     envelope: MailEngineEnvelope,
@@ -136,9 +153,9 @@ extension MailEngineQualificationEvent {
       eventConnectionID == connectionID && eventService == service
     case .serviceClosed(let eventConnectionID, let eventService):
       eventConnectionID == connectionID && eventService == service
-    case .bodyFetchCancelled, .bodyFetchStarted, .closed, .idleCancelled, .idleEventDelivered,
-      .idleStarted,
-      .movePreservedUnrelatedDeletedUIDs, .sentAppend, .sentAppendReceived, .submitted,
+    case .bodyFetchCancelled, .bodyFetchStarted, .closed, .copyReceived, .idleCancelled,
+      .idleEventDelivered, .idleStarted, .movePreservedUnrelatedDeletedUIDs, .moveReceived,
+      .sentAppend, .sentAppendReceived, .submissionContentAccepted, .submitted,
       .submissionReceived:
       false
     }
@@ -350,6 +367,21 @@ struct MailEngineQualificationContract {
       to: archive
     )
 
+    assertSuccessfulUIDMappings(copy: copy, move: move, inbox: inbox, archive: archive)
+    await assertSuccessfulUIDCommands(inbox: inbox, archive: archive)
+    try await verifyInvalidUIDMappings(inbox: inbox, archive: archive)
+    try await verifyPermanentIMAPRejection()
+    try await verifyReducedCapabilityMoveSafety(inbox: inbox, archive: archive)
+    try await verifyUnknownMutationOutcome(inbox: inbox, archive: archive)
+    try await verifyUIDValidityReset(inbox: inbox, archive: archive)
+  }
+
+  private func assertSuccessfulUIDMappings(
+    copy: MailEngineUIDMapping,
+    move: MailEngineUIDMapping,
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) {
     XCTAssertEqual(copy.sourceMailbox, inbox)
     XCTAssertEqual(copy.sourceUIDValidity, 44)
     XCTAssertEqual(copy.destinationMailbox, archive)
@@ -372,11 +404,35 @@ struct MailEngineQualificationContract {
         MailEngineUIDPair(destinationUID: 208, sourceUID: 8),
       ]
     )
-    try await verifyInvalidUIDMappings(inbox: inbox, archive: archive)
-    try await verifyPermanentIMAPRejection()
-    try await verifyReducedCapabilityMoveSafety(inbox: inbox, archive: archive)
-    try await verifyUnknownMutationOutcome(inbox: inbox, archive: archive)
-    try await verifyUIDValidityReset(inbox: inbox, archive: archive)
+  }
+
+  private func assertSuccessfulUIDCommands(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async {
+    let events = await factory.events()
+    XCTAssertTrue(
+      events.contains(
+        .copyReceived(
+          connectionID: "connection-a",
+          sourceUIDs: [5, 4],
+          sourceUIDValidity: 44,
+          sourceMailbox: inbox,
+          destinationMailbox: archive
+        )
+      )
+    )
+    XCTAssertTrue(
+      events.contains(
+        .moveReceived(
+          connectionID: "connection-a",
+          sourceUIDs: [9, 8],
+          sourceUIDValidity: 44,
+          sourceMailbox: inbox,
+          destinationMailbox: archive
+        )
+      )
+    )
   }
 
   private func verifyUnknownMutationOutcome(
@@ -809,10 +865,25 @@ struct MailEngineQualificationContract {
     }
     try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
     fetchTask.cancel()
-    do {
-      _ = try await fetchTask.value
+    let completion = LockedBox<Result<[MailEngineBodyPart], Error>?>(nil)
+    let completionObserver = Task {
+      let result = await fetchTask.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      completionObserver.cancel()
+      XCTFail("Timed out waiting for body-fetch cancellation.")
+      return
+    }
+    switch result {
+    case .success:
       XCTFail("Cancelling the first body fetch must report cancellation.")
-    } catch {
+    case .failure(let error):
       XCTAssertEqual(error as? MailEngineError, .cancelled)
     }
     let secondPage = try await second.loadMetadataPage(
@@ -881,7 +952,7 @@ struct MailEngineQualificationContract {
     let session = try await connect(fixture: .smtpStages(stages)).session
     var observed: [MailEngineSMTPOutcome] = []
     let envelope = MailEngineEnvelope(
-      recipients: ["recipient@example.com"],
+      recipients: ["first-recipient@example.com", "second-recipient@example.com"],
       sender: "sender@example.com"
     )
     let rawMessage = Data("Subject: Contract\r\n\r\nBody".utf8)
@@ -895,12 +966,13 @@ struct MailEngineQualificationContract {
     }
     XCTAssertEqual(observed, expectedOutcomes)
     try await verifySMTPCancellation()
+    try await verifyPostContentSMTPCancellation()
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
     XCTAssertEqual(
       events.filter { $0 == .submitted(connectionID: "connection-a") }.count,
-      stages.count + 1
+      stages.count + 2
     )
     XCTAssertEqual(
       events.filter {
@@ -924,26 +996,28 @@ struct MailEngineQualificationContract {
       [
         .transportUnavailableBeforeSubmission,
         .authenticationRejectedBeforeSubmission,
+        .senderRejectedBeforeSubmission(code: 451),
+        .senderRejectedBeforeSubmission(code: 550),
         .recipientRejectedBeforeSubmission(code: 451),
         .recipientRejectedBeforeSubmission(code: 550),
         .dataRejectedBeforeSubmission(code: 451),
         .dataRejectedBeforeSubmission(code: 550),
         .finalResponse(code: 451),
         .finalResponse(code: 550),
-        .cancelledAfterMessageContent,
         .connectionLostAfterSubmission,
         .accepted(serverMessageID: "smtp-message-1"),
       ],
       [
         .notSubmitted(.transportUnavailable),
         .notSubmitted(.authentication),
+        .notSubmitted(.senderRejected(code: 451)),
+        .notSubmitted(.senderRejected(code: 550)),
         .notSubmitted(.recipientRejected(code: 451)),
         .notSubmitted(.recipientRejected(code: 550)),
         .notSubmitted(.dataRejected(code: 451)),
         .notSubmitted(.dataRejected(code: 550)),
         .transientlyRejected(code: 451),
         .permanentlyRejected(code: 550),
-        .ambiguous,
         .ambiguous,
         .accepted(serverMessageID: "smtp-message-1"),
       ]
@@ -968,21 +1042,60 @@ struct MailEngineQualificationContract {
     }
   }
 
+  private func verifyPostContentSMTPCancellation() async throws {
+    let session = try await connect(
+      fixture: .smtpStages([.cancelledAfterMessageContent])
+    ).session
+    let submissionTask = Task {
+      try await session.submit(
+        envelope: MailEngineEnvelope(
+          recipients: ["first-recipient@example.com", "second-recipient@example.com"],
+          sender: "sender@example.com"
+        ),
+        rawMessage: Data("Subject: Post-content cancellation\r\n\r\nPrivate body".utf8)
+      )
+    }
+    try await factory.waitForSubmissionContentStarts(1, timeout: .seconds(2))
+    submissionTask.cancel()
+    let completion = LockedBox<Result<MailEngineSMTPOutcome, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await submissionTask.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      completionObserver.cancel()
+      XCTFail("Timed out waiting for post-content SMTP cancellation.")
+      return
+    }
+    switch result {
+    case .success(let outcome):
+      XCTAssertEqual(outcome, .ambiguous)
+    case .failure(let error):
+      XCTFail("Post-content cancellation must be ambiguous, not \(error).")
+    }
+  }
+
   private func verifySentAppendRecovery() async throws {
     let sentRecoverySession = try await connect(fixture: .sentAppendFailsOnce).session
-    let rawMessage = Data("message".utf8)
+    let sentMailbox = MailEngineMailboxIdentity("Sent")
+    let rawMessage = Data("Subject: Sent recovery\r\n\r\nBody".utf8)
     let accepted = try await sentRecoverySession.submit(
       envelope: MailEngineEnvelope(
         recipients: ["recipient@example.com"],
         sender: "sender@example.com"
       ),
-      rawMessage: Data("Subject: Sent recovery\r\n\r\nBody".utf8)
+      rawMessage: rawMessage
     )
     XCTAssertEqual(accepted, .accepted(serverMessageID: "smtp-message-1"))
     do {
       _ = try await sentRecoverySession.appendToSent(
         rawMessage,
-        mailbox: MailEngineMailboxIdentity("Sent")
+        mailbox: sentMailbox
       )
       XCTFail("The first Sent append should fail.")
     } catch {
@@ -993,29 +1106,62 @@ struct MailEngineQualificationContract {
     }
     let appended = try await sentRecoverySession.appendToSent(
       rawMessage,
-      mailbox: MailEngineMailboxIdentity("Sent")
+      mailbox: sentMailbox
     )
-    XCTAssertEqual(appended.uidValidity, 45)
-    XCTAssertEqual(appended.uid, 11)
+    XCTAssertEqual(
+      appended,
+      MailEngineMessageIdentity(mailbox: sentMailbox, uid: 11, uidValidity: 45)
+    )
+    await assertSentRecoveryEvents(rawMessage: rawMessage, sentMailbox: sentMailbox)
+  }
+
+  private func assertSentRecoveryEvents(
+    rawMessage: Data,
+    sentMailbox: MailEngineMailboxIdentity
+  ) async {
     let events = await factory.events()
     XCTAssertEqual(
       events.filter {
         $0
           == .sentAppendReceived(
             connectionID: "connection-a",
-            mailbox: MailEngineMailboxIdentity("Sent"),
+            mailbox: sentMailbox,
             rawMessage: rawMessage
           )
       }.count,
       2
+    )
+    XCTAssertTrue(
+      events.contains(
+        .submissionReceived(
+          connectionID: "connection-a",
+          envelope: MailEngineEnvelope(
+            recipients: ["recipient@example.com"],
+            sender: "sender@example.com"
+          ),
+          rawMessage: rawMessage
+        )
+      )
     )
   }
 
   func verifyProtocolTracePrivacy() async throws {
     let sink = RecordingMailEngineProductionLogSink()
     let logger = PrivacyPreservingMailEngineLogger(sink: sink)
+    let (oauthSession, passwordSession) = try await connectPrivacySessions(logger: logger)
+    try await exercisePrivateOperations(
+      oauthSession: oauthSession,
+      passwordSession: passwordSession
+    )
 
-    _ = try await factory.makeEngine(fixture: .successful).connect(
+    XCTAssertEqual(sink.events, [.connected, .connected])
+    await assertCandidateOutputContainsNoQualificationSecrets()
+  }
+
+  private func connectPrivacySessions(
+    logger: any MailEngineLogging
+  ) async throws -> (oauth: any MailEngineSession, password: any MailEngineSession) {
+    let oauthSession = try await factory.makeEngine(fixture: .successful).connect(
       configuration: configuration(
         fixture: .successful,
         authorization: .xoauth2(
@@ -1024,8 +1170,8 @@ struct MailEngineQualificationContract {
         )
       ),
       logger: logger
-    )
-    _ = try await factory.makeEngine(fixture: .successful).connect(
+    ).session
+    let passwordSession = try await factory.makeEngine(fixture: .successful).connect(
       configuration: configuration(
         fixture: .successful,
         authorization: .password(
@@ -1034,9 +1180,33 @@ struct MailEngineQualificationContract {
         )
       ),
       logger: logger
-    )
+    ).session
+    return (oauthSession, passwordSession)
+  }
 
-    XCTAssertEqual(sink.events, [.connected, .connected])
+  private func exercisePrivateOperations(
+    oauthSession: any MailEngineSession,
+    passwordSession: any MailEngineSession
+  ) async throws {
+    let privateMailbox = MailEngineMailboxIdentity("private-mailbox")
+    _ = try await oauthSession.fetchBodyParts(
+      [MailEngineBodyPartSelector("private-body.TEXT")],
+      for: MailEngineMessageIdentity(mailbox: privateMailbox, uid: 19, uidValidity: 44)
+    )
+    _ = try await passwordSession.submit(
+      envelope: MailEngineEnvelope(
+        recipients: ["private-recipient@example.com"],
+        sender: "private-sender@example.com"
+      ),
+      rawMessage: Data("Subject: private SMTP message\r\n\r\nprivate SMTP body".utf8)
+    )
+    _ = try await oauthSession.appendToSent(
+      Data("Subject: private append message\r\n\r\nprivate append body".utf8),
+      mailbox: MailEngineMailboxIdentity("private-sent-mailbox")
+    )
+  }
+
+  private func assertCandidateOutputContainsNoQualificationSecrets() async {
     let candidateOutput = await factory.capturedCandidateLogOutput()
     let secrets = [
       "private-mailbox@example.com",
@@ -1045,6 +1215,14 @@ struct MailEngineQualificationContract {
       "private-password",
       "private-mailbox",
       "private message",
+      "private-body.TEXT",
+      "private-recipient@example.com",
+      "private-sender@example.com",
+      "private SMTP message",
+      "private SMTP body",
+      "private-sent-mailbox",
+      "private append message",
+      "private append body",
     ]
     let encodedAuthenticationExchanges = [
       Data(
@@ -1110,6 +1288,16 @@ struct MailEngineQualificationContract {
     }
     let events = await factory.events()
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
+    assertServiceTeardownEvents(events)
+  }
+
+  private func assertServiceTeardownEvents(_ events: [MailEngineQualificationEvent]) {
+    XCTAssertTrue(
+      events.contains(.serviceClosed(connectionID: "connection-a", service: .imap))
+    )
+    XCTAssertTrue(
+      events.contains(.serviceClosed(connectionID: "connection-a", service: .smtp))
+    )
   }
 
   private func assertClosedOperation(
@@ -1269,6 +1457,10 @@ private final class ScriptedMailEngineQualificationFactory:
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
     try await state.waitForIdleStarts(count, timeout: timeout)
   }
+
+  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws {
+    try await state.waitForSubmissionContentStarts(count, timeout: timeout)
+  }
 }
 
 private actor ScriptedMailEngineState {
@@ -1293,6 +1485,13 @@ private actor ScriptedMailEngineState {
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws {
     try await waitForEvents(count, timeout: timeout) {
       if case .idleStarted = $0 { return true }
+      return false
+    }
+  }
+
+  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws {
+    try await waitForEvents(count, timeout: timeout) {
+      if case .submissionContentAccepted = $0 { return true }
       return false
     }
   }
@@ -1524,6 +1723,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
 
   func close() async {
     isClosed = true
+    await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
+    await state.record(.serviceClosed(connectionID: connectionID, service: .smtp))
     await state.record(.closed(connectionID: connectionID))
   }
 
@@ -1534,6 +1735,15 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try ensureOpen()
+    await state.record(
+      .copyReceived(
+        connectionID: connectionID,
+        sourceUIDs: sourceUIDs,
+        sourceUIDValidity: sourceUIDValidity,
+        sourceMailbox: sourceMailbox,
+        destinationMailbox: destinationMailbox
+      )
+    )
     guard sourceUIDValidity == uidValidity(for: sourceMailbox) else {
       throw MailEngineError.staleMessageIdentity
     }
@@ -1667,6 +1877,15 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try ensureOpen()
+    await state.record(
+      .moveReceived(
+        connectionID: connectionID,
+        sourceUIDs: sourceUIDs,
+        sourceUIDValidity: sourceUIDValidity,
+        sourceMailbox: sourceMailbox,
+        destinationMailbox: destinationMailbox
+      )
+    )
     guard sourceUIDValidity == uidValidity(for: sourceMailbox) else {
       throw MailEngineError.staleMessageIdentity
     }
@@ -1720,9 +1939,27 @@ private actor ScriptedMailEngineSession: MailEngineSession {
           rawMessage: rawMessage
         )
       )
+      if case .cancelledAfterMessageContent = stage {
+        await state.record(.submissionContentAccepted(connectionID: connectionID))
+        do {
+          while true {
+            try Task.checkCancellation()
+            try await Task.sleep(for: .milliseconds(10))
+          }
+        } catch is CancellationError {
+          return .ambiguous
+        }
+      }
       return classifySMTPStage(stage)
     }
     await state.record(.submitted(connectionID: connectionID))
+    await state.record(
+      .submissionReceived(
+        connectionID: connectionID,
+        envelope: envelope,
+        rawMessage: rawMessage
+      )
+    )
     return .accepted(serverMessageID: "smtp-message-1")
   }
 
@@ -1732,12 +1969,10 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       .accepted(serverMessageID: serverMessageID)
     case .authenticationRejectedBeforeSubmission:
       .notSubmitted(.authentication)
-    case .cancelledAfterMessageContent:
+    case .cancelledAfterMessageContent, .connectionLostAfterSubmission:
       .ambiguous
     case .cancelledBeforeSubmission:
       preconditionFailure("Cancellation is reported as MailEngineError.cancelled.")
-    case .connectionLostAfterSubmission:
-      .ambiguous
     case .dataRejectedBeforeSubmission(let code):
       .notSubmitted(.dataRejected(code: code))
     case .finalResponse(let code) where code >= 500:
@@ -1746,6 +1981,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       .transientlyRejected(code: code)
     case .recipientRejectedBeforeSubmission(let code):
       .notSubmitted(.recipientRejected(code: code))
+    case .senderRejectedBeforeSubmission(let code):
+      .notSubmitted(.senderRejected(code: code))
     case .transportUnavailableBeforeSubmission:
       .notSubmitted(.transportUnavailable)
     }

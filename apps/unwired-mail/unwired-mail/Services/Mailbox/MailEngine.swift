@@ -221,6 +221,7 @@ enum MailEnginePreSubmissionFailure: Equatable, Sendable {
   case authentication
   case dataRejected(code: Int)
   case recipientRejected(code: Int)
+  case senderRejected(code: Int)
   case transportUnavailable
 }
 
