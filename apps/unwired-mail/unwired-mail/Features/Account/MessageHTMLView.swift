@@ -19,6 +19,10 @@ enum MessageHTMLWebViewConfiguration {
     configuration.defaultWebpagePreferences.allowsContentJavaScript = false
     return configuration
   }
+
+  static func applyPrivacySettings(to webView: WKWebView) {
+    webView.allowsLinkPreview = false
+  }
 }
 
 enum MessageHTMLLayout {
@@ -32,8 +36,10 @@ enum MessageHTMLLayout {
 enum MessageHTMLNavigationFailure {
   static func shouldTriggerFallback(for error: Error) -> Bool {
     let error = error as NSError
-    return error.domain != NSURLErrorDomain
-      || error.code != URLError.cancelled.rawValue
+    let isURLCancellation =
+      error.domain == NSURLErrorDomain && error.code == URLError.cancelled.rawValue
+    let isWebKitPolicyCancellation = error.domain == "WebKitErrorDomain" && error.code == 102
+    return !isURLCancellation && !isWebKitPolicyCancellation
   }
 }
 
@@ -75,6 +81,7 @@ private struct MessageHTMLWebView: UIViewRepresentable {
       frame: .zero,
       configuration: MessageHTMLWebViewConfiguration.make()
     )
+    MessageHTMLWebViewConfiguration.applyPrivacySettings(to: webView)
     webView.isOpaque = false
     webView.backgroundColor = .clear
     webView.navigationDelegate = context.coordinator

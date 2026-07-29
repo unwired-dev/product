@@ -159,9 +159,12 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
   func testWebViewConfigurationDisablesPageJavaScriptAndPersistentStorage() {
     let configuration = MessageHTMLWebViewConfiguration.make()
+    let webView = WKWebView(frame: .zero, configuration: configuration)
+    MessageHTMLWebViewConfiguration.applyPrivacySettings(to: webView)
 
     XCTAssertFalse(configuration.defaultWebpagePreferences.allowsContentJavaScript)
     XCTAssertFalse(configuration.websiteDataStore.isPersistent)
+    XCTAssertFalse(webView.allowsLinkPreview)
   }
 
   func testLayoutUsesContentHeightWithAVisibleMinimum() {
@@ -174,10 +177,12 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   func testNavigationFailureIgnoresIntentionalCancellation() {
-    let cancellation = NSError(domain: NSURLErrorDomain, code: URLError.cancelled.rawValue)
+    let urlCancellation = NSError(domain: NSURLErrorDomain, code: URLError.cancelled.rawValue)
+    let policyCancellation = NSError(domain: "WebKitErrorDomain", code: 102)
     let failure = NSError(domain: NSURLErrorDomain, code: URLError.cannotConnectToHost.rawValue)
 
-    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: cancellation))
+    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: urlCancellation))
+    XCTAssertFalse(MessageHTMLNavigationFailure.shouldTriggerFallback(for: policyCancellation))
     XCTAssertTrue(MessageHTMLNavigationFailure.shouldTriggerFallback(for: failure))
   }
 }
