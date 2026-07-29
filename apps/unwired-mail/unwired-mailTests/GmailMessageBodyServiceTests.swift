@@ -433,6 +433,28 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertNil(body.html)
   }
 
+  func testReadRetriesAttachmentBackedHTMLAfterTransientFailure() async throws {
+    let fixture = try makeFixture(
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"data":"UGxhaW4gY29udGVudA=="}},"#
+        + #"{"mimeType":"text/html","body":{"attachmentId":"html-001"}}]}}"#
+    )
+
+    let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
+    let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(firstBody, GmailMessageBody(text: "Plain content"))
+    XCTAssertEqual(secondBody, firstBody)
+    XCTAssertNil(fixture.cache.payload)
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/html-001") }.count,
+      2
+    )
+  }
+
   func testReadRetainsPlainTextAndHTMLAlternatives() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -1424,6 +1446,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   private func makeFixture(
+    attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageStatusCode: Int = 200,
@@ -1461,6 +1484,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         return (
           HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
           Data(tokenInfoResponse.utf8)
+        )
+      }
+      if let attachmentStatusCode,
+        request.url?.path.hasSuffix("/attachments/html-001") == true
+      {
+        return (
+          HTTPURLResponse(
+            url: request.url!,
+            statusCode: attachmentStatusCode,
+            httpVersion: nil,
+            headerFields: nil
+          )!,
+          Data()
         )
       }
       XCTAssertEqual(

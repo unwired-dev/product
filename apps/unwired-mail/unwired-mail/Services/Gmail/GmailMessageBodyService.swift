@@ -916,20 +916,22 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       refreshedTokens.accessToken,
       providerAccountIdentifier: message.providerAccountIdentifier
     )
-    let body = try await fetchMessageBody(
+    let result = try await fetchMessageBody(
       message: message, accessToken: refreshedTokens.accessToken)
-    if let payload = try? encryptedPayload(
-      for: body,
-      keyMaterial: material,
-      message: message
-    ) {
+    if result.isCacheable,
+      let payload = try? encryptedPayload(
+        for: result.body,
+        keyMaterial: material,
+        message: message
+      )
+    {
       try? cache.saveMessageBody(
         payload,
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId
       )
     }
-    return body
+    return result.body
   }
 
   func prefetchMessageBodies(
@@ -996,9 +998,9 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     if try loadCachedMessageBody(message: message, session: context.session) != nil {
       return true
     }
-    let body: GmailMessageBody
+    let result: GmailMessageBodyFetchResult
     do {
-      body = try await fetchMessageBody(
+      result = try await fetchMessageBody(
         message: message,
         accessToken: context.accessToken
       )
@@ -1006,8 +1008,9 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       return true
     }
     try Task.checkCancellation()
+    guard result.isCacheable else { return false }
     let encryptedPayload = try encryptedPayload(
-      for: body,
+      for: result.body,
       keyMaterial: context.keyMaterial,
       message: message
     )
@@ -1101,7 +1104,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   private func fetchMessageBody(
     message: GmailMessageMetadata,
     accessToken: String
-  ) async throws -> GmailMessageBody {
+  ) async throws -> GmailMessageBodyFetchResult {
     var components = URLComponents(
       url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
       resolvingAgainstBaseURL: false
@@ -1132,7 +1135,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     _ payload: GmailMessageBodyPart,
     message: GmailMessageMetadata,
     accessToken: String
-  ) async throws -> GmailMessageBody {
+  ) async throws -> GmailMessageBodyFetchResult {
     let plainTextPart = payload.readablePlainTextPart
     let htmlPart = payload.readableHTMLPart
     guard plainTextPart != nil || htmlPart != nil else {
@@ -1182,7 +1185,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     } else {
       throw decodingError ?? GmailMessageBodyError.missingMessageBody
     }
-    return GmailMessageBody(text: text, html: html)
+    return GmailMessageBodyFetchResult(text: text, html: html, htmlPart: htmlPart)
   }
 
   private func refreshedTokens(
@@ -1359,6 +1362,16 @@ private func decodedHTMLEntities(in value: String) -> String {
 
 private struct GmailMessageBodyResponse: Decodable {
   let payload: GmailMessageBodyPart
+}
+
+private struct GmailMessageBodyFetchResult {
+  let body: GmailMessageBody
+  let isCacheable: Bool
+
+  init(text: String, html: String?, htmlPart: GmailMessageBodyPart?) {
+    body = GmailMessageBody(text: text, html: html)
+    isCacheable = htmlPart?.body?.attachmentId == nil || html != nil
+  }
 }
 
 struct GmailMessageBodyCachePayload: Codable {
