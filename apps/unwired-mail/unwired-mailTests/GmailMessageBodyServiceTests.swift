@@ -455,6 +455,30 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReadRetriesAttachmentBackedPlainTextAfterTransientFailure() async throws {
+    let fixture = try makeFixture(
+      attachmentIdWithStatus: "plain-001",
+      attachmentStatusCode: 503,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"multipart/alternative","parts":["#
+        + #"{"mimeType":"text/plain","body":{"attachmentId":"plain-001"}},"#
+        + #"{"mimeType":"text/html","body":{"data":"PHA+SFRNTCBjb250ZW50PC9wPg=="}}]}}"#
+    )
+
+    let firstBody = try await fixture.service.loadMessageBody(message: message, session: session)
+    let secondBody = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertTrue(firstBody.text.contains("HTML content"))
+    XCTAssertEqual(firstBody.html, "<p>HTML content</p>")
+    XCTAssertEqual(secondBody, firstBody)
+    XCTAssertNil(fixture.cache.payload)
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .filter { $0.hasSuffix("/attachments/plain-001") }.count,
+      2
+    )
+  }
+
   func testReadRetainsPlainTextAndHTMLAlternatives() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -1446,6 +1470,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   private func makeFixture(
+    attachmentIdWithStatus: String = "html-001",
     attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
@@ -1487,7 +1512,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         )
       }
       if let attachmentStatusCode,
-        request.url?.path.hasSuffix("/attachments/html-001") == true
+        request.url?.path.hasSuffix("/attachments/\(attachmentIdWithStatus)") == true
       {
         return (
           HTTPURLResponse(

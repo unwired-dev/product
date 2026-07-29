@@ -1185,7 +1185,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     } else {
       throw decodingError ?? GmailMessageBodyError.missingMessageBody
     }
-    return GmailMessageBodyFetchResult(text: text, html: html, htmlPart: htmlPart)
+    return .init(
+      text: text, plain: plainText, plainPart: plainTextPart, html: html, htmlPart: htmlPart)
   }
 
   private func refreshedTokens(
@@ -1368,9 +1369,17 @@ private struct GmailMessageBodyFetchResult {
   let body: GmailMessageBody
   let isCacheable: Bool
 
-  init(text: String, html: String?, htmlPart: GmailMessageBodyPart?) {
+  init(
+    text: String,
+    plain: String?,
+    plainPart: GmailMessageBodyPart?,
+    html: String?,
+    htmlPart: GmailMessageBodyPart?
+  ) {
     body = GmailMessageBody(text: text, html: html)
-    isCacheable = htmlPart?.body?.attachmentId == nil || html != nil
+    isCacheable =
+      (plainPart?.body?.attachmentId == nil || plain != nil)
+      && (htmlPart?.body?.attachmentId == nil || html != nil)
   }
 }
 
