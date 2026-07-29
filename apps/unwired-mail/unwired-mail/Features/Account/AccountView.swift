@@ -228,6 +228,12 @@ final class MailboxFreshnessViewModel {
     !connectionIds.isDisjoint(with: historicalBackfills.keys)
   }
 
+  func historicalBackfillConnectionIds(
+    in connectionIds: Set<MailboxConnectionId>
+  ) -> Set<MailboxConnectionId> {
+    connectionIds.intersection(historicalBackfills.keys)
+  }
+
   var lastSuccessfulSyncAt: Date? {
     knownConnections.values.compactMap { status(for: $0).lastSuccessfulSyncAt }.max()
   }
@@ -3313,7 +3319,7 @@ struct MailShellConversationReader: View {
         let result = await mailActionViewModel.performBulk(
           action,
           batches: batches,
-          resumesPendingActions: !inboxViewModel.isHistoricalBackfillRunning(
+          deferredPendingActionConnectionIds: inboxViewModel.historicalBackfillConnectionIds(
             for: batches.map(\.connection)
           ),
           onEnqueued: { connection in
@@ -4324,7 +4330,7 @@ extension GmailMailActionViewModel {
   func performBulk(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
-    resumesPendingActions: Bool = true,
+    deferredPendingActionConnectionIds: Set<MailboxConnectionId> = [],
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void = { _ in }
   ) async -> MailboxBulkActionResult? {
     guard !batches.isEmpty,
@@ -4351,27 +4357,30 @@ extension GmailMailActionViewModel {
     let outcomes = await performBulkBatches(
       action,
       batches: batches,
-      resumesPendingActions: resumesPendingActions,
+      deferredPendingActionConnectionIds: deferredPendingActionConnectionIds,
       onEnqueued: onEnqueued
     )
-    if !resumesPendingActions {
-      Task { [weak self] in
-        await self?.resumeDeferredPendingActions(action, batches: batches)
-      }
-    }
     await refreshFailureConnections(knownConnections)
     let result = bulkActionResult(outcomes)
     errorMessage =
       result.failures.isEmpty
       ? nil
       : result.failures.map(Self.failureDescription).joined(separator: "\n")
+    let deferredBatches = batches.filter {
+      deferredPendingActionConnectionIds.contains($0.connection.id)
+    }
+    if !deferredBatches.isEmpty {
+      Task { [weak self] in
+        await self?.resumeDeferredPendingActions(action, batches: deferredBatches)
+      }
+    }
     return result
   }
 
   private func performBulkBatches(
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
-    resumesPendingActions: Bool,
+    deferredPendingActionConnectionIds: Set<MailboxConnectionId>,
     onEnqueued: @escaping @Sendable (MailboxConnection) async -> Void
   ) async -> [MailboxBulkActionBatchOutcome] {
     let service = self.service
@@ -4388,7 +4397,9 @@ extension GmailMailActionViewModel {
             batchIndex: batchIndex,
             service: service,
             session: session,
-            resumesPendingActions: resumesPendingActions,
+            resumesPendingActions: !deferredPendingActionConnectionIds.contains(
+              batch.connection.id
+            ),
             onEnqueued: onEnqueued
           )
         }
@@ -4653,9 +4664,22 @@ final class GmailInboxViewModel {
     backfillTask != nil
   }
 
+  func historicalBackfillConnectionIds(
+    for connections: [MailboxConnection]
+  ) -> Set<MailboxConnectionId> {
+    let connectionIds = Set(connections.map(\.id))
+    var backfillConnectionIds =
+      syncCoordinator?.historicalBackfillConnectionIds(in: connectionIds) ?? []
+    if isHistoricalBackfillRunning, let currentConnectionId,
+      connectionIds.contains(currentConnectionId)
+    {
+      backfillConnectionIds.insert(currentConnectionId)
+    }
+    return backfillConnectionIds
+  }
+
   func isHistoricalBackfillRunning(for connections: [MailboxConnection]) -> Bool {
-    isHistoricalBackfillRunning
-      || syncCoordinator?.isHistoricalBackfillRunning(for: Set(connections.map(\.id))) == true
+    !historicalBackfillConnectionIds(for: connections).isEmpty
   }
 
   var isBusy: Bool {

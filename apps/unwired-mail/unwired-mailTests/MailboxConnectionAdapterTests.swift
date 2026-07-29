@@ -4381,7 +4381,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let result = await viewModel.performBulk(
       .archive,
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
-      resumesPendingActions: false
+      deferredPendingActionConnectionIds: [connection.id]
     )
 
     XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
@@ -4402,7 +4402,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let result = await viewModel.performBulk(
       .archive,
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
-      resumesPendingActions: false
+      deferredPendingActionConnectionIds: [connection.id]
     )
 
     XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
@@ -4410,6 +4410,53 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [resumeStarted], timeout: 1)
     let resumeCount = await service.resumeCount()
     XCTAssertEqual(resumeCount, 1)
+  }
+
+  func testMailActionViewModelResumesOnlyNonBackfillingConnectionsInline() async {
+    let backfillingConnection = mailShellConnection(
+      emailAddress: "backfilling@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: currentConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: backfillingConnection,
+          suffix: "backfilling",
+          receivedAt: 200
+        ),
+        mailShellBulkActionBatch(
+          connection: currentConnection,
+          suffix: "current",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [backfillingConnection.id]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [backfillingConnection.id])
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "current@example.com — Subject message-current "
+        + "[gmail:gmail-user-002:message-current]: The provider connection failed."
+    )
+    await fulfillment(of: [resumesStarted], timeout: 1)
   }
 
   func testMailActionViewModelSurfacesDeferredBulkResumeFailures() async {
@@ -4429,22 +4476,19 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let result = await viewModel.performBulk(
       .archive,
       batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
-      resumesPendingActions: false
+      deferredPendingActionConnectionIds: [connection.id]
     )
 
     XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
     XCTAssertFalse(viewModel.isPerformingAction)
-    var deferredExpectations = [resumeStarted]
-    if viewModel.errorMessage == nil {
-      let errorSurfaced = expectation(description: "deferred error surfaced")
-      withObservationTracking {
-        _ = viewModel.errorMessage
-      } onChange: {
-        errorSurfaced.fulfill()
+    let errorSurfaced = expectation(description: "deferred error surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage == nil {
+        await Task.yield()
       }
-      deferredExpectations.append(errorSurfaced)
+      errorSurfaced.fulfill()
     }
-    await fulfillment(of: deferredExpectations, timeout: 1)
+    await fulfillment(of: [resumeStarted, errorSurfaced], timeout: 1)
     XCTAssertEqual(viewModel.failedConnectionIds, [connection.id])
     XCTAssertEqual(
       viewModel.errorMessage,
@@ -4478,7 +4522,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         mailShellBulkActionBatch(connection: firstConnection, suffix: "first", receivedAt: 200),
         mailShellBulkActionBatch(connection: secondConnection, suffix: "second", receivedAt: 100),
       ],
-      resumesPendingActions: false
+      deferredPendingActionConnectionIds: [firstConnection.id, secondConnection.id]
     )
 
     XCTAssertEqual(
@@ -6330,15 +6374,18 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   private let failedConnectionId: MailboxConnectionId?
   private var recordedResumeCount = 0
   private let resumeError: String?
+  private let resumeErrorConnectionId: MailboxConnectionId?
   private let resumeStarted: XCTestExpectation
 
   init(
     resumeStarted: XCTestExpectation,
     resumeError: String? = nil,
+    resumeErrorConnectionId: MailboxConnectionId? = nil,
     failedConnectionId: MailboxConnectionId? = nil
   ) {
     self.failedConnectionId = failedConnectionId
     self.resumeError = resumeError
+    self.resumeErrorConnectionId = resumeErrorConnectionId
     self.resumeStarted = resumeStarted
   }
 
@@ -6350,12 +6397,13 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   ) async throws {}
 
   func resumePendingActions(
-    connection _: MailboxConnection,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async -> String? {
     recordedResumeCount += 1
     resumeStarted.fulfill()
-    return resumeError
+    return resumeErrorConnectionId == nil || resumeErrorConnectionId == connection.id
+      ? resumeError : nil
   }
 
   func failedPendingActionConnectionIds(

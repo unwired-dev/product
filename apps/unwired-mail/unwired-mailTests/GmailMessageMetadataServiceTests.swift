@@ -1878,7 +1878,19 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       productAccountId: session.productAccountId,
       authorizationState: .authorized
     )
-    coordinator.updateConnections([mailboxConnection])
+    let currentConnection = GmailProviderConnectionStatus(
+      connectedAt: 1,
+      emailAddress: "current@example.com",
+      lastVerifiedAt: 1,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-current",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: 1
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    coordinator.updateConnections([mailboxConnection, currentConnection])
     let backfill = Task { @MainActor in
       try await coordinator.continueHistoricalBackfill(
         connection: mailboxConnection,
@@ -1888,6 +1900,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    XCTAssertEqual(
+      viewModel.historicalBackfillConnectionIds(for: [mailboxConnection, currentConnection]),
+      [mailboxConnection.id]
+    )
 
     await service.releaseHistoricalBackfill()
     _ = try await backfill.value
