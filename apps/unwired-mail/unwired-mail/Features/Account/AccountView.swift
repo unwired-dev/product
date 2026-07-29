@@ -3708,9 +3708,7 @@ struct MailShellMessageBody: View {
   var body: some View {
     Group {
       if let messageBody {
-        Text(messageBody.text)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .textSelection(.enabled)
+        MailShellMessageContent(messageBody: messageBody)
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
@@ -3753,6 +3751,28 @@ struct MailShellMessageBody: View {
       errorMessage = nil
       isCleared = true
       isLoading = false
+    }
+  }
+}
+
+private struct MailShellMessageContent: View {
+  let messageBody: MailboxMessageBody
+  @State private var renderingFailed = false
+
+  var body: some View {
+    switch MessageHTMLPresentation.resolve(
+      body: messageBody,
+      renderingFailed: renderingFailed
+    ) {
+    case .html(let html):
+      MessageHTMLView(
+        html: html,
+        onRenderingFailure: { renderingFailed = true }
+      )
+    case .plainText(let text):
+      Text(text)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
   }
 }
