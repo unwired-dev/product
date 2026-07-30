@@ -139,11 +139,23 @@ struct EmailAccountsSettingsView: View {
   }
 
   @MainActor
-  static func refreshGenericConnections(
+  static func refreshConnectionAuthority(
+    loadRoutedConnections: () async -> Bool,
     loadGenericConnections: () async -> Void,
+    loadMicrosoftConnections: () async -> Bool,
+    loadEWSConnections: () async -> Void,
     connectionsDidChange: () -> Void
   ) async {
-    await loadGenericConnections()
+    async let routedConnectionsAreAuthoritative = loadRoutedConnections()
+    async let genericConnectionsLoad: Void = loadGenericConnections()
+    async let microsoftConnectionsAreAuthoritative = loadMicrosoftConnections()
+    async let ewsConnectionsLoad: Void = loadEWSConnections()
+    _ = await (
+      routedConnectionsAreAuthoritative,
+      genericConnectionsLoad,
+      microsoftConnectionsAreAuthoritative,
+      ewsConnectionsLoad
+    )
     connectionsDidChange()
   }
 

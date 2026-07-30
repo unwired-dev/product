@@ -179,8 +179,9 @@ final class GenericMailSetupViewModel {
     incomingSecurity = endpoint.security
   }
 
-  func connect() async {
-    guard !isConnecting, isValid, isSessionCurrent() else { return }
+  @discardableResult
+  func connect() async -> Bool {
+    guard !isConnecting, isValid, isSessionCurrent() else { return false }
     connectedDefinition = nil
     let incomingEndpoint = GenericMailEndpoint(
       mailProtocol: incomingProtocol,
@@ -192,7 +193,7 @@ final class GenericMailSetupViewModel {
       resetRoleMappingState()
     }
     let draft = makeDraft(incomingEndpoint: incomingEndpoint)
-    guard matchesSelectedSyncedConnection(draft) else { return }
+    guard matchesSelectedSyncedConnection(draft) else { return false }
     isConnecting = true
     defer { isConnecting = false }
 
@@ -213,6 +214,7 @@ final class GenericMailSetupViewModel {
       rolesRequiringMapping = []
       errorMessage = nil
       await loadSyncedDefinitions()
+      return true
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
@@ -221,6 +223,7 @@ final class GenericMailSetupViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+    return false
   }
 
   func invalidate() {
@@ -692,8 +695,10 @@ struct GenericMailSetupPanel: View {
       Button {
         connectTask?.cancel()
         connectTask = Task {
-          await viewModel.connect()
-          connectionsDidChange()
+          await Self.performConnect(
+            connect: viewModel.connect,
+            connectionsDidChange: connectionsDidChange
+          )
         }
       } label: {
         Label(
@@ -764,5 +769,15 @@ struct GenericMailSetupPanel: View {
   ) async {
     await cancelMailboxWork()
     await action()
+  }
+}
+
+extension GenericMailSetupPanel {
+  static func performConnect(
+    connect: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    guard await connect() else { return }
+    connectionsDidChange()
   }
 }

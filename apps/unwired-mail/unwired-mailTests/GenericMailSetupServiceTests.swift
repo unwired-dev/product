@@ -1196,6 +1196,28 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testGenericConnectNotifiesOnlyAfterSuccessfulAuthorization() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performConnect(
+      connect: {
+        events.append("failed connect")
+        return false
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+    await GenericMailSetupPanel.performConnect(
+      connect: {
+        events.append("successful connect")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["failed connect", "successful connect", "notify"])
+  }
+
+  @MainActor
   func testDiscoveringAnotherMailboxReplacesTheUsernameAndCredential() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),

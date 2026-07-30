@@ -374,7 +374,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                 productAccountId: snapshot.productAccountId
               )
             },
-            connectionsDidChange: refreshGenericConnectionsAndNotify,
+            connectionsDidChange: refreshConnectionAuthorityAndNotify,
             isMailboxBusy: mailboxWorkCoordinator.isBusy(
               productAccountId: snapshot.productAccountId
             )
@@ -387,10 +387,13 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
     }
 
-    private func refreshGenericConnectionsAndNotify() {
+    private func refreshConnectionAuthorityAndNotify() {
       Task {
-        await EmailAccountsSettingsView.refreshGenericConnections(
+        await EmailAccountsSettingsView.refreshConnectionAuthority(
+          loadRoutedConnections: gmailViewModel.load,
           loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+          loadMicrosoftConnections: microsoftGraphViewModel.load,
+          loadEWSConnections: ewsViewModel.load,
           connectionsDidChange: notifyConnectionsDidChange
         )
       }

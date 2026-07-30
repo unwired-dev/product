@@ -28,15 +28,32 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   }
 
   @MainActor
-  func testProviderChangeRefreshesGenericStateBeforeNotifyingMailShell() async {
+  func testProviderChangeRefreshesEveryDefaultSenderBeforeNotifyingMailShell() async {
     var events: [String] = []
 
-    await EmailAccountsSettingsView.refreshGenericConnections(
+    await EmailAccountsSettingsView.refreshConnectionAuthority(
+      loadRoutedConnections: {
+        events.append("load routed")
+        return true
+      },
       loadGenericConnections: { events.append("load generic") },
+      loadMicrosoftConnections: {
+        events.append("load Microsoft")
+        return true
+      },
+      loadEWSConnections: { events.append("load EWS") },
       connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["load generic", "notify"])
+    XCTAssertEqual(
+      Set(events.dropLast()),
+      [
+        "load routed",
+        "load generic",
+        "load Microsoft",
+        "load EWS",
+      ])
+    XCTAssertEqual(events.last, "notify")
   }
 
   func testSynchronizationIsDisabledForPartialSnapshot() {

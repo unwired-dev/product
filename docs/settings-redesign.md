@@ -80,9 +80,11 @@ invoke another router load. The routed-provider and generic-mail snapshots start
 generic setup remains disabled until its synchronized definition snapshot finishes loading.
 Microsoft, EWS, and generic provider mutations also remain disabled while the routed snapshot is
 loading, so mutation-triggered router refreshes cannot overlap the initial load. Every provider
-mutation refreshes the Settings-owned generic definition and default-sender state before notifying
-the separate mail shell, and routed snapshot authority changes update synchronization availability
-even when the routed connection array itself is unchanged.
+mutation refreshes the Settings-owned routed, generic, Microsoft, and EWS default-sender state
+before notifying the separate mail shell, and routed snapshot authority changes update
+synchronization availability even when the routed connection array itself is unchanged. Failed
+generic authorization does not send that mutation notification, so its actionable error remains
+visible instead of being cleared by an unrelated definition reload.
 The generic-mail Manage menu offers Default Sending Connection only when the routed snapshot
 contains the same authorized connection with sending capability; read-only IMAP routes and
 unrouted POP3 definitions cannot become the default sender.
