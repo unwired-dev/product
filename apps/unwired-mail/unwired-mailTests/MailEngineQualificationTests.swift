@@ -134,6 +134,7 @@ enum MailEngineQualificationFixture: Sendable {
   case sentAppendFailsOnce
   case invalidSentAppendIdentity(uid: Int64, uidValidity: Int64)
   case sentAppendPermanentlyRejected
+  case smtpCancellationReconnectMaximumTLS12
   case smtpStages([MailEngineSMTPStage])
   case startTLSAcknowledgedWithoutUpgrade(service: MailEngineService)
   case stateChangingOperationUntilCancelled
@@ -669,6 +670,7 @@ struct MailEngineQualificationContract {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func verifyUnknownMutationOutcome(
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
@@ -691,6 +693,28 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
+    await assertUnknownMutationReplayRejected("rewritten COPY") {
+      _ = try await copySession.copy(
+        messages: self.messageIdentities(
+          connectionID: "copy-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [6]
+        ),
+        to: archive
+      )
+    }
+    await assertUnknownMutationReplayRejected("rewritten MOVE") {
+      _ = try await copySession.move(
+        messages: self.messageIdentities(
+          connectionID: "copy-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [7]
+        ),
+        to: archive
+      )
+    }
     let moveSession = try await connect(
       fixture: .moveOutcomeUnknown,
       connectionID: "move-outcome-unknown"
@@ -709,8 +733,42 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
+    await assertUnknownMutationReplayRejected("rewritten MOVE") {
+      _ = try await moveSession.move(
+        messages: self.messageIdentities(
+          connectionID: "move-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [6]
+        ),
+        to: archive
+      )
+    }
+    await assertUnknownMutationReplayRejected("rewritten COPY") {
+      _ = try await moveSession.copy(
+        messages: self.messageIdentities(
+          connectionID: "move-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [7]
+        ),
+        to: archive
+      )
+    }
     try await verifyUnknownAppendOutcome()
     await assertUnknownMutationEvents()
+  }
+
+  private func assertUnknownMutationReplayRejected(
+    _ operation: String,
+    attempt: () async throws -> Void
+  ) async {
+    do {
+      try await attempt()
+      XCTFail("An uncertain mutation must block \(operation) until reconciliation.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
+    }
   }
 
   private func verifyUnknownAppendOutcome() async throws {
@@ -2487,7 +2545,7 @@ struct MailEngineQualificationContract {
 
   func verifyIDLEAndConnectionIsolation() async throws {
     try await verifyIDLERecovery()
-    try await verifySuccessfulSTARTTLSIDLERecovery()
+    try await verifySuccessfulTLS12IDLERecovery()
     try await verifyXOAUTH2IDLERecovery()
     try await verifyIDLERecoveryAuthenticationRejection()
     try await verifyIDLERecoveryTLSFloor()
@@ -2999,8 +3057,16 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(Array(events.dropFirst()), expected)
   }
 
-  private func verifySuccessfulSTARTTLSIDLERecovery() async throws {
-    let connectionID = "idle-reconnect-starttls-success"
+  private func verifySuccessfulTLS12IDLERecovery() async throws {
+    for transportMode in [MailEngineTransportMode.implicitTLS, .startTLS] {
+      try await verifySuccessfulTLS12IDLERecovery(transportMode: transportMode)
+    }
+  }
+
+  private func verifySuccessfulTLS12IDLERecovery(
+    transportMode: MailEngineTransportMode
+  ) async throws {
+    let connectionID = "idle-reconnect-tls12-\(transportMode)"
     let inbox = MailEngineMailboxIdentity("INBOX")
     let session = try await connect(
       fixture: .idleDisconnectThenRecover(
@@ -3008,7 +3074,7 @@ struct MailEngineQualificationContract {
         requiresXOAUTH2Challenge: false
       ),
       connectionID: connectionID,
-      imapTransportMode: .startTLS
+      imapTransportMode: transportMode
     ).session
     let closesBeforeDisconnect = countIMAPCloses(
       await factory.events(),
@@ -3016,7 +3082,7 @@ struct MailEngineQualificationContract {
     )
     do {
       try await session.idle(mailbox: inbox) { _ in }
-      XCTFail("The first STARTTLS IDLE attempt should disconnect.")
+      XCTFail("The first TLS 1.2 IDLE attempt should disconnect.")
     } catch {
       XCTAssertEqual(error as? MailEngineError, .connectionClosed)
     }
@@ -4183,6 +4249,60 @@ struct MailEngineQualificationContract {
       connectionID: preservedConnectionID
     )
     try await verifyPostEnvelopePreContentSMTPCancellation()
+    try await verifySMTPCancellationTLSFloor()
+  }
+
+  private func verifySMTPCancellationTLSFloor() async throws {
+    let connectionID = "smtp-reconnect-tls13-floor"
+    let session = try await connect(
+      fixture: .smtpCancellationReconnectMaximumTLS12,
+      connectionID: connectionID,
+      minimumTLSVersion: .tls13
+    ).session
+    let envelope = MailEngineEnvelope(
+      recipients: ["recipient@example.com"],
+      sender: "sender@example.com"
+    )
+    let rawMessage = Data("Subject: TLS floor cancellation\r\n\r\nWithheld body".utf8)
+    let submission = Task {
+      try await session.submit(envelope: envelope, rawMessage: rawMessage)
+    }
+    try await factory.waitForSubmissionEnvelopeAccepted(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
+    submission.cancel()
+    await assertPreContentSMTPCancellation(submission)
+    try await factory.waitForSubmissionTransportTermination(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
+    let eventCountBeforeReuse = await factory.events().count
+    let reuse = Task {
+      try await session.submit(envelope: envelope, rawMessage: rawMessage)
+    }
+    guard
+      let reuseResult = await boundedResult(
+        of: reuse,
+        timeoutMessage: "Timed out waiting for TLS-floor SMTP reuse rejection."
+      )
+    else {
+      return
+    }
+    do {
+      _ = try reuseResult.get()
+      XCTFail("SMTP reuse must preserve the caller's TLS 1.3 floor.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .tlsVersionUnsupported)
+    }
+    let reuseEvents = Array((await factory.events()).dropFirst(eventCountBeforeReuse)).filter {
+      $0.belongs(to: connectionID, service: .smtp)
+    }
+    XCTAssertEqual(
+      reuseEvents,
+      [.serviceClosed(connectionID: connectionID, service: .smtp)],
+      "A TLS 1.2 reconnect must be rejected before SMTP authentication."
+    )
   }
 
   private func verifyPostEnvelopePreContentSMTPCancellation() async throws {
@@ -6377,6 +6497,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   ]
   private var idleAttempt = 0
   private var isClosed = false
+  private var hasUnreconciledMutationOutcome = false
   private var smtpRequiresReauthentication = false
   private var smtpStageIndex = 0
 
@@ -6510,6 +6631,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try await ensureOpen()
+    if hasUnreconciledMutationOutcome {
+      throw MailEngineError.operationOutcomeUnknown
+    }
     let source = try mutationSource(messages)
     let sourceMailbox = source.mailbox
     let sourceUIDValidity = source.uidValidity
@@ -6536,6 +6660,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       try await state.waitForOverlappingCopyStarts(timeout: .seconds(2))
     }
     if case .copyOutcomeUnknown = fixture {
+      hasUnreconciledMutationOutcome = true
       throw MailEngineError.operationOutcomeUnknown
     }
     if case .copyPermanentlyRejected = fixture {
@@ -6950,6 +7075,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try await ensureOpen()
+    if hasUnreconciledMutationOutcome {
+      throw MailEngineError.operationOutcomeUnknown
+    }
     let source = try mutationSource(messages)
     let sourceMailbox = source.mailbox
     let sourceUIDValidity = source.uidValidity
@@ -7007,6 +7135,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
 
   private func throwConfiguredMoveFailure() throws {
     if case .moveOutcomeUnknown = fixture {
+      hasUnreconciledMutationOutcome = true
       throw MailEngineError.operationOutcomeUnknown
     }
     if case .movePermanentlyRejected = fixture {
@@ -7255,7 +7384,19 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     rawMessage: Data
   ) async throws -> MailEngineSMTPOutcome {
     try await ensureOpen()
-    await reauthenticateSMTPIfNeeded()
+    try await reauthenticateSMTPIfNeeded()
+    if case .smtpCancellationReconnectMaximumTLS12 = fixture {
+      defer { smtpStageIndex += 1 }
+      let stage: MailEngineSMTPStage =
+        smtpStageIndex == 0
+        ? .cancelledAfterSenderAccepted
+        : .accepted(serverMessageID: "smtp-message-1")
+      return try await submitSMTPStage(
+        stage,
+        envelope: envelope,
+        rawMessage: rawMessage
+      )
+    }
     if case .smtpStages(let stages) = fixture, smtpStageIndex < stages.count {
       defer { smtpStageIndex += 1 }
       return try await submitSMTPStage(
@@ -7287,11 +7428,25 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     )
   }
 
-  private func reauthenticateSMTPIfNeeded() async {
+  private func reauthenticateSMTPIfNeeded() async throws {
     guard smtpRequiresReauthentication else { return }
     smtpRequiresReauthentication = false
+    let negotiatedVersion: MailEngineTLSVersion =
+      if case .smtpCancellationReconnectMaximumTLS12 = fixture {
+        .tls12
+      } else {
+        .tls13
+      }
+    guard negotiatedVersion >= minimumTLSVersion else {
+      await state.record(.serviceClosed(connectionID: connectionID, service: .smtp))
+      throw MailEngineError.tlsVersionUnsupported
+    }
     await state.record(
-      .tlsEstablished(connectionID: connectionID, service: .smtp, version: .tls13)
+      .tlsEstablished(
+        connectionID: connectionID,
+        service: .smtp,
+        version: negotiatedVersion
+      )
     )
     await state.record(.authenticationStarted(connectionID: connectionID, service: .smtp))
     await state.record(.authenticated(connectionID: connectionID, service: .smtp))
