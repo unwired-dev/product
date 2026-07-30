@@ -847,6 +847,7 @@ struct AccountView: View {
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
   @Environment(\.openWindow) private var openWindow
+  @Environment(SettingsRouter.self) private var settingsRouter
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -963,6 +964,33 @@ struct AccountView: View {
 
   private var genericMailReloadKey: [String] {
     genericMailSetupViewModel.connectionReloadKey
+  }
+
+  private var adaptiveSettingsAttentions: [SettingsAttention] {
+    let connections = EmailAccountsSettingsView.makeSummaryConnections(
+      routedConnections: gmailViewModel.connections,
+      genericDefinitions: genericMailSetupViewModel.syncedDefinitions,
+      authorizedGenericConnectionIds: genericMailSetupViewModel.authorizedSyncedConnectionIds,
+      session: snapshot
+    )
+    let syncFailure = connections.lazy.compactMap { connection -> String? in
+      guard case .failed(let message) = mailboxFreshnessViewModel.status(for: connection).phase
+      else {
+        return nil
+      }
+      return message
+    }.first
+    guard
+      let attention = SettingsAttention.emailAccounts(
+        authorizationRequired: connections.contains {
+          $0.authorizationState == .required
+        },
+        syncFailureMessage: syncFailure
+      )
+    else {
+      return []
+    }
+    return [attention]
   }
 
   private var mailShell: some View {
@@ -1137,13 +1165,7 @@ struct AccountView: View {
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
-        showDevelopmentSettings: {
-          #if targetEnvironment(macCatalyst)
-            openWindow(id: "development-settings")
-          #else
-            showsDevelopmentSettings = true
-          #endif
-        },
+        showDevelopmentSettings: { openSettings(nil) },
         syncStatus: mailboxFreshnessViewModel.status
       )
     } content: {
@@ -1155,6 +1177,7 @@ struct AccountView: View {
         mailActionViewModel: mailActionViewModel,
         mailboxSelection: mailShellSelection.selectedMailbox,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
+        openSettings: openSettings,
         selectedThreadIds: selectedThreadsBinding,
         viewModel: inboxViewModel,
         selectSearchResult: selectSearchResult,
@@ -1196,29 +1219,42 @@ struct AccountView: View {
       .sheet(isPresented: $showsDevelopmentSettings) {
         AdaptiveSettingsScene(
           isSignedIn: true,
-          showsDismissButton: true
-        ) { destination in
-          switch destination {
-          case .emailAccounts:
-            EmailAccountsSettingsView(
-              ewsViewModel: ewsSetupViewModel,
-              genericMailViewModel: genericMailSetupViewModel,
-              gmailViewModel: gmailViewModel,
-              microsoftGraphViewModel: microsoftGraphViewModel,
-              freshnessViewModel: mailboxFreshnessViewModel,
-              cancelBodyPrefetch: {
-                await mailboxWorkCoordinator.cancelBodyPrefetch(
+          showsDismissButton: true,
+          attentions: adaptiveSettingsAttentions,
+          hasUnsavedChanges: {
+            ewsSetupViewModel.hasUnsavedChanges
+              || genericMailSetupViewModel.hasUnsavedChanges
+          },
+          discardChanges: {
+            ewsSetupViewModel.discardUnsavedChanges()
+            genericMailSetupViewModel.discardUnsavedChanges()
+          },
+          destinationContent: { destination, route in
+            switch destination {
+            case .emailAccounts:
+              EmailAccountsSettingsView(
+                ewsViewModel: ewsSetupViewModel,
+                genericMailViewModel: genericMailSetupViewModel,
+                gmailViewModel: gmailViewModel,
+                microsoftGraphViewModel: microsoftGraphViewModel,
+                freshnessViewModel: mailboxFreshnessViewModel,
+                cancelBodyPrefetch: {
+                  await mailboxWorkCoordinator.cancelBodyPrefetch(
+                    productAccountId: snapshot.productAccountId
+                  )
+                },
+                connectionsDidChange: {},
+                gmailConnectionsDidChange: {},
+                isMailboxBusy: mailboxWorkCoordinator.isBusy(
                   productAccountId: snapshot.productAccountId
-                )
-              },
-              connectionsDidChange: {},
-              gmailConnectionsDidChange: {},
-              isMailboxBusy: mailboxWorkCoordinator.isBusy(
-                productAccountId: snapshot.productAccountId
+                ),
+                navigationRoute: route
               )
-            )
+            default:
+              EmptyView()
+            }
           }
-        }
+        )
         .presentationDetents([.large])
       }
     #endif
@@ -1362,6 +1398,19 @@ struct AccountView: View {
       else { return }
       Task { await reloadSyncedMailState() }
     }
+  }
+
+  private func openSettings(_ route: SettingsRoute?) {
+    #if DEBUG
+      settingsRouter.open(route)
+      #if targetEnvironment(macCatalyst)
+        openWindow(id: "development-settings")
+      #else
+        showsDevelopmentSettings = true
+      #endif
+    #else
+      showsAccountSettings = true
+    #endif
   }
 
   private func updateProductMailboxState() {
@@ -2783,6 +2832,7 @@ struct MailShellThreadList: View {
   @Bindable var mailActionViewModel: GmailMailActionViewModel
   let mailboxSelection: MailShellMailboxSelection?
   let navigationSnapshot: MailboxNavigationSnapshot
+  var openSettings: (SettingsRoute) -> Void = { _ in }
   @Binding var selectedThreadIds: Set<MailboxThreadIdentity>
   @Bindable var viewModel: GmailInboxViewModel
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
@@ -2797,11 +2847,18 @@ struct MailShellThreadList: View {
         if mailboxSelection == .outbox {
           outboxContent
         } else if let connection, connection.authorizationState == .required {
-          ContentUnavailableView(
-            "Authorization required",
-            systemImage: "lock.trianglebadge.exclamationmark",
-            description: Text("Open Account Settings to authorize this mailbox on this device.")
-          )
+          ContentUnavailableView {
+            Label(
+              "Authorization required",
+              systemImage: "lock.trianglebadge.exclamationmark"
+            )
+          } description: {
+            Text("Authorize this Mailbox Connection on this device to load its mail.")
+          } actions: {
+            Button("Open Email Accounts") {
+              openSettings(.authorization(connectionId: connection.id))
+            }
+          }
         } else if let errorMessage = viewModel.errorMessage,
           items.isEmpty,
           !viewModel.isLoading,

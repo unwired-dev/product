@@ -7,6 +7,38 @@ typealias GenericMailLocalDataClearing = (
   ProductAccountSessionSnapshot
 ) async throws -> Bool
 
+private struct GenericMailEditorState: Equatable {
+  let authorizationMethod: MailAuthorizationMethod
+  let credential: String
+  let emailAddress: String
+  let incomingHostname: String
+  let incomingPort: String
+  let incomingProtocol: GenericMailProtocol
+  let incomingSecurity: MailTransportSecurity
+  let outgoingHostname: String
+  let outgoingPort: String
+  let outgoingSecurity: MailTransportSecurity
+  let roleMappings: [CanonicalMailboxRole: String]
+  let username: String
+
+  static let empty = GenericMailEditorState(
+    authorizationMethod: .password,
+    credential: "",
+    emailAddress: "",
+    incomingHostname: "",
+    incomingPort: "993",
+    incomingProtocol: .imap,
+    incomingSecurity: .implicitTLS,
+    outgoingHostname: "",
+    outgoingPort: "465",
+    outgoingSecurity: .implicitTLS,
+    roleMappings: Dictionary(
+      uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, "") }
+    ),
+    username: ""
+  )
+}
+
 @MainActor
 @Observable
 // swiftlint:disable:next type_body_length
@@ -17,6 +49,7 @@ final class GenericMailSetupViewModel {
   var credential = ""
   var defaultSendingConnectionId: MailboxConnectionId?
   private var discoveredIncomingEndpoints: [GenericMailEndpoint] = []
+  private var editorBaseline = GenericMailEditorState.empty
   var discoverySource: String?
   var emailAddress = ""
   var errorMessage: String?
@@ -66,6 +99,10 @@ final class GenericMailSetupViewModel {
 
   var isEditingDisabled: Bool {
     isConnecting || isLoadingSyncedDefinitions
+  }
+
+  var hasUnsavedChanges: Bool {
+    editorState != editorBaseline
   }
 
   private let productAccountId: ProductAccountId
@@ -161,6 +198,7 @@ final class GenericMailSetupViewModel {
       credential = ""
       discoverySource = "Loaded saved settings. Re-enter authorization to verify changes."
       errorMessage = nil
+      rememberEditorState()
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -214,6 +252,7 @@ final class GenericMailSetupViewModel {
       rolesRequiringMapping = []
       errorMessage = nil
       await loadSyncedDefinitions()
+      rememberEditorState()
       return true
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
@@ -228,6 +267,25 @@ final class GenericMailSetupViewModel {
 
   func invalidate() {
     isValid = false
+  }
+
+  func discardUnsavedChanges() {
+    apply(editorBaseline)
+  }
+
+  private func apply(_ state: GenericMailEditorState) {
+    authorizationMethod = state.authorizationMethod
+    credential = state.credential
+    emailAddress = state.emailAddress
+    incomingHostname = state.incomingHostname
+    incomingPort = state.incomingPort
+    incomingProtocol = state.incomingProtocol
+    incomingSecurity = state.incomingSecurity
+    outgoingHostname = state.outgoingHostname
+    outgoingPort = state.outgoingPort
+    outgoingSecurity = state.outgoingSecurity
+    roleMappings = state.roleMappings
+    username = state.username
   }
 
   private func apply(_ definition: GenericMailConnectionDefinition) {
@@ -255,6 +313,23 @@ final class GenericMailSetupViewModel {
     !emailAddress.isEmpty || !incomingHostname.isEmpty || !outgoingHostname.isEmpty
   }
 
+  private var editorState: GenericMailEditorState {
+    GenericMailEditorState(
+      authorizationMethod: authorizationMethod,
+      credential: credential,
+      emailAddress: emailAddress,
+      incomingHostname: incomingHostname,
+      incomingPort: incomingPort,
+      incomingProtocol: incomingProtocol,
+      incomingSecurity: incomingSecurity,
+      outgoingHostname: outgoingHostname,
+      outgoingPort: outgoingPort,
+      outgoingSecurity: outgoingSecurity,
+      roleMappings: roleMappings,
+      username: username
+    )
+  }
+
   private func resetRoleMappingState() {
     roleMappingEmailAddress = nil
     roleMappingEndpoint = nil
@@ -280,6 +355,11 @@ final class GenericMailSetupViewModel {
     resetRoleMappingState()
     username = ""
     discoverySource = nil
+    rememberEditorState()
+  }
+
+  private func rememberEditorState() {
+    editorBaseline = editorState
   }
 
   private func matchesSelectedSyncedConnection(_ draft: GenericMailSetupDraft) -> Bool {
@@ -508,6 +588,7 @@ extension GenericMailSetupViewModel {
       ? "Loaded device-authorized settings."
       : "Loaded encrypted synced settings. Authorize this mailbox on this device."
     errorMessage = nil
+    rememberEditorState()
   }
 }
 

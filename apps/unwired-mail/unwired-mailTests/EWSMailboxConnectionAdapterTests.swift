@@ -61,6 +61,24 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotEqual(standard, alternate)
   }
 
+  func testEWSSetupDiscardRestoresTheSavedEditorBaseline() {
+    let viewModel = EWSSetupViewModel(
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    viewModel.emailAddress = "draft@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
+
+    viewModel.discardUnsavedChanges()
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    XCTAssertEqual(viewModel.emailAddress, "")
+    XCTAssertEqual(viewModel.endpoint, "")
+  }
+
   func testSetupUsesVerifiedMailboxIdentityAcrossAliases() async throws {
     let client = RecordingEWSClient()
     let service = EWSSetupService(

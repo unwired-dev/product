@@ -380,6 +380,18 @@ the provider failure for retry. Generic-mail removal uses the snapshot-aware ref
 failed removal and the same shared mailbox-work busy state and cancellation boundary as Gmail,
 Microsoft, and EWS removal.
 
+The second delivered slice adds device-local search over registry-owned static labels, typed
+contextual routes for every planned Settings flow, and a shared request router for compact,
+regular-width, and Mac Catalyst presentations. Search never receives Mailbox Connection
+addresses, message data, signature or template bodies, or diagnostic report content. A route
+resolves only when its destination is implemented and available, so future destinations remain
+hidden rather than opening placeholders. Authorization-required mail surfaces can open the
+affected connection in Email Accounts; selected controls scroll into view and receive a temporary
+highlight. Normal entry restores the last available destination, changing route context or
+dismissing Settings prompts before discarding an edited generic-mail or EWS connection, and
+Email Accounts shows an indicator and explanatory banner only for authorization or synchronization
+failures that require action.
+
 ## Release gate
 
 - Unit tests cover defaults, persistence, migration, per-connection overrides, offline queueing, and conflicts.

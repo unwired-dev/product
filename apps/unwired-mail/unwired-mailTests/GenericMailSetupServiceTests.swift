@@ -68,6 +68,25 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertNotEqual(viewModel.connectionReloadKey, initialKey)
   }
 
+  @MainActor
+  func testGenericMailDiscardRestoresTheSavedEditorBaseline() {
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId("product-account-001"),
+      isSessionCurrent: { true }
+    )
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    viewModel.emailAddress = "draft@example.com"
+    viewModel.incomingHostname = "imap.example.com"
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
+
+    viewModel.discardUnsavedChanges()
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    XCTAssertEqual(viewModel.emailAddress, "")
+    XCTAssertEqual(viewModel.incomingHostname, "")
+  }
+
   func testReviewedCatalogDiscoversIMAPSMTPAndPOP3Locally() {
     let catalog = BundledMailProviderCatalog()
 

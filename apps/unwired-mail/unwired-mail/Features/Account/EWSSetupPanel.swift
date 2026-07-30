@@ -17,6 +17,7 @@ final class EWSSetupViewModel {
   private let authorizationStore: EWSAuthorizationPersisting
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
+  private var editorBaseline = [MailAuthorizationMethod.password.rawValue, "", "", "", ""]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var isValid = true
   private var loadIsActive = false
@@ -28,6 +29,10 @@ final class EWSSetupViewModel {
   private let session: ProductAccountSessionSnapshot
 
   var isConfirmingRecreation: Bool { removalObservation != nil }
+
+  var hasUnsavedChanges: Bool {
+    editorState != editorBaseline
+  }
 
   init(
     adapter: EWSMailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
@@ -108,6 +113,10 @@ final class EWSSetupViewModel {
       selectedConnectionId = connection.id
       credential = ""
       try await reloadAfterMutation()
+      if let definition = definitionsByConnectionId[connection.id] {
+        apply(definition)
+      }
+      rememberEditorState()
       errorMessage = nil
       return connection
     } catch is CancellationError {
@@ -137,6 +146,22 @@ final class EWSSetupViewModel {
     isValid = false
   }
 
+  func discardUnsavedChanges() {
+    if let selectedConnectionId,
+      let definition = definitionsByConnectionId[selectedConnectionId]
+    {
+      apply(definition)
+    } else {
+      authorizationMethod = .password
+      credential = ""
+      emailAddress = ""
+      endpoint = ""
+      username = ""
+      selectedConnectionId = nil
+    }
+    rememberEditorState()
+  }
+
   func select(_ connection: MailboxConnection) async {
     credential = ""
     let authorization = try? authorizationStore.load(
@@ -145,12 +170,10 @@ final class EWSSetupViewModel {
     )
     guard let definition = definitionsByConnectionId[connection.id] ?? authorization?.definition
     else { return }
-    authorizationMethod = definition.authorizationMethod
-    emailAddress = definition.emailAddress
-    endpoint = definition.endpoint.absoluteString
+    apply(definition)
     removalObservation = nil
     selectedConnectionId = connection.id
-    username = definition.username
+    rememberEditorState()
   }
 
   func removeLocal(_ connection: MailboxConnection) async -> Bool {
@@ -211,6 +234,22 @@ final class EWSSetupViewModel {
     )
     defaultSendingConnectionId = snapshot.defaultSendingConnectionId
     self.connections = connections
+  }
+
+  private var editorState: [String] {
+    [authorizationMethod.rawValue, credential, emailAddress, endpoint, username]
+  }
+
+  private func apply(_ definition: EWSConnectionDefinition) {
+    authorizationMethod = definition.authorizationMethod
+    credential = ""
+    emailAddress = definition.emailAddress
+    endpoint = definition.endpoint.absoluteString
+    username = definition.username
+  }
+
+  private func rememberEditorState() {
+    editorBaseline = editorState
   }
 }
 
