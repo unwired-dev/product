@@ -1,5 +1,7 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 @MainActor
 @Observable
 final class EWSSetupViewModel {
@@ -259,6 +261,7 @@ struct EWSSetupPanel: View {
   var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   var connectionsDidChange: () -> Void = {}
   var isMailboxBusy = false
+  @State private var pendingSelection: MailboxConnection?
   @State private var task: Task<Void, Never>?
 
   var body: some View {
@@ -277,7 +280,7 @@ struct EWSSetupPanel: View {
       ForEach(viewModel.connections, id: \.id) { connection in
         HStack {
           Button {
-            Task { await viewModel.select(connection) }
+            requestSelection(connection)
           } label: {
             VStack(alignment: .leading, spacing: 2) {
               Text(connection.displayName)
@@ -296,7 +299,7 @@ struct EWSSetupPanel: View {
           Menu("Manage") {
             if connection.authorizationState == .authorized {
               Button("Reauthorize on This Device") {
-                Task { await viewModel.select(connection) }
+                requestSelection(connection)
               }
               Button("Set as Default Sending Connection") {
                 Task {
@@ -317,7 +320,7 @@ struct EWSSetupPanel: View {
               }
             } else {
               Button("Authorize on This Device") {
-                Task { await viewModel.select(connection) }
+                requestSelection(connection)
               }
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
@@ -383,5 +386,19 @@ struct EWSSetupPanel: View {
     }
     .task { await viewModel.load() }
     .onDisappear { task?.cancel() }
+    .confirmDiscardSelection($pendingSelection) { connection in
+      viewModel.discardUnsavedChanges()
+      Task { await viewModel.select(connection) }
+    }
+  }
+}
+
+extension EWSSetupPanel {
+  fileprivate func requestSelection(_ connection: MailboxConnection) {
+    if viewModel.hasUnsavedChanges {
+      pendingSelection = connection
+    } else {
+      Task { await viewModel.select(connection) }
+    }
   }
 }

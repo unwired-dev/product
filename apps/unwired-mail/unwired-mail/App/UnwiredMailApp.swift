@@ -28,7 +28,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
       }
       .commands {
-        DevelopmentSettingsCommands()
+        DevelopmentSettingsCommands(settingsRouter: settingsRouter)
       }
 
       WindowGroup("Settings", id: "development-settings") {
@@ -48,7 +48,7 @@ struct UnwiredMailApp: App {
 #if DEBUG && targetEnvironment(macCatalyst)
   private struct DevelopmentSettingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
-    @Environment(SettingsRouter.self) private var settingsRouter
+    let settingsRouter: SettingsRouter
 
     var body: some Commands {
       CommandGroup(replacing: .appSettings) {

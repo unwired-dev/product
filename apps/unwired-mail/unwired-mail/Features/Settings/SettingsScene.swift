@@ -332,11 +332,19 @@ struct SettingsSearchItem: Equatable {
 }
 
 struct SettingsSearchResult: Equatable, Identifiable {
+  struct Identity: Hashable {
+    let route: SettingsRoute
+    let subtitle: String
+    let title: String
+  }
+
   let title: String
   let subtitle: String
   let route: SettingsRoute
 
-  var id: SettingsRoute { route }
+  var id: Identity {
+    Identity(route: route, subtitle: subtitle, title: title)
+  }
 }
 
 struct SettingsAttention: Equatable, Identifiable {
@@ -425,6 +433,35 @@ final class SettingsRouter {
 
   func open(_ route: SettingsRoute?) {
     request = SettingsRouteRequest(route: route)
+  }
+}
+
+extension View {
+  func confirmDiscardSelection<Selection>(
+    _ selection: Binding<Selection?>,
+    discardAndSelect: @escaping (Selection) -> Void
+  ) -> some View {
+    confirmationDialog(
+      "Discard unsaved changes?",
+      isPresented: Binding(
+        get: { selection.wrappedValue != nil },
+        set: { isPresented in
+          if !isPresented {
+            selection.wrappedValue = nil
+          }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes", role: .destructive) {
+        guard let value = selection.wrappedValue else { return }
+        selection.wrappedValue = nil
+        discardAndSelect(value)
+      }
+      Button("Keep Editing", role: .cancel) {
+        selection.wrappedValue = nil
+      }
+    }
   }
 }
 

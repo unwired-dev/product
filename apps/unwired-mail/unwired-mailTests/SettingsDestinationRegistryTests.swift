@@ -249,6 +249,12 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testSearchResultsHaveUniqueIdentitiesWhenRoutesOverlap() {
+    let results = SettingsDestinationRegistry.search(matching: "mail", isSignedIn: true)
+
+    XCTAssertEqual(Set(results.map(\.id)).count, results.count)
+  }
+
   func testSearchUsesOnlyStaticMetadata() {
     XCTAssertTrue(
       SettingsDestinationRegistry.search(

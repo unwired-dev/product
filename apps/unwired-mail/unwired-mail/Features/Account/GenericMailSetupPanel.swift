@@ -645,6 +645,7 @@ struct GenericMailSetupPanel: View {
   var connectionsDidChange: () -> Void = {}
   var routedConnections: [MailboxConnection] = []
   @State private var connectTask: Task<Void, Never>?
+  @State private var pendingSelection: GenericMailConnectionDefinition?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -663,7 +664,7 @@ struct GenericMailSetupPanel: View {
           ForEach(viewModel.syncedDefinitions, id: \.connectionId) { definition in
             HStack {
               Button {
-                viewModel.selectSyncedDefinition(definition)
+                requestSelection(definition)
               } label: {
                 VStack(alignment: .leading, spacing: 2) {
                   Text(definition.emailAddress)
@@ -688,7 +689,7 @@ struct GenericMailSetupPanel: View {
               Menu("Manage") {
                 if viewModel.isAuthorized(definition) {
                   Button("Reauthorize on This Device") {
-                    viewModel.selectSyncedDefinition(definition)
+                    requestSelection(definition)
                   }
                   if viewModel.canSetDefaultSendingConnection(
                     definition,
@@ -717,7 +718,7 @@ struct GenericMailSetupPanel: View {
                   }
                 } else {
                   Button("Authorize on This Device") {
-                    viewModel.selectSyncedDefinition(definition)
+                    requestSelection(definition)
                   }
                 }
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
@@ -867,9 +868,25 @@ struct GenericMailSetupPanel: View {
     .onDisappear {
       connectTask?.cancel()
     }
+    .confirmDiscardSelection($pendingSelection) { definition in
+      viewModel.discardUnsavedChanges()
+      viewModel.selectSyncedDefinition(definition)
+    }
   }
 
-  private func endpointEditor(
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    await cancelMailboxWork()
+    guard await action() else { return }
+    connectionsDidChange()
+  }
+}
+
+extension GenericMailSetupPanel {
+  fileprivate func endpointEditor(
     title: String,
     hostname: Binding<String>,
     port: Binding<String>,
@@ -893,15 +910,15 @@ struct GenericMailSetupPanel: View {
       .pickerStyle(.segmented)
     }
   }
+}
 
-  static func performDestructiveAction(
-    cancelMailboxWork: () async -> Void,
-    action: () async -> Bool,
-    connectionsDidChange: () -> Void
-  ) async {
-    await cancelMailboxWork()
-    guard await action() else { return }
-    connectionsDidChange()
+extension GenericMailSetupPanel {
+  fileprivate func requestSelection(_ definition: GenericMailConnectionDefinition) {
+    if viewModel.hasUnsavedChanges {
+      pendingSelection = definition
+    } else {
+      viewModel.selectSyncedDefinition(definition)
+    }
   }
 }
 
