@@ -5616,6 +5616,7 @@ final class GmailInboxViewModel {
     for messageId: StableProviderMessageIdentity
   ) throws -> MailboxMessageBody {
     discardLoadedMessageBodyPresentation(for: messageId)
+    guard !body.inlineImages.isEmpty else { return body }
     let contentIDOccurrenceList =
       try body.html.map(
         MessageHTMLSanitizer.referencedSanitizedInlineImageContentIDOccurrences
