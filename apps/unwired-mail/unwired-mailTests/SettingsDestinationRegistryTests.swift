@@ -219,12 +219,18 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
   func testSearchMatchesDestinationGroupSectionAndControlLabels() {
     XCTAssertEqual(
-      SettingsDestinationRegistry.search(matching: "email accounts", isSignedIn: true).map(\.title),
-      ["Email Accounts"]
+      SettingsDestinationRegistry.search(matching: "email accounts", isSignedIn: true),
+      [
+        SettingsSearchResult(
+          title: "Email Accounts",
+          subtitle: "Accounts",
+          route: .mailboxConnections
+        )
+      ]
     )
     XCTAssertTrue(
       SettingsDestinationRegistry.search(matching: "accounts", isSignedIn: true)
-        .contains { $0.route == .emailAccounts }
+        .contains { $0.route == .mailboxConnections }
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.search(matching: "mailbox connections", isSignedIn: true)
@@ -398,6 +404,37 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(SettingsNavigationLayout.resolve(.compact), .compact)
     XCTAssertEqual(SettingsNavigationLayout.resolve(.regular), .split)
     XCTAssertEqual(SettingsNavigationLayout.resolve(nil), .split)
+  }
+
+  func testEmailAccountRoutesChooseFocusAndHighlightTargets() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .mailboxConnections),
+      .summary
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(
+        for: .authorization(connectionId: connectionId)
+      ),
+      .connection(connectionId.rawValue)
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .mailboxRoles(connectionId: nil)),
+      .genericMail
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .provider(.microsoftGraph)),
+      .provider(MailProviderId.microsoftGraph.rawValue)
+    )
+    XCTAssertNil(
+      EmailAccountsSettingsView.navigationFocus(for: .notificationPermission)
+    )
   }
 
   @MainActor

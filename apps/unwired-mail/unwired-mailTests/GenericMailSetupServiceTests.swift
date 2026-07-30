@@ -87,6 +87,42 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.incomingHostname, "")
   }
 
+  @MainActor
+  func testGenericMailDiscardRestoresTheSelectedConnectionSaveIntent() async {
+    let draft = manualDraft()
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: draft.authorizationMethod,
+      emailAddress: draft.emailAddress,
+      incomingEndpoint: draft.incomingEndpoint,
+      outgoingEndpoint: draft.outgoingEndpoint,
+      roleMappings: draft.roleMappings,
+      username: draft.username
+    )
+    let sync = RecordingGenericSyncService(definitions: [definition])
+    let session = session(productAccountId: ProductAccountId("product-account-001"))
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: GenericMailSetupService(
+        authorizationStore: RecordingGenericMailAuthorizationStore(),
+        definitionSyncService: sync,
+        verifier: RecordingGenericMailEndpointVerifier()
+      ),
+      syncSession: session
+    )
+    await viewModel.loadSyncedDefinitions()
+
+    viewModel.discover()
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
+    viewModel.discardUnsavedChanges()
+    viewModel.credential = "device-only-secret"
+
+    let connected = await viewModel.connect()
+    XCTAssertTrue(connected)
+    XCTAssertEqual(sync.savedDefinition?.genericMailDefinition, definition)
+    XCTAssertNil(sync.recreatedDefinition)
+  }
+
   func testReviewedCatalogDiscoversIMAPSMTPAndPOP3Locally() {
     let catalog = BundledMailProviderCatalog()
 

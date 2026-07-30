@@ -2,6 +2,13 @@ import SwiftUI
 
 // swiftlint:disable file_length
 
+enum EmailAccountsNavigationFocus: Equatable {
+  case connection(String)
+  case genericMail
+  case provider(String)
+  case summary
+}
+
 // swiftlint:disable:next type_body_length
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
@@ -234,6 +241,31 @@ struct EmailAccountsSettingsView: View {
     )
   }
 
+  static func navigationFocus(for route: SettingsRoute?) -> EmailAccountsNavigationFocus? {
+    guard
+      let route,
+      route.destination == .emailAccounts,
+      let context = route.context
+    else {
+      return nil
+    }
+
+    switch context {
+    case .authorization(let connectionId), .synchronization(let connectionId):
+      return connectionId.map(EmailAccountsNavigationFocus.connection) ?? .summary
+    case .mailboxRoles(let connectionId):
+      return connectionId.map(EmailAccountsNavigationFocus.connection) ?? .genericMail
+    case .defaultSendingConnection, .mailboxConnections:
+      return .summary
+    case .mailboxConnection(let connectionId):
+      return .connection(connectionId)
+    case .provider(let providerId):
+      return .provider(providerId)
+    case .missingSignature, .notificationPermission, .preferenceConflict, .readReceipt, .storage:
+      return nil
+    }
+  }
+
   @ViewBuilder
   private var connectionSummary: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -347,37 +379,23 @@ struct EmailAccountsSettingsView: View {
     _ route: SettingsRoute?,
     proxy: ScrollViewProxy
   ) {
-    guard
-      let route,
-      route.destination == .emailAccounts,
-      let context = route.context
-    else { return }
+    guard let focus = Self.navigationFocus(for: route) else { return }
 
     let anchor: NavigationAnchor
-    switch context {
-    case .authorization(let connectionId), .mailboxRoles(let connectionId),
-      .synchronization(let connectionId):
-      if let connection = connection(matching: connectionId) {
-        showDetails(for: connection)
-        anchor = navigationAnchor(for: connection.providerId)
-      } else if case .mailboxRoles = context {
-        anchor = .genericMail
-      } else {
-        anchor = .summary
-      }
-    case .defaultSendingConnection, .mailboxConnections:
-      anchor = .summary
-    case .mailboxConnection(let connectionId):
+    switch focus {
+    case .connection(let connectionId):
       if let connection = connection(matching: connectionId) {
         showDetails(for: connection)
         anchor = navigationAnchor(for: connection.providerId)
       } else {
         anchor = .summary
       }
+    case .genericMail:
+      anchor = .genericMail
     case .provider(let providerId):
       anchor = navigationAnchor(for: MailProviderId(rawValue: providerId))
-    case .missingSignature, .notificationPermission, .preferenceConflict, .readReceipt, .storage:
-      return
+    case .summary:
+      anchor = .summary
     }
 
     withAnimation {
@@ -394,8 +412,7 @@ struct EmailAccountsSettingsView: View {
     }
   }
 
-  private func connection(matching rawValue: String?) -> MailboxConnection? {
-    guard let rawValue else { return nil }
+  private func connection(matching rawValue: String) -> MailboxConnection? {
     return summaryConnections.first { $0.id.rawValue == rawValue }
   }
 

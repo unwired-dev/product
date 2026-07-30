@@ -39,6 +39,32 @@ private struct GenericMailEditorState: Equatable {
   )
 }
 
+private struct GenericMailEditorSession {
+  let connectedDefinition: GenericMailConnectionDefinition?
+  let discoveredIncomingEndpoints: [GenericMailEndpoint]
+  let discoverySource: String?
+  let editorState: GenericMailEditorState
+  let locallyLoadedConnectionId: MailboxConnectionId?
+  let removalObservation: MailboxConnectionRemovalObservation?
+  let roleMappingEmailAddress: String?
+  let roleMappingEndpoint: GenericMailEndpoint?
+  let rolesRequiringMapping: [CanonicalMailboxRole]
+  let selectedSyncedConnectionId: MailboxConnectionId?
+
+  static let empty = GenericMailEditorSession(
+    connectedDefinition: nil,
+    discoveredIncomingEndpoints: [],
+    discoverySource: nil,
+    editorState: .empty,
+    locallyLoadedConnectionId: nil,
+    removalObservation: nil,
+    roleMappingEmailAddress: nil,
+    roleMappingEndpoint: nil,
+    rolesRequiringMapping: [],
+    selectedSyncedConnectionId: nil
+  )
+}
+
 @MainActor
 @Observable
 // swiftlint:disable:next type_body_length
@@ -49,7 +75,7 @@ final class GenericMailSetupViewModel {
   var credential = ""
   var defaultSendingConnectionId: MailboxConnectionId?
   private var discoveredIncomingEndpoints: [GenericMailEndpoint] = []
-  private var editorBaseline = GenericMailEditorState.empty
+  private var editorBaseline = GenericMailEditorSession.empty
   var discoverySource: String?
   var emailAddress = ""
   var errorMessage: String?
@@ -102,7 +128,7 @@ final class GenericMailSetupViewModel {
   }
 
   var hasUnsavedChanges: Bool {
-    editorState != editorBaseline
+    editorState != editorBaseline.editorState
   }
 
   private let productAccountId: ProductAccountId
@@ -270,7 +296,16 @@ final class GenericMailSetupViewModel {
   }
 
   func discardUnsavedChanges() {
-    apply(editorBaseline)
+    apply(editorBaseline.editorState)
+    connectedDefinition = editorBaseline.connectedDefinition
+    discoveredIncomingEndpoints = editorBaseline.discoveredIncomingEndpoints
+    discoverySource = editorBaseline.discoverySource
+    locallyLoadedConnectionId = editorBaseline.locallyLoadedConnectionId
+    removalObservation = editorBaseline.removalObservation
+    roleMappingEmailAddress = editorBaseline.roleMappingEmailAddress
+    roleMappingEndpoint = editorBaseline.roleMappingEndpoint
+    rolesRequiringMapping = editorBaseline.rolesRequiringMapping
+    selectedSyncedConnectionId = editorBaseline.selectedSyncedConnectionId
   }
 
   private func apply(_ state: GenericMailEditorState) {
@@ -359,7 +394,18 @@ final class GenericMailSetupViewModel {
   }
 
   private func rememberEditorState() {
-    editorBaseline = editorState
+    editorBaseline = GenericMailEditorSession(
+      connectedDefinition: connectedDefinition,
+      discoveredIncomingEndpoints: discoveredIncomingEndpoints,
+      discoverySource: discoverySource,
+      editorState: editorState,
+      locallyLoadedConnectionId: locallyLoadedConnectionId,
+      removalObservation: removalObservation,
+      roleMappingEmailAddress: roleMappingEmailAddress,
+      roleMappingEndpoint: roleMappingEndpoint,
+      rolesRequiringMapping: rolesRequiringMapping,
+      selectedSyncedConnectionId: selectedSyncedConnectionId
+    )
   }
 
   private func matchesSelectedSyncedConnection(_ draft: GenericMailSetupDraft) -> Bool {

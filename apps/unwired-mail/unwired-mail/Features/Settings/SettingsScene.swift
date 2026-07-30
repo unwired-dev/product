@@ -489,7 +489,7 @@ enum SettingsDestinationRegistry {
           SettingsSearchResult(
             title: destination.title,
             subtitle: destination.group.title,
-            route: destination.route
+            route: destination.searchItems.first?.route ?? destination.route
           )
         )
       }
@@ -598,6 +598,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         pendingAction = nil
       }
     }
+    .interactiveDismissDisabled(hasUnsavedChanges())
   }
 
   private var compactNavigation: some View {
