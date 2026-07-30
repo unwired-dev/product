@@ -308,6 +308,38 @@ extension MessageHTMLPresentationTests {
   }
 }
 
+extension MessageHTMLPresentationTests {
+  func testSanitizerRejectsNegativeValuesAnywhereInMarginShorthand() throws {
+    for style in ["margin: 0 -9999px", "margin: 0 0 -9999px", "margin: 0 0 0 -9999px"] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          """
+          <div style="\(style)">Hidden preview</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        ),
+        "Expected \(style) content to be unreadable"
+      )
+    }
+  }
+
+  func testSanitizerChecksCancellationBetweenFullDocumentPasses() throws {
+    var cancellationChecks = 0
+
+    XCTAssertThrowsError(
+      try MessageHTMLSanitizer.sanitize("<p>Readable</p>") {
+        cancellationChecks += 1
+        if cancellationChecks == 1 {
+          throw CancellationError()
+        }
+      }
+    ) { error in
+      XCTAssertTrue(error is CancellationError)
+    }
+    XCTAssertEqual(cancellationChecks, 1)
+  }
+}
+
 private enum TestError: Error {
   case sanitizationFailed
 }

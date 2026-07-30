@@ -6,19 +6,27 @@ struct SanitizedMessageHTML: Equatable, Sendable {
 }
 
 enum MessageHTMLSanitizer {
-  static func sanitize(_ html: String) throws -> SanitizedMessageHTML? {
+  static func sanitize(
+    _ html: String,
+    cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
+  ) throws -> SanitizedMessageHTML? {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let bodyHTML =
       try SwiftSoup.clean(html, "", allowlist())
       ?? ""
+    try cancellationCheck()
     let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
+    try cancellationCheck()
     let hiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?|(?:text-indent|margin|margin-(?:left|right|top))\s*:\s*-"#
+      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
       + #"(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?)(?:\s*!important)?\s*(?:;|$)"#
+      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
+      + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
+      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
+      + #"(?:\s*!important)?\s*(?:;|$)"#
     for element in try readableDocument.select("[style]") {
       let style = try element.attr("style")
       if style.range(
@@ -125,7 +133,8 @@ enum MessageHTMLPresentation: Equatable, Sendable {
   static func resolve(
     body: MailboxMessageBody,
     renderingFailed: Bool = false,
-    sanitizer: (String) throws -> SanitizedMessageHTML? = MessageHTMLSanitizer.sanitize
+    sanitizer: (String) throws -> SanitizedMessageHTML? =
+      { try MessageHTMLSanitizer.sanitize($0) }
   ) -> Self {
     guard !renderingFailed, let html = body.html,
       let sanitizedHTML = try? sanitizer(html)
