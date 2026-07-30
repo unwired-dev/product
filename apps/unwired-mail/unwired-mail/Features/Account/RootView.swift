@@ -1,10 +1,7 @@
 import SwiftUI
 
 struct RootView: View {
-  @State private var session = ProductAccountSession(
-    appleSignInService: SignInWithAppleService(),
-    productAccountService: ConvexProductAccountService()
-  )
+  let session: ProductAccountSession
 
   var body: some View {
     Group {
@@ -25,5 +22,10 @@ struct RootView: View {
 }
 
 #Preview {
-  RootView()
+  RootView(
+    session: ProductAccountSession(
+      appleSignInService: SignInWithAppleService(),
+      productAccountService: ConvexProductAccountService()
+    )
+  )
 }

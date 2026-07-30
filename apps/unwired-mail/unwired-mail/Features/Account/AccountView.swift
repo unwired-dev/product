@@ -4,6 +4,9 @@ import SwiftUI
 // swiftlint:disable file_length
 
 extension Notification.Name {
+  static let mailboxConnectionsDidChange = Notification.Name(
+    "MailboxConnectionsDidChange"
+  )
   static let mailboxMetadataDidSynchronize = Notification.Name(
     "MailboxMetadataDidSynchronize"
   )
@@ -15,6 +18,49 @@ enum MailboxSyncNotificationUserInfoKey {
   static let productAccountId = "productAccountId"
   static let reloadObservedMetadata = "reloadObservedMetadata"
   static let successfulSyncAt = "successfulSyncAt"
+}
+
+@MainActor
+@Observable
+final class MailboxWorkCoordinator {
+  static let shared = MailboxWorkCoordinator()
+
+  private struct Registration {
+    let cancelBodyPrefetch: () async -> Void
+    let isBusy: Bool
+  }
+
+  private var registrations: [String: [UUID: Registration]] = [:]
+
+  func register(
+    productAccountId: String,
+    registrationId: UUID,
+    cancelBodyPrefetch: @escaping () async -> Void,
+    isBusy: Bool
+  ) {
+    registrations[productAccountId, default: [:]][registrationId] = Registration(
+      cancelBodyPrefetch: cancelBodyPrefetch,
+      isBusy: isBusy
+    )
+  }
+
+  func unregister(productAccountId: String, registrationId: UUID) {
+    registrations[productAccountId]?[registrationId] = nil
+    if registrations[productAccountId]?.isEmpty == true {
+      registrations[productAccountId] = nil
+    }
+  }
+
+  func cancelBodyPrefetch(productAccountId: String) async {
+    guard let productRegistrations = registrations[productAccountId] else { return }
+    for registration in productRegistrations.values {
+      await registration.cancelBodyPrefetch()
+    }
+  }
+
+  func isBusy(productAccountId: String) -> Bool {
+    registrations[productAccountId]?.values.contains(where: \.isBusy) ?? false
+  }
 }
 
 @MainActor
@@ -267,6 +313,10 @@ final class MailboxFreshnessViewModel {
     return MailboxSyncStatus(lastSuccessfulSyncAt: lastSuccessfulSyncAt, phase: .syncing)
   }
 
+  func isHistoricalBackfillActive(for connection: MailboxConnection) -> Bool {
+    historicalBackfills[connection.id] != nil
+  }
+
   func recordExternalSync(
     connectionIdRawValue: String,
     phase: MailboxSyncPhase,
@@ -330,32 +380,80 @@ final class MailboxFreshnessViewModel {
     knownConnections = updatedConnections
   }
 
+  func updateConnections(
+    _ connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool,
+    prunesPersistedState: Bool = true
+  ) {
+    guard snapshotIsAuthoritative else { return }
+    updateConnections(connections, prunesPersistedState: prunesPersistedState)
+  }
+
   func clearPersistedState() {
     successStore.clear(productAccountId: session.productAccountId)
     knownConnections.removeAll()
     statuses.removeAll()
   }
 
-  func synchronize(connections: [MailboxConnection]) async {
-    await synchronize(connections: connections, gmailScope: .recent)
+  func synchronize(
+    connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
+  ) async {
+    guard snapshotIsAuthoritative else { return }
+    _ = await synchronize(connections: connections, gmailScope: .recent)
   }
 
-  func synchronizeFully(connections: [MailboxConnection]) async {
-    await synchronize(connections: connections, gmailScope: .full)
+  func synchronizeFully(
+    connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
+  ) async {
+    guard snapshotIsAuthoritative else { return }
+    _ = await synchronize(connections: connections, gmailScope: .full)
+  }
+
+  func synchronizeFully(
+    connection: MailboxConnection,
+    among connections: [MailboxConnection],
+    snapshotIsAuthoritative: Bool = true
+  ) async {
+    guard snapshotIsAuthoritative else { return }
+    let synchronizedConnectionIds = await synchronize(
+      connections: connections,
+      targetConnections: [connection],
+      gmailScope: .full
+    )
+    guard synchronizedConnectionIds.contains(connection.id) else { return }
+    let status = status(for: connection)
+    var userInfo: [AnyHashable: Any] = [
+      MailboxSyncNotificationUserInfoKey.connectionId: connection.id.rawValue,
+      MailboxSyncNotificationUserInfoKey.phase: status.phase,
+      MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
+      MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
+    ]
+    if let successfulSyncAt = status.lastSuccessfulSyncAt {
+      userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
+    }
+    NotificationCenter.default.post(
+      name: .mailboxMetadataDidSynchronize,
+      object: nil,
+      userInfo: userInfo
+    )
   }
 
   private func synchronize(
     connections: [MailboxConnection],
+    targetConnections: [MailboxConnection]? = nil,
     gmailScope: SyncScope
-  ) async {
+  ) async -> Set<MailboxConnectionId> {
     guard isSessionCurrent(session) else {
       cancelAll()
-      return
+      return []
     }
+    var synchronizedConnectionIds: Set<MailboxConnectionId> = []
     updateConnections(connections, prunesPersistedState: false)
     let connectionIds = Set(connections.map(\.id))
     statuses = statuses.filter { connectionIds.contains($0.key) }
-    for connection in connections {
+    for connection in targetConnections ?? connections {
       guard connection.authorizationState == .authorized else {
         statuses[connection.id] = .authorizationRequired(
           lastSuccessfulSyncAt: successStore.load(
@@ -378,12 +476,14 @@ final class MailboxFreshnessViewModel {
         {
           startHistoricalBackfill(connection: connection)
         }
+        synchronizedConnectionIds.insert(connection.id)
       } catch is CancellationError {
-        return
+        return synchronizedConnectionIds
       } catch {
         continue
       }
     }
+    return synchronizedConnectionIds
   }
 
   func syncInbox(
@@ -559,6 +659,7 @@ final class MailboxFreshnessViewModel {
 
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
+    snapshotIsAuthoritative: @escaping () -> Bool = { true },
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionCurrent(session) {
@@ -568,7 +669,8 @@ final class MailboxFreshnessViewModel {
         return
       }
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
-      await synchronize(connections: connections())
+      guard snapshotIsAuthoritative() else { continue }
+      await synchronize(connections: connections(), snapshotIsAuthoritative: true)
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       await didSynchronize()
     }
@@ -744,6 +846,7 @@ struct AccountView: View {
 
   @Environment(\.scenePhase) private var scenePhase
   @Environment(\.editMode) private var editMode
+  @Environment(\.openWindow) private var openWindow
 
   @State private var categoryViewModel: CustomCategoryViewModel
   @State private var columnVisibility: NavigationSplitViewVisibility = .all
@@ -757,6 +860,7 @@ struct AccountView: View {
   @State private var inboxLoadGeneration = 0
   @State private var inboxLoadTask: Task<Void, Never>?
   @State private var mailboxObserversAreActive = false
+  @State private var mailboxWorkRegistrationId = UUID()
   @State private var mailActionViewModel: GmailMailActionViewModel
   @State private var mailShellSelection = MailShellSelectionModel()
   @State private var notificationRuleViewModel: NotificationRuleViewModel
@@ -764,6 +868,8 @@ struct AccountView: View {
   @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
   @State private var showsBlockedActionAlert = false
   @State private var showsAccountSettings = false
+  @State private var showsDevelopmentSettings = false
+  @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
   @MainActor
   // swiftlint:disable:next function_body_length
@@ -819,10 +925,9 @@ struct AccountView: View {
         session: snapshot
       )
     )
-    let mailboxFreshnessViewModel = MailboxFreshnessViewModel(
-      service: mailboxConnection,
-      session: snapshot,
-      isSessionCurrent: { session.isCurrent($0) }
+    let mailboxFreshnessViewModel = session.sharedMailboxFreshnessViewModel(
+      for: snapshot,
+      service: mailboxConnection
     )
     _mailboxFreshnessViewModel = State(initialValue: mailboxFreshnessViewModel)
     _inboxViewModel = State(
@@ -861,7 +966,7 @@ struct AccountView: View {
   }
 
   private var mailShell: some View {
-    mailShellWithCoreLifecycleHandlers
+    mailboxWorkCoordinatedMailShell
       .onChange(of: pinViewModel.pinnedMessageIds) { oldValue, newValue in
         updateProductMailboxState()
         inboxViewModel.refreshBodyPrefetch(
@@ -915,6 +1020,7 @@ struct AccountView: View {
       .onChange(of: gmailViewModel.connections) { _, _ in
         mailboxFreshnessViewModel.updateConnections(
           gmailViewModel.connections,
+          snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative,
           prunesPersistedState: false
         )
         guard mailboxObserversAreActive else { return }
@@ -947,6 +1053,9 @@ struct AccountView: View {
         }
       }
       .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
+        #if DEBUG && !targetEnvironment(macCatalyst)
+          guard !showsDevelopmentSettings else { return }
+        #endif
         Task {
           _ = await gmailViewModel.load()
         }
@@ -973,8 +1082,36 @@ struct AccountView: View {
       }
       .onDisappear {
         inboxLoadTask?.cancel()
-        mailboxFreshnessViewModel.cancelAll()
       }
+  }
+
+  private var mailboxWorkCoordinatedMailShell: some View {
+    mailShellWithCoreLifecycleHandlers
+      .onAppear {
+        updateMailboxWorkCoordination()
+      }
+      .onChange(of: isMailboxWorkBusy) { _, _ in
+        updateMailboxWorkCoordination()
+      }
+      .onDisappear {
+        mailboxWorkCoordinator.unregister(
+          productAccountId: snapshot.productAccountId,
+          registrationId: mailboxWorkRegistrationId
+        )
+      }
+  }
+
+  private var isMailboxWorkBusy: Bool {
+    inboxViewModel.isBusy || mailActionViewModel.isPerformingAction
+  }
+
+  private func updateMailboxWorkCoordination() {
+    mailboxWorkCoordinator.register(
+      productAccountId: snapshot.productAccountId,
+      registrationId: mailboxWorkRegistrationId,
+      cancelBodyPrefetch: { await inboxViewModel.cancelBodyPrefetch() },
+      isBusy: isMailboxWorkBusy
+    )
   }
 
   private var mailShellWithCoreLifecycleHandlers: some View {
@@ -1000,6 +1137,13 @@ struct AccountView: View {
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },
+        showDevelopmentSettings: {
+          #if targetEnvironment(macCatalyst)
+            openWindow(id: "development-settings")
+          #else
+            showsDevelopmentSettings = true
+          #endif
+        },
         syncStatus: mailboxFreshnessViewModel.status
       )
     } content: {
@@ -1048,6 +1192,36 @@ struct AccountView: View {
     .sheet(isPresented: $showsAccountSettings) {
       accountSettings
     }
+    #if DEBUG && !targetEnvironment(macCatalyst)
+      .sheet(isPresented: $showsDevelopmentSettings) {
+        AdaptiveSettingsScene(
+          isSignedIn: true,
+          showsDismissButton: true
+        ) { destination in
+          switch destination {
+          case .emailAccounts:
+            EmailAccountsSettingsView(
+              ewsViewModel: ewsSetupViewModel,
+              genericMailViewModel: genericMailSetupViewModel,
+              gmailViewModel: gmailViewModel,
+              microsoftGraphViewModel: microsoftGraphViewModel,
+              freshnessViewModel: mailboxFreshnessViewModel,
+              cancelBodyPrefetch: {
+                await mailboxWorkCoordinator.cancelBodyPrefetch(
+                  productAccountId: snapshot.productAccountId
+                )
+              },
+              connectionsDidChange: {},
+              gmailConnectionsDidChange: {},
+              isMailboxBusy: mailboxWorkCoordinator.isBusy(
+                productAccountId: snapshot.productAccountId
+              )
+            )
+          }
+        }
+        .presentationDetents([.large])
+      }
+    #endif
     .sheet(item: $compositionDraft) { draft in
       MailShellComposer(
         connections: gmailViewModel.connections,
@@ -1120,7 +1294,10 @@ struct AccountView: View {
         }
       }
       mailboxObserversAreActive = true
-      await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+      await mailboxFreshnessViewModel.synchronize(
+        connections: gmailViewModel.connections,
+        snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+      )
       await reloadObservedMailboxes()
       inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)
     }
@@ -1128,6 +1305,7 @@ struct AccountView: View {
       guard scenePhase == .active else { return }
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
+        snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
         didSynchronize: { await reloadObservedMailboxes() }
       )
     }
@@ -1167,11 +1345,22 @@ struct AccountView: View {
           let connectionsAreAuthoritative = await gmailViewModel.refreshSnapshot()
           mailboxFreshnessViewModel.updateConnections(
             gmailViewModel.connections,
+            snapshotIsAuthoritative: connectionsAreAuthoritative,
             prunesPersistedState: connectionsAreAuthoritative
           )
         }
         await reloadObservedMailboxes()
       }
+    }
+    .onReceive(
+      NotificationCenter.default.publisher(for: .mailboxConnectionsDidChange)
+        .receive(on: RunLoop.main)
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.productAccountId]
+          as? String == snapshot.productAccountId
+      else { return }
+      Task { await reloadSyncedMailState() }
     }
   }
 
@@ -1190,6 +1379,7 @@ struct AccountView: View {
     let connectionsAreAuthoritative = await gmailViewModel.load()
     mailboxFreshnessViewModel.updateConnections(
       gmailViewModel.connections,
+      snapshotIsAuthoritative: connectionsAreAuthoritative,
       prunesPersistedState: connectionsAreAuthoritative
     )
     await mailActionViewModel.resume(connections: gmailViewModel.connections)
@@ -1200,7 +1390,7 @@ struct AccountView: View {
 }
 
 extension AccountView {
-  private static func clearGenericMailLocalData(
+  static func clearGenericMailLocalData(
     _ definition: GenericMailConnectionDefinition,
     session: ProductAccountSessionSnapshot,
     mailboxConnection: MailboxConnectionAdapter
@@ -1301,12 +1491,18 @@ extension AccountView {
   }
 
   private func synchronizeMailboxes() async {
-    await mailboxFreshnessViewModel.synchronize(connections: gmailViewModel.connections)
+    await mailboxFreshnessViewModel.synchronize(
+      connections: gmailViewModel.connections,
+      snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+    )
     await reloadObservedMailboxes()
   }
 
   private func synchronizeMailboxesFully() async {
-    await mailboxFreshnessViewModel.synchronizeFully(connections: gmailViewModel.connections)
+    await mailboxFreshnessViewModel.synchronizeFully(
+      connections: gmailViewModel.connections,
+      snapshotIsAuthoritative: gmailViewModel.connectionsSnapshotIsAuthoritative
+    )
     await reloadObservedMailboxes()
   }
 
@@ -1485,6 +1681,7 @@ extension AccountView {
           SmokeView(service: ConvexBackendHealthService())
 
           Button("Sign Out", role: .destructive) {
+            session.beginSignOut()
             ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
             Task {
@@ -2391,6 +2588,7 @@ private struct MailShellSidebar: View {
   let refreshMailboxes: () -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
+  let showDevelopmentSettings: () -> Void
   let syncStatus: (MailboxConnection) -> MailboxSyncStatus
 
   var body: some View {
@@ -2499,8 +2697,19 @@ private struct MailShellSidebar: View {
       }
 
       Section {
-        Button(action: showAccountSettings) {
-          Label("Account Settings", systemImage: "gearshape")
+        ForEach(SettingsEntryPointRegistry.currentEntries) { entryPoint in
+          switch entryPoint {
+          case .accountSettings:
+            Button(action: showAccountSettings) {
+              Label("Account Settings", systemImage: "gearshape")
+            }
+          case .adaptiveSettings:
+            #if DEBUG
+              Button(action: showDevelopmentSettings) {
+                Label("Development Settings", systemImage: "gearshape.2")
+              }
+            #endif
+          }
         }
       }
     }
@@ -6041,6 +6250,7 @@ final class GmailInboxViewModel {
 @Observable
 final class MailboxProviderConnectionViewModel {
   var connections: [MailboxConnection] = []
+  private(set) var connectionsSnapshotIsAuthoritative = false
   var defaultSendingConnectionId: MailboxConnectionId?
   var errorMessage: String?
   var isConnecting = false
@@ -6083,6 +6293,10 @@ final class MailboxProviderConnectionViewModel {
     connections.first { $0.id == selectedConnectionId }
   }
 
+  var sessionSnapshot: ProductAccountSessionSnapshot {
+    session
+  }
+
   func load() async -> Bool {
     isLoading = true
     defer {
@@ -6090,16 +6304,21 @@ final class MailboxProviderConnectionViewModel {
     }
 
     do {
-      try await refreshConnections()
+      let connectionsAreAuthoritative = try await refreshConnections()
       await completeLoadingConnections()
-      return true
+      return connectionsAreAuthoritative
     } catch {
       let originalError = error
       do {
-        try await refreshConnections()
+        let connectionsAreAuthoritative = try await refreshConnections()
         await completeLoadingConnections()
-        return true
+        return connectionsAreAuthoritative
+      } catch let error as MailboxConnectionLoadError {
+        await completeLoadingConnections()
+        errorMessage = error.localizedDescription
+        return false
       } catch {
+        await completeLoadingConnections()
         errorMessage = originalError.localizedDescription
         return false
       }
@@ -6108,10 +6327,10 @@ final class MailboxProviderConnectionViewModel {
 
   func refreshSnapshot() async -> Bool {
     do {
-      try await refreshConnections()
+      let connectionsAreAuthoritative = try await refreshConnections()
       restoreSelection()
       errorMessage = nil
-      return true
+      return connectionsAreAuthoritative
     } catch {
       errorMessage = error.localizedDescription
       return false
@@ -6119,7 +6338,7 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections() async {
-    restoreSelection()
+    if connectionsSnapshotIsAuthoritative { restoreSelection() }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -6190,69 +6409,93 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  func removeLocalAuthorization(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func removeLocalAuthorization(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
+    var removalCompleted = false
     do {
       try await service.clearLocalConnection(connection, session: session)
+      removalCompleted = true
       try await refreshConnections()
       pushStatusMessages[connection.id] = nil
       selectedConnectionId = connection.id
       errorMessage = nil
+      return true
     } catch {
-      if let refreshedConnections = try? await service.loadConnections(session: session) {
-        connections = refreshedConnections.sorted {
-          $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
-        }
-        pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
-          connections.contains { $0.id == connectionId }
-        }
-        if selectedConnectionId == connection.id {
-          selectedConnectionId = connections.first?.id
-        }
+      _ = try? await refreshConnections()
+      pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
+        connections.contains { $0.id == connectionId }
+      }
+      if selectedConnectionId == connection.id {
+        selectedConnectionId = connections.first?.id
       }
       errorMessage = error.localizedDescription
+      return removalCompleted
     }
   }
 
-  func removeEverywhere(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func removeEverywhere(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
+    var removalCompleted = false
     do {
       try await service.removeMailboxConnectionEverywhere(connection, session: session)
+      removalCompleted = true
       try await refreshConnections()
       pushStatusMessages[connection.id] = nil
       if selectedConnectionId == connection.id {
         selectedConnectionId = connections.first?.id
       }
       errorMessage = nil
+      return true
     } catch {
       try? await refreshConnections()
       errorMessage = error.localizedDescription
+      return removalCompleted
     }
   }
 
-  func setDefaultSendingConnection(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func setDefaultSendingConnection(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     do {
       try await service.setDefaultSendingConnection(connection, session: session)
       defaultSendingConnectionId = connection.id
       selectedConnectionId = connection.id
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
-  private func refreshConnections() async throws {
-    let loadedConnections = try await service.loadConnections(session: session)
+  @discardableResult
+  private func refreshConnections() async throws -> Bool {
+    let snapshot =
+      if let snapshotLoader = service as? any MailboxConnectionSnapshotLoading {
+        try await snapshotLoader.loadConnectionSnapshot(session: session)
+      } else {
+        MailboxConnectionLoadSnapshot(
+          connections: try await service.loadConnections(session: session),
+          isAuthoritative: true
+        )
+      }
+    let loadedConnections = snapshot.connections
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
+    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
     connections = loadedConnections
-    defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(session: session)
+    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+      session: session
+    )
+    defaultSendingConnectionId = loadedDefaultSendingConnectionId
+    if let loadErrorDescription = snapshot.loadErrorDescription {
+      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+    }
+    return snapshot.isAuthoritative
   }
 
   private func refreshPushWatch(connection: MailboxConnection) async {
@@ -6568,28 +6811,33 @@ private struct NotificationRulePanel: View {
   }
 }
 
-private struct GmailProviderConnectionPanel: View {
+struct GmailProviderConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
+  var connectionsDidChange: () -> Void = {}
+  var manualRefreshDidComplete: () -> Void = {}
 
   var body: some View {
     MailboxProviderConnectionPanel(
       cancelBodyPrefetch: cancelBodyPrefetch,
       configuration: .gmail,
+      connectionsDidChange: connectionsDidChange,
       isMailboxBusy: isMailboxBusy,
+      manualRefreshDidComplete: manualRefreshDidComplete,
       selectMailbox: selectMailbox,
       viewModel: viewModel
     )
   }
 }
 
-private struct MicrosoftGraphConnectionPanel: View {
+struct MicrosoftGraphConnectionPanel: View {
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
   let connectionDidConnect: (MailboxConnection) -> Void
   let isMailboxBusy: Bool
+  var manualRefreshDidComplete: () -> Void = {}
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
 
@@ -6600,13 +6848,14 @@ private struct MicrosoftGraphConnectionPanel: View {
       connectionsDidChange: connectionsDidChange,
       connectionDidConnect: connectionDidConnect,
       isMailboxBusy: isMailboxBusy,
+      manualRefreshDidComplete: manualRefreshDidComplete,
       selectMailbox: selectMailbox,
       viewModel: viewModel
     )
   }
 }
 
-private struct MailboxProviderConnectionPanel: View {
+struct MailboxProviderConnectionPanel: View {
   struct Configuration {
     let allowsDefaultSender: Bool
     let connectingTitle: String
@@ -6635,7 +6884,7 @@ private struct MailboxProviderConnectionPanel: View {
     )
 
     static let microsoftGraph = Configuration(
-      allowsDefaultSender: false,
+      allowsDefaultSender: true,
       connectingTitle: "Connecting Microsoft mailbox...",
       emptyConnectTitle: "Sign in with Microsoft",
       loadingTitle: "Loading Microsoft mailboxes...",
@@ -6654,6 +6903,7 @@ private struct MailboxProviderConnectionPanel: View {
   var connectionsDidChange: () -> Void = {}
   var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   let isMailboxBusy: Bool
+  var manualRefreshDidComplete: () -> Void = {}
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
@@ -6680,7 +6930,12 @@ private struct MailboxProviderConnectionPanel: View {
         Spacer()
 
         Button {
-          Task { _ = await viewModel.load() }
+          Task {
+            await Self.performManualRefresh(
+              load: { _ = await viewModel.load() },
+              connectionsDidChange: manualRefreshDidComplete
+            )
+          }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
@@ -6732,30 +6987,49 @@ private struct MailboxProviderConnectionPanel: View {
                 connectTask = Task {
                   if let connected = await viewModel.connect(expectedConnection: connection) {
                     connectionDidConnect(connected)
+                    connectionsDidChange()
                   }
                 }
               }
             } else {
+              Button("Reauthorize on This Device") {
+                viewModel.selectedConnectionId = connection.id
+                connectTask?.cancel()
+                connectTask = Task {
+                  if let connected = await viewModel.connect(expectedConnection: connection) {
+                    connectionDidConnect(connected)
+                    connectionsDidChange()
+                  }
+                }
+              }
               if configuration.allowsDefaultSender {
                 Button("Set as Default Sending Connection") {
                   Task {
-                    await viewModel.setDefaultSendingConnection(connection)
+                    if await viewModel.setDefaultSendingConnection(connection) {
+                      connectionsDidChange()
+                    }
                   }
                 }
                 .disabled(viewModel.defaultSendingConnectionId == connection.id)
               }
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
-                  await cancelBodyPrefetch()
-                  await viewModel.removeLocalAuthorization(connection)
+                  await Self.performDestructiveAction(
+                    cancelMailboxWork: cancelBodyPrefetch,
+                    action: { await viewModel.removeLocalAuthorization(connection) },
+                    connectionsDidChange: connectionsDidChange
+                  )
                 }
               }
             }
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
-                await cancelBodyPrefetch()
-                await viewModel.removeEverywhere(connection)
+                await Self.performDestructiveAction(
+                  cancelMailboxWork: cancelBodyPrefetch,
+                  action: { await viewModel.removeEverywhere(connection) },
+                  connectionsDidChange: connectionsDidChange
+                )
               }
             }
           } label: {
@@ -6771,6 +7045,7 @@ private struct MailboxProviderConnectionPanel: View {
         connectTask = Task {
           if let connected = await viewModel.connect() {
             connectionDidConnect(connected)
+            connectionsDidChange()
           }
         }
       } label: {
@@ -6815,12 +7090,29 @@ private struct MailboxProviderConnectionPanel: View {
       guard configuration.loadsOnAppear else { return }
       _ = await viewModel.load()
     }
-    .onChange(of: viewModel.connections) { _, _ in
-      connectionsDidChange()
-    }
     .onDisappear {
       connectTask?.cancel()
     }
+  }
+
+  @MainActor
+  static func performManualRefresh(
+    load: () async -> Void,
+    connectionsDidChange: () -> Void
+  ) async {
+    await load()
+    connectionsDidChange()
+  }
+
+  @MainActor
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    await cancelMailboxWork()
+    guard await action() else { return }
+    connectionsDidChange()
   }
 }
 

@@ -13,6 +13,10 @@ enum ProductAccountSessionState: Equatable {
 final class ProductAccountSession {
   private(set) var state: ProductAccountSessionState = .loading
 
+  @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
+  @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
+  @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -40,8 +44,17 @@ final class ProductAccountSession {
   }
 
   func bootstrap() async {
+    if let bootstrapTask {
+      await bootstrapTask.value
+      return
+    }
     state = .loading
+    let task = Task { await performBootstrap() }
+    bootstrapTask = task
+    await task.value
+  }
 
+  private func performBootstrap() async {
     guard let snapshot = try? sessionStore.load() else {
       state = .signedOut
       return
@@ -142,13 +155,15 @@ final class ProductAccountSession {
   }
 
   func signOut() async {
-    isSigningOut = true
-    defer { isSigningOut = false }
-    let snapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
+    beginSignOut()
+    defer {
+      isSigningOut = false
+      signOutSnapshot = nil
+    }
+    let snapshot = signOutSnapshot ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
-      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
-      guard refreshedSnapshot == snapshot else { return }
+      guard !signOutSnapshotWasReplaced(snapshot) else { return }
     }
     do {
       var mailboxCleanupError: Error?
@@ -157,8 +172,7 @@ final class ProductAccountSession {
           try await mailboxConnectionService.clearLocalConnection(
             session: snapshot,
             isStillCurrent: {
-              self.currentSignedInSnapshot() == snapshot
-                || (try? self.sessionStore.load()) == snapshot
+              !self.signOutSnapshotWasReplaced(snapshot)
             }
           )
         } catch {
@@ -169,8 +183,7 @@ final class ProductAccountSession {
         state = .failed(mailboxCleanupError.localizedDescription)
         return
       }
-      let refreshedSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
-      guard refreshedSnapshot == snapshot else { return }
+      guard !signOutSnapshotWasReplaced(snapshot) else { return }
       try sessionStore.clear()
       guard
         currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
@@ -184,6 +197,18 @@ final class ProductAccountSession {
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
     !isSigningOut && currentSignedInSnapshot() == snapshot
+  }
+
+  private func signOutSnapshotWasReplaced(
+    _ snapshot: ProductAccountSessionSnapshot?
+  ) -> Bool {
+    if let currentSnapshot = currentSignedInSnapshot() {
+      return currentSnapshot != snapshot
+    }
+    if let storedSnapshot = try? sessionStore.load() {
+      return storedSnapshot != snapshot
+    }
+    return false
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(
@@ -247,5 +272,40 @@ final class ProductAccountSession {
     }
 
     return snapshot
+  }
+}
+
+extension ProductAccountSession {
+  func beginSignOut() {
+    guard !isSigningOut else { return }
+    signOutSnapshot = currentSignedInSnapshot()
+    isSigningOut = true
+    state = .loading
+    clearMailboxFreshnessViewModel()
+  }
+
+  func sharedMailboxFreshnessViewModel(
+    for snapshot: ProductAccountSessionSnapshot,
+    service: MailboxMetadataSyncing
+  ) -> MailboxFreshnessViewModel {
+    if mailboxFreshnessSession == snapshot, let mailboxFreshnessViewModel {
+      return mailboxFreshnessViewModel
+    }
+
+    clearMailboxFreshnessViewModel()
+    let viewModel = MailboxFreshnessViewModel(
+      service: service,
+      session: snapshot,
+      isSessionCurrent: { self.isCurrent($0) }
+    )
+    mailboxFreshnessSession = snapshot
+    mailboxFreshnessViewModel = viewModel
+    return viewModel
+  }
+
+  private func clearMailboxFreshnessViewModel() {
+    mailboxFreshnessViewModel?.cancelAll()
+    mailboxFreshnessSession = nil
+    mailboxFreshnessViewModel = nil
   }
 }

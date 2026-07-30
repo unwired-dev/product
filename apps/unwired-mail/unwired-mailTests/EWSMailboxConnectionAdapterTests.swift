@@ -90,6 +90,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(first.id, second.id)
   }
 
+  func testEWSSetupViewModelRerunsLoadRequestedWhileWorking() async {
+    let firstLoad = TestRendezvous()
+    let definitions = RecordingEWSDefinitionSyncService()
+    var shouldHoldFirstLoad = true
+    definitions.beforeLoadSnapshotReturn = {
+      guard shouldHoldFirstLoad else { return }
+      shouldHoldFirstLoad = false
+      await firstLoad.hold()
+    }
+    let viewModel = EWSSetupViewModel(
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    let initialLoad = Task { await viewModel.load() }
+    await firstLoad.waitUntilHeld()
+    let requestedRefresh = Task { await viewModel.load() }
+
+    await firstLoad.release()
+    await initialLoad.value
+    await requestedRefresh.value
+
+    XCTAssertEqual(definitions.loadSnapshotCallCount, 2)
+  }
+
   func testEWSSetupViewModelRequiresExplicitRecreationRetry() async throws {
     let definitions = RecordingEWSDefinitionSyncService()
     let client = RecordingEWSClient()
@@ -1016,6 +1041,47 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(didSetDefault)
     XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
+  }
+
+  func testEWSRemovalReportsCompletionWhenSnapshotRefreshFails() async throws {
+    let definition = makeEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      )
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore(),
+        outboxService: OutboxDeliveryService(store: EWSOutboxStore()),
+        pendingActionService: PendingProviderActionService(store: EWSActionStore()),
+        keyMaterialStore: keyMaterialStore
+      ),
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    await viewModel.load()
+    let connection = try XCTUnwrap(viewModel.connections.first)
+    definitions.loadSnapshotError = EWSServiceError.invalidResponse
+
+    let didRemove = await viewModel.removeEverywhere(connection)
+
+    XCTAssertTrue(didRemove, viewModel.errorMessage ?? "Removal unexpectedly failed.")
+    XCTAssertNotNil(viewModel.errorMessage)
   }
 
   func testEWSSetupSelectionPrefersSynchronizedDefinitionOverStaleAuthorization() async throws {
@@ -4711,6 +4777,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   var didLoadSnapshot: (() -> Void)?
   var didSaveDefinition: (() -> Void)?
   var loadSnapshotError: Error?
+  var loadSnapshotCallCount = 0
   var localCleanupGenerations: [MailboxConnectionId: Int]
   var providerAccessLoads = 0
   var recreateDefinitionCount = 0
@@ -4752,6 +4819,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    loadSnapshotCallCount += 1
     if let loadSnapshotError { throw loadSnapshotError }
     didLoadSnapshot?()
     await beforeLoadSnapshotReturn?()

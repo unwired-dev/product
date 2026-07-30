@@ -34,6 +34,59 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(connections[0].id, definition.connectionId)
   }
 
+  func testRouterPreservesHealthyProvidersAndMarksPartialSnapshotNonAuthoritative() async throws {
+    let healthyDefinition = imapDefinition(username: "healthy-provider")
+    let healthyAuthorizationStore = RecordingIMAPAuthorizationStore()
+    healthyAuthorizationStore.save(
+      DeviceLocalGenericMailAuthorization(
+        credential: "healthy-secret",
+        definition: healthyDefinition
+      ),
+      productAccountId: ProductAccountId(session.productAccountId)
+    )
+    let healthyAdapter = try makeAdapter(
+      authorizationStore: healthyAuthorizationStore,
+      client: RecordingIMAPClient(),
+      definitions: [healthyDefinition]
+    )
+    let emptyAdapter = try makeAdapter(
+      authorizationStore: RecordingIMAPAuthorizationStore(),
+      client: RecordingIMAPClient(),
+      definitions: []
+    )
+    let failingDefinitionSyncService = RecordingIMAPDefinitionSyncService(definitions: [])
+    failingDefinitionSyncService.loadError = IMAPAdapterTestError.unavailable
+    let failingAdapter = try makeAdapter(
+      authorizationStore: RecordingIMAPAuthorizationStore(),
+      client: RecordingIMAPClient(),
+      definitionSyncService: failingDefinitionSyncService,
+      definitions: []
+    )
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: emptyAdapter,
+      gmail: healthyAdapter,
+      imap: failingAdapter,
+      microsoftGraph: emptyAdapter
+    )
+
+    let snapshot = try await router.loadConnectionSnapshot(session: session)
+    let connections = try await router.loadConnections(session: session)
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: router,
+      isSessionCurrent: { _ in true },
+      session: session
+    )
+    let viewModelSnapshotIsAuthoritative = await viewModel.load()
+
+    XCTAssertEqual(snapshot.connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertFalse(snapshot.isAuthoritative)
+    XCTAssertEqual(connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertEqual(viewModel.connections.map(\.id), [healthyDefinition.connectionId])
+    XCTAssertFalse(viewModelSnapshotIsAuthoritative)
+    XCTAssertFalse(viewModel.connectionsSnapshotIsAuthoritative)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   // swiftlint:disable:next function_body_length
   func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = imapDefinition(username: "reader")
@@ -957,6 +1010,10 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
   }
 }
 
+private enum IMAPAdapterTestError: Error {
+  case unavailable
+}
+
 private final class InMemoryIMAPOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   private var attempts: [OutgoingDeliveryAttempt] = []
   private(set) var saveCallCount = 0
@@ -1102,6 +1159,7 @@ private final class RecordingIMAPAuthorizationStore: GenericMailAuthorizationPer
 
 private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinitionSyncing {
   var beforeLoadSnapshotReturn: ((Int) -> Void)?
+  var loadError: Error?
   private var loadSnapshotCallCount = 0
   private var snapshot: MailboxConnectionSyncSnapshot
 
@@ -1130,6 +1188,7 @@ private final class RecordingIMAPDefinitionSyncService: MailboxConnectionDefinit
   ) async throws -> MailboxConnectionSyncSnapshot {
     loadSnapshotCallCount += 1
     beforeLoadSnapshotReturn?(loadSnapshotCallCount)
+    if let loadError { throw loadError }
     return snapshot
   }
 

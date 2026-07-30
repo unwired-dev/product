@@ -789,6 +789,36 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testViewModelReportsSuccessfulDefaultSenderChange() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: nil,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+
+    let didSetDefault = await viewModel.setDefaultSendingConnection(connection)
+
+    XCTAssertTrue(didSetDefault)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+  }
+
   func testViewModelReportsLoadErrorWhenConnectionsCannotLoad() async {
     let connectionService = RecordingAdapterConnectionService()
     connectionService.loadError = AdapterTestError.unavailable
@@ -806,6 +836,130 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     _ = await viewModel.load()
 
     XCTAssertTrue(viewModel.connections.isEmpty)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
+  func testViewModelPreservesAuthoritativeSnapshotWhenReloadIsCancelled() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    let connectionsBeforeCancellation = viewModel.connections
+    connectionService.loadError = CancellationError()
+
+    _ = await viewModel.load()
+
+    XCTAssertTrue(viewModel.connectionsSnapshotIsAuthoritative)
+    XCTAssertEqual(viewModel.connections, connectionsBeforeCancellation)
+  }
+
+  func testViewModelPreservesDefaultSenderWhenRefreshingItFails() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: 1_781_200_000_300
+      )
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    definitionSyncService.loadError = AdapterTestError.unavailable
+
+    let refreshed = await viewModel.refreshSnapshot()
+
+    XCTAssertFalse(refreshed)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
+  func testViewModelPublishesHealthyConnectionsWhenDefaultSenderRefreshFails() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    connectionService.statuses = [RecordingAdapterConnectionService.status]
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    definitionSyncService.loadError = AdapterTestError.unavailable
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: GmailMailboxConnectionAdapter(
+        connectionService: connectionService,
+        definitionSyncService: definitionSyncService
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    viewModel.defaultSendingConnectionId = connection.id
+
+    let loadedAuthoritatively = await viewModel.load()
+
+    XCTAssertFalse(loadedAuthoritatively)
+    XCTAssertEqual(viewModel.connections, [connection])
+    XCTAssertEqual(viewModel.selectedConnectionId, connection.id)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, connection.id)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
+  func testViewModelPreservesSelectionWhenProviderSnapshotIsPartial() async {
+    let healthyConnectionService = RecordingAdapterConnectionService()
+    healthyConnectionService.statuses = [RecordingAdapterConnectionService.status]
+    let healthyAdapter = GmailMailboxConnectionAdapter(
+      connectionService: healthyConnectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let failingConnectionService = RecordingAdapterConnectionService()
+    failingConnectionService.loadError = AdapterTestError.unavailable
+    let failingAdapter = GmailMailboxConnectionAdapter(
+      connectionService: failingConnectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let emptyAdapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: MailboxConnectionRouter(
+        exchangeWebServices: emptyAdapter,
+        gmail: healthyAdapter,
+        imap: failingAdapter,
+        microsoftGraph: emptyAdapter
+      ),
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    let unavailableSelection = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .microsoftGraph,
+        value: "temporarily-unavailable"
+      )
+    )
+    viewModel.selectedConnectionId = unavailableSelection
+
+    let loadedAuthoritatively = await viewModel.load()
+
+    XCTAssertFalse(loadedAuthoritatively)
+    XCTAssertFalse(viewModel.connections.isEmpty)
+    XCTAssertEqual(viewModel.selectedConnectionId, unavailableSelection)
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
