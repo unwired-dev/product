@@ -102,6 +102,19 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.documentHTML.contains("src=\"cid:barcode@example.com\""))
   }
 
+  func testSanitizerRetainsCIDImageInsideZeroLineHeightContainer() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Receipt</p>
+        <div style="line-height: 0"><img src="cid:logo@example.com" alt="Logo"></div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+  }
+
   func testSanitizerRejectsContentOnlyReadableThroughHiddenPreheaderText() throws {
     XCTAssertNil(
       try MessageHTMLSanitizer.sanitize(

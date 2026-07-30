@@ -16,6 +16,7 @@ enum MessageHTMLSanitizer {
       try SwiftSoup.clean(html, "", allowlist())
       ?? ""
     try cancellationCheck()
+    let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     try cancellationCheck()
     let hiddenStylePattern =
@@ -27,15 +28,17 @@ enum MessageHTMLSanitizer {
       + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
       + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
       + #"(?:\s*!important)?\s*(?:;|$)"#
-    for element in try readableDocument.select("[style]") {
-      let style = try element.attr("style")
-      if style.range(
-        of: hiddenStylePattern,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil {
-        try element.remove()
-      }
-    }
+    let presentationHiddenStylePattern =
+      #"(?:^|;)\s*(?:display\s*:\s*none|"#
+      + #"(?:font-size|height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
+      + #"(?:[1-9]\d*(?:\.\d+)?|"#
+      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
+      + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
+      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
+      + #"(?:\s*!important)?\s*(?:;|$)"#
+    try removeElements(matching: hiddenStylePattern, from: readableDocument)
+    try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)
     let ignoredReadableScalars =
       CharacterSet.whitespacesAndNewlines
       .union(.controlCharacters)
@@ -45,12 +48,24 @@ enum MessageHTMLSanitizer {
         && scalar.properties.generalCategory != .format
     }
     let hasInlineImage =
-      !referencedInlineImageContentIDs(in: try readableDocument.outerHtml()).isEmpty
+      !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
     guard hasReadableText || hasInlineImage else { return nil }
 
     return SanitizedMessageHTML(
-      documentHTML: document(bodyHTML: try readableDocument.body()?.html() ?? "")
+      documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? "")
     )
+  }
+
+  private static func removeElements(matching pattern: String, from document: Document) throws {
+    for element in try document.select("[style]") {
+      let style = try element.attr("style")
+      if style.range(
+        of: pattern,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil {
+        try element.remove()
+      }
+    }
   }
 
   static func normalizedContentID(_ value: String) -> String? {

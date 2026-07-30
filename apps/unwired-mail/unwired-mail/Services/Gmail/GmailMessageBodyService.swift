@@ -100,6 +100,23 @@ struct GmailMessageBodyCacheWrite {
   let isProtected: Bool
   let payload: ProductSyncEncryptedPayload
   let retention: GmailMessageBodyCacheRetention
+  let allowsProtectedEviction: Bool
+
+  init(
+    cachedAt: Date,
+    isPinned: Bool,
+    isProtected: Bool,
+    payload: ProductSyncEncryptedPayload,
+    retention: GmailMessageBodyCacheRetention,
+    allowsProtectedEviction: Bool? = nil
+  ) {
+    self.cachedAt = cachedAt
+    self.isPinned = isPinned
+    self.isProtected = isProtected
+    self.payload = payload
+    self.retention = retention
+    self.allowsProtectedEviction = allowsProtectedEviction ?? (retention == .prefetched)
+  }
 }
 
 protocol GmailMessageBodyCaching {
@@ -441,12 +458,17 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       payload: write.payload,
       retention: write.retention
     )
-    return try writeEntryIfFits(entry, to: destination)
+    return try writeEntryIfFits(
+      entry,
+      to: destination,
+      allowsProtectedEviction: write.allowsProtectedEviction
+    )
   }
 
   private func writeEntryIfFits(
     _ entry: FileGmailMessageBodyCacheEntry,
-    to destination: URL
+    to destination: URL,
+    allowsProtectedEviction: Bool = false
   ) throws -> Bool {
     let encodedEntry = try JSONEncoder().encode(entry)
     let encodedMetadata = try JSONEncoder().encode(
@@ -464,7 +486,7 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
       try makeRoom(
         for: incomingByteCount,
         excluding: destination,
-        allowsProtectedEviction: entry.retention == .prefetched
+        allowsProtectedEviction: allowsProtectedEviction
       )
     else { return false }
 
@@ -1145,7 +1167,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
         isPinned: context.pinnedMessageIds.contains(message.stableProviderMessageId),
         isProtected: true,
         payload: encryptedPayload,
-        retention: .prefetched
+        retention: .prefetched,
+        allowsProtectedEviction: false
       ),
       productAccountId: context.session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId

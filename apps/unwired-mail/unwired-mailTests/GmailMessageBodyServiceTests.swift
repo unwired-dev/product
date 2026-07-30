@@ -199,6 +199,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       ]
     )
     XCTAssertEqual(fixture.cache.retention, .prefetched)
+    XCTAssertEqual(fixture.cache.allowsProtectedEviction, true)
     XCTAssertNotNil(fixture.cache.payload)
     XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
     XCTAssertEqual(
@@ -290,6 +291,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
     )
     XCTAssertNotNil(fixture.cache.payload)
+    XCTAssertEqual(fixture.cache.allowsProtectedEviction, false)
     XCTAssertNil(
       try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)
     )
@@ -1355,6 +1357,72 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testPrefetchExclusionCannotEvictProtectedCacheEntry() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer {
+      try? FileManager.default.removeItem(at: rootDirectory)
+    }
+    let payload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: String(repeating: "c", count: 128),
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let protectedMessageId = "gmail:gmail-user-001:protected"
+    let exclusionMessageId = "gmail:gmail-user-002:excluded"
+    let unlimitedCache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    XCTAssertTrue(
+      try unlimitedCache.saveMessageBody(
+        cacheWrite(payload: payload, retention: .prefetched, cachedAt: 1),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: protectedMessageId
+      )
+    )
+    try unlimitedCache.reconcileSelection(
+      productAccountId: session.productAccountId,
+      providerAccountIdentifier: "gmail-user-001",
+      protectedMessageIds: [protectedMessageId],
+      pinnedMessageIds: []
+    )
+
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: try cacheByteCount(rootDirectory: rootDirectory),
+      rootDirectory: rootDirectory
+    )
+    XCTAssertFalse(
+      try cache.saveMessageBody(
+        GmailMessageBodyCacheWrite(
+          cachedAt: Date(timeIntervalSince1970: 2),
+          isPinned: false,
+          isProtected: true,
+          payload: payload,
+          retention: .prefetched,
+          allowsProtectedEviction: false
+        ),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: exclusionMessageId
+      )
+    )
+    XCTAssertNotNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: protectedMessageId
+      )
+    )
+    XCTAssertNil(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: exclusionMessageId
+      )
+    )
+  }
+
   func testOpenedBodyReplacementPreservesProtectedPinnedSelection() throws {
     let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
       UUID().uuidString)
@@ -2232,6 +2300,7 @@ private struct GmailMessageBodyFixture {
 }
 
 private final class RecordingGmailMessageBodyCache: GmailMessageBodyCaching {
+  var allowsProtectedEviction: Bool?
   var didRemove = false
   var payload: ProductSyncEncryptedPayload?
   var retention: GmailMessageBodyCacheRetention?
@@ -2282,6 +2351,7 @@ private final class RecordingGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId _: String,
     stableProviderMessageId _: String
   ) throws -> Bool {
+    allowsProtectedEviction = write.allowsProtectedEviction
     payload = write.payload
     retention = write.retention
     return true
