@@ -1,5 +1,7 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 enum SettingsEntryPoint: CaseIterable, Hashable, Identifiable {
   case accountSettings
   case adaptiveSettings
@@ -372,7 +374,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
                 productAccountId: snapshot.productAccountId
               )
             },
-            connectionsDidChange: notifyConnectionsDidChange,
+            connectionsDidChange: refreshGenericConnectionsAndNotify,
             isMailboxBusy: mailboxWorkCoordinator.isBusy(
               productAccountId: snapshot.productAccountId
             )
@@ -382,6 +384,15 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       .onDisappear {
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()
+      }
+    }
+
+    private func refreshGenericConnectionsAndNotify() {
+      Task {
+        await EmailAccountsSettingsView.refreshGenericConnections(
+          loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+          connectionsDidChange: notifyConnectionsDidChange
+        )
       }
     }
 

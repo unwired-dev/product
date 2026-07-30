@@ -27,6 +27,18 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(loadCount, 1)
   }
 
+  @MainActor
+  func testProviderChangeRefreshesGenericStateBeforeNotifyingMailShell() async {
+    var events: [String] = []
+
+    await EmailAccountsSettingsView.refreshGenericConnections(
+      loadGenericConnections: { events.append("load generic") },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["load generic", "notify"])
+  }
+
   func testSynchronizationIsDisabledForPartialSnapshot() {
     XCTAssertTrue(
       mailboxSynchronizationIsDisabled(

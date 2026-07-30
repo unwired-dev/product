@@ -97,6 +97,14 @@ struct EmailAccountsSettingsView: View {
         freshnessViewModel: freshnessViewModel
       )
     }
+    .onChange(of: gmailViewModel.connectionsSnapshotIsAuthoritative) { _, isAuthoritative in
+      connectionsAreAuthoritative = isAuthoritative
+      Self.updateFreshnessConnections(
+        gmailViewModel.connections,
+        connectionsAreAuthoritative: isAuthoritative,
+        freshnessViewModel: freshnessViewModel
+      )
+    }
     .onReceive(
       NotificationCenter.default.publisher(for: .mailboxMetadataDidSynchronize)
         .receive(on: RunLoop.main)
@@ -128,6 +136,15 @@ struct EmailAccountsSettingsView: View {
     let connectionsAreAuthoritative = await routedConnectionsAreAuthoritative
     await genericConnectionsLoad
     return connectionsAreAuthoritative
+  }
+
+  @MainActor
+  static func refreshGenericConnections(
+    loadGenericConnections: () async -> Void,
+    connectionsDidChange: () -> Void
+  ) async {
+    await loadGenericConnections()
+    connectionsDidChange()
   }
 
   @MainActor
