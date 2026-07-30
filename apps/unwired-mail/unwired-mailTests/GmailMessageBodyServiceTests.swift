@@ -744,11 +744,13 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       <img src="cid:malformed@example.com">
       <img src="cid:missing@example.com">
       <div style="display: none"><img src="cid:hidden@example.com"></div>
+      <img hidden src="cid:hidden-attribute@example.com">
       """
     let fixture = try makeFixture(
       attachmentResponses: [
         "inline-png": #"{"data":"\#(imageData.base64EncodedString())"}"#,
         "hidden": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+        "hidden-attribute": #"{"data":"\#(imageData.base64EncodedString())"}"#,
         "unreferenced": #"{"data":"\#(imageData.base64EncodedString())"}"#,
       ],
       messageResponse: """
@@ -794,6 +796,11 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                 "mimeType": "image/png",
                 "headers": [{"name": "Content-ID", "value": "<hidden@example.com>"}],
                 "body": {"attachmentId": "hidden", "size": \(imageData.count)}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<hidden-attribute@example.com>"}],
+                "body": {"attachmentId": "hidden-attribute", "size": \(imageData.count)}
               }
             ]
           }

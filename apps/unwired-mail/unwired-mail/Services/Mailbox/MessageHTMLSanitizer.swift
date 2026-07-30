@@ -19,6 +19,11 @@ enum MessageHTMLSanitizer {
     let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
     try cancellationCheck()
+    for document in [presentationDocument, readableDocument] {
+      for element in try document.select("[hidden]") {
+        try element.remove()
+      }
+    }
     let hiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
@@ -134,7 +139,7 @@ enum MessageHTMLSanitizer {
         "strike", "strong", "sub", "sup", "table", "tbody", "td", "tfoot", "th",
         "thead", "tr", "u", "ul"
       )
-      .addAttributes(":all", "dir", "lang", "style", "title")
+      .addAttributes(":all", "dir", "hidden", "lang", "style", "title")
       .addAttributes("a", "href")
       .addAttributes("blockquote", "cite")
       .addAttributes("col", "align", "span", "valign", "width")

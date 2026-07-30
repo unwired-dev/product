@@ -1375,13 +1375,16 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       message: message,
       accessToken: accessToken
     )
-    let sanitizedHTML = try content.html.flatMap {
-      try MessageHTMLSanitizer.sanitize($0)
+    let referencedContentIDs: [String]
+    if let html = content.html,
+      MessageHTMLSanitizer.mayReferenceInlineImage(in: html),
+      let sanitizedHTML = try MessageHTMLSanitizer.sanitize(html)
+    {
+      referencedContentIDs =
+        MessageHTMLSanitizer.referencedInlineImageContentIDs(in: sanitizedHTML.documentHTML)
+    } else {
+      referencedContentIDs = []
     }
-    let referencedContentIDs =
-      sanitizedHTML.map {
-        MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML)
-      } ?? []
     let inlineImages =
       includesInlineImages
       ? try await decodedInlineImages(
