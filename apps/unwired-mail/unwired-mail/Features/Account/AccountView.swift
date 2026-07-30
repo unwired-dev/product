@@ -270,6 +270,7 @@ final class MailboxFreshnessViewModel {
   private let session: ProductAccountSessionSnapshot
   private let sleep: (Duration) async throws -> Void
   private let successStore: MailboxSyncSuccessPersisting
+  private var externalSyncRevisions: [MailboxConnectionId: UInt64] = [:]
   private var historicalBackfills: [MailboxConnectionId: HistoricalBackfill] = [:]
   private var knownConnections: [MailboxConnectionId: MailboxConnection] = [:]
   private var statuses: [MailboxConnectionId: MailboxSyncStatus] = [:]
@@ -343,6 +344,7 @@ final class MailboxFreshnessViewModel {
         $0.id.rawValue == connectionIdRawValue
       })
     else { return }
+    externalSyncRevisions[connection.id, default: 0] += 1
     let currentStatus = status(for: connection)
     if let successfulSyncAt {
       successStore.save(
@@ -617,6 +619,7 @@ final class MailboxFreshnessViewModel {
     }
     await cancelHistoricalBackfill(connectionId: connection.id)
     let priorStatus = status(for: connection)
+    let externalSyncRevision = externalSyncRevisions[connection.id, default: 0]
     statuses[connection.id] = MailboxSyncStatus(
       lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
       phase: .syncing
@@ -653,19 +656,23 @@ final class MailboxFreshnessViewModel {
       }
       finishHistoricalBackfill(
         connection: connection,
+        externalSyncRevision: externalSyncRevision,
         priorStatus: priorStatus,
         result: .success(result)
       )
       return result
     } catch {
       if Task.isCancelled || error is CancellationError || Self.isCancellation(error) {
-        if historicalBackfills[connection.id]?.id == backfillId {
+        if historicalBackfills[connection.id]?.id == backfillId,
+          externalSyncRevisions[connection.id, default: 0] == externalSyncRevision
+        {
           statuses[connection.id] = priorStatus
         }
         throw CancellationError()
       }
       finishHistoricalBackfill(
         connection: connection,
+        externalSyncRevision: externalSyncRevision,
         priorStatus: priorStatus,
         result: .failure(error)
       )
@@ -722,6 +729,7 @@ final class MailboxFreshnessViewModel {
   private func startHistoricalBackfill(connection: MailboxConnection) {
     guard historicalBackfills[connection.id] == nil else { return }
     let priorStatus = status(for: connection)
+    let externalSyncRevision = externalSyncRevisions[connection.id, default: 0]
     statuses[connection.id] = MailboxSyncStatus(
       lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
       phase: .syncing
@@ -743,12 +751,14 @@ final class MailboxFreshnessViewModel {
         )
         self?.finishHistoricalBackfill(
           connection: connection,
+          externalSyncRevision: externalSyncRevision,
           priorStatus: priorStatus,
           result: .success(result)
         )
       } catch {
         self?.finishHistoricalBackfill(
           connection: connection,
+          externalSyncRevision: externalSyncRevision,
           priorStatus: priorStatus,
           result: .failure(error)
         )
@@ -778,6 +788,7 @@ final class MailboxFreshnessViewModel {
 
   private func finishHistoricalBackfill(
     connection: MailboxConnection,
+    externalSyncRevision: UInt64,
     priorStatus: MailboxSyncStatus,
     result: Result<MailboxMetadataSyncResult, Error>
   ) {
@@ -802,7 +813,9 @@ final class MailboxFreshnessViewModel {
       )
     case .failure(let error):
       guard !Self.isCancellation(error) else {
-        statuses[connection.id] = priorStatus
+        if externalSyncRevisions[connection.id, default: 0] == externalSyncRevision {
+          statuses[connection.id] = priorStatus
+        }
         return
       }
       successfulSyncAt = nil

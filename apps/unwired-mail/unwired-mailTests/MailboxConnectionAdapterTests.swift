@@ -3532,6 +3532,48 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGmailAdapterStaleRecentSyncDoesNotPreemptHistoricalBackfill() async throws {
+    let backfillStarted = expectation(description: "historical backfill started")
+    let priorityProbe = AdapterSyncPriorityProbe(
+      backfillStarted: backfillStarted
+    )
+    let metadataService = RecordingAdapterMetadataService(syncPriorityProbe: priorityProbe)
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let backfillTask = Task {
+      try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    }
+    await fulfillment(of: [backfillStarted], timeout: 1)
+
+    do {
+      _ = try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: true,
+        session: session,
+        sinceHistoryId: "10",
+        throughHistoryId: "11",
+        shouldPersist: { false }
+      )
+      XCTFail("Expected the stale recent sync to stop before preemption")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+
+    let snapshot = await priorityProbe.snapshot()
+    XCTAssertEqual(snapshot.events, ["backfill-started"])
+    await priorityProbe.releaseBackfill()
+    _ = try await backfillTask.value
+  }
+
   func testMailboxConnectionSyncGateCancelledPreemptorLeavesBackfillRunning() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(

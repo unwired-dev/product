@@ -97,6 +97,7 @@ actor MailboxConnectionSyncGate {
   private var activePreemptibleOperations: [MailboxConnectionId: PreemptibleOperation] = [:]
   private var exclusivelyLockedConnectionIds: Set<MailboxConnectionId> = []
   private var exclusiveRevisions: [MailboxConnectionId: UInt64] = [:]
+  private var preemptionRequestCounts: [MailboxConnectionId: Int] = [:]
   private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
@@ -341,6 +342,9 @@ extension MailboxConnectionSyncGate {
       cancel: { task.cancel() },
       id: operationId
     )
+    if preemptionRequestCounts[connectionId, default: 0] > 0 {
+      task.cancel()
+    }
     defer {
       if activePreemptibleOperations[connectionId]?.id == operationId {
         activePreemptibleOperations[connectionId] = nil
@@ -358,6 +362,11 @@ extension MailboxConnectionSyncGate {
     operation: () async throws -> T
   ) async throws -> T {
     try Task.checkCancellation()
+    preemptionRequestCounts[connectionId, default: 0] += 1
+    defer {
+      let remainingCount = preemptionRequestCounts[connectionId, default: 0] - 1
+      preemptionRequestCounts[connectionId] = remainingCount > 0 ? remainingCount : nil
+    }
     activePreemptibleOperations[connectionId]?.cancel()
     guard await acquire(Self.allConnectionsId, mode: .shared) else {
       throw CancellationError()
@@ -2405,8 +2414,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withPreemptingLock(connection.id) {
-      try Task.checkCancellation()
+    try Task.checkCancellation()
+    guard shouldPersist() else { throw CancellationError() }
+    return try await syncGate.withPreemptingLock(connection.id) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
         session: session,
