@@ -1317,7 +1317,6 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       do {
         return try await decodedMessageBody(
           candidate: candidate,
-          inlineImagePartsByContentID: payload.inlineImagePartsByContentID,
           message: message,
           accessToken: accessToken,
           includesInlineImages: includesInlineImages
@@ -1332,7 +1331,6 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
 
   private func decodedMessageBody(
     candidate: GmailReadableMessageBodyCandidate,
-    inlineImagePartsByContentID: [String: GmailMessageBodyPart],
     message: GmailMessageMetadata,
     accessToken: String,
     includesInlineImages: Bool
@@ -1353,7 +1351,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       includesInlineImages
       ? try await decodedInlineImages(
         referencedContentIDs: referencedContentIDs,
-        partsByContentID: inlineImagePartsByContentID,
+        partsByContentID: candidate.inlineImagePartsByContentID,
         message: message,
         accessToken: accessToken
       )
@@ -1428,8 +1426,11 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   ) async throws -> [MailboxMessageInlineImage] {
     var decodedByteCount = 0
     var images: [MailboxMessageInlineImage] = []
-    for contentID in referencedContentIDs.prefix(GmailInlineImagePolicy.maximumImageCount) {
+    for contentID in referencedContentIDs {
       try Task.checkCancellation()
+      guard images.count < GmailInlineImagePolicy.maximumImageCount else {
+        break
+      }
       guard let part = partsByContentID[contentID],
         let mimeType = GmailInlineImagePolicy.normalizedSupportedMIMEType(part.mimeType),
         let body = part.body
@@ -1666,6 +1667,7 @@ private struct GmailDecodedReadableBody {
 private struct GmailReadableMessageBodyCandidate {
   let plainText: GmailMessageBodyPart?
   let html: GmailMessageBodyPart?
+  let inlineImagePartsByContentID: [String: GmailMessageBodyPart]
 }
 
 private struct GmailMessageBodyFetchResult {
@@ -1792,18 +1794,25 @@ private struct GmailMessageBodyPart: Decodable {
       return alternatives.map {
         GmailReadableMessageBodyCandidate(
           plainText: $0.readablePlainTextPart,
-          html: $0.readableHTMLPart
+          html: $0.readableHTMLPart,
+          inlineImagePartsByContentID: $0.preferredHTMLInlineImageParts
         )
       }
     }
     let candidate = readableBodyParts
     return candidate.plainText != nil || candidate.html != nil
-      ? [GmailReadableMessageBodyCandidate(plainText: candidate.plainText, html: candidate.html)]
+      ? [
+        GmailReadableMessageBodyCandidate(
+          plainText: candidate.plainText,
+          html: candidate.html,
+          inlineImagePartsByContentID: inlineImagePartsByContentID
+        )
+      ]
       : []
   }
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
-    guard !hasAttachmentDisposition else { return [:] }
+    guard !hasAttachmentDisposition, !(hasFilename && parts?.isEmpty == false) else { return [:] }
     var result: [String: GmailMessageBodyPart] = [:]
     if let contentID {
       result[contentID] = self
@@ -1815,6 +1824,14 @@ private struct GmailMessageBodyPart: Decodable {
       }
     }
     return result
+  }
+
+  private var preferredHTMLInlineImageParts: [String: GmailMessageBodyPart] {
+    guard let parts else { return [:] }
+    if let part = parts.first(where: { $0.preferredNonEmptyHTMLPart != nil }) {
+      return part.inlineImagePartsByContentID
+    }
+    return parts.first(where: { $0.preferredHTMLPart != nil })?.inlineImagePartsByContentID ?? [:]
   }
 
   private var readableBodyParts:
@@ -1912,14 +1929,22 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   private var isAttachment: Bool {
-    guard filename?.isEmpty != false else { return true }
+    guard !hasFilename else { return true }
     return hasAttachmentDisposition
+  }
+
+  private var hasFilename: Bool {
+    filename?.isEmpty == false
   }
 
   private var hasAttachmentDisposition: Bool {
     return headers?.contains {
-      $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
-        && $0.value.lowercased().contains("attachment")
+      guard $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame else {
+        return false
+      }
+      let disposition = $0.value.split(separator: ";", maxSplits: 1).first?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return disposition?.caseInsensitiveCompare("attachment") == .orderedSame
     } == true
   }
 

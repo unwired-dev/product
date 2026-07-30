@@ -677,10 +677,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
               },
               {
                 "mimeType": "image/png",
-                "filename": "receipt-logo.png",
+                "filename": "attachment.png",
                 "headers": [
                   {"name": "Content-ID", "value": " <Image-001@Example.COM> "},
-                  {"name": "Content-Disposition", "value": "inline; filename=receipt-logo.png"}
+                  {"name": "Content-Disposition", "value": "inline; filename=attachment.png"}
                 ],
                 "body": {"attachmentId": "inline-png", "size": \(imageData.count)}
               },
@@ -799,7 +799,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
               },
               {
                 "mimeType": "message/rfc822",
-                "headers": [{"name": "Content-Disposition", "value": "attachment"}],
+                "filename": "forwarded-message.eml",
                 "parts": [
                   {
                     "mimeType": "image/png",
@@ -822,6 +822,98 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         $0.contains("/attachments/")
       }
     )
+  }
+
+  func testReadCountsAdmittedInlineImagesInsteadOfMissingReferences() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let missingImages = (0..<20).map {
+      #"<img src="cid:missing-\#($0)@example.com">"#
+    }.joined()
+    let html = missingImages + #"<img src="cid:valid@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<valid@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["valid@example.com"])
+  }
+
+  func testReadResolvesDuplicateCIDFromSelectedMIMEAlternative() async throws {
+    let firstImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+    let selectedImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [{
+                  "mimeType": "multipart/related",
+                  "parts": [
+                    {"mimeType": "text/html", "body": {"data": "%%%"}},
+                    {
+                      "mimeType": "image/png",
+                      "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                      "body": {
+                        "data": "\(firstImageData.base64EncodedString())",
+                        "size": \(firstImageData.count)
+                      }
+                    }
+                  ]
+                }]
+              },
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [{
+                  "mimeType": "multipart/related",
+                  "parts": [
+                    {
+                      "mimeType": "text/html",
+                      "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                    },
+                    {
+                      "mimeType": "image/png",
+                      "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                      "body": {
+                        "data": "\(selectedImageData.base64EncodedString())",
+                        "size": \(selectedImageData.count)
+                      }
+                    }
+                  ]
+                }]
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.data), [selectedImageData])
   }
 
   func testPrefetchDoesNotRetrieveInlineImagesButExplicitOpenDoes() async throws {
