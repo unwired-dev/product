@@ -44,7 +44,9 @@ enum MessageHTMLSanitizer {
       !ignoredReadableScalars.contains(scalar)
         && scalar.properties.generalCategory != .format
     }
-    guard hasReadableText else { return nil }
+    let hasInlineImage =
+      !referencedInlineImageContentIDs(in: try readableDocument.outerHtml()).isEmpty
+    guard hasReadableText || hasInlineImage else { return nil }
 
     return SanitizedMessageHTML(
       documentHTML: document(bodyHTML: try readableDocument.body()?.html() ?? "")
