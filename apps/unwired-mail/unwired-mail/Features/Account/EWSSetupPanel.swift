@@ -187,14 +187,16 @@ final class EWSSetupViewModel {
     guard !isWorking, isSessionCurrent(session) else { return false }
     isWorking = true
     defer { isWorking = false }
+    var removalCompleted = false
     do {
       try await operation()
+      removalCompleted = true
       try await reloadAfterMutation()
       errorMessage = nil
       return true
     } catch {
       errorMessage = error.localizedDescription
-      return false
+      return removalCompleted
     }
   }
 

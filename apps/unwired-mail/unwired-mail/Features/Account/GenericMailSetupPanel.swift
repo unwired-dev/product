@@ -413,11 +413,13 @@ extension GenericMailSetupViewModel {
 
   func removeEverywhere(_ definition: GenericMailConnectionDefinition) async -> Bool {
     guard let syncSession else { return false }
+    var localAuthorizationRemoved = false
     do {
       let clearedLocalData = try await clearLocalData(definition, syncSession)
       if !clearedLocalData {
         try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
       }
+      localAuthorizationRemoved = true
       try await service.removeEverywhere(
         definition,
         session: syncSession,
@@ -435,7 +437,7 @@ extension GenericMailSetupViewModel {
       }
       await loadSyncedDefinitions()
       errorMessage = error.localizedDescription
-      return false
+      return localAuthorizationRemoved
     }
   }
 

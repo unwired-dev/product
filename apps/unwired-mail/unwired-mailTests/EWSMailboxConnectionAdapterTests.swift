@@ -1043,6 +1043,47 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(definitions.defaultSendingConnectionId, connection.id)
   }
 
+  func testEWSRemovalReportsCompletionWhenSnapshotRefreshFails() async throws {
+    let definition = makeEWSDefinition()
+    let definitions = RecordingEWSDefinitionSyncService(
+      definition: definition.synchronizedDefinition(
+        connectedAt: 1_781_200_000_000,
+        displayName: definition.emailAddress
+      )
+    )
+    let authorizations = InMemoryEWSAuthorizationStore()
+    try authorizations.save(
+      DeviceLocalEWSAuthorization(credential: "password", definition: definition),
+      productAccountId: session.productAccountId
+    )
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore(),
+        outboxService: OutboxDeliveryService(store: EWSOutboxStore()),
+        pendingActionService: PendingProviderActionService(store: EWSActionStore()),
+        keyMaterialStore: keyMaterialStore
+      ),
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    await viewModel.load()
+    let connection = try XCTUnwrap(viewModel.connections.first)
+    definitions.loadSnapshotError = EWSServiceError.invalidResponse
+
+    let didRemove = await viewModel.removeEverywhere(connection)
+
+    XCTAssertTrue(didRemove, viewModel.errorMessage ?? "Removal unexpectedly failed.")
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   func testEWSSetupSelectionPrefersSynchronizedDefinitionOverStaleAuthorization() async throws {
     let localDefinition = makeEWSDefinition()
     let synchronizedDefinition = EWSConnectionDefinition(

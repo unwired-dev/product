@@ -941,6 +941,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
   }
 
+  @MainActor
   func testGenericRemovalClearsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -957,15 +958,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
       draft: manualDraft(), credential: "device-only-secret",
       productAccountId: ProductAccountId(session.productAccountId), syncSession: session
     )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+    await viewModel.loadSyncedDefinitions()
     sync.removeError = GenericMailSetupTestError.syncUnavailable
 
-    do {
-      try await service.removeEverywhere(definition, session: session)
-      XCTFail("Expected Product Sync failure")
-    } catch is GenericMailSetupTestError {
-    }
+    let didRemoveLocalAuthorization = await viewModel.removeEverywhere(definition)
+    let errorMessage = viewModel.errorMessage
 
+    XCTAssertTrue(didRemoveLocalAuthorization)
     XCTAssertNil(store.authorization)
+    XCTAssertNotNil(errorMessage)
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {

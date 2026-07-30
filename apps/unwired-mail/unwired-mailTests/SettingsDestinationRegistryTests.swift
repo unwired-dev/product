@@ -285,3 +285,30 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 }
+
+final class SettingsConnectionRefreshTests: XCTestCase {
+  @MainActor
+  func testMicrosoftManualRefreshRefreshesOtherProvidersWithoutReloadingMicrosoft() async {
+    var events: [String] = []
+
+    await EmailAccountsSettingsView.refreshConnectionAuthorityAfterMicrosoftRefresh(
+      loadRoutedConnections: {
+        events.append("load routed")
+        return true
+      },
+      loadGenericConnections: { events.append("load generic") },
+      loadEWSConnections: { events.append("load EWS") },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(
+      Set(events.dropLast()),
+      [
+        "load routed",
+        "load generic",
+        "load EWS",
+      ]
+    )
+    XCTAssertEqual(events.last, "notify")
+  }
+}

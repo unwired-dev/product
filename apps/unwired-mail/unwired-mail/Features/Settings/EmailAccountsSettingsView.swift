@@ -32,7 +32,7 @@ struct EmailAccountsSettingsView: View {
             isMailboxBusy: isMailboxBusy,
             selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
             connectionsDidChange: gmailProviderConnectionsDidChange,
-            manualRefreshDidComplete: gmailConnectionsDidChange
+            manualRefreshDidComplete: gmailProviderConnectionsDidChange
           )
           .id(MailProviderId.gmail)
 
@@ -43,6 +43,7 @@ struct EmailAccountsSettingsView: View {
               microsoftGraphViewModel.selectedConnectionId = $0.id
             },
             isMailboxBusy: isMailboxBusy,
+            manualRefreshDidComplete: microsoftManualRefreshDidComplete,
             selectMailbox: { microsoftGraphViewModel.selectedConnectionId = $0.id },
             viewModel: microsoftGraphViewModel
           )
@@ -174,6 +175,24 @@ struct EmailAccountsSettingsView: View {
     _ = await (
       genericConnectionsLoad,
       microsoftConnectionsAreAuthoritative,
+      ewsConnectionsLoad
+    )
+    connectionsDidChange()
+  }
+
+  @MainActor
+  static func refreshConnectionAuthorityAfterMicrosoftRefresh(
+    loadRoutedConnections: () async -> Bool,
+    loadGenericConnections: () async -> Void,
+    loadEWSConnections: () async -> Void,
+    connectionsDidChange: () -> Void
+  ) async {
+    async let routedConnectionsAreAuthoritative = loadRoutedConnections()
+    async let genericConnectionsLoad: Void = loadGenericConnections()
+    async let ewsConnectionsLoad: Void = loadEWSConnections()
+    _ = await (
+      routedConnectionsAreAuthoritative,
+      genericConnectionsLoad,
       ewsConnectionsLoad
     )
     connectionsDidChange()
@@ -345,7 +364,18 @@ struct EmailAccountsSettingsView: View {
         loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
         loadMicrosoftConnections: microsoftGraphViewModel.load,
         loadEWSConnections: ewsViewModel.load,
-        connectionsDidChange: connectionsDidChange
+        connectionsDidChange: gmailConnectionsDidChange
+      )
+    }
+  }
+
+  private func microsoftManualRefreshDidComplete() {
+    Task {
+      await Self.refreshConnectionAuthorityAfterMicrosoftRefresh(
+        loadRoutedConnections: gmailViewModel.load,
+        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+        loadEWSConnections: ewsViewModel.load,
+        connectionsDidChange: gmailConnectionsDidChange
       )
     }
   }

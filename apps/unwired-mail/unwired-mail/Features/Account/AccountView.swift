@@ -6318,6 +6318,7 @@ final class MailboxProviderConnectionViewModel {
         errorMessage = error.localizedDescription
         return false
       } catch {
+        await completeLoadingConnections()
         errorMessage = originalError.localizedDescription
         return false
       }
@@ -6337,7 +6338,7 @@ final class MailboxProviderConnectionViewModel {
   }
 
   private func completeLoadingConnections() async {
-    restoreSelection()
+    if connectionsSnapshotIsAuthoritative { restoreSelection() }
     pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
       connections.contains { $0.id == connectionId }
     }
@@ -6485,11 +6486,11 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
+    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
+    connections = loadedConnections
     let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
       session: session
     )
-    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
-    connections = loadedConnections
     defaultSendingConnectionId = loadedDefaultSendingConnectionId
     if let loadErrorDescription = snapshot.loadErrorDescription {
       throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
@@ -6836,6 +6837,7 @@ struct MicrosoftGraphConnectionPanel: View {
   let connectionsDidChange: () -> Void
   let connectionDidConnect: (MailboxConnection) -> Void
   let isMailboxBusy: Bool
+  var manualRefreshDidComplete: () -> Void = {}
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
 
@@ -6846,7 +6848,7 @@ struct MicrosoftGraphConnectionPanel: View {
       connectionsDidChange: connectionsDidChange,
       connectionDidConnect: connectionDidConnect,
       isMailboxBusy: isMailboxBusy,
-      manualRefreshDidComplete: connectionsDidChange,
+      manualRefreshDidComplete: manualRefreshDidComplete,
       selectMailbox: selectMailbox,
       viewModel: viewModel
     )
