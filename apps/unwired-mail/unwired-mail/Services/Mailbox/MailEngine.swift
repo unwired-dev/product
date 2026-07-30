@@ -86,7 +86,7 @@ enum MailEngineSpecialUse: Equatable, Hashable, Sendable {
   case trash
 }
 
-struct MailEngineMailbox: Equatable, Sendable {
+struct MailEngineMailbox: Equatable, Hashable, Sendable {
   let identity: MailEngineMailboxIdentity
   let specialUses: Set<MailEngineSpecialUse>
 }
@@ -95,6 +95,13 @@ struct MailEngineConnectionSnapshot: Equatable, Sendable {
   let capabilities: Set<MailEngineCapability>
   let mailboxes: [MailEngineMailbox]
   let transportSecurity: [MailEngineService: MailEngineTLSVersion]
+
+  static func == (lhs: Self, rhs: Self) -> Bool {
+    lhs.capabilities == rhs.capabilities
+      && lhs.mailboxes.count == rhs.mailboxes.count
+      && Set(lhs.mailboxes) == Set(rhs.mailboxes)
+      && lhs.transportSecurity == rhs.transportSecurity
+  }
 }
 
 enum MailEngineError: Error, Equatable, Sendable {
@@ -187,6 +194,13 @@ struct MailEngineUIDMapping: Equatable, Sendable {
     }
     guard reported.sourceUIDs.count == reported.destinationUIDs.count else {
       throw MailEngineUIDMappingError.mismatchedCardinality
+    }
+    guard
+      !requestedSourceUIDs.isEmpty,
+      !reported.sourceUIDs.isEmpty,
+      !reported.destinationUIDs.isEmpty
+    else {
+      throw MailEngineUIDMappingError.invalidUID
     }
     guard
       reported.sourceUIDs.allSatisfy({ $0 > 0 && $0 <= 4_294_967_295 }),

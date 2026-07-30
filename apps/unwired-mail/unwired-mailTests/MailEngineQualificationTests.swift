@@ -77,6 +77,10 @@ protocol MailEngineQualificationCandidateFactory: Sendable {
     connectionID: String,
     timeout: Duration
   ) async throws
+  func waitForSubmissionTransportTermination(
+    connectionID: String,
+    timeout: Duration
+  ) async throws
 }
 
 enum MailEngineQualificationFixture: Sendable {
@@ -247,6 +251,7 @@ struct MailEngineQualificationContract {
 
   func verifySetupTransportAuthenticationAndCapabilities() async throws {
     verifyConfigurationTLSFloor()
+    verifySnapshotEqualityIsOrderIndependent()
     let implicitConnection = try await connect(
       fixture: .successful,
       connectionID: "implicit-success",
@@ -308,6 +313,29 @@ struct MailEngineQualificationContract {
       smtpEndpoint: endpoint
     )
     XCTAssertEqual(configuration.minimumTLSVersion, .tls12)
+  }
+
+  private func verifySnapshotEqualityIsOrderIndependent() {
+    let inbox = MailEngineMailbox(
+      identity: MailEngineMailboxIdentity("INBOX"),
+      specialUses: []
+    )
+    let sent = MailEngineMailbox(
+      identity: MailEngineMailboxIdentity("Sent"),
+      specialUses: [.sent]
+    )
+    let first = MailEngineConnectionSnapshot(
+      capabilities: [.idle],
+      mailboxes: [inbox, sent],
+      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+    )
+    let reordered = MailEngineConnectionSnapshot(
+      capabilities: [.idle],
+      mailboxes: [sent, inbox],
+      transportSecurity: [.imap: .tls13, .smtp: .tls12]
+    )
+
+    XCTAssertEqual(first, reordered)
   }
 
   private func verifyXOAUTH2Challenge(
@@ -451,6 +479,14 @@ struct MailEngineQualificationContract {
           await factory.events(),
           connectionID: "tls12-\(service)-\(transportMode)",
           service: service
+        )
+        await assertConnectionFails(
+          fixture: .maximumTLS(service: service, version: .tls12),
+          failedService: service,
+          imapTransportMode: transportMode,
+          minimumTLSVersion: .tls13,
+          smtpTransportMode: transportMode,
+          expectedError: .tlsVersionUnsupported
         )
         for legacyVersion in [MailEngineTLSVersion.tls10, .tls11] {
           await assertConnectionFails(
@@ -976,6 +1012,21 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
   ) async throws {
+    XCTAssertThrowsError(
+      try MailEngineUIDMapping.validated(
+        sourceMailbox: inbox,
+        sourceUIDValidity: 44,
+        destinationMailbox: archive,
+        requestedSourceUIDs: [],
+        reported: MailEngineReportedUIDMapping(
+          destinationUIDValidity: 45,
+          destinationUIDs: [],
+          sourceUIDs: []
+        )
+      )
+    ) {
+      XCTAssertEqual($0 as? MailEngineUIDMappingError, .invalidUID)
+    }
     try await verifyMismatchedSourceUIDMappings(inbox: inbox, archive: archive)
     let malformedMoveSession = try await connect(fixture: .repeatedDestinationUIDMapping).session
     let malformedMoveCopyEvent = copyEvent(inbox: inbox, archive: archive)
@@ -3077,10 +3128,15 @@ struct MailEngineQualificationContract {
   ) async {
     let firstCountAtCancellation = first.value.count
     let secondCountAtCancellation = second.value.count
-    try? await factory.waitForIdleLateCallbackAttempt(
-      connectionID: "connection-one",
-      timeout: .seconds(2)
-    )
+    do {
+      try await factory.waitForIdleLateCallbackAttempt(
+        connectionID: "connection-one",
+        timeout: .seconds(2)
+      )
+    } catch {
+      XCTFail("Timed out waiting for the first late-IDLE fixture event.")
+      return
+    }
     XCTAssertEqual(
       first.value.count,
       firstCountAtCancellation,
@@ -3099,10 +3155,15 @@ struct MailEngineQualificationContract {
     connectionID: String,
     failureMessage: String
   ) async {
-    try? await factory.waitForIdleLateCallbackAttempt(
-      connectionID: connectionID,
-      timeout: .seconds(2)
-    )
+    do {
+      try await factory.waitForIdleLateCallbackAttempt(
+        connectionID: connectionID,
+        timeout: .seconds(2)
+      )
+    } catch {
+      XCTFail("Timed out waiting for the \(connectionID) late-IDLE fixture event.")
+      return
+    }
     XCTAssertEqual(callbacks.value, expected, failureMessage)
   }
 
@@ -3796,6 +3857,7 @@ struct MailEngineQualificationContract {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func verifySMTPCancellation() async throws {
     let cancelledConnectionID = "pre-content-cancellation"
     let preservedConnectionID = "pre-content-cancellation-peer"
@@ -3819,7 +3881,10 @@ struct MailEngineQualificationContract {
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
     submissionTask.cancel()
     await assertPreContentSMTPCancellation(submissionTask)
-    try await Task.sleep(for: .milliseconds(50))
+    try await factory.waitForSubmissionTransportTermination(
+      connectionID: cancelledConnectionID,
+      timeout: .seconds(2)
+    )
     let contentEvents = await factory.events().filter {
       if case .submissionReceived(
         connectionID: cancelledConnectionID,
@@ -3875,6 +3940,10 @@ struct MailEngineQualificationContract {
     )
     submissionTask.cancel()
     await assertPreContentSMTPCancellation(submissionTask)
+    try await factory.waitForSubmissionTransportTermination(
+      connectionID: cancelledConnectionID,
+      timeout: .seconds(2)
+    )
     await assertPostEnvelopeCancellationWithheldContent(
       connectionID: cancelledConnectionID,
       envelope: envelope
@@ -4497,6 +4566,14 @@ struct MailEngineQualificationContract {
     XCTAssertNotNil(decodedBase64Records(in: fieldPrefixedPassword).range(of: password))
     let nestedPassword = password.base64EncodedData().base64EncodedData()
     XCTAssertNotNil(recursivelyDecodedBase64Records(in: nestedPassword).range(of: password))
+    let encodedPassword = password.base64EncodedString()
+    let splitIndex = encodedPassword.index(encodedPassword.startIndex, offsetBy: 5)
+    let wrappedPassword = Data(
+      (String(encodedPassword[..<splitIndex])
+        + "\r\n"
+        + String(encodedPassword[splitIndex...])).utf8
+    )
+    XCTAssertNotNil(decodedBase64Records(in: wrappedPassword).range(of: password))
   }
 
   private func recursivelyDecodedBase64Records(in output: Data) -> Data {
@@ -4511,12 +4588,15 @@ struct MailEngineQualificationContract {
     return decodedLayers
   }
 
+  // swiftlint:disable:next function_body_length
   private func decodedBase64Records(in output: Data) -> Data {
     let alphabet = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=".utf8)
     var decodedRecords = Data()
-    var token = Data()
+    var records = [[Data]]()
+    var currentRecord = [Data]()
+    var currentToken = Data()
 
-    func appendDecodedToken() {
+    func decode(_ token: Data) -> Data? {
       let assignmentIndex = token.indices.last { index in
         guard token[index] == UInt8(ascii: "=") else { return false }
         let valueStart = token.index(after: index)
@@ -4526,36 +4606,57 @@ struct MailEngineQualificationContract {
       var encodedToken =
         assignmentIndex.map { Data(token[token.index(after: $0)...]) } ?? token
       guard encodedToken.count >= 4 else {
-        token.removeAll(keepingCapacity: true)
-        return
+        return nil
       }
       let remainder = encodedToken.count % 4
       guard remainder != 1 else {
-        token.removeAll(keepingCapacity: true)
-        return
+        return nil
       }
       if remainder > 0 {
         encodedToken.append(
           contentsOf: repeatElement(UInt8(ascii: "="), count: 4 - remainder)
         )
       }
-      guard let decoded = Data(base64Encoded: encodedToken) else {
-        token.removeAll(keepingCapacity: true)
-        return
-      }
-      decodedRecords.append(decoded)
-      decodedRecords.append(0)
-      token.removeAll(keepingCapacity: true)
+      return Data(base64Encoded: encodedToken)
+    }
+
+    func finishToken() {
+      guard !currentToken.isEmpty else { return }
+      currentRecord.append(currentToken)
+      currentToken.removeAll(keepingCapacity: true)
+    }
+
+    func finishRecord() {
+      finishToken()
+      guard !currentRecord.isEmpty else { return }
+      records.append(currentRecord)
+      currentRecord.removeAll(keepingCapacity: true)
     }
 
     for byte in output {
       if alphabet.contains(byte) {
-        token.append(byte)
+        currentToken.append(byte)
+      } else if byte == 0x09 || byte == 0x0A || byte == 0x0D || byte == 0x20 {
+        finishToken()
       } else {
-        appendDecodedToken()
+        finishRecord()
       }
     }
-    appendDecodedToken()
+    finishRecord()
+    for record in records {
+      for token in record {
+        if let decoded = decode(token) {
+          decodedRecords.append(decoded)
+          decodedRecords.append(0)
+        }
+      }
+      if record.count > 1,
+        let decoded = decode(record.reduce(into: Data(), { $0.append($1) }))
+      {
+        decodedRecords.append(decoded)
+        decodedRecords.append(0)
+      }
+    }
     return decodedRecords
   }
 
@@ -5200,6 +5301,7 @@ struct MailEngineQualificationContract {
     ),
     connectionID: String = "connection-a",
     imapTransportMode: MailEngineTransportMode = .implicitTLS,
+    minimumTLSVersion: MailEngineTLSVersion = .tls12,
     smtpTransportMode: MailEngineTransportMode = .implicitTLS
   ) async throws -> (
     snapshot: MailEngineConnectionSnapshot,
@@ -5211,12 +5313,14 @@ struct MailEngineQualificationContract {
         authorization: authorization,
         connectionID: connectionID,
         imapTransportMode: imapTransportMode,
+        minimumTLSVersion: minimumTLSVersion,
         smtpTransportMode: smtpTransportMode
       ),
       logger: PrivacyPreservingMailEngineLogger(sink: RecordingMailEngineProductionLogSink())
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func assertConnectionFails(
     fixture: MailEngineQualificationFixture,
     authorization: MailEngineAuthorization = .password(
@@ -5225,6 +5329,7 @@ struct MailEngineQualificationContract {
     ),
     failedService: MailEngineService,
     imapTransportMode: MailEngineTransportMode = .implicitTLS,
+    minimumTLSVersion: MailEngineTLSVersion = .tls12,
     smtpTransportMode: MailEngineTransportMode = .implicitTLS,
     expectedError: MailEngineError
   ) async {
@@ -5236,6 +5341,7 @@ struct MailEngineQualificationContract {
           authorization: authorization,
           connectionID: connectionID,
           imapTransportMode: imapTransportMode,
+          minimumTLSVersion: minimumTLSVersion,
           smtpTransportMode: smtpTransportMode
         ),
         logger: PrivacyPreservingMailEngineLogger(sink: RecordingMailEngineProductionLogSink())
@@ -5324,14 +5430,22 @@ struct MailEngineQualificationContract {
     ),
     connectionID: String = "connection-a",
     imapTransportMode: MailEngineTransportMode = .implicitTLS,
+    minimumTLSVersion: MailEngineTLSVersion = .tls12,
     smtpTransportMode: MailEngineTransportMode = .implicitTLS
   ) -> MailEngineConfiguration {
-    factory.configuration(
+    let base = factory.configuration(
       fixture: fixture,
       authorization: authorization,
       connectionID: connectionID,
       imapTransportMode: imapTransportMode,
       smtpTransportMode: smtpTransportMode
+    )
+    return MailEngineConfiguration(
+      authorization: base.authorization,
+      connectionID: base.connectionID,
+      imapEndpoint: base.imapEndpoint,
+      minimumTLSVersion: minimumTLSVersion,
+      smtpEndpoint: base.smtpEndpoint
     )
   }
 }
@@ -5422,6 +5536,16 @@ private final class ScriptedMailEngineQualificationFactory:
   ) async throws {
     try await state.waitForSubmissionContentStarts(
       count,
+      connectionID: connectionID,
+      timeout: timeout
+    )
+  }
+
+  func waitForSubmissionTransportTermination(
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
+    try await state.waitForSubmissionTransportTermination(
       connectionID: connectionID,
       timeout: timeout
     )
@@ -5573,6 +5697,15 @@ private actor ScriptedMailEngineState {
     try await waitForEvents(count, timeout: timeout) {
       if case .submissionStarted = $0 { return true }
       return false
+    }
+  }
+
+  func waitForSubmissionTransportTermination(
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
+    try await waitForEvents(1, timeout: timeout) {
+      $0 == .submissionTransportTerminated(connectionID: connectionID)
     }
   }
 
