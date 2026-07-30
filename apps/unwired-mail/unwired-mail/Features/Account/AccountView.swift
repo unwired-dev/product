@@ -6472,12 +6472,12 @@ final class MailboxProviderConnectionViewModel {
     let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
       session: session
     )
-    if let loadErrorDescription = snapshot.loadErrorDescription {
-      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
-    }
     connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
     connections = loadedConnections
     defaultSendingConnectionId = loadedDefaultSendingConnectionId
+    if let loadErrorDescription = snapshot.loadErrorDescription {
+      throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
+    }
     return snapshot.isAuthoritative
   }
 
