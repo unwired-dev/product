@@ -176,10 +176,13 @@ struct MailEngineUIDMapping: Equatable, Sendable {
     requestedSourceUIDs: [Int64],
     reported: MailEngineReportedUIDMapping
   ) throws -> MailEngineUIDMapping {
-    guard sourceUIDValidity > 0 else {
+    guard sourceUIDValidity > 0 && sourceUIDValidity <= 4_294_967_295 else {
       throw MailEngineUIDMappingError.invalidSourceUIDValidity
     }
-    guard reported.destinationUIDValidity > 0 else {
+    guard
+      reported.destinationUIDValidity > 0
+        && reported.destinationUIDValidity <= 4_294_967_295
+    else {
       throw MailEngineUIDMappingError.invalidDestinationUIDValidity
     }
     guard reported.sourceUIDs.count == reported.destinationUIDs.count else {
