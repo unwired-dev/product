@@ -518,6 +518,10 @@ struct MailEngineQualificationContract {
           connectionID: "tls12-\(service)-\(transportMode)",
           service: service
         )
+        _ = await assertCloseCompletes(
+          tls12Connection.session,
+          connectionID: "tls12-\(service)-\(transportMode)"
+        )
         await assertConnectionFails(
           fixture: .maximumTLS(service: service, version: .tls12),
           failedService: service,
@@ -2809,7 +2813,18 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    let page = try await session.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
+    let metadataLoad = Task {
+      try await session.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
+    }
+    guard
+      let metadataResult = await boundedResult(
+        of: metadataLoad,
+        timeoutMessage: "Timed out waiting for recovered-IDLE follow-up IMAP metadata."
+      )
+    else {
+      return
+    }
+    let page = try metadataResult.get()
     XCTAssertEqual(page.messages.map(\.identity.uid), [9])
     let requestsAfter = await factory.events().filter {
       if case .metadataPageRequested(let eventConnectionID, _, _, _) = $0 {
@@ -2936,17 +2951,29 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(first.capabilities, [.idle, .specialUse, .uidPlus])
     XCTAssertEqual(second.capabilities, [.idle, .move, .specialUse, .uidPlus])
     XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: first.mailboxes.map { ($0.identity, $0.specialUses) }),
+      Dictionary(grouping: first.mailboxes, by: \.self).mapValues(\.count),
       [
-        MailEngineMailboxIdentity("INBOX"): [],
-        MailEngineMailboxIdentity("First Sent"): [.sent],
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("INBOX"),
+          specialUses: []
+        ): 1,
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("First Sent"),
+          specialUses: [.sent]
+        ): 1,
       ]
     )
     XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: second.mailboxes.map { ($0.identity, $0.specialUses) }),
+      Dictionary(grouping: second.mailboxes, by: \.self).mapValues(\.count),
       [
-        MailEngineMailboxIdentity("INBOX"): [],
-        MailEngineMailboxIdentity("Second Sent"): [.sent],
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("INBOX"),
+          specialUses: []
+        ): 1,
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("Second Sent"),
+          specialUses: [.sent]
+        ): 1,
       ]
     )
     XCTAssertEqual(first.transportSecurity, [.imap: .tls12, .smtp: .tls12])
