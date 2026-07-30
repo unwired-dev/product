@@ -453,6 +453,7 @@ final class MailboxFreshnessViewModel {
       MailboxSyncNotificationUserInfoKey.phase: status.phase,
       MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
       MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
+      MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill: false,
     ]
     if let successfulSyncAt = status.lastSuccessfulSyncAt {
       userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
@@ -798,6 +799,7 @@ final class MailboxFreshnessViewModel {
     removeHistoricalBackfill(connectionId: connectionId, backfillId: backfill.id)
   }
 
+  // swiftlint:disable:next function_body_length
   private func finishHistoricalBackfill(
     connection: MailboxConnection,
     externalStatusRevision: UInt64,
@@ -806,11 +808,11 @@ final class MailboxFreshnessViewModel {
     result: Result<MailboxMetadataSyncResult, Error>
   ) {
     guard
-      !Task.isCancelled,
       isSessionCurrent(session),
       knownConnections[connection.id] != nil
     else { return }
     var successfulSyncAt: Date?
+    var supersedesHistoricalBackfill = true
     switch result {
     case .success(let result):
       let completionDate = now()
@@ -820,13 +822,21 @@ final class MailboxFreshnessViewModel {
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
-      guard externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id) else { return }
-      statuses[connection.id] = MailboxSyncStatus(
-        lastSuccessfulSyncAt: completionDate,
-        phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending
-      )
+      if Task.isCancelled
+        || !externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id)
+      {
+        supersedesHistoricalBackfill = false
+      } else {
+        statuses[connection.id] = MailboxSyncStatus(
+          lastSuccessfulSyncAt: completionDate,
+          phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending
+        )
+      }
     case .failure(let error):
-      guard externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id) else { return }
+      guard
+        !Task.isCancelled,
+        externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id)
+      else { return }
       guard !Self.isCancellation(error) else {
         guard externalStatusIsCurrent(externalStatusRevision, for: connection.id) else { return }
         statuses[connection.id] = priorStatus
@@ -844,6 +854,8 @@ final class MailboxFreshnessViewModel {
         ?? MailboxSyncPhase.idle,
       MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
       MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
+      MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill:
+        supersedesHistoricalBackfill,
     ]
     if let successfulSyncAt {
       userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
