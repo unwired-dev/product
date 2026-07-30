@@ -893,6 +893,42 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
   }
 
+  @MainActor
+  func testAuthorizedGenericDefinitionCanBecomeDefaultSender() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+    await viewModel.loadSyncedDefinitions()
+
+    let didSetDefault = await viewModel.setDefaultSendingConnection(definition)
+
+    XCTAssertTrue(didSetDefault)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, definition.connectionId)
+    XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
+  }
+
   func testGenericRemovalClearsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()

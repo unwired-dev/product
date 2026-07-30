@@ -1,5 +1,7 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
   @Bindable var genericMailViewModel: GenericMailSetupViewModel
@@ -27,7 +29,7 @@ struct EmailAccountsSettingsView: View {
             viewModel: gmailViewModel,
             isMailboxBusy: isMailboxBusy,
             selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
-            connectionsDidChange: providerConnectionsDidChange
+            connectionsDidChange: connectionsDidChange
           )
           .id(MailProviderId.gmail)
 
@@ -72,13 +74,15 @@ struct EmailAccountsSettingsView: View {
       }
     }
     .task {
-      connectionsAreAuthoritative = await gmailViewModel.load()
+      connectionsAreAuthoritative = await Self.loadInitialConnections(
+        loadRoutedConnections: gmailViewModel.load,
+        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions
+      )
       Self.updateFreshnessConnections(
         gmailViewModel.connections,
         connectionsAreAuthoritative: connectionsAreAuthoritative,
         freshnessViewModel: freshnessViewModel
       )
-      await genericMailViewModel.loadSyncedDefinitions()
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
       connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
@@ -110,6 +114,18 @@ struct EmailAccountsSettingsView: View {
   }
 
   @MainActor
+  static func loadInitialConnections(
+    loadRoutedConnections: () async -> Bool,
+    loadGenericConnections: () async -> Void
+  ) async -> Bool {
+    async let routedConnectionsAreAuthoritative = loadRoutedConnections()
+    async let genericConnectionsLoad: Void = loadGenericConnections()
+    let connectionsAreAuthoritative = await routedConnectionsAreAuthoritative
+    await genericConnectionsLoad
+    return connectionsAreAuthoritative
+  }
+
+  @MainActor
   static func updateFreshnessConnections(
     _ connections: [MailboxConnection],
     connectionsAreAuthoritative: Bool,
@@ -133,7 +149,9 @@ struct EmailAccountsSettingsView: View {
       .font(.subheadline)
       .foregroundStyle(.secondary)
 
-      if summaryConnections.isEmpty, !gmailViewModel.isLoading {
+      if summaryConnections.isEmpty, !gmailViewModel.isLoading,
+        !genericMailViewModel.isLoadingSyncedDefinitions
+      {
         ContentUnavailableView(
           "No Mailbox Connections",
           systemImage: "tray",

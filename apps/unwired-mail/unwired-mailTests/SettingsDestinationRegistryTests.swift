@@ -15,6 +15,31 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(events, ["load", "notify"])
   }
 
+  @MainActor
+  func testEmailAccountsStartsRoutedAndGenericLoadsTogether() async {
+    let routedLoad = TestRendezvous()
+    let genericLoad = TestRendezvous()
+    let loadTask = Task {
+      await EmailAccountsSettingsView.loadInitialConnections(
+        loadRoutedConnections: {
+          await routedLoad.hold()
+          return true
+        },
+        loadGenericConnections: {
+          await genericLoad.hold()
+        }
+      )
+    }
+
+    await routedLoad.waitUntilHeld()
+    await genericLoad.waitUntilHeld()
+    await routedLoad.release()
+    await genericLoad.release()
+
+    let connectionsAreAuthoritative = await loadTask.value
+    XCTAssertTrue(connectionsAreAuthoritative)
+  }
+
   func testProductionKeepsOnlyExistingAccountSettingsEntryPoint() {
     XCTAssertEqual(
       SettingsEntryPointRegistry.entries(isDevelopmentBuild: false),

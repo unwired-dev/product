@@ -74,7 +74,9 @@ Simple toggles, pickers, and swipe assignments save immediately. Multi-field ent
 
 Settings updates apply to the running mail experience without requiring an app restart. Manual
 provider refreshes notify the separate mail shell after the Settings-owned connection snapshot
-finishes loading.
+finishes loading without immediately reloading that same router again. The routed-provider and
+generic-mail snapshots start together, and generic setup remains disabled until its synchronized
+definition snapshot finishes loading.
 
 ## Destination requirements
 

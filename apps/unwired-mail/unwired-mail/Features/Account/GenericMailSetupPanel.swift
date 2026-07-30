@@ -64,6 +64,10 @@ final class GenericMailSetupViewModel {
       + authorizedSyncedConnectionIds.map(\.rawValue).sorted()
   }
 
+  var isEditingDisabled: Bool {
+    isConnecting || isLoadingSyncedDefinitions
+  }
+
   private let productAccountId: ProductAccountId
   private let clearLocalData: GenericMailLocalDataClearing
   private let isSessionCurrent: () -> Bool
@@ -451,14 +455,16 @@ extension GenericMailSetupViewModel {
     }
   }
 
-  func setDefaultSendingConnection(_ definition: GenericMailConnectionDefinition) async {
-    guard let syncSession, isAuthorized(definition) else { return }
+  func setDefaultSendingConnection(_ definition: GenericMailConnectionDefinition) async -> Bool {
+    guard let syncSession, isAuthorized(definition) else { return false }
     do {
       try await service.setDefaultSendingConnection(definition, session: syncSession)
       defaultSendingConnectionId = definition.connectionId
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -529,6 +535,14 @@ struct GenericMailSetupPanel: View {
                   Button("Reauthorize on This Device") {
                     viewModel.selectSyncedDefinition(definition)
                   }
+                  Button("Set as Default Sending Connection") {
+                    Task {
+                      if await viewModel.setDefaultSendingConnection(definition) {
+                        connectionsDidChange()
+                      }
+                    }
+                  }
+                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
                   Button("Remove Device Authorization", role: .destructive) {
                     Task {
                       await Self.performDestructiveAction(
@@ -555,7 +569,7 @@ struct GenericMailSetupPanel: View {
                   }
                 }
               }
-              .disabled(viewModel.isConnecting || isMailboxBusy)
+              .disabled(viewModel.isEditingDisabled || isMailboxBusy)
             }
           }
         }
@@ -570,14 +584,14 @@ struct GenericMailSetupPanel: View {
           viewModel.discover()
         }
         .buttonStyle(.bordered)
-        .disabled(viewModel.isConnecting)
+        .disabled(viewModel.isEditingDisabled)
       }
 
       Button("Load Saved Setup") {
         viewModel.loadSaved()
       }
       .buttonStyle(.bordered)
-      .disabled(viewModel.isConnecting)
+      .disabled(viewModel.isEditingDisabled)
 
       if let discoverySource = viewModel.discoverySource {
         Text(discoverySource)
@@ -663,9 +677,11 @@ struct GenericMailSetupPanel: View {
         .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
-      .disabled(viewModel.isConnecting)
+      .disabled(viewModel.isEditingDisabled)
 
-      if viewModel.isConnecting {
+      if viewModel.isLoadingSyncedDefinitions {
+        ProgressView("Loading synchronized mailbox connections...")
+      } else if viewModel.isConnecting {
         ProgressView("Verifying secure mail transport...")
       }
 
@@ -684,7 +700,7 @@ struct GenericMailSetupPanel: View {
           .font(.footnote)
       }
     }
-    .disabled(viewModel.isConnecting)
+    .disabled(viewModel.isEditingDisabled)
     .onDisappear {
       connectTask?.cancel()
     }
