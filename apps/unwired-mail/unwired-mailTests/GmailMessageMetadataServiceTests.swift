@@ -3566,7 +3566,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       session: session
     )
     try await fixture.service.perform(
-      .move(targetProviderMailboxId: "Label_projects"),
+      .move(
+        sourceProviderMailboxId: "Label_source",
+        targetProviderMailboxId: "Label_projects"
+      ),
       messageIds: ["message-001"],
       connection: connection,
       session: session
@@ -3608,7 +3611,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       fixture.recorder.requests[8].jsonBody["addLabelIds"] as? [String],
       ["Label_projects"]
     )
-    XCTAssertEqual(fixture.recorder.requests[8].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
+    XCTAssertEqual(
+      fixture.recorder.requests[8].jsonBody["removeLabelIds"] as? [String],
+      ["Label_source"]
+    )
     XCTAssertEqual(fixture.recorder.requests[11].jsonBody["addLabelIds"] as? [String], ["SPAM"])
     XCTAssertEqual(fixture.recorder.requests[11].jsonBody["removeLabelIds"] as? [String], ["INBOX"])
     XCTAssertEqual(fixture.recorder.requests[14].jsonBody["addLabelIds"] as? [String], ["INBOX"])

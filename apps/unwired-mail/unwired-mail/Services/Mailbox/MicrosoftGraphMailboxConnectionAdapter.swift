@@ -3485,7 +3485,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) -> PendingProviderActionPerformer {
-    { action, targetProviderMailboxId, messageIds in
+    { action, _, targetProviderMailboxId, messageIds in
       do {
         try await performProviderAction(
           action,

@@ -3206,7 +3206,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         messages: [adapterMessage],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw CancellationError()
       }
     } catch {
@@ -3390,7 +3390,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [staleMessage],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
 
     let result = try await adapter.syncRecentInbox(
       connection: connection,
@@ -3430,7 +3430,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [staleGmailMessage.mailboxMetadata(connectionId: connection.id)],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
 
     _ = try await adapter.continueHistoricalBackfill(
       connection: connection,
@@ -4295,7 +4295,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       messages: [],
       collection: .providerMailbox("Label_projects"),
       allowsMove: true,
-      allowsProviderMailboxMove: false
+      allowsProviderMailboxMove: true
     )
     let graphActions = MailShellConversationReader.contextualProviderActions(
       supported: [.move],
@@ -4305,9 +4305,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       allowsProviderMailboxMove: true
     )
 
-    XCTAssertFalse(gmailActions.contains(.move))
+    XCTAssertTrue(gmailActions.contains(.move))
     XCTAssertTrue(graphActions.contains(.move))
-    XCTAssertFalse(
+    XCTAssertTrue(
       MailShellConversationReader.allowsMoveFromProviderMailbox(.gmail)
     )
     XCTAssertTrue(
@@ -4506,6 +4506,21 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(
       viewModel.selectedMailboxMessages(in: thread, pinnedMessageIds: []),
       [sentMessage]
+    )
+    viewModel.updateThreads([thread], for: adapterConnectionId)
+    viewModel.selectThread(thread.id)
+    XCTAssertEqual(
+      viewModel.bulkActionBatches(
+        connections: [
+          mailShellConnection(
+            emailAddress: "reader@example.com",
+            providerAccountIdentifier: "gmail-user-001",
+            productAccountId: session.productAccountId
+          )
+        ],
+        pinnedMessageIds: []
+      ).first?.sourceProviderMailboxId,
+      "Label_projects"
     )
 
     viewModel.selectUnifiedMailbox(.pins)
@@ -5765,6 +5780,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
     let didPerform = await viewModel.perform(
       .move,
+      sourceProviderMailboxId: "provider-mailbox:source",
       targetProviderMailboxId: "provider-mailbox:deleted-child",
       targetProviderStateIds: ["TRASH"],
       for: [message],
@@ -5772,6 +5788,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
 
     XCTAssertTrue(didPerform)
+    let sourceProviderMailboxIds = await service.recordedSourceProviderMailboxIds()
+    XCTAssertEqual(sourceProviderMailboxIds, ["provider-mailbox:source"])
     let targetProviderStateIds = await service.recordedTargetProviderStateIds()
     XCTAssertEqual(targetProviderStateIds, [["TRASH"]])
   }
@@ -7513,6 +7531,7 @@ private actor MultiplePendingFailureService: MailboxProviderMailActing {
 private actor RecordingBulkMailActionService: MailboxProviderMailActing {
   private var connectionIds: [MailboxConnectionId] = []
   private let failingConnectionId: MailboxConnectionId
+  private var sourceProviderMailboxIds: [String?] = []
   private var targetProviderStateIds: [Set<String>] = []
 
   init(failingConnectionId: MailboxConnectionId) {
@@ -7526,6 +7545,24 @@ private actor RecordingBulkMailActionService: MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async throws {
     connectionIds.append(connection.id)
+    if connection.id == failingConnectionId {
+      throw MailboxConnectionAdapterError.authorizationRequired
+    }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId _: String?,
+    targetProviderStateIds: Set<String>,
+    messages _: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {
+    connectionIds.append(connection.id)
+    sourceProviderMailboxIds.append(sourceProviderMailboxId)
+    self.targetProviderStateIds.append(targetProviderStateIds)
     if connection.id == failingConnectionId {
       throw MailboxConnectionAdapterError.authorizationRequired
     }
@@ -7549,6 +7586,10 @@ private actor RecordingBulkMailActionService: MailboxProviderMailActing {
 
   func recordedConnectionIds() -> [MailboxConnectionId] {
     connectionIds
+  }
+
+  func recordedSourceProviderMailboxIds() -> [String?] {
+    sourceProviderMailboxIds
   }
 
   func recordedTargetProviderStateIds() -> [Set<String>] {
