@@ -3563,9 +3563,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
         shouldPersist: { false }
       )
       XCTFail("Expected the stale recent sync to stop before preemption")
-    } catch is CancellationError {
+    } catch GmailMessageMetadataSyncError.staleLocalConnection {
     } catch {
-      XCTFail("Expected cancellation, got \(error)")
+      XCTFail("Expected stale connection, got \(error)")
     }
 
     let snapshot = await priorityProbe.snapshot()

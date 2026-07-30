@@ -807,6 +807,9 @@ final class MailboxFreshnessViewModel {
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
+      guard externalSyncRevisions[connection.id, default: 0] == externalSyncRevision else {
+        return
+      }
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: completionDate,
         phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending

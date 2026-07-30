@@ -376,6 +376,7 @@ extension MailboxConnectionSyncGate {
       throw CancellationError()
     }
     defer { release(connectionId, mode: .exclusive) }
+    try Task.checkCancellation()
     return try await operation()
   }
 }
@@ -2415,7 +2416,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
     try Task.checkCancellation()
-    guard shouldPersist() else { throw CancellationError() }
+    guard shouldPersist() else { throw GmailMessageMetadataSyncError.staleLocalConnection }
     return try await syncGate.withPreemptingLock(connection.id) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
