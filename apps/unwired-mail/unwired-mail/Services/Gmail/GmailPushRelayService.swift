@@ -1439,7 +1439,14 @@ struct GmailPushWakeupHandler {
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
         throughHistoryId: historyId,
-        shouldPersist: routeIsCurrent
+        shouldPersist: routeIsCurrent,
+        didBeginPreemption: {
+          publishSyncStatus(
+            .syncing,
+            connection: mailboxConnection,
+            productAccountId: productSession.productAccountId
+          )
+        }
       )
     } catch is CancellationError {
       publishSyncStatus(

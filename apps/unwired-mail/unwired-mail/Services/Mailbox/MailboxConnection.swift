@@ -359,6 +359,7 @@ extension MailboxConnectionSyncGate {
 
   func withPreemptingLock<T>(
     _ connectionId: MailboxConnectionId,
+    didBeginPreemption: () -> Void = {},
     operation: () async throws -> T
   ) async throws -> T {
     try Task.checkCancellation()
@@ -367,6 +368,7 @@ extension MailboxConnectionSyncGate {
       let remainingCount = preemptionRequestCounts[connectionId, default: 0] - 1
       preemptionRequestCounts[connectionId] = remainingCount > 0 ? remainingCount : nil
     }
+    didBeginPreemption()
     activePreemptibleOperations[connectionId]?.cancel()
     guard await acquire(Self.allConnectionsId, mode: .shared) else {
       throw CancellationError()
@@ -1228,6 +1230,17 @@ protocol MailboxMetadataSyncing {
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult
 
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult
+
   func overrideCategory(
     _ categoryId: String,
     for message: MailboxMessageMetadata,
@@ -1260,6 +1273,27 @@ extension MailboxMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncInbox(connection: connection, session: session)
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult {
+    didBeginPreemption()
+    return try await syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: includingHistoryCandidates,
+      session: session,
+      sinceHistoryId: sinceHistoryId,
+      throughHistoryId: throughHistoryId,
+      shouldPersist: shouldPersist
+    )
   }
 }
 
@@ -2416,9 +2450,33 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
+    try await syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: includingHistoryCandidates,
+      session: session,
+      sinceHistoryId: sinceHistoryId,
+      throughHistoryId: throughHistoryId,
+      shouldPersist: shouldPersist,
+      didBeginPreemption: {}
+    )
+  }
+
+  // swiftlint:disable:next function_body_length function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult {
     try Task.checkCancellation()
     guard shouldPersist() else { throw GmailMessageMetadataSyncError.staleLocalConnection }
-    return try await syncGate.withPreemptingLock(connection.id) {
+    return try await syncGate.withPreemptingLock(
+      connection.id,
+      didBeginPreemption: didBeginPreemption
+    ) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
         session: session,
