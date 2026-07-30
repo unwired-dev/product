@@ -74,9 +74,13 @@ enum MailEngineQualificationFixture: Sendable {
   case copyPermanentlyRejected
   case copyRetryablyRejected
   case idleDisconnectThenRecover(maximumReconnectTLSVersion: MailEngineTLSVersion?)
+  case invalidIdleChangedUID(uid: Int64)
+  case invalidIdleResetUIDValidity(uidValidity: Int64)
   case idleUntilCancelled
   case inFlightOperationsUntilClosed
+  case mismatchedMetadataUIDValidity
   case invalidMetadataMessageUIDValidity
+  case invalidMetadataNextOlderUID(uid: Int64)
   case invalidMetadataPageUIDValidity
   case invalidMetadataUID(uid: Int64)
   case malformedCopyUIDMapping
@@ -84,6 +88,8 @@ enum MailEngineQualificationFixture: Sendable {
   case repeatedDestinationUIDMapping
   case maximumTLS(service: MailEngineService, version: MailEngineTLSVersion)
   case overlappingBodyResults
+  case overlappingConnectionSetup
+  case overlappingSentAppend(uid: Int64)
   case overlappingSMTP(serverMessageID: String)
   case overlappingUIDMutations
   case moveOutcomeUnknown
@@ -97,6 +103,7 @@ enum MailEngineQualificationFixture: Sendable {
   case repeatedSourceUIDMapping
   case sentAppendOutcomeUnknown
   case sentAppendFailsOnce
+  case invalidSentAppendIdentity(uid: Int64, uidValidity: Int64)
   case sentAppendPermanentlyRejected
   case smtpStages([MailEngineSMTPStage])
   case successful
@@ -587,24 +594,30 @@ struct MailEngineQualificationContract {
   private func assertUnknownMutationEvents() async {
     let events = await factory.events()
     XCTAssertEqual(
-      events.filter {
-        if case .copyReceived(let connectionID, _, _, _, _) = $0 {
-          return connectionID == "copy-outcome-unknown"
-        }
-        return false
-      }.count,
-      1,
-      "An uncertain COPY outcome must not replay any mutation command."
+      mutationEvents(in: events, connectionID: "copy-outcome-unknown"),
+      [
+        .copyReceived(
+          connectionID: "copy-outcome-unknown",
+          sourceUIDs: [5],
+          sourceUIDValidity: 44,
+          sourceMailbox: MailEngineMailboxIdentity("INBOX"),
+          destinationMailbox: MailEngineMailboxIdentity("Archive")
+        )
+      ],
+      "An uncertain COPY outcome must not replay through COPY or MOVE."
     )
     XCTAssertEqual(
-      events.filter {
-        if case .moveReceived(let connectionID, _, _, _, _) = $0 {
-          return connectionID == "move-outcome-unknown"
-        }
-        return false
-      }.count,
-      1,
-      "An uncertain MOVE outcome must not replay any mutation command."
+      mutationEvents(in: events, connectionID: "move-outcome-unknown"),
+      [
+        .moveReceived(
+          connectionID: "move-outcome-unknown",
+          sourceUIDs: [5],
+          sourceUIDValidity: 44,
+          sourceMailbox: MailEngineMailboxIdentity("INBOX"),
+          destinationMailbox: MailEngineMailboxIdentity("Archive")
+        )
+      ],
+      "An uncertain MOVE outcome must not replay through MOVE or COPY."
     )
     XCTAssertEqual(
       events.filter {
@@ -616,6 +629,21 @@ struct MailEngineQualificationContract {
       1,
       "An uncertain Sent append must not replay any append command."
     )
+  }
+
+  private func mutationEvents(
+    in events: [MailEngineQualificationEvent],
+    connectionID: String
+  ) -> [MailEngineQualificationEvent] {
+    events.filter {
+      switch $0 {
+      case .copyReceived(let eventConnectionID, _, _, _, _),
+        .moveReceived(let eventConnectionID, _, _, _, _):
+        eventConnectionID == connectionID
+      default:
+        false
+      }
+    }
   }
 
   private func verifyUIDValidityReset(
@@ -1430,6 +1458,19 @@ struct MailEngineQualificationContract {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
     }
     let events = await factory.events()
+    XCTAssertEqual(
+      mutationEvents(in: events, connectionID: connectionID),
+      [
+        .copyReceived(
+          connectionID: connectionID,
+          sourceUIDs: [9],
+          sourceUIDValidity: 44,
+          sourceMailbox: inbox,
+          destinationMailbox: archive
+        )
+      ],
+      "Malformed COPYUID must not retry the destination copy through any mutation command."
+    )
     XCTAssertFalse(
       events.contains {
         if case .moveRemovedSourceUIDs(let eventConnectionID, _) = $0 {
@@ -1655,6 +1696,30 @@ struct MailEngineQualificationContract {
         XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
       }
     }
+    let mismatchedSession = try await connect(
+      fixture: .mismatchedMetadataUIDValidity
+    ).session
+    do {
+      _ = try await mismatchedSession.loadMetadataPage(
+        mailbox: mailbox,
+        beforeUID: nil,
+        limit: 1
+      )
+      XCTFail("Metadata identities must match their page UIDVALIDITY.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+    }
+    for invalidUID in [Int64(-1), 0, 4_294_967_296] {
+      let session = try await connect(
+        fixture: .invalidMetadataNextOlderUID(uid: invalidUID)
+      ).session
+      do {
+        _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
+        XCTFail("Metadata pagination UID \(invalidUID) must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+      }
+    }
   }
 
   private func assertBodyParts(
@@ -1768,6 +1833,9 @@ struct MailEngineQualificationContract {
 
   func verifyIDLEAndConnectionIsolation() async throws {
     try await verifyIDLERecovery()
+    try await verifyIDLERecoveryTLSFloor()
+    try await verifyInvalidIDLEEvents()
+    try await verifyOverlappingConnectionSetup()
     try await verifyOverlappingConnectionIsolation()
   }
 
@@ -1813,11 +1881,32 @@ struct MailEngineQualificationContract {
       recoveryTask,
       failureMessage: "Recovered IDLE must remain active until cancelled."
     )
+    try await verifyRecoveredIDLECancellation(
+      recoveringSession,
+      connectionID: connectionID,
+      inbox: inbox
+    )
     try await verifyRecoveredIDLEPreservesSMTP(
       recoveringSession,
       connectionID: connectionID
     )
-    try await verifyIDLERecoveryTLSFloor()
+  }
+
+  private func verifyRecoveredIDLECancellation(
+    _ session: any MailEngineSession,
+    connectionID: String,
+    inbox: MailEngineMailboxIdentity
+  ) async throws {
+    let events = await factory.events()
+    XCTAssertTrue(
+      events.contains(.idleCancelled(connectionID: connectionID)),
+      "Cancelling recovered IDLE must cancel its owning server command."
+    )
+    try await verifyRecoveredIDLEPreservesIMAP(
+      session,
+      connectionID: connectionID,
+      inbox: inbox
+    )
   }
 
   private func verifyRecoveredIDLEPreservesSMTP(
@@ -1830,6 +1919,122 @@ struct MailEngineQualificationContract {
       preservationReason: "Recovering IMAP IDLE must preserve the account's SMTP transport.",
       allowPriorIMAPClose: true
     )
+  }
+
+  private func verifyRecoveredIDLEPreservesIMAP(
+    _ session: any MailEngineSession,
+    connectionID: String,
+    inbox: MailEngineMailboxIdentity
+  ) async throws {
+    let requestsBefore = await factory.events().filter {
+      if case .metadataPageRequested(let eventConnectionID, _, _, _) = $0 {
+        return eventConnectionID == connectionID
+      }
+      return false
+    }
+    let page = try await session.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
+    XCTAssertEqual(page.messages.map(\.identity.uid), [9])
+    let requestsAfter = await factory.events().filter {
+      if case .metadataPageRequested(let eventConnectionID, _, _, _) = $0 {
+        return eventConnectionID == connectionID
+      }
+      return false
+    }
+    XCTAssertEqual(
+      requestsAfter,
+      requestsBefore + [
+        .metadataPageRequested(
+          connectionID: connectionID,
+          mailbox: inbox,
+          beforeUID: nil,
+          limit: 1
+        )
+      ],
+      "Recovered IDLE cancellation must preserve follow-up IMAP work on the same session."
+    )
+  }
+
+  private func verifyInvalidIDLEEvents() async throws {
+    let inbox = MailEngineMailboxIdentity("INBOX")
+    for invalidUID in [Int64(-1), 0, 4_294_967_296] {
+      let callbacks = LockedBox<[MailEngineIdleEvent]>([])
+      let session = try await connect(fixture: .invalidIdleChangedUID(uid: invalidUID)).session
+      do {
+        try await session.idle(mailbox: inbox) { event in
+          callbacks.withValue { $0.append(event) }
+        }
+        XCTFail("IDLE changed UID \(invalidUID) must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+      }
+      XCTAssertEqual(callbacks.value, [])
+    }
+    for invalidUIDValidity in [Int64(-1), 0, 4_294_967_296] {
+      let callbacks = LockedBox<[MailEngineIdleEvent]>([])
+      let session = try await connect(
+        fixture: .invalidIdleResetUIDValidity(uidValidity: invalidUIDValidity)
+      ).session
+      do {
+        try await session.idle(mailbox: inbox) { event in
+          callbacks.withValue { $0.append(event) }
+        }
+        XCTFail("IDLE reset UIDVALIDITY \(invalidUIDValidity) must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+      }
+      XCTAssertEqual(callbacks.value, [])
+    }
+  }
+
+  private func verifyOverlappingConnectionSetup() async throws {
+    async let firstConnection = connect(
+      fixture: .overlappingConnectionSetup,
+      authorization: .password(username: "first@example.com", password: "first-password"),
+      connectionID: "setup-connection-one"
+    )
+    async let secondConnection = connect(
+      fixture: .overlappingConnectionSetup,
+      authorization: .xoauth2(username: "second@example.com", accessToken: "second-token"),
+      connectionID: "setup-connection-two"
+    )
+    let (first, second) = try await (firstConnection, secondConnection)
+    let inbox = MailEngineMailboxIdentity("INBOX")
+    async let firstPage = first.session.loadMetadataPage(
+      mailbox: inbox,
+      beforeUID: nil,
+      limit: 1
+    )
+    async let secondPage = second.session.loadMetadataPage(
+      mailbox: inbox,
+      beforeUID: nil,
+      limit: 1
+    )
+    let (firstResult, secondResult) = try await (firstPage, secondPage)
+    XCTAssertEqual(firstResult.messages.map(\.identity.uid), [19])
+    XCTAssertEqual(secondResult.messages.map(\.identity.uid), [29])
+    for (connectionID, authorizationEvent) in [
+      (
+        "setup-connection-one",
+        MailEngineQualificationEvent.authenticationStarted(
+          connectionID: "setup-connection-one",
+          service: .imap
+        )
+      ),
+      (
+        "setup-connection-two",
+        MailEngineQualificationEvent.authenticationStarted(
+          connectionID: "setup-connection-two",
+          service: .imap
+        )
+      ),
+    ] {
+      let events = await factory.events()
+      XCTAssertEqual(
+        events.filter { $0 == authorizationEvent }.count,
+        1,
+        "Overlapping setup must keep \(connectionID) authentication connection-scoped."
+      )
+    }
   }
 
   private func assertSuccessfulIDLERecoveryHandshake(
@@ -2450,6 +2655,8 @@ struct MailEngineQualificationContract {
     try await verifySMTPCancellation()
     try await verifyPostContentSMTPCancellation()
     try await verifyPartialRecipientRejectionStopsBeforeContent()
+    try await verifyInvalidSentAppendIdentities()
+    try await verifyOverlappingSentAppends()
     try await verifySentAppendRecovery()
 
     let events = await factory.events()
@@ -2867,6 +3074,80 @@ struct MailEngineQualificationContract {
       MailEngineMessageIdentity(mailbox: sentMailbox, uid: 11, uidValidity: 45)
     )
     await assertSentRecoveryEvents(rawMessage: rawMessage, sentMailbox: sentMailbox)
+  }
+
+  private func verifyInvalidSentAppendIdentities() async throws {
+    let sentMailbox = MailEngineMailboxIdentity("Transmitted Items")
+    let fixtures: [(fixture: MailEngineQualificationFixture, expected: MailEngineUIDMappingError)] =
+      [
+        (.invalidSentAppendIdentity(uid: -1, uidValidity: 45), .invalidUID),
+        (.invalidSentAppendIdentity(uid: 0, uidValidity: 45), .invalidUID),
+        (.invalidSentAppendIdentity(uid: 4_294_967_296, uidValidity: 45), .invalidUID),
+        (.invalidSentAppendIdentity(uid: 11, uidValidity: -1), .invalidSourceUIDValidity),
+        (.invalidSentAppendIdentity(uid: 11, uidValidity: 0), .invalidSourceUIDValidity),
+        (
+          .invalidSentAppendIdentity(uid: 11, uidValidity: 4_294_967_296),
+          .invalidSourceUIDValidity
+        ),
+      ]
+    for (index, testCase) in fixtures.enumerated() {
+      let session = try await connect(
+        fixture: testCase.fixture,
+        connectionID: "invalid-sent-append-\(index)"
+      ).session
+      do {
+        _ = try await session.appendToSent(Data("invalid identity".utf8), mailbox: sentMailbox)
+        XCTFail("Malformed APPENDUID identities must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, testCase.expected)
+      }
+    }
+  }
+
+  private func verifyOverlappingSentAppends() async throws {
+    let firstMailbox = MailEngineMailboxIdentity("First Sent")
+    let secondMailbox = MailEngineMailboxIdentity("Second Sent")
+    let firstMessage = Data("Subject: First append\r\n\r\nFirst body".utf8)
+    let secondMessage = Data("Subject: Second append\r\n\r\nSecond body".utf8)
+    let firstSession = try await connect(
+      fixture: .overlappingSentAppend(uid: 101),
+      connectionID: "sent-append-one"
+    ).session
+    let secondSession = try await connect(
+      fixture: .overlappingSentAppend(uid: 202),
+      connectionID: "sent-append-two"
+    ).session
+    async let firstIdentity = firstSession.appendToSent(firstMessage, mailbox: firstMailbox)
+    async let secondIdentity = secondSession.appendToSent(secondMessage, mailbox: secondMailbox)
+    let identities = try await (firstIdentity, secondIdentity)
+    XCTAssertEqual(
+      identities.0,
+      MailEngineMessageIdentity(mailbox: firstMailbox, uid: 101, uidValidity: 45)
+    )
+    XCTAssertEqual(
+      identities.1,
+      MailEngineMessageIdentity(mailbox: secondMailbox, uid: 202, uidValidity: 45)
+    )
+    let events = await factory.events().filter {
+      if case .sentAppendReceived(let connectionID, _, _) = $0 {
+        return connectionID == "sent-append-one" || connectionID == "sent-append-two"
+      }
+      return false
+    }
+    assertExactlyOnce(
+      events,
+      events:
+        .sentAppendReceived(
+          connectionID: "sent-append-one",
+          mailbox: firstMailbox,
+          rawMessage: firstMessage
+        ),
+      .sentAppendReceived(
+        connectionID: "sent-append-two",
+        mailbox: secondMailbox,
+        rawMessage: secondMessage
+      )
+    )
   }
 
   private func assertSentRecoveryEvents(
@@ -3641,6 +3922,24 @@ private actor ScriptedMailEngineState {
     }
   }
 
+  func waitForOverlappingConnectionSetupStarts(timeout: Duration) async throws {
+    try await waitForEvents(2, timeout: timeout) {
+      if case .authenticationStarted(let connectionID, service: .imap) = $0 {
+        return connectionID == "setup-connection-one" || connectionID == "setup-connection-two"
+      }
+      return false
+    }
+  }
+
+  func waitForOverlappingSentAppendStarts(timeout: Duration) async throws {
+    try await waitForEvents(2, timeout: timeout) {
+      if case .sentAppendReceived(let connectionID, _, _) = $0 {
+        return connectionID == "sent-append-one" || connectionID == "sent-append-two"
+      }
+      return false
+    }
+  }
+
   func waitForSubmissionContentStarts(
     _ count: Int,
     connectionID: String,
@@ -3759,6 +4058,9 @@ private struct ScriptedMailEngine: MailEngine {
     await state.record(
       .authenticationStarted(connectionID: configuration.connectionID, service: service)
     )
+    if case .overlappingConnectionSetup = fixture, service == .imap {
+      try await state.waitForOverlappingConnectionSetupStarts(timeout: .seconds(2))
+    }
     if case .xoauth2Challenge(let challengeService) = fixture,
       challengeService == service
     {
@@ -3905,7 +4207,25 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .sentAppendPermanentlyRejected = fixture {
       throw MailEngineError.protocolRejected(code: "NOPERM", retryable: false)
     }
-    return MailEngineMessageIdentity(mailbox: mailbox, uid: 11, uidValidity: 45)
+    if case .overlappingSentAppend = fixture {
+      try await state.waitForOverlappingSentAppendStarts(timeout: .seconds(2))
+    }
+    let identity =
+      switch fixture {
+      case .invalidSentAppendIdentity(let uid, let uidValidity):
+        MailEngineMessageIdentity(mailbox: mailbox, uid: uid, uidValidity: uidValidity)
+      case .overlappingSentAppend(let uid):
+        MailEngineMessageIdentity(mailbox: mailbox, uid: uid, uidValidity: 45)
+      default:
+        MailEngineMessageIdentity(mailbox: mailbox, uid: 11, uidValidity: 45)
+      }
+    guard (1...4_294_967_295).contains(identity.uidValidity) else {
+      throw MailEngineUIDMappingError.invalidSourceUIDValidity
+    }
+    guard (1...4_294_967_295).contains(identity.uid) else {
+      throw MailEngineUIDMappingError.invalidUID
+    }
+    return identity
   }
 
   func close() async {
@@ -4082,6 +4402,36 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     try ensureOpen()
     idleAttempt += 1
     await state.record(.idleStarted(connectionID: connectionID, mailbox: mailbox))
+    if try await handleIDLERecovery(onEvent: onEvent) {
+      return
+    }
+    if try await handleInvalidIDLEEvent(onEvent: onEvent) {
+      return
+    }
+    if case .idleUntilCancelled = fixture {
+      let event = MailEngineIdleEvent.changedUIDs([metadataUIDs()[0]])
+      await onEvent(event)
+      await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
+      try await waitForIdleCancellation()
+    }
+    if case .inFlightOperationsUntilClosed = fixture {
+      let event = MailEngineIdleEvent.changedUIDs([metadataUIDs()[0]])
+      await onEvent(event)
+      await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
+      try await waitForIdleCancellation()
+    }
+    if case .uidValidityReset = fixture {
+      uidValidityByMailbox[mailbox] = 99
+      let event = MailEngineIdleEvent.mailboxReset(uidValidity: 99)
+      await onEvent(event)
+      await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
+      try await waitForIdleCancellation()
+    }
+  }
+
+  private func handleIDLERecovery(
+    onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
+  ) async throws -> Bool {
     if case .idleDisconnectThenRecover(let maximumReconnectTLSVersion) = fixture {
       guard idleAttempt > 1 else {
         await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
@@ -4104,26 +4454,33 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       await onEvent(event)
       await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
       try await waitForIdleCancellation()
+      return true
     }
-    if case .idleUntilCancelled = fixture {
-      let event = MailEngineIdleEvent.changedUIDs([metadataUIDs()[0]])
+    return false
+  }
+
+  private func handleInvalidIDLEEvent(
+    onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
+  ) async throws -> Bool {
+    if case .invalidIdleChangedUID(let uid) = fixture {
+      guard (1...4_294_967_295).contains(uid) else {
+        throw MailEngineUIDMappingError.invalidUID
+      }
+      let event = MailEngineIdleEvent.changedUIDs([uid])
       await onEvent(event)
       await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
-      try await waitForIdleCancellation()
+      return true
     }
-    if case .inFlightOperationsUntilClosed = fixture {
-      let event = MailEngineIdleEvent.changedUIDs([metadataUIDs()[0]])
+    if case .invalidIdleResetUIDValidity(let uidValidity) = fixture {
+      guard (1...4_294_967_295).contains(uidValidity) else {
+        throw MailEngineUIDMappingError.invalidSourceUIDValidity
+      }
+      let event = MailEngineIdleEvent.mailboxReset(uidValidity: uidValidity)
       await onEvent(event)
       await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
-      try await waitForIdleCancellation()
+      return true
     }
-    if case .uidValidityReset = fixture {
-      uidValidityByMailbox[mailbox] = 99
-      let event = MailEngineIdleEvent.mailboxReset(uidValidity: 99)
-      await onEvent(event)
-      await state.record(.idleEventDelivered(connectionID: connectionID, event: event))
-      try await waitForIdleCancellation()
-    }
+    return false
   }
 
   func loadMetadataPage(
@@ -4168,8 +4525,16 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     let messageUIDValidity =
       if case .invalidMetadataMessageUIDValidity = fixture {
         Int64(4_294_967_296)
+      } else if case .mismatchedMetadataUIDValidity = fixture {
+        pageUIDValidity + 1
       } else {
         pageUIDValidity
+      }
+    let nextOlderUID =
+      if case .invalidMetadataNextOlderUID(let uid) = fixture {
+        uid
+      } else {
+        hasMore ? selectedUIDs.last : nil
       }
     return MailEngineMetadataPage(
       messages: selectedUIDs.map {
@@ -4184,7 +4549,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
           rfcMessageID: "<\($0)@example.com>"
         )
       },
-      nextOlderUID: hasMore ? selectedUIDs.last : nil,
+      nextOlderUID: nextOlderUID,
       uidValidity: pageUIDValidity
     )
   }
@@ -4193,11 +4558,15 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     guard (1...4_294_967_295).contains(page.uidValidity),
       page.messages.allSatisfy({
         (1...4_294_967_295).contains($0.identity.uidValidity)
+          && $0.identity.uidValidity == page.uidValidity
       })
     else {
       throw MailEngineUIDMappingError.invalidSourceUIDValidity
     }
-    guard page.messages.allSatisfy({ (1...4_294_967_295).contains($0.identity.uid) }) else {
+    guard
+      page.messages.allSatisfy({ (1...4_294_967_295).contains($0.identity.uid) }),
+      page.nextOlderUID.map({ (1...4_294_967_295).contains($0) }) ?? true
+    else {
       throw MailEngineUIDMappingError.invalidUID
     }
   }
