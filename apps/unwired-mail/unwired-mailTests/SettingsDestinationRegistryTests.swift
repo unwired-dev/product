@@ -46,6 +46,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testProviderMutationsAreDisabledWhileRoutedConnectionsLoad() {
+    XCTAssertTrue(
+      providerMutationIsDisabled(
+        isMailboxBusy: false,
+        isRoutedConnectionsLoading: true
+      )
+    )
+    XCTAssertFalse(
+      providerMutationIsDisabled(
+        isMailboxBusy: false,
+        isRoutedConnectionsLoading: false
+      )
+    )
+  }
+
   @MainActor
   func testEmailAccountsStartsRoutedAndGenericLoadsTogether() async {
     let routedLoad = TestRendezvous()

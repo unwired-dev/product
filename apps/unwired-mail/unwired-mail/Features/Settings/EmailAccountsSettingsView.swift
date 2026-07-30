@@ -44,6 +44,7 @@ struct EmailAccountsSettingsView: View {
             selectMailbox: { microsoftGraphViewModel.selectedConnectionId = $0.id },
             viewModel: microsoftGraphViewModel
           )
+          .disabled(providerMutationsAreDisabled)
           .id(MailProviderId.microsoftGraph)
 
           EWSSetupPanel(
@@ -52,6 +53,7 @@ struct EmailAccountsSettingsView: View {
             connectionsDidChange: providerConnectionsDidChange,
             isMailboxBusy: isMailboxBusy
           )
+          .disabled(providerMutationsAreDisabled)
           .id(MailProviderId.exchangeWebServices)
 
           GenericMailSetupPanel(
@@ -61,6 +63,7 @@ struct EmailAccountsSettingsView: View {
             connectionsDidChange: providerConnectionsDidChange,
             routedConnections: gmailViewModel.connections
           )
+          .disabled(providerMutationsAreDisabled)
           .id(MailProviderId.imapSMTP)
         }
         .padding(24)
@@ -187,6 +190,13 @@ struct EmailAccountsSettingsView: View {
       ?? gmailViewModel.sessionSnapshot.productAccountId
   }
 
+  private var providerMutationsAreDisabled: Bool {
+    providerMutationIsDisabled(
+      isMailboxBusy: isMailboxBusy,
+      isRoutedConnectionsLoading: gmailViewModel.isLoading
+    )
+  }
+
   private var summaryConnections: [MailboxConnection] {
     Self.makeSummaryConnections(
       routedConnections: gmailViewModel.connections,
@@ -293,6 +303,13 @@ func mailboxSynchronizationIsDisabled(
   isSynchronizing: Bool
 ) -> Bool {
   isMailboxBusy || !isAuthorized || !snapshotIsAuthoritative || isSynchronizing
+}
+
+func providerMutationIsDisabled(
+  isMailboxBusy: Bool,
+  isRoutedConnectionsLoading: Bool
+) -> Bool {
+  isMailboxBusy || isRoutedConnectionsLoading
 }
 
 private struct SettingsMailboxConnectionRow: View {
