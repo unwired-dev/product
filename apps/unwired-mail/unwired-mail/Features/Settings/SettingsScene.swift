@@ -209,6 +209,17 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
           route: .provider(.imapSMTP)
         ),
       ]
+    case .appearance:
+      return [
+        SettingsSearchItem(title: "Theme", route: route),
+        SettingsSearchItem(title: "Reading Text Size", route: route),
+        SettingsSearchItem(
+          title: "Message Body",
+          keywords: ["Sender Formatting", "System Serif", "System Sans Serif"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Increased Contrast", route: route),
+      ]
     default:
       return []
     }
@@ -478,7 +489,7 @@ extension View {
 }
 
 enum SettingsDestinationRegistry {
-  static let implementedDestinations: [SettingsDestination] = [.emailAccounts]
+  static let implementedDestinations: [SettingsDestination] = [.emailAccounts, .appearance]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
@@ -500,8 +511,7 @@ enum SettingsDestinationRegistry {
   }
 
   static func defaultDestination(isSignedIn: Bool) -> SettingsDestination? {
-    guard isSignedIn else { return nil }
-    return implementedDestinations.first
+    isSignedIn ? .emailAccounts : .appearance
   }
 
   static func resolveRoute(
@@ -521,13 +531,13 @@ enum SettingsDestinationRegistry {
     storedRawValue: String,
     isSignedIn: Bool
   ) -> SettingsDestination? {
-    guard isSignedIn else { return nil }
     if let stored = SettingsDestination(rawValue: storedRawValue),
-      implementedDestinations.contains(stored)
+      implementedDestinations.contains(stored),
+      isSignedIn || stored.isAvailableWhenSignedOut
     {
       return stored
     }
-    return defaultDestination(isSignedIn: true)
+    return defaultDestination(isSignedIn: isSignedIn)
   }
 
   static func search(
@@ -915,10 +925,14 @@ extension AdaptiveSettingsScene {
           ProgressView("Loading Settings…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .signedOut:
-          ContentUnavailableView(
-            "Sign in required",
-            systemImage: "person.crop.circle.badge.exclamationmark",
-            description: Text("Email Accounts is available after Product Account sign-in.")
+          AdaptiveSettingsScene(
+            isSignedIn: false,
+            showsDismissButton: false,
+            destinationContent: { destination, _ in
+              if destination == .appearance {
+                AppearanceSettingsView()
+              }
+            }
           )
         case .failed(let message):
           ContentUnavailableView(
@@ -1035,6 +1049,8 @@ extension AdaptiveSettingsScene {
               ),
               navigationRequest: request
             )
+          case .appearance:
+            AppearanceSettingsView()
           default:
             EmptyView()
           }

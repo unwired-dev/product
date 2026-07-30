@@ -50,17 +50,89 @@ enum MessageHTMLNavigationFailure {
   }
 }
 
+struct MessageHTMLStyle: Equatable {
+  enum ColorScheme: Equatable {
+    case dark
+    case light
+  }
+
+  let colorScheme: ColorScheme
+  let increasedContrast: Bool
+  let readingTextSize: ReadingTextSize
+  let typeface: MessageBodyTypeface
+}
+
+enum MessageHTMLDocument {
+  private struct Palette {
+    let background: String
+    let foreground: String
+    let link: String
+  }
+
+  static func styled(
+    _ html: SanitizedMessageHTML,
+    style: MessageHTMLStyle
+  ) -> String {
+    html.documentHTML.replacingOccurrences(
+      of: "</head>",
+      with: "<style>\(stylesheet(for: style))</style></head>"
+    )
+  }
+
+  private static func stylesheet(for style: MessageHTMLStyle) -> String {
+    let palette: Palette
+    switch (style.colorScheme, style.increasedContrast) {
+    case (.dark, true):
+      palette = Palette(background: "#000", foreground: "#fff", link: "#75adff")
+    case (.dark, false):
+      palette = Palette(background: "#000", foreground: "#f2f2f7", link: "#6ea8ff")
+    case (.light, true):
+      palette = Palette(background: "#fff", foreground: "#000", link: "#0058d1")
+    case (.light, false):
+      palette = Palette(background: "#fff", foreground: "#1c1c1e", link: "#0066cc")
+    }
+
+    let typefaceRule =
+      style.typeface.htmlFontFamilyOverride.map {
+        "body, body * { font-family: \($0) !important; }"
+      } ?? ""
+
+    return """
+      :root { color-scheme: \(style.colorScheme == .dark ? "dark" : "light"); }
+      html, body {
+        background: \(palette.background);
+        color: \(palette.foreground);
+      }
+      body { font-size: \(style.readingTextSize.cssPercentage); }
+      \(typefaceRule)
+      a { color: \(palette.link); }
+      """
+  }
+}
+
 struct MessageHTMLView: View {
   let html: SanitizedMessageHTML
   let onRenderingFailure: () -> Void
 
+  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
+  @Environment(\.colorScheme) private var colorScheme
+  @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.openURL) private var openURL
   @State private var contentHeight: CGFloat = 1
 
   var body: some View {
     MessageHTMLWebView(
       contentHeight: $contentHeight,
-      html: html,
+      documentHTML: MessageHTMLDocument.styled(
+        html,
+        style: MessageHTMLStyle(
+          colorScheme: colorScheme == .dark ? .dark : .light,
+          increasedContrast: appearancePreferences?.increasedContrast == true
+            || colorSchemeContrast == .increased,
+          readingTextSize: appearancePreferences?.readingTextSize ?? .standard,
+          typeface: appearancePreferences?.messageBodyTypeface ?? .senderFormatting
+        )
+      ),
       onOpenURL: { openURL($0) },
       onRenderingFailure: onRenderingFailure
     )
@@ -71,7 +143,7 @@ struct MessageHTMLView: View {
 
 private struct MessageHTMLWebView: UIViewRepresentable {
   @Binding var contentHeight: CGFloat
-  let html: SanitizedMessageHTML
+  let documentHTML: String
   let onOpenURL: (URL) -> Void
   let onRenderingFailure: () -> Void
 
@@ -102,11 +174,11 @@ private struct MessageHTMLWebView: UIViewRepresentable {
     context.coordinator.onHeightChange = { contentHeight = $0 }
     context.coordinator.onOpenURL = onOpenURL
     context.coordinator.onRenderingFailure = onRenderingFailure
-    guard context.coordinator.loadedDocument != html.documentHTML else { return }
+    guard context.coordinator.loadedDocument != documentHTML else { return }
 
-    context.coordinator.loadedDocument = html.documentHTML
+    context.coordinator.loadedDocument = documentHTML
     context.coordinator.isLoadingDocument = true
-    webView.loadHTMLString(html.documentHTML, baseURL: nil)
+    webView.loadHTMLString(documentHTML, baseURL: nil)
   }
 
   static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {

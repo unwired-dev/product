@@ -1273,6 +1273,8 @@ struct AccountView: View {
                 ),
                 navigationRequest: request
               )
+            case .appearance:
+              AppearanceSettingsView()
             default:
               EmptyView()
             }
@@ -4072,6 +4074,8 @@ private struct MailShellLoadedMessageContent {
 
 private struct MailShellMessageContent: View {
   let loadedContent: MailShellLoadedMessageContent
+  @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
+  @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
   @State private var renderingFailed = false
 
   var body: some View {
@@ -4086,6 +4090,14 @@ private struct MailShellMessageContent: View {
       )
     case .plainText(let text):
       Text(text)
+        .font(
+          .system(
+            size: bodyPointSize
+              * (appearancePreferences?.readingTextSize ?? .standard).scale,
+            design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
+              .fontDesign
+          )
+        )
         .frame(maxWidth: .infinity, alignment: .leading)
         .textSelection(.enabled)
     }
