@@ -12,6 +12,7 @@ struct EmailAccountsSettingsView: View {
 
   let cancelBodyPrefetch: () async -> Void
   let connectionsDidChange: () -> Void
+  let gmailConnectionsDidChange: () -> Void
   let isMailboxBusy: Bool
 
   @State private var connectionsAreAuthoritative = false
@@ -30,7 +31,7 @@ struct EmailAccountsSettingsView: View {
             viewModel: gmailViewModel,
             isMailboxBusy: isMailboxBusy,
             selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
-            connectionsDidChange: connectionsDidChange
+            connectionsDidChange: gmailConnectionsDidChange
           )
           .id(MailProviderId.gmail)
 

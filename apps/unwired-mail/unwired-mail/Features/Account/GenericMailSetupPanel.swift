@@ -411,8 +411,8 @@ extension GenericMailSetupViewModel {
     }
   }
 
-  func removeEverywhere(_ definition: GenericMailConnectionDefinition) async {
-    guard let syncSession else { return }
+  func removeEverywhere(_ definition: GenericMailConnectionDefinition) async -> Bool {
+    guard let syncSession else { return false }
     do {
       let clearedLocalData = try await clearLocalData(definition, syncSession)
       if !clearedLocalData {
@@ -427,6 +427,7 @@ extension GenericMailSetupViewModel {
         connectedDefinition = nil
       }
       await loadSyncedDefinitions()
+      return true
     } catch {
       authorizedSyncedConnectionIds.remove(definition.connectionId)
       if connectedDefinition?.connectionId == definition.connectionId {
@@ -434,10 +435,11 @@ extension GenericMailSetupViewModel {
       }
       await loadSyncedDefinitions()
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
-  func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async {
+  func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async -> Bool {
     do {
       let clearedLocalData =
         if let syncSession {
@@ -453,8 +455,10 @@ extension GenericMailSetupViewModel {
       }
       authorizedSyncedConnectionIds.remove(definition.connectionId)
       await loadSyncedDefinitions()
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -576,11 +580,10 @@ struct GenericMailSetupPanel: View {
                   Button("Remove Device Authorization", role: .destructive) {
                     Task {
                       await Self.performDestructiveAction(
-                        cancelMailboxWork: cancelMailboxWork
-                      ) {
-                        await viewModel.removeLocalAuthorization(definition)
-                        connectionsDidChange()
-                      }
+                        cancelMailboxWork: cancelMailboxWork,
+                        action: { await viewModel.removeLocalAuthorization(definition) },
+                        connectionsDidChange: connectionsDidChange
+                      )
                     }
                   }
                 } else {
@@ -591,11 +594,10 @@ struct GenericMailSetupPanel: View {
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
                   Task {
                     await Self.performDestructiveAction(
-                      cancelMailboxWork: cancelMailboxWork
-                    ) {
-                      await viewModel.removeEverywhere(definition)
-                      connectionsDidChange()
-                    }
+                      cancelMailboxWork: cancelMailboxWork,
+                      action: { await viewModel.removeEverywhere(definition) },
+                      connectionsDidChange: connectionsDidChange
+                    )
                   }
                 }
               }
@@ -765,10 +767,12 @@ struct GenericMailSetupPanel: View {
 
   static func performDestructiveAction(
     cancelMailboxWork: () async -> Void,
-    action: () async -> Void
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
   ) async {
     await cancelMailboxWork()
-    await action()
+    guard await action() else { return }
+    connectionsDidChange()
   }
 }
 

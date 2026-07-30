@@ -375,6 +375,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
               )
             },
             connectionsDidChange: refreshConnectionAuthorityAndNotify,
+            gmailConnectionsDidChange: notifyConnectionsDidChange,
             isMailboxBusy: mailboxWorkCoordinator.isBusy(
               productAccountId: snapshot.productAccountId
             )

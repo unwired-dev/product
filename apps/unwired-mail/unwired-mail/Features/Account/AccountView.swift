@@ -1209,6 +1209,7 @@ struct AccountView: View {
                 )
               },
               connectionsDidChange: {},
+              gmailConnectionsDidChange: {},
               isMailboxBusy: mailboxWorkCoordinator.isBusy(
                 productAccountId: snapshot.productAccountId
               )
@@ -6455,7 +6456,6 @@ final class MailboxProviderConnectionViewModel {
 
   @discardableResult
   private func refreshConnections() async throws -> Bool {
-    connectionsSnapshotIsAuthoritative = false
     let snapshot =
       if let snapshotLoader = service as? any MailboxConnectionSnapshotLoading {
         try await snapshotLoader.loadConnectionSnapshot(session: session)
@@ -6469,20 +6469,15 @@ final class MailboxProviderConnectionViewModel {
       .sorted {
         $0.displayName.localizedCaseInsensitiveCompare($1.displayName) == .orderedAscending
       }
-    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
-    connections = loadedConnections
-    do {
-      defaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
-        session: session
-      )
-    } catch is CancellationError {
-      throw CancellationError()
-    } catch {
-      throw error
-    }
+    let loadedDefaultSendingConnectionId = try await service.loadDefaultSendingConnectionId(
+      session: session
+    )
     if let loadErrorDescription = snapshot.loadErrorDescription {
       throw MailboxConnectionLoadError.partialProviderLoad(loadErrorDescription)
     }
+    connectionsSnapshotIsAuthoritative = snapshot.isAuthoritative
+    connections = loadedConnections
+    defaultSendingConnectionId = loadedDefaultSendingConnectionId
     return snapshot.isAuthoritative
   }
 

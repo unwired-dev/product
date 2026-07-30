@@ -839,6 +839,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
+  func testViewModelPreservesAuthoritativeSnapshotWhenReloadIsCancelled() async {
+    let connectionService = RecordingAdapterConnectionService()
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty)
+    )
+    let viewModel = MailboxProviderConnectionViewModel(
+      service: adapter,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    _ = await viewModel.load()
+    let connectionsBeforeCancellation = viewModel.connections
+    connectionService.loadError = CancellationError()
+
+    _ = await viewModel.load()
+
+    XCTAssertTrue(viewModel.connectionsSnapshotIsAuthoritative)
+    XCTAssertEqual(viewModel.connections, connectionsBeforeCancellation)
+  }
+
   func testViewModelPreservesDefaultSenderWhenRefreshingItFails() async {
     let connectionService = RecordingAdapterConnectionService()
     let connection = RecordingAdapterConnectionService.status.mailboxConnection(

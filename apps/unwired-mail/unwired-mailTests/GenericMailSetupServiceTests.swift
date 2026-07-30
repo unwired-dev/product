@@ -1189,10 +1189,46 @@ final class GenericMailSetupServiceTests: XCTestCase {
 
     await GenericMailSetupPanel.performDestructiveAction(
       cancelMailboxWork: { events.append("cancel") },
-      action: { events.append("remove") }
+      action: {
+        events.append("remove")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
     )
 
-    XCTAssertEqual(events, ["cancel", "remove"])
+    XCTAssertEqual(events, ["cancel", "remove", "notify"])
+  }
+
+  @MainActor
+  func testGenericMailDestructiveActionNotifiesOnlyAfterSuccess() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel failed") },
+      action: {
+        events.append("failed remove")
+        return false
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel successful") },
+      action: {
+        events.append("successful remove")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(
+      events,
+      [
+        "cancel failed",
+        "failed remove",
+        "cancel successful",
+        "successful remove",
+        "notify",
+      ])
   }
 
   @MainActor

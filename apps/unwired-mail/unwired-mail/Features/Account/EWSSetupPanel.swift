@@ -19,6 +19,9 @@ final class EWSSetupViewModel {
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var isValid = true
+  private var loadIsActive = false
+  private var loadCompletionWaiters: [CheckedContinuation<Void, Never>] = []
+  private var loadRequestedWhileWorking = false
   private var removalObservation: MailboxConnectionRemovalObservation?
   private var selectedConnectionId: MailboxConnectionId?
   private let service: EWSSetupService
@@ -44,9 +47,31 @@ final class EWSSetupViewModel {
   }
 
   func load() async {
-    guard !isWorking, isSessionCurrent(session) else { return }
+    guard isSessionCurrent(session) else { return }
+    if loadIsActive {
+      loadRequestedWhileWorking = true
+      await withCheckedContinuation { continuation in
+        loadCompletionWaiters.append(continuation)
+      }
+      return
+    }
+    guard !isWorking else { return }
+    loadIsActive = true
     isWorking = true
-    defer { isWorking = false }
+    repeat {
+      loadRequestedWhileWorking = false
+      await performLoad()
+    } while loadRequestedWhileWorking && isValid && isSessionCurrent(session)
+    loadIsActive = false
+    isWorking = false
+    let waiters = loadCompletionWaiters
+    loadCompletionWaiters.removeAll()
+    for waiter in waiters {
+      waiter.resume()
+    }
+  }
+
+  private func performLoad() async {
     do {
       let snapshot = try await definitionSyncService.loadSnapshot(session: session)
       definitionsByConnectionId = Dictionary(

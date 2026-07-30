@@ -90,6 +90,31 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(first.id, second.id)
   }
 
+  func testEWSSetupViewModelRerunsLoadRequestedWhileWorking() async {
+    let firstLoad = TestRendezvous()
+    let definitions = RecordingEWSDefinitionSyncService()
+    var shouldHoldFirstLoad = true
+    definitions.beforeLoadSnapshotReturn = {
+      guard shouldHoldFirstLoad else { return }
+      shouldHoldFirstLoad = false
+      await firstLoad.hold()
+    }
+    let viewModel = EWSSetupViewModel(
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+    let initialLoad = Task { await viewModel.load() }
+    await firstLoad.waitUntilHeld()
+    let requestedRefresh = Task { await viewModel.load() }
+
+    await firstLoad.release()
+    await initialLoad.value
+    await requestedRefresh.value
+
+    XCTAssertEqual(definitions.loadSnapshotCallCount, 2)
+  }
+
   func testEWSSetupViewModelRequiresExplicitRecreationRetry() async throws {
     let definitions = RecordingEWSDefinitionSyncService()
     let client = RecordingEWSClient()
@@ -4711,6 +4736,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   var didLoadSnapshot: (() -> Void)?
   var didSaveDefinition: (() -> Void)?
   var loadSnapshotError: Error?
+  var loadSnapshotCallCount = 0
   var localCleanupGenerations: [MailboxConnectionId: Int]
   var providerAccessLoads = 0
   var recreateDefinitionCount = 0
@@ -4752,6 +4778,7 @@ private final class RecordingEWSDefinitionSyncService: MailboxConnectionDefiniti
   func loadSnapshot(
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    loadSnapshotCallCount += 1
     if let loadSnapshotError { throw loadSnapshotError }
     didLoadSnapshot?()
     await beforeLoadSnapshotReturn?()

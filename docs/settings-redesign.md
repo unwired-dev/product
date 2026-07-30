@@ -83,7 +83,9 @@ loading, so mutation-triggered router refreshes cannot overlap the initial load.
 mutation refreshes the Settings-owned routed, generic, Microsoft, and EWS default-sender state
 before notifying the separate mail shell, and routed snapshot authority changes update
 synchronization availability even when the routed connection array itself is unchanged. Failed
-generic authorization does not send that mutation notification, so its actionable error remains
+or cancelled routed loads leave the last authoritative shared snapshot intact. EWS refreshes
+requested during an active load rerun after that load before notification. Failed generic
+authorization or removal does not send a mutation notification, so its actionable error remains
 visible instead of being cleared by an unrelated definition reload.
 The generic-mail Manage menu offers Default Sending Connection only when the routed snapshot
 contains the same authorized connection with sending capability; read-only IMAP routes and
