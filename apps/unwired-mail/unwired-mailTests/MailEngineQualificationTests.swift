@@ -308,7 +308,16 @@ struct MailEngineQualificationContract {
         reverseMixedModeConnection.snapshot,
       ] + challengeConnections.map(\.snapshot))
     await verifySetupEvents()
-    withExtendedLifetime(successfulSessions) {}
+    await closeSuccessfulSetupSessions(successfulSessions)
+  }
+
+  private func closeSuccessfulSetupSessions(_ sessions: [any MailEngineSession]) async {
+    for (index, session) in sessions.enumerated() {
+      _ = await assertCloseCompletes(
+        session,
+        connectionID: "successful setup session \(index + 1)"
+      )
+    }
   }
 
   private func verifyConfigurationTLSFloor() {
@@ -401,10 +410,16 @@ struct MailEngineQualificationContract {
       [.idle, .move, .specialUse, .uidPlus]
     )
     XCTAssertEqual(
-      Dictionary(uniqueKeysWithValues: snapshot.mailboxes.map { ($0.identity, $0.specialUses) }),
+      Dictionary(grouping: snapshot.mailboxes, by: \.self).mapValues(\.count),
       [
-        MailEngineMailboxIdentity("INBOX"): [],
-        MailEngineMailboxIdentity("Transmitted Items"): [.sent],
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("INBOX"),
+          specialUses: []
+        ): 1,
+        MailEngineMailbox(
+          identity: MailEngineMailboxIdentity("Transmitted Items"),
+          specialUses: [.sent]
+        ): 1,
       ]
     )
   }
@@ -602,7 +617,7 @@ struct MailEngineQualificationContract {
     await assertSuccessfulUIDCommands(inbox: inbox, archive: archive)
     try await verifyMixedMutationSources(inbox: inbox, archive: archive)
     try await verifyInvalidUIDMappings(inbox: inbox, archive: archive)
-    try await verifyOverlappingUIDMutationIsolation(inbox: inbox)
+    try await verifyOverlappingUIDMutationIsolation()
     try await verifyPermanentIMAPRejection()
     try await verifyReducedCapabilityMoveSafety(inbox: inbox, archive: archive)
     try await verifyUnknownMutationOutcome(inbox: inbox, archive: archive)
@@ -1568,30 +1583,34 @@ struct MailEngineQualificationContract {
     )
   }
 
-  private func verifyOverlappingUIDMutationIsolation(
-    inbox: MailEngineMailboxIdentity
-  ) async throws {
+  private func verifyOverlappingUIDMutationIsolation() async throws {
+    let firstInbox = MailEngineMailboxIdentity("First Inbox")
+    let secondInbox = MailEngineMailboxIdentity("Second Inbox")
     let firstArchive = MailEngineMailboxIdentity("First Archive")
     let secondArchive = MailEngineMailboxIdentity("Second Archive")
     try await verifyOverlappingCopies(
-      inbox: inbox,
+      firstInbox: firstInbox,
+      secondInbox: secondInbox,
       firstArchive: firstArchive,
       secondArchive: secondArchive
     )
     try await verifyOverlappingMoves(
-      inbox: inbox,
+      firstInbox: firstInbox,
+      secondInbox: secondInbox,
       firstArchive: firstArchive,
       secondArchive: secondArchive
     )
     await assertOverlappingUIDMutationEvents(
-      inbox: inbox,
+      firstInbox: firstInbox,
+      secondInbox: secondInbox,
       firstArchive: firstArchive,
       secondArchive: secondArchive
     )
   }
 
   private func verifyOverlappingCopies(
-    inbox: MailEngineMailboxIdentity,
+    firstInbox: MailEngineMailboxIdentity,
+    secondInbox: MailEngineMailboxIdentity,
     firstArchive: MailEngineMailboxIdentity,
     secondArchive: MailEngineMailboxIdentity
   ) async throws {
@@ -1606,7 +1625,7 @@ struct MailEngineQualificationContract {
     async let firstCopy = firstCopySession.copy(
       messages: messageIdentities(
         connectionID: "copy-connection-one",
-        mailbox: inbox,
+        mailbox: firstInbox,
         uidValidity: 44,
         uids: [19]
       ),
@@ -1615,19 +1634,38 @@ struct MailEngineQualificationContract {
     async let secondCopy = secondCopySession.copy(
       messages: messageIdentities(
         connectionID: "copy-connection-two",
-        mailbox: inbox,
-        uidValidity: 44,
+        mailbox: secondInbox,
+        uidValidity: 45,
         uids: [29]
       ),
       to: secondArchive
     )
     let copyMappings = try await (firstCopy, secondCopy)
-    XCTAssertEqual(copyMappings.0.pairs, [.init(destinationUID: 119, sourceUID: 19)])
-    XCTAssertEqual(copyMappings.1.pairs, [.init(destinationUID: 129, sourceUID: 29)])
+    XCTAssertEqual(
+      copyMappings.0,
+      MailEngineUIDMapping(
+        destinationMailbox: firstArchive,
+        destinationUIDValidity: 91,
+        pairs: [.init(destinationUID: 119, sourceUID: 19)],
+        sourceMailbox: firstInbox,
+        sourceUIDValidity: 44
+      )
+    )
+    XCTAssertEqual(
+      copyMappings.1,
+      MailEngineUIDMapping(
+        destinationMailbox: secondArchive,
+        destinationUIDValidity: 92,
+        pairs: [.init(destinationUID: 129, sourceUID: 29)],
+        sourceMailbox: secondInbox,
+        sourceUIDValidity: 45
+      )
+    )
   }
 
   private func verifyOverlappingMoves(
-    inbox: MailEngineMailboxIdentity,
+    firstInbox: MailEngineMailboxIdentity,
+    secondInbox: MailEngineMailboxIdentity,
     firstArchive: MailEngineMailboxIdentity,
     secondArchive: MailEngineMailboxIdentity
   ) async throws {
@@ -1642,7 +1680,7 @@ struct MailEngineQualificationContract {
     async let firstMove = firstMoveSession.move(
       messages: messageIdentities(
         connectionID: "move-connection-one",
-        mailbox: inbox,
+        mailbox: firstInbox,
         uidValidity: 44,
         uids: [19]
       ),
@@ -1651,19 +1689,38 @@ struct MailEngineQualificationContract {
     async let secondMove = secondMoveSession.move(
       messages: messageIdentities(
         connectionID: "move-connection-two",
-        mailbox: inbox,
-        uidValidity: 44,
+        mailbox: secondInbox,
+        uidValidity: 45,
         uids: [29]
       ),
       to: secondArchive
     )
     let moveMappings = try await (firstMove, secondMove)
-    XCTAssertEqual(moveMappings.0.pairs, [.init(destinationUID: 219, sourceUID: 19)])
-    XCTAssertEqual(moveMappings.1.pairs, [.init(destinationUID: 229, sourceUID: 29)])
+    XCTAssertEqual(
+      moveMappings.0,
+      MailEngineUIDMapping(
+        destinationMailbox: firstArchive,
+        destinationUIDValidity: 93,
+        pairs: [.init(destinationUID: 219, sourceUID: 19)],
+        sourceMailbox: firstInbox,
+        sourceUIDValidity: 44
+      )
+    )
+    XCTAssertEqual(
+      moveMappings.1,
+      MailEngineUIDMapping(
+        destinationMailbox: secondArchive,
+        destinationUIDValidity: 94,
+        pairs: [.init(destinationUID: 229, sourceUID: 29)],
+        sourceMailbox: secondInbox,
+        sourceUIDValidity: 45
+      )
+    )
   }
 
   private func assertOverlappingUIDMutationEvents(
-    inbox: MailEngineMailboxIdentity,
+    firstInbox: MailEngineMailboxIdentity,
+    secondInbox: MailEngineMailboxIdentity,
     firstArchive: MailEngineMailboxIdentity,
     secondArchive: MailEngineMailboxIdentity
   ) async {
@@ -1683,28 +1740,28 @@ struct MailEngineQualificationContract {
           connectionID: "copy-connection-one",
           sourceUIDs: [19],
           sourceUIDValidity: 44,
-          sourceMailbox: inbox,
+          sourceMailbox: firstInbox,
           destinationMailbox: firstArchive
         ),
       .copyReceived(
         connectionID: "copy-connection-two",
         sourceUIDs: [29],
-        sourceUIDValidity: 44,
-        sourceMailbox: inbox,
+        sourceUIDValidity: 45,
+        sourceMailbox: secondInbox,
         destinationMailbox: secondArchive
       ),
       .moveReceived(
         connectionID: "move-connection-one",
         sourceUIDs: [19],
         sourceUIDValidity: 44,
-        sourceMailbox: inbox,
+        sourceMailbox: firstInbox,
         destinationMailbox: firstArchive
       ),
       .moveReceived(
         connectionID: "move-connection-two",
         sourceUIDs: [29],
-        sourceUIDValidity: 44,
-        sourceMailbox: inbox,
+        sourceUIDValidity: 45,
+        sourceMailbox: secondInbox,
         destinationMailbox: secondArchive
       )
     )
@@ -6731,7 +6788,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   let state: ScriptedMailEngineState
   private var appendAttempt = 0
   private var uidValidityByMailbox: [MailEngineMailboxIdentity: Int64] = [
+    MailEngineMailboxIdentity("First Inbox"): 44,
     MailEngineMailboxIdentity("INBOX"): 44,
+    MailEngineMailboxIdentity("Second Inbox"): 45,
     MailEngineMailboxIdentity("Archive"): 73,
   ]
   private var idleAttempt = 0
@@ -6928,6 +6987,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func reportedCopyUIDMapping(
     sourceUIDs: [Int64]
   ) -> MailEngineReportedUIDMapping {
+    if let overlappingMapping = overlappingCopyUIDMapping(sourceUIDs: sourceUIDs) {
+      return overlappingMapping
+    }
     if case .emptyUIDMapping = fixture {
       return emptyReportedUIDMapping(destinationUIDValidity: 91)
     }
@@ -6974,6 +7036,17 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       destinationUIDValidity: 91,
       destinationUIDs: reportedSourceUIDs.map { $0 + 100 },
       sourceUIDs: reportedSourceUIDs
+    )
+  }
+
+  private func overlappingCopyUIDMapping(
+    sourceUIDs: [Int64]
+  ) -> MailEngineReportedUIDMapping? {
+    guard case .overlappingCopyResults = fixture else { return nil }
+    return MailEngineReportedUIDMapping(
+      destinationUIDValidity: connectionID == "copy-connection-one" ? 91 : 92,
+      destinationUIDs: sourceUIDs.map { $0 + 100 },
+      sourceUIDs: sourceUIDs
     )
   }
 
@@ -7490,6 +7563,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func reportedMoveUIDMapping(
     sourceUIDs: [Int64]
   ) -> MailEngineReportedUIDMapping {
+    if let overlappingMapping = overlappingMoveUIDMapping(sourceUIDs: sourceUIDs) {
+      return overlappingMapping
+    }
     if case .emptyUIDMapping = fixture {
       return emptyReportedUIDMapping(destinationUIDValidity: 92)
     }
@@ -7535,6 +7611,17 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       destinationUIDValidity: 92,
       destinationUIDs: reportedSourceUIDs.map { $0 + 200 },
       sourceUIDs: reportedSourceUIDs
+    )
+  }
+
+  private func overlappingMoveUIDMapping(
+    sourceUIDs: [Int64]
+  ) -> MailEngineReportedUIDMapping? {
+    guard case .overlappingMoveResults = fixture else { return nil }
+    return MailEngineReportedUIDMapping(
+      destinationUIDValidity: connectionID == "move-connection-one" ? 93 : 94,
+      destinationUIDs: sourceUIDs.map { $0 + 200 },
+      sourceUIDs: sourceUIDs
     )
   }
 
