@@ -117,6 +117,7 @@ enum MailEngineQualificationFixture: Sendable {
   case invalidSourceUIDMapping(uid: Int64)
   case invalidUIDValidityMapping(uidValidity: Int64)
   case reducedCapabilityMove(hasMove: Bool, hasUIDPlus: Bool)
+  case reducedCapabilityMoveCopyRejected(retryable: Bool)
   case reducedCapabilityMoveMalformedCopyUID(ReducedCapabilityMalformedCopyUID)
   case repeatedSourceUIDMapping
   case sentAppendOutcomeUnknown
@@ -798,6 +799,12 @@ struct MailEngineQualificationContract {
     )
     XCTAssertEqual(parts.map(\.data), [Data("INBOX-99-9-1.TEXT".utf8)])
     _ = try await session.copy(
+      sourceUIDs: [message.uid],
+      sourceUIDValidity: message.uidValidity,
+      from: message.mailbox,
+      to: archive
+    )
+    _ = try await session.move(
       sourceUIDs: [message.uid],
       sourceUIDValidity: message.uidValidity,
       from: message.mailbox,
@@ -1674,6 +1681,63 @@ struct MailEngineQualificationContract {
       )
     }
     try await verifyMalformedReducedCapabilityCopyUID(inbox: inbox, archive: archive)
+    try await verifyReducedCapabilityCopyRejections(inbox: inbox, archive: archive)
+  }
+
+  private func verifyReducedCapabilityCopyRejections(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
+    for retryable in [false, true] {
+      let connectionID = "copy-delete-copy-rejected-\(retryable)"
+      let session = try await connect(
+        fixture: .reducedCapabilityMoveCopyRejected(retryable: retryable),
+        connectionID: connectionID
+      ).session
+      do {
+        _ = try await session.move(
+          sourceUIDs: [9],
+          sourceUIDValidity: 44,
+          from: inbox,
+          to: archive
+        )
+        XCTFail("A rejected fallback COPY must fail without source removal.")
+      } catch {
+        XCTAssertEqual(
+          error as? MailEngineError,
+          .protocolRejected(
+            code: retryable ? "TRYAGAIN" : "NOPERM",
+            retryable: retryable
+          )
+        )
+      }
+      await assertRejectedReducedCapabilityCopyEvents(
+        connectionID: connectionID,
+        inbox: inbox,
+        archive: archive
+      )
+    }
+  }
+
+  private func assertRejectedReducedCapabilityCopyEvents(
+    connectionID: String,
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async {
+    let events = await mutationEvents(connectionID: connectionID)
+    XCTAssertEqual(
+      events,
+      [
+        .copyReceived(
+          connectionID: connectionID,
+          sourceUIDs: [9],
+          sourceUIDValidity: 44,
+          sourceMailbox: inbox,
+          destinationMailbox: archive
+        )
+      ],
+      "A rejected fallback COPY must not delete or expunge any source message."
+    )
   }
 
   private func verifyMalformedReducedCapabilityCopyUID(
@@ -2388,23 +2452,17 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(first.capabilities, [.idle, .specialUse, .uidPlus])
     XCTAssertEqual(second.capabilities, [.idle, .move, .specialUse, .uidPlus])
     XCTAssertEqual(
-      first.mailboxes,
+      Dictionary(uniqueKeysWithValues: first.mailboxes.map { ($0.identity, $0.specialUses) }),
       [
-        MailEngineMailbox(identity: MailEngineMailboxIdentity("INBOX"), specialUses: []),
-        MailEngineMailbox(
-          identity: MailEngineMailboxIdentity("First Sent"),
-          specialUses: [.sent]
-        ),
+        MailEngineMailboxIdentity("INBOX"): [],
+        MailEngineMailboxIdentity("First Sent"): [.sent],
       ]
     )
     XCTAssertEqual(
-      second.mailboxes,
+      Dictionary(uniqueKeysWithValues: second.mailboxes.map { ($0.identity, $0.specialUses) }),
       [
-        MailEngineMailbox(identity: MailEngineMailboxIdentity("INBOX"), specialUses: []),
-        MailEngineMailbox(
-          identity: MailEngineMailboxIdentity("Second Sent"),
-          specialUses: [.sent]
-        ),
+        MailEngineMailboxIdentity("INBOX"): [],
+        MailEngineMailboxIdentity("Second Sent"): [.sent],
       ]
     )
     XCTAssertEqual(first.transportSecurity, [.imap: .tls12, .smtp: .tls12])
@@ -5107,12 +5165,29 @@ struct MailEngineQualificationContract {
 
   private func assertClosedOperation(
     _ operationName: String,
-    operation: () async throws -> Void
+    operation: @escaping @Sendable () async throws -> Void
   ) async {
-    do {
-      try await operation()
+    let operationTask = Task { try await operation() }
+    let completion = LockedBox<Result<Void, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await operationTask.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      operationTask.cancel()
+      completionObserver.cancel()
+      XCTFail("Timed out waiting for closed session to reject \(operationName).")
+      return
+    }
+    switch result {
+    case .success:
       XCTFail("A closed session should reject \(operationName).")
-    } catch {
+    case .failure(let error):
       XCTAssertEqual(error as? MailEngineError, .connectionClosed)
     }
   }
@@ -5355,6 +5430,7 @@ private final class ScriptedMailEngineQualificationFactory:
   func waitForSubmissionStarts(_ count: Int, timeout: Duration) async throws {
     try await state.waitForSubmissionStarts(count, timeout: timeout)
   }
+
 }
 
 private actor ScriptedMailEngineState {
@@ -5500,6 +5576,15 @@ private actor ScriptedMailEngineState {
     }
   }
 
+  func waitForOverlappingActiveSubmissionStarts(timeout: Duration) async throws {
+    try await waitForEvents(2, timeout: timeout) {
+      if case .submissionStarted(let connectionID) = $0 {
+        return connectionID == "connection-one" || connectionID == "connection-two"
+      }
+      return false
+    }
+  }
+
   private func waitForEvents(
     _ count: Int,
     timeout: Duration,
@@ -5628,6 +5713,9 @@ private struct ScriptedMailEngine: MailEngine {
     if case .reducedCapabilityMove = fixture {
       return .tls12
     }
+    if case .reducedCapabilityMoveCopyRejected = fixture {
+      return .tls12
+    }
     if case .reducedCapabilityMoveMalformedCopyUID = fixture {
       return .tls12
     }
@@ -5706,6 +5794,8 @@ private struct ScriptedMailEngine: MailEngine {
       if hasUIDPlus {
         capabilities.insert(.uidPlus)
       }
+    } else if case .reducedCapabilityMoveCopyRejected = fixture {
+      capabilities = [.idle, .specialUse, .uidPlus]
     } else if case .reducedCapabilityMoveMalformedCopyUID = fixture {
       capabilities = [.idle, .specialUse, .uidPlus]
     } else {
@@ -6270,6 +6360,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       sourceMailbox: sourceMailbox,
       destinationMailbox: destinationMailbox
     )
+    try throwReducedCapabilityCopyFailure()
     if waitsForTransmittedMutationTermination {
       try await waitForTransmittedMutationTermination()
     }
@@ -6317,6 +6408,16 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     }
   }
 
+  private func throwReducedCapabilityCopyFailure() throws {
+    guard case .reducedCapabilityMoveCopyRejected(let retryable) = fixture else {
+      return
+    }
+    throw MailEngineError.protocolRejected(
+      code: retryable ? "TRYAGAIN" : "NOPERM",
+      retryable: retryable
+    )
+  }
+
   private func waitForSessionClose() async throws {
     while !isClosed {
       try await Task.sleep(for: .milliseconds(10))
@@ -6358,6 +6459,16 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     destinationMailbox: MailEngineMailboxIdentity
   ) async {
     if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: true) = fixture {
+      await state.record(
+        .copyReceived(
+          connectionID: connectionID,
+          sourceUIDs: sourceUIDs,
+          sourceUIDValidity: sourceUIDValidity,
+          sourceMailbox: sourceMailbox,
+          destinationMailbox: destinationMailbox
+        )
+      )
+    } else if case .reducedCapabilityMoveCopyRejected = fixture {
       await state.record(
         .copyReceived(
           connectionID: connectionID,
@@ -6585,7 +6696,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     rawMessage: Data
   ) async throws -> MailEngineSMTPOutcome {
     await state.record(.submissionStarted(connectionID: connectionID))
-    try await state.waitForSubmissionStarts(2, timeout: .seconds(2))
+    try await state.waitForOverlappingActiveSubmissionStarts(timeout: .seconds(2))
     return await recordAcceptedSubmission(
       envelope: envelope,
       rawMessage: rawMessage,
