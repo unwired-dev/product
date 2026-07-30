@@ -3629,6 +3629,27 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     withExtendedLifetime(window) {}
   }
 
+  func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async {
+    let bodyLoaded = expectation(description: "Message body loaded")
+    let presentationReleased = expectation(description: "Message body presentation released")
+    let clearSignal = MessageBodyClearSignal()
+    let host = UIHostingController(
+      rootView: ClearableMessageBodyHarness(
+        clearSignal: clearSignal,
+        onLoaded: { bodyLoaded.fulfill() },
+        onRelease: { presentationReleased.fulfill() },
+        load: { MailboxMessageBody(text: "Private body") }
+      )
+    )
+    let window = releaseFixtureWindow(hosting: host)
+
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+    clearSignal.value = UUID()
+    await fulfillment(of: [presentationReleased], timeout: 1)
+
+    withExtendedLifetime(window) {}
+  }
+
   // swiftlint:disable function_body_length
   @MainActor
   func testGmailFirstReleaseCachedPresentationMeetsPerformanceBudgets() async throws {
@@ -6208,12 +6229,14 @@ private final class MessageBodyClearSignal: ObservableObject {
 private struct ClearableMessageBodyHarness: View {
   @ObservedObject var clearSignal: MessageBodyClearSignal
   let onLoaded: () -> Void
+  var onRelease: () -> Void = {}
   let load: () async throws -> MailboxMessageBody
 
   var body: some View {
     MailShellMessageBody(
       clearSignal: clearSignal.value,
       onLoaded: onLoaded,
+      onRelease: onRelease,
       load: load
     )
   }

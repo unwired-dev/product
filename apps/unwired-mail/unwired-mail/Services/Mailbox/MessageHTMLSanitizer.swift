@@ -233,6 +233,8 @@ enum MessageHTMLSanitizer {
 }
 
 enum MessageHTMLInlineImageResolver {
+  private static let maximumEmbeddedImageByteCount = 20 * 1_024 * 1_024
+
   static func resolve(
     _ html: SanitizedMessageHTML,
     inlineImages: [MailboxMessageInlineImage]
@@ -251,6 +253,7 @@ enum MessageHTMLInlineImageResolver {
     guard let imageElements = try? document.select("img[src]") else {
       return html
     }
+    var remainingEmbeddedImageByteCount = maximumEmbeddedImageByteCount
     for element in imageElements {
       guard
         let source = try? element.attr("src"),
@@ -263,6 +266,11 @@ enum MessageHTMLInlineImageResolver {
         _ = try? element.removeAttr("src")
         continue
       }
+      guard image.data.count <= remainingEmbeddedImageByteCount else {
+        _ = try? element.removeAttr("src")
+        continue
+      }
+      remainingEmbeddedImageByteCount -= image.data.count
       _ = try? element.attr(
         "src",
         "data:\(image.mimeType);base64,\(image.data.base64EncodedString())"

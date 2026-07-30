@@ -3440,6 +3440,7 @@ struct MailShellConversationReader: View {
               MailShellConversationMessage(
                 canForward: connection.capabilities.canForward,
                 canReply: connection.capabilities.canReply,
+                clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
                 isExpanded: selection.isMessageExpanded(message, in: thread),
                 isForwardDisabled: inboxViewModel.isLoadingMessageBody
                   || inboxViewModel.isLoadedMessageBodyTextUnavailable(for: message.id),
@@ -3454,8 +3455,7 @@ struct MailShellConversationReader: View {
                 removeCachedBody: {
                   do {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
-                    inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
-                    inboxViewModel.discardLoadedMessageBodyText(for: message.id)
+                    inboxViewModel.discardLoadedMessageBody(for: message.id)
                     readerErrorMessage = nil
                     return true
                   } catch {
@@ -3930,6 +3930,7 @@ struct MailShellConversationReader: View {
 private struct MailShellConversationMessage: View {
   let canForward: Bool
   let canReply: Bool
+  let clearBodySignal: UUID?
   let isExpanded: Bool
   let isForwardDisabled: Bool
   let isRemoveCachedBodyDisabled: Bool
@@ -3945,8 +3946,6 @@ private struct MailShellConversationMessage: View {
   let forward: () async -> Void
   let toggleExpansion: () -> Void
   let togglePin: () -> Void
-
-  @State private var messageBodyResetId = UUID()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -3979,7 +3978,7 @@ private struct MailShellConversationMessage: View {
       if isExpanded {
         Divider()
         MailShellMessageBody(
-          clearSignal: messageBodyResetId,
+          clearSignal: clearBodySignal,
           onRelease: releaseBodyPresentation,
           load: loadBody
         )
@@ -4006,9 +4005,7 @@ private struct MailShellConversationMessage: View {
             .disabled(isForwardDisabled)
           }
           Button("Remove Cached Body", role: .destructive) {
-            if removeCachedBody() {
-              messageBodyResetId = UUID()
-            }
+            _ = removeCachedBody()
           }
           .buttonStyle(.bordered)
           .disabled(isRemoveCachedBodyDisabled)
@@ -4038,6 +4035,7 @@ struct MailShellMessageBody: View {
   @State private var errorMessage: String?
   @State private var isCleared = false
   @State private var isLoading = false
+  @State private var isPresentationRetained = false
   @State private var loadGeneration = UUID()
 
   init(
@@ -4062,7 +4060,7 @@ struct MailShellMessageBody: View {
               fallbackText: loadedContent.fallbackText,
               presentation: .plainText(loadedContent.fallbackText)
             )
-            onRelease()
+            releasePresentation()
           }
         )
       } else if isCleared {
@@ -4097,6 +4095,7 @@ struct MailShellMessageBody: View {
           fallbackText: loadedMessageBody.text,
           presentation: presentation
         )
+        isPresentationRetained = true
         errorMessage = nil
         isCleared = false
         onLoaded()
@@ -4107,6 +4106,7 @@ struct MailShellMessageBody: View {
       }
     }
     .onChange(of: clearSignal) {
+      releasePresentation()
       loadGeneration = UUID()
       loadedContent = nil
       errorMessage = nil
@@ -4117,8 +4117,14 @@ struct MailShellMessageBody: View {
       loadGeneration = UUID()
       loadedContent = nil
       isLoading = false
-      onRelease()
+      releasePresentation()
     }
+  }
+
+  private func releasePresentation() {
+    guard isPresentationRetained else { return }
+    isPresentationRetained = false
+    onRelease()
   }
 }
 
@@ -5353,6 +5359,7 @@ final class GmailInboxViewModel {
   private var hasSignedOut = false
   private var loadedInlineImagePixelCount = 0
   private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
+  private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
   private var loadedMessageBodyTextByteCount = 0
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
@@ -5487,13 +5494,23 @@ final class GmailInboxViewModel {
     unavailableLoadedMessageBodyTextIds.insert(messageId)
   }
 
+  func loadedMessageBodyClearSignal(
+    for messageId: StableProviderMessageIdentity
+  ) -> UUID? {
+    loadedMessageBodyClearSignals[messageId]
+  }
+
+  func discardLoadedMessageBody(for messageId: StableProviderMessageIdentity) {
+    discardLoadedMessageBodyText(for: messageId)
+    loadedMessageBodyClearSignals[messageId] = UUID()
+  }
+
   func discardLoadedMessageBodies(connectionId: MailboxConnectionId?) {
     let messageIds = Set(loadedMessageBodyTexts.keys)
       .union(loadedInlineImagePixelCounts.keys)
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
-      discardLoadedMessageBodyText(for: messageId)
-      discardLoadedMessageBodyPresentation(for: messageId)
+      discardLoadedMessageBody(for: messageId)
     }
   }
 
@@ -5576,6 +5593,7 @@ final class GmailInboxViewModel {
     isLoading = false
     loadedInlineImagePixelCount = 0
     loadedInlineImagePixelCounts = [:]
+    loadedMessageBodyClearSignals = [:]
     loadedMessageBodyTextByteCount = 0
     loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]

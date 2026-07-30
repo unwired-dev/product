@@ -253,6 +253,38 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
   }
 
+  func testPresentationBoundsRepeatedCIDImageSubstitutions() throws {
+    let imageData = Data(repeating: 0x41, count: 5 * 1_024 * 1_024)
+    let repeatedImages = String(
+      repeating: #"<img src="cid:repeated@example.com" alt="Repeated">"#,
+      count: 5
+    )
+    let body = MailboxMessageBody(
+      text: "Repeated image",
+      html: "<p>Repeated image</p>\(repeatedImages)",
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "repeated@example.com",
+          data: imageData,
+          decodedPixelCount: 1,
+          mimeType: "image/png"
+        )
+      ]
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    let dataSource = "src=\"data:image/png;base64,"
+    XCTAssertEqual(presentation.documentHTML.components(separatedBy: dataSource).count - 1, 4)
+    XCTAssertEqual(
+      presentation.documentHTML.components(separatedBy: "alt=\"Repeated\"").count - 1,
+      5
+    )
+    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
+  }
+
   func testPresentationLeavesMissingCIDImagesAsNonLoadingPlaceholders() throws {
     let body = MailboxMessageBody(
       text: "Receipt",
