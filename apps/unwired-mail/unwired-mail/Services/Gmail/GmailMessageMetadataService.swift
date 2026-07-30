@@ -390,7 +390,7 @@ enum GmailProviderMailAction: Equatable {
   case delete
   case markRead
   case markUnread
-  case move(targetProviderMailboxId: String)
+  case move(sourceProviderMailboxId: String, targetProviderMailboxId: String)
   case notSpam
   case restore
   case spam
@@ -1886,8 +1886,8 @@ struct GmailMessageMetadataService:
           labels = ([], ["UNREAD"])
         case .markUnread:
           labels = (["UNREAD"], [])
-        case .move(let targetProviderMailboxId):
-          labels = ([targetProviderMailboxId], ["INBOX"])
+        case .move(let sourceProviderMailboxId, let targetProviderMailboxId):
+          labels = ([targetProviderMailboxId], [sourceProviderMailboxId])
         case .notSpam:
           labels = (["INBOX"], ["SPAM"])
         case .restore:

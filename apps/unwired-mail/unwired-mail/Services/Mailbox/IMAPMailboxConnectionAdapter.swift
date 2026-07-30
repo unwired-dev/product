@@ -2297,6 +2297,27 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
+  // swiftlint:disable:next function_parameter_count
+  func perform(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws {
+    try await adapter(for: connection.id).perform(
+      action,
+      sourceProviderMailboxId: sourceProviderMailboxId,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot

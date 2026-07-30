@@ -390,6 +390,7 @@ _Avoid_: Password reset, support recovery
 - **All Mail** is a product-local aggregate of every non-Spam, non-Trash message across all **Mailbox Connections**, not a required provider mailbox role
 - **Outbox** is a conditional unified item rather than a permanent mailbox
 - Provider-specific custom folders and labels remain under their **Mailbox Connection** and do not gain synthetic unified views
+- Moving a Gmail message from a provider-specific label records and removes that selected source label while preserving every unrelated label
 - Provider-native semantics or IMAP special-use markers assign a **Mailbox Role** when they are unambiguous
 - A user explicitly maps any required **Mailbox Role** that a provider-synchronized connection does not identify unambiguously; if no provider mailbox can supply a required role, the client offers to create one when the provider permits it, otherwise the connection remains incomplete for actions requiring that role and has no product-local fallback. A **Legacy POP3 Connection** instead uses product-owned local roles for its reduced organization contract.
 - **Mailbox Roles** are never inferred from localized folder names and user mappings may be changed later

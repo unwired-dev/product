@@ -39,7 +39,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -72,7 +72,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -104,7 +104,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -132,7 +132,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerMessageId: "message-002",
       providerStateIds: ["INBOX", "UNREAD"]
     )
-    let offline: PendingProviderActionPerformer = { _, _, _ in
+    let offline: PendingProviderActionPerformer = { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -156,7 +156,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await restartedService.resume(
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
     }
 
@@ -167,6 +167,72 @@ final class PendingProviderActionServiceTests: XCTestCase {
       try store.load(productAccountId: session.productAccountId).map(\.state),
       [.providerConfirmed, .providerConfirmed]
     )
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testProviderMailboxMovePersistsSourceAndReplaysAfterRestart() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let firstService = PendingProviderActionService(
+      retryDelayNanoseconds: { _ in 60_000_000_000 },
+      store: store
+    )
+    let message = pendingActionMessage(
+      providerMessageId: "message-provider-label-move",
+      providerStateIds: ["INBOX", "Label_source", "Label_unrelated"]
+    )
+
+    try await firstService.perform(
+      .move,
+      sourceProviderMailboxId: "Label_source",
+      targetProviderMailboxId: "Label_destination",
+      messages: [message],
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in
+      throw URLError(.notConnectedToInternet)
+    }
+
+    let persistedAction = try XCTUnwrap(
+      store.load(productAccountId: session.productAccountId).first
+    )
+    XCTAssertEqual(persistedAction.sourceProviderMailboxId, "Label_source")
+    let projected = try await firstService.project(
+      MailboxMetadataSyncResult(
+        hasUnlistedNewMessages: false,
+        messages: [message],
+        newMessageIds: nil,
+        providerCursorIsExpired: false,
+        threads: MailboxThread.group([message])
+      ),
+      collection: .allObserved,
+      connection: connection,
+      session: session
+    )
+    XCTAssertEqual(
+      Set(try XCTUnwrap(projected.messages.first?.providerStateIds)),
+      ["INBOX", "Label_destination", "Label_unrelated"]
+    )
+
+    let recorder = PendingProviderActionRecorder()
+    let restartedService = PendingProviderActionService(store: store)
+    try await restartedService.resume(
+      connection: connection,
+      session: session
+    ) { action, sourceProviderMailboxId, targetProviderMailboxId, messageIds in
+      await recorder.record(
+        action: action,
+        sourceProviderMailboxId: sourceProviderMailboxId,
+        targetProviderMailboxId: targetProviderMailboxId,
+        messageIds: messageIds
+      )
+    }
+
+    let calls = await recorder.calls
+    let call = try XCTUnwrap(calls.first)
+    XCTAssertEqual(call.action, .move)
+    XCTAssertEqual(call.sourceProviderMailboxId, "Label_source")
+    XCTAssertEqual(call.targetProviderMailboxId, "Label_destination")
+    XCTAssertEqual(call.messageIds, ["message-provider-label-move"])
   }
 
   func testProviderSyncReconcilesConfirmedActionWithoutReplayingIt() async throws {
@@ -183,7 +249,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
     }
     try await service.reconcileProviderSync(
@@ -199,7 +265,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await service.resume(
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
     }
 
@@ -261,7 +327,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw URLError(.notConnectedToInternet)
       }
 
@@ -298,7 +364,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: ewsConnection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -340,7 +406,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: ewsConnection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
 
@@ -434,7 +500,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerMessageId: "message-read",
       providerStateIds: ["INBOX", "UNREAD"]
     )
-    let offline: PendingProviderActionPerformer = { _, _, _ in
+    let offline: PendingProviderActionPerformer = { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
     try await offlineService.perform(
@@ -458,7 +524,10 @@ final class PendingProviderActionServiceTests: XCTestCase {
       store: store
     )
     do {
-      try await service.resume(connection: connection, session: session) { action, _, messageIds in
+      try await service.resume(
+        connection: connection,
+        session: session
+      ) { action, _, _, messageIds in
         await recorder.record(action: action, messageIds: messageIds)
         if action == .archive {
           throw PendingProviderActionTestError.rejected
@@ -515,7 +584,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       let callCount = await recorder.recordAndCount(action: action, messageIds: messageIds)
       if callCount == 1 {
         throw URLError(.timedOut)
@@ -551,14 +620,14 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
       throw URLError(.timedOut)
     }
     try await service.resume(
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
     }
 
@@ -589,7 +658,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [firstMessage, secondMessage],
         connection: connection,
         session: session
-      ) { action, _, messageIds in
+      ) { action, _, _, messageIds in
         await recorder.record(action: action, messageIds: messageIds)
         if messageIds == ["message-second"] {
           throw PendingProviderActionTestError.rejected
@@ -630,7 +699,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
           messages: [message],
           connection: connection,
           session: session
-        ) { _, _, _ in
+        ) { _, _, _, _ in
           throw credentialError
         }
         XCTFail("Expected credential failure")
@@ -666,7 +735,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [blockedMessage],
         connection: connection,
         session: session
-      ) { action, _, messageIds in
+      ) { action, _, _, messageIds in
         await recorder.record(action: action, messageIds: messageIds)
         throw URLError(.timedOut)
       }
@@ -688,7 +757,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       try await service.resume(
         connection: connection,
         session: session
-      ) { action, _, messageIds in
+      ) { action, _, _, messageIds in
         await recorder.record(action: action, messageIds: messageIds)
       }
       XCTFail("Expected the terminal action to block ordinary resume")
@@ -703,7 +772,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await service.discardBlockedAction(
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
     }
     calls = await recorder.calls
@@ -727,7 +796,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
     } catch let error as PendingProviderActionError {
@@ -741,7 +810,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await service.retryBlockedAction(
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
 
     XCTAssertEqual(
       try store.load(productAccountId: session.productAccountId).first?.state,
@@ -761,7 +830,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       providerMessageId: "message-retry-limit",
       providerStateIds: ["INBOX"]
     )
-    let unavailable: PendingProviderActionPerformer = { action, _, messageIds in
+    let unavailable: PendingProviderActionPerformer = { action, _, _, messageIds in
       await recorder.record(action: action, messageIds: messageIds)
       throw URLError(.timedOut)
     }
@@ -827,7 +896,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       let count = await recorder.recordAndCount(action: action, messageIds: messageIds)
       if count == 1 {
         throw MicrosoftGraphClientError.requestFailed(500)
@@ -859,7 +928,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw PendingProviderActionTestError.rejected
       }
     } catch let error as PendingProviderActionTestError {
@@ -907,7 +976,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
       XCTFail("Expected retry-limit failure")
@@ -945,7 +1014,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw GmailMessageMetadataSyncError.missingLocalGmailTokens
       }
       XCTFail("Expected retry-limit failure")
@@ -1000,7 +1069,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: graphConnection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw PendingProviderActionTestError.rejected
       }
       XCTFail("Expected ambiguous archive failure")
@@ -1062,7 +1131,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
 
     try await service.reconcileProviderSync(
       messages: [message],
@@ -1094,7 +1163,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     let projected = try await service.project(
       MailboxMetadataSyncResult(
         hasUnlistedNewMessages: false,
@@ -1138,7 +1207,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     let projected = try await service.project(
       result,
       collection: .providerMailbox("Label_projects"),
@@ -1163,7 +1232,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     try await service.reconcileProviderSync(
       messages: [
         pendingActionMessage(
@@ -1192,7 +1261,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     let projected = try await service.project(
       MailboxMetadataSyncResult(
         hasUnlistedNewMessages: false,
@@ -1227,13 +1296,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     try await service.perform(
       .markUnread,
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     try await service.reconcileProviderSync(
       messages: [message],
       connection: connection,
@@ -1257,13 +1326,13 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     try await service.perform(
       .restore,
       messages: [message],
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     let pendingActionCount = try await service.pendingActions(session: session).count
     XCTAssertEqual(pendingActionCount, 2)
     try await service.reconcileProviderSync(
@@ -1360,7 +1429,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       throw URLError(.notConnectedToInternet)
     }
     let otherMessage = MailboxMessageMetadata(
@@ -1383,7 +1452,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [otherMessage],
       connection: otherConnection,
       session: otherSession
-    ) { action, _, messageIds in
+    ) { action, _, _, messageIds in
       let count = await recorder.recordAndCount(action: action, messageIds: messageIds)
       if count == 1 {
         throw URLError(.timedOut)
@@ -1415,7 +1484,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw CancellationError()
       }
       XCTFail("Expected cancellation")
@@ -1427,7 +1496,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await service.resume(
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     actionState = try await service.pendingActions(session: session).first?.state
     XCTAssertEqual(actionState, .providerConfirmed)
   }
@@ -1448,7 +1517,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
         messages: [message],
         connection: connection,
         session: session
-      ) { _, _, _ in
+      ) { _, _, _, _ in
         throw URLError(.cancelled)
       }
       XCTFail("Expected cancellation")
@@ -1460,7 +1529,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     try await service.resume(
       connection: connection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     actionState = try await service.pendingActions(session: session).first?.state
     XCTAssertEqual(actionState, .providerConfirmed)
   }
@@ -1490,7 +1559,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       await gate.block()
     }
     await gate.waitUntilBlocked()
@@ -1514,7 +1583,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       messages: [otherMessage],
       connection: otherConnection,
       session: session
-    ) { _, _, _ in }
+    ) { _, _, _, _ in }
     await gate.release()
     try await firstAction
 
@@ -1541,7 +1610,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       ],
       connection: connection,
       session: session
-    ) { _, _, _ in
+    ) { _, _, _, _ in
       await gate.block()
     }
     await gate.waitUntilBlocked()
@@ -1638,12 +1707,26 @@ private actor PendingProviderActionRecorder {
   struct Call {
     let action: ProviderMailAction
     let messageIds: [String]
+    let sourceProviderMailboxId: String?
+    let targetProviderMailboxId: String?
   }
 
   private(set) var calls: [Call] = []
 
-  func record(action: ProviderMailAction, messageIds: [String]) {
-    calls.append(Call(action: action, messageIds: messageIds))
+  func record(
+    action: ProviderMailAction,
+    sourceProviderMailboxId: String? = nil,
+    targetProviderMailboxId: String? = nil,
+    messageIds: [String]
+  ) {
+    calls.append(
+      Call(
+        action: action,
+        messageIds: messageIds,
+        sourceProviderMailboxId: sourceProviderMailboxId,
+        targetProviderMailboxId: targetProviderMailboxId
+      )
+    )
   }
 
   func recordAndCount(action: ProviderMailAction, messageIds: [String]) -> Int {

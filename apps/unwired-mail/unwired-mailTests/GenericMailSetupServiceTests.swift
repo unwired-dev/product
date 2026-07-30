@@ -480,6 +480,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
           providerId: connection.providerId.rawValue,
           providerMailboxIdentity: connection.providerMailboxIdentity.value,
           sequence: 1,
+          sourceProviderMailboxId: nil,
           state: .pending,
           targetProviderMailboxId: nil,
           targetProviderStateIds: nil
