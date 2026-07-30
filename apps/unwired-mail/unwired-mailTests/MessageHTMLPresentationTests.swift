@@ -152,15 +152,18 @@ final class MessageHTMLPresentationTests: XCTestCase {
     )
   }
 
-  func testSanitizerRejectsPercentageZeroOpacityContent() throws {
-    XCTAssertNil(
-      try MessageHTMLSanitizer.sanitize(
-        """
-        <div style="opacity: 0%">Hidden preview</div>
-        <img src="https://tracker.test/hero.png">
-        """
+  func testSanitizerRejectsSignedAndPercentageZeroOpacityContent() throws {
+    for opacity in ["0%", "-0", "+0.0%"] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          """
+          <div style="opacity: \(opacity)">Hidden preview</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        ),
+        "Expected opacity \(opacity) content to be unreadable"
       )
-    )
+    }
   }
 
   func testSanitizerRejectsContentOnlyReadableThroughZeroSizedPreheaderText() throws {
