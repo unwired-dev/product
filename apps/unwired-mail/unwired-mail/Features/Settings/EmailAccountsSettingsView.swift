@@ -27,6 +27,7 @@ struct EmailAccountsSettingsView: View {
   @State private var detailTarget: MailProviderId?
   @State private var highlightTask: Task<Void, Never>?
   @State private var highlightedAnchor: NavigationAnchor?
+  @State private var pendingDetailsConnection: MailboxConnection?
 
   private enum NavigationAnchor: Hashable {
     case exchangeWebServices
@@ -110,7 +111,8 @@ struct EmailAccountsSettingsView: View {
       .task {
         connectionsAreAuthoritative = await Self.loadInitialConnections(
           loadRoutedConnections: gmailViewModel.load,
-          loadGenericConnections: genericMailViewModel.loadSyncedDefinitions
+          loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+          loadEWSConnections: ewsViewModel.load
         )
         Self.updateFreshnessConnections(
           gmailViewModel.connections,
@@ -158,17 +160,24 @@ struct EmailAccountsSettingsView: View {
     .onDisappear {
       highlightTask?.cancel()
     }
+    .confirmDiscardSelection($pendingDetailsConnection) { connection in
+      ewsViewModel.discardUnsavedChanges()
+      genericMailViewModel.discardUnsavedChanges()
+      showDetails(for: connection)
+    }
   }
 
   @MainActor
   static func loadInitialConnections(
     loadRoutedConnections: () async -> Bool,
-    loadGenericConnections: () async -> Void
+    loadGenericConnections: () async -> Void,
+    loadEWSConnections: () async -> Void
   ) async -> Bool {
     async let routedConnectionsAreAuthoritative = loadRoutedConnections()
     async let genericConnectionsLoad: Void = loadGenericConnections()
+    async let ewsConnectionsLoad: Void = loadEWSConnections()
     let connectionsAreAuthoritative = await routedConnectionsAreAuthoritative
-    await genericConnectionsLoad
+    _ = await (genericConnectionsLoad, ewsConnectionsLoad)
     return connectionsAreAuthoritative
   }
 
@@ -295,7 +304,7 @@ struct EmailAccountsSettingsView: View {
               freshnessViewModel.isHistoricalBackfillActive(for: connection),
             isSynchronizationDisabled: synchronizationIsDisabled(for: connection),
             status: freshnessViewModel.status(for: connection),
-            showDetails: { showDetails(for: connection) },
+            showDetails: { requestDetails(for: connection) },
             synchronize: {
               await freshnessViewModel.synchronizeFully(
                 connection: connection,
@@ -385,7 +394,7 @@ struct EmailAccountsSettingsView: View {
     switch focus {
     case .connection(let connectionId):
       if let connection = connection(matching: connectionId) {
-        showDetails(for: connection)
+        requestDetails(for: connection)
         anchor = navigationAnchor(for: connection.providerId)
       } else {
         anchor = .summary
@@ -439,6 +448,14 @@ struct EmailAccountsSettingsView: View {
       detailTarget = .imapSMTP
     default:
       break
+    }
+  }
+
+  private func requestDetails(for connection: MailboxConnection) {
+    if ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges {
+      pendingDetailsConnection = connection
+    } else {
+      showDetails(for: connection)
     }
   }
 

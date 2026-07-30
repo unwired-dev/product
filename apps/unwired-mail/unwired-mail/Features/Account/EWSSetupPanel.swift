@@ -161,6 +161,7 @@ final class EWSSetupViewModel {
       username = ""
       selectedConnectionId = nil
     }
+    removalObservation = nil
     rememberEditorState()
   }
 

@@ -149,9 +149,10 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   }
 
   @MainActor
-  func testEmailAccountsStartsRoutedAndGenericLoadsTogether() async {
+  func testEmailAccountsWaitsForRoutedGenericAndEWSLoads() async {
     let routedLoad = TestRendezvous()
     let genericLoad = TestRendezvous()
+    let ewsLoad = TestRendezvous()
     let loadTask = Task {
       await EmailAccountsSettingsView.loadInitialConnections(
         loadRoutedConnections: {
@@ -160,14 +161,19 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         },
         loadGenericConnections: {
           await genericLoad.hold()
+        },
+        loadEWSConnections: {
+          await ewsLoad.hold()
         }
       )
     }
 
     await routedLoad.waitUntilHeld()
     await genericLoad.waitUntilHeld()
+    await ewsLoad.waitUntilHeld()
     await routedLoad.release()
     await genericLoad.release()
+    await ewsLoad.release()
 
     let connectionsAreAuthoritative = await loadTask.value
     XCTAssertTrue(connectionsAreAuthoritative)
