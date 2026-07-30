@@ -689,10 +689,33 @@ struct MailEngineQualificationContract {
     )
     XCTAssertEqual(pageAfterReset.uidValidity, 99)
     XCTAssertEqual(pageAfterReset.messages[0].identity.uidValidity, 99)
+    try await verifyResetIdentityIsUsable(
+      session: session,
+      message: pageAfterReset.messages[0].identity,
+      archive: archive
+    )
     try await verifyUnaffectedArchive(
       session: session,
       pageBeforeReset: archivePageBeforeReset,
       inbox: inbox
+    )
+  }
+
+  private func verifyResetIdentityIsUsable(
+    session: any MailEngineSession,
+    message: MailEngineMessageIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
+    let parts = try await session.fetchBodyParts(
+      [MailEngineBodyPartSelector("1.TEXT")],
+      for: message
+    )
+    XCTAssertEqual(parts.map(\.data), [Data("INBOX-99-9-1.TEXT".utf8)])
+    _ = try await session.copy(
+      sourceUIDs: [message.uid],
+      sourceUIDValidity: message.uidValidity,
+      from: message.mailbox,
+      to: archive
     )
   }
 
@@ -1627,13 +1650,15 @@ struct MailEngineQualificationContract {
       events.contains { event in
         switch event {
         case .copyReceived(let eventConnectionID, _, _, _, _),
-          .moveReceived(let eventConnectionID, _, _, _, _):
+          .moveReceived(let eventConnectionID, _, _, _, _),
+          .movePreservedUnrelatedDeletedUIDs(let eventConnectionID, _),
+          .moveRemovedSourceUIDs(let eventConnectionID, _):
           return eventConnectionID == connectionID
         default:
           return false
         }
       },
-      "An unsupported move must not create a destination copy."
+      "An unsupported move must not copy, delete, or expunge source messages."
     )
   }
 
@@ -1898,9 +1923,9 @@ struct MailEngineQualificationContract {
       handshakeAtCallback.value,
       connectionID: connectionID
     )
-    await assertIdleCancellation(
+    await assertRecoveredIDLECancellation(
       recoveryTask,
-      failureMessage: "Recovered IDLE must remain active until cancelled."
+      callbacks: recoveredEvents
     )
     try await verifyRecoveredIDLECancellation(
       recoveringSession,
@@ -1910,6 +1935,22 @@ struct MailEngineQualificationContract {
     try await verifyRecoveredIDLEPreservesSMTP(
       recoveringSession,
       connectionID: connectionID
+    )
+  }
+
+  private func assertRecoveredIDLECancellation(
+    _ task: Task<Void, Error>,
+    callbacks: LockedBox<[MailEngineIdleEvent]>
+  ) async {
+    let callbacksBeforeCancellation = callbacks.value
+    await assertIdleCancellation(
+      task,
+      failureMessage: "Recovered IDLE must remain active until cancelled."
+    )
+    await assertNoDelayedCallbacks(
+      callbacks,
+      after: callbacksBeforeCancellation,
+      failureMessage: "A cancelled recovered IDLE must not deliver a delayed callback."
     )
   }
 
@@ -2174,9 +2215,9 @@ struct MailEngineQualificationContract {
       handshakeAtCallback.value,
       connectionID: connectionID
     )
-    await assertIdleCancellation(
+    await assertRecoveredIDLECancellation(
       recoveryTask,
-      failureMessage: "Recovered STARTTLS IDLE must remain active until cancelled."
+      callbacks: callbacks
     )
     try await verifyRecoveredIDLECancellation(session, connectionID: connectionID, inbox: inbox)
     try await verifyRecoveredIDLEPreservesSMTP(session, connectionID: connectionID)
@@ -2947,6 +2988,8 @@ struct MailEngineQualificationContract {
         .dataRejectedBeforeSubmission(code: 451),
         .dataRejectedBeforeSubmission(code: 550),
         .finalResponse(code: 451),
+        .finalResponse(code: 499),
+        .finalResponse(code: 500),
         .finalResponse(code: 550),
         .connectionLostAfterSubmission,
         .accepted(serverMessageID: "smtp-message-1"),
@@ -2962,6 +3005,8 @@ struct MailEngineQualificationContract {
         .notSubmitted(.dataRejected(code: 451)),
         .notSubmitted(.dataRejected(code: 550)),
         .transientlyRejected(code: 451),
+        .transientlyRejected(code: 499),
+        .permanentlyRejected(code: 500),
         .permanentlyRejected(code: 550),
         .ambiguous,
         .accepted(serverMessageID: "smtp-message-1"),
@@ -3732,14 +3777,32 @@ struct MailEngineQualificationContract {
       events.contains(.serviceClosed(connectionID: connectionID, service: .imap)),
       "Closing after SMTP content must terminate the owning IMAP transport."
     )
+    await verifyClosedSMTPContentSession(session, connectionID: connectionID)
+  }
+
+  private func verifyClosedSMTPContentSession(
+    _ session: any MailEngineSession,
+    connectionID: String
+  ) async {
+    let eventsBeforeClosedOperations = await factory.events()
+    let contentAfterClose = await submissionContentAcceptedMessages(connectionID: connectionID)
+    await assertClosedOperations(session)
+    try? await Task.sleep(for: .milliseconds(50))
+    await assertClosedSessionRemainedQuiescent(
+      await factory.events(),
+      baselineEvents: eventsBeforeClosedOperations,
+      baselineContent: contentAfterClose,
+      connectionID: connectionID
+    )
   }
 
   private func assertClosedSessionRemainedQuiescent(
     _ events: [MailEngineQualificationEvent],
     baselineEvents: [MailEngineQualificationEvent],
-    baselineContent: [Data]
+    baselineContent: [Data],
+    connectionID: String = "connection-a"
   ) async {
-    let content = await submissionContentAcceptedMessages(connectionID: "connection-a")
+    let content = await submissionContentAcceptedMessages(connectionID: connectionID)
     XCTAssertEqual(
       events,
       baselineEvents,
