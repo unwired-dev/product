@@ -74,9 +74,10 @@ Simple toggles, pickers, and swipe assignments save immediately. Multi-field ent
 
 Settings updates apply to the running mail experience without requiring an app restart. Manual
 provider refreshes notify the separate mail shell after the Settings-owned connection snapshot
-finishes loading without immediately reloading that same router again. The routed-provider and
-generic-mail snapshots start together, and generic setup remains disabled until its synchronized
-definition snapshot finishes loading.
+finishes loading without immediately reloading that same router again. A Settings presentation
+that shares the mail shell's view model treats the completed refresh as the update and does not
+invoke another router load. The routed-provider and generic-mail snapshots start together, and
+generic setup remains disabled until its synchronized definition snapshot finishes loading.
 
 ## Destination requirements
 
@@ -85,7 +86,8 @@ definition snapshot finishes loading.
 The app-scoped Product Account session shares one bootstrap task across mail windows, so closing
 the first window cannot cancel session restoration for surviving windows. Each mail window
 registers its own mailbox-work cancellation and busy state, and row-level synchronization
-notifies every open mail shell to reload observed metadata.
+notifies every open mail shell to reload observed metadata. Manual row synchronization remains
+disabled while the provider snapshot is partial because freshness state is not authoritative.
 
 - List every Mailbox Connection with provider, address, authorization state, and sync health.
 - Add a Mailbox Connection.

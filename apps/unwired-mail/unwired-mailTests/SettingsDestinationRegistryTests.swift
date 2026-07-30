@@ -16,6 +16,37 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   }
 
   @MainActor
+  func testSharedMailboxManualRefreshLoadsOnlyOnce() async {
+    var loadCount = 0
+
+    await MailboxProviderConnectionPanel.performManualRefresh(
+      load: { loadCount += 1 },
+      connectionsDidChange: {}
+    )
+
+    XCTAssertEqual(loadCount, 1)
+  }
+
+  func testSynchronizationIsDisabledForPartialSnapshot() {
+    XCTAssertTrue(
+      mailboxSynchronizationIsDisabled(
+        isMailboxBusy: false,
+        isAuthorized: true,
+        snapshotIsAuthoritative: false,
+        isSynchronizing: false
+      )
+    )
+    XCTAssertFalse(
+      mailboxSynchronizationIsDisabled(
+        isMailboxBusy: false,
+        isAuthorized: true,
+        snapshotIsAuthoritative: true,
+        isSynchronizing: false
+      )
+    )
+  }
+
+  @MainActor
   func testEmailAccountsStartsRoutedAndGenericLoadsTogether() async {
     let routedLoad = TestRendezvous()
     let genericLoad = TestRendezvous()

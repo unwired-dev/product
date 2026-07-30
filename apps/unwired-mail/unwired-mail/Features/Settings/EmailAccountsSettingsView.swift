@@ -164,7 +164,7 @@ struct EmailAccountsSettingsView: View {
             isDefaultSender: gmailViewModel.defaultSendingConnectionId == connection.id,
             isHistoricalBackfillActive:
               freshnessViewModel.isHistoricalBackfillActive(for: connection),
-            isMailboxBusy: isMailboxBusy || gmailViewModel.isEditingDisabled,
+            isSynchronizationDisabled: synchronizationIsDisabled(for: connection),
             status: freshnessViewModel.status(for: connection),
             showDetails: { showDetails(for: connection) },
             synchronize: {
@@ -273,11 +273,31 @@ struct EmailAccountsSettingsView: View {
   }
 }
 
+extension EmailAccountsSettingsView {
+  fileprivate func synchronizationIsDisabled(for connection: MailboxConnection) -> Bool {
+    mailboxSynchronizationIsDisabled(
+      isMailboxBusy: isMailboxBusy || gmailViewModel.isEditingDisabled,
+      isAuthorized: connection.authorizationState == .authorized,
+      snapshotIsAuthoritative: connectionsAreAuthoritative,
+      isSynchronizing: freshnessViewModel.status(for: connection).phase == .syncing
+    )
+  }
+}
+
+func mailboxSynchronizationIsDisabled(
+  isMailboxBusy: Bool,
+  isAuthorized: Bool,
+  snapshotIsAuthoritative: Bool,
+  isSynchronizing: Bool
+) -> Bool {
+  isMailboxBusy || !isAuthorized || !snapshotIsAuthoritative || isSynchronizing
+}
+
 private struct SettingsMailboxConnectionRow: View {
   let connection: MailboxConnection
   let isDefaultSender: Bool
   let isHistoricalBackfillActive: Bool
-  let isMailboxBusy: Bool
+  let isSynchronizationDisabled: Bool
   let status: MailboxSyncStatus
   let showDetails: () -> Void
   let synchronize: () async -> Void
@@ -317,11 +337,7 @@ private struct SettingsMailboxConnectionRow: View {
               await synchronize()
             }
           }
-          .disabled(
-            isMailboxBusy
-              || connection.authorizationState != .authorized
-              || status.phase == .syncing
-          )
+          .disabled(isSynchronizationDisabled)
         } else {
           Text(manualSynchronizationExplanation)
             .font(.caption)

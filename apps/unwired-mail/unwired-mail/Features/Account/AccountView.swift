@@ -1208,9 +1208,7 @@ struct AccountView: View {
                   productAccountId: snapshot.productAccountId
                 )
               },
-              connectionsDidChange: {
-                Task { _ = await gmailViewModel.load() }
-              },
+              connectionsDidChange: {},
               isMailboxBusy: mailboxWorkCoordinator.isBusy(
                 productAccountId: snapshot.productAccountId
               )
