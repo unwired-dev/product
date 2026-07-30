@@ -785,6 +785,12 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .operationOutcomeUnknown)
     }
+    await assertUnknownMutationReplayRejected("rewritten Sent append") {
+      _ = try await appendSession.appendToSent(
+        Data("rewritten indeterminate append".utf8),
+        mailbox: MailEngineMailboxIdentity("Transmitted Items")
+      )
+    }
   }
 
   private func assertUnknownMutationEvents() async {
@@ -3688,12 +3694,13 @@ struct MailEngineQualificationContract {
       firstFetchTask,
       failureMessage: "Cancelling the first body fetch must report cancellation."
     )
-    await assertTaskStillPending(
-      secondFetchTask,
-      failureMessage: "Cancelling the first body fetch must leave the second fetch active."
-    )
     try await assertCancelledBodyFetchPreservesSessions(first, inbox: inbox)
 
+    await assertBodyFetchStillActive(
+      secondFetchTask,
+      connectionID: "body-fetch-two",
+      failureMessage: "Cancelling the first body fetch must leave the second fetch active."
+    )
     await assertBodyFetchCancellation(
       secondFetchTask,
       failureMessage: "Cancelling the second body fetch must report cancellation."
@@ -3967,6 +3974,26 @@ struct MailEngineQualificationContract {
     completionObserver.cancel()
   }
 
+  private func assertBodyFetchStillActive<Success>(
+    _ task: Task<Success, Error>,
+    connectionID: String,
+    failureMessage: String
+  ) async {
+    let completion = LockedBox<Result<Success, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await task.result
+      completion.withValue { $0 = result }
+    }
+    await Task.yield()
+    XCTAssertNil(completion.value, failureMessage)
+    let events = await factory.events()
+    XCTAssertFalse(
+      events.contains(.bodyFetchCancelled(connectionID: connectionID)),
+      failureMessage
+    )
+    completionObserver.cancel()
+  }
+
   private func assertIdleCancellation(
     _ task: Task<Void, Error>,
     failureMessage: String
@@ -4058,6 +4085,7 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(events.filter { $0 == .sentAppend(connectionID: "connection-a") }.count, 2)
   }
 
+  // swiftlint:disable:next function_body_length
   private func submitSMTPStages(
     _ stages: [MailEngineSMTPStage],
     session: any MailEngineSession,
@@ -4065,16 +4093,40 @@ struct MailEngineQualificationContract {
     rawMessage: Data
   ) async throws -> [MailEngineSMTPOutcome] {
     var observed: [MailEngineSMTPOutcome] = []
+    var previousStage: MailEngineSMTPStage?
     for stage in stages {
       let contentBeforeSubmission = await submissionContentAcceptedMessages(
         connectionID: "connection-a"
       )
+      let eventCountBeforeSubmission = await factory.events().count
       observed.append(
-        try await session.submit(
-          envelope: envelope,
-          rawMessage: rawMessage
-        )
+        try await session.submit(envelope: envelope, rawMessage: rawMessage)
       )
+      let submissionEvents = Array(
+        (await factory.events()).dropFirst(eventCountBeforeSubmission)
+      ).filter { $0.belongs(to: "connection-a", service: .smtp) }
+      if previousStage.map(smtpStageRequiresReauthentication) == true {
+        XCTAssertTrue(
+          submissionEvents.starts(with: [
+            .tlsEstablished(
+              connectionID: "connection-a",
+              service: .smtp,
+              version: .tls13
+            ),
+            .authenticationStarted(connectionID: "connection-a", service: .smtp),
+            .authenticated(connectionID: "connection-a", service: .smtp),
+          ]),
+          "SMTP transport or authentication failure must reconnect with TLS and authentication."
+        )
+      }
+      if smtpStageRequiresReauthentication(stage) {
+        XCTAssertTrue(
+          submissionEvents.contains(
+            .serviceClosed(connectionID: "connection-a", service: .smtp)
+          ),
+          "SMTP transport or authentication failure must terminate the failed channel."
+        )
+      }
       if shouldWithholdMessageContent(for: stage) {
         let contentAfterSubmission = await submissionContentAcceptedMessages(
           connectionID: "connection-a"
@@ -4094,8 +4146,22 @@ struct MailEngineQualificationContract {
           "Every post-content outcome must follow transmission of the exact raw message."
         )
       }
+      previousStage = stage
     }
     return observed
+  }
+
+  private func smtpStageRequiresReauthentication(_ stage: MailEngineSMTPStage) -> Bool {
+    switch stage {
+    case .authenticationRejectedBeforeSubmission, .transportUnavailableAfterSenderAccepted,
+      .transportUnavailableBeforeSubmission:
+      true
+    case .accepted, .cancelledAfterMessageContent, .cancelledAfterSenderAccepted,
+      .cancelledBeforeSubmission, .connectionLostAfterSubmission, .dataRejectedBeforeSubmission,
+      .finalResponse, .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
+      .senderRejectedBeforeSubmission:
+      false
+    }
   }
 
   private func submissionContentAcceptedMessages(connectionID: String) async -> [Data] {
@@ -5094,7 +5160,10 @@ struct MailEngineQualificationContract {
     try await factory.waitForIdleStarts(1, timeout: .seconds(2))
     try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
     let callbacksBeforeClose = callbacks.value
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
+      return
+    }
     await assertInFlightOperationClosed(idleTask)
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
@@ -5115,7 +5184,7 @@ struct MailEngineQualificationContract {
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     XCTAssertTrue(events.contains(.closed(connectionID: connectionID)))
     assertServiceTeardownEvents(events, connectionID: connectionID)
-    await peer.close()
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyInFlightBodyFetchAndSubmissionClose() async throws {
@@ -5136,7 +5205,10 @@ struct MailEngineQualificationContract {
     let contentBeforeClose = await submissionContentAcceptedMessages(
       connectionID: connectionID
     )
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
+      return
+    }
     await assertInFlightOperationClosed(bodyFetchTask)
     await assertInFlightOperationClosed(submissionTask)
     await assertNoSubmissionContentAccepted(connectionID: connectionID)
@@ -5156,7 +5228,7 @@ struct MailEngineQualificationContract {
     )
     XCTAssertTrue(events.contains(.closed(connectionID: connectionID)))
     assertServiceTeardownEvents(events, connectionID: connectionID)
-    await peer.close()
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyCloseAfterSMTPContentIsAmbiguous() async throws {
@@ -5184,7 +5256,10 @@ struct MailEngineQualificationContract {
       )
     }
     try await waitForSubmissionContent(after: contentBefore, connectionID: connectionID)
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(preservedSession, connectionID: peerConnectionID)
+      return
+    }
     await assertCloseAfterSMTPContent(
       task,
       connectionID: connectionID,
@@ -5197,6 +5272,7 @@ struct MailEngineQualificationContract {
       preservedSession,
       connectionID: peerConnectionID
     )
+    _ = await assertCloseCompletes(preservedSession, connectionID: peerConnectionID)
   }
 
   private func assertCloseAfterSMTPContent(
@@ -5406,7 +5482,10 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
+      return
+    }
     await assertTransmittedStateChangingOperationOutcomeUnknown(
       task,
       operation: "COPY",
@@ -5417,7 +5496,7 @@ struct MailEngineQualificationContract {
     )
     try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await peer.close()
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyInFlightMoveClose() async throws {
@@ -5438,7 +5517,10 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
+      return
+    }
     await assertTransmittedStateChangingOperationOutcomeUnknown(
       task,
       operation: "MOVE",
@@ -5449,7 +5531,7 @@ struct MailEngineQualificationContract {
     )
     try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await peer.close()
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyInFlightSentAppendClose() async throws {
@@ -5470,7 +5552,10 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    await session.close()
+    guard await assertCloseCompletes(session, connectionID: connectionID) else {
+      _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
+      return
+    }
     await assertTransmittedStateChangingOperationOutcomeUnknown(
       task,
       operation: "Sent append",
@@ -5481,7 +5566,7 @@ struct MailEngineQualificationContract {
     )
     try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await peer.close()
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func assertClosedStateChangingOperationSession(
@@ -5585,6 +5670,30 @@ struct MailEngineQualificationContract {
       connectionID: connectionID,
       failureMessage: "Closing one session must preserve other connected sessions."
     )
+  }
+
+  private func assertCloseCompletes(
+    _ session: any MailEngineSession,
+    connectionID: String
+  ) async -> Bool {
+    let closeTask = Task<Void, Error> {
+      await session.close()
+    }
+    guard
+      let result = await boundedResult(
+        of: closeTask,
+        timeoutMessage: "Timed out waiting for \(connectionID) to close."
+      )
+    else {
+      return false
+    }
+    switch result {
+    case .success:
+      return true
+    case .failure(let error):
+      XCTFail("Closing \(connectionID) failed: \(error)")
+      return false
+    }
   }
 
   private func boundedResult<Success: Sendable>(
@@ -6529,6 +6638,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     mailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineMessageIdentity {
     try await ensureOpen()
+    if hasUnreconciledMutationOutcome {
+      throw MailEngineError.operationOutcomeUnknown
+    }
     appendAttempt += 1
     await state.record(.sentAppend(connectionID: connectionID))
     await state.record(
@@ -6542,6 +6654,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       try await waitForTransmittedMutationTermination()
     }
     if case .sentAppendOutcomeUnknown = fixture {
+      hasUnreconciledMutationOutcome = true
       throw MailEngineError.operationOutcomeUnknown
     }
     if case .sentAppendFailsOnce = fixture, appendAttempt == 1 {
@@ -7535,7 +7648,22 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         .submissionContentAccepted(connectionID: connectionID, rawMessage: rawMessage)
       )
     }
+    await invalidateSMTPChannelIfNeeded(after: stage)
     return classifySMTPStage(stage)
+  }
+
+  private func invalidateSMTPChannelIfNeeded(after stage: MailEngineSMTPStage) async {
+    switch stage {
+    case .authenticationRejectedBeforeSubmission, .transportUnavailableAfterSenderAccepted,
+      .transportUnavailableBeforeSubmission:
+      smtpRequiresReauthentication = true
+      await state.record(.serviceClosed(connectionID: connectionID, service: .smtp))
+    case .accepted, .cancelledAfterMessageContent, .cancelledAfterSenderAccepted,
+      .cancelledBeforeSubmission, .connectionLostAfterSubmission, .dataRejectedBeforeSubmission,
+      .finalResponse, .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
+      .senderRejectedBeforeSubmission:
+      break
+    }
   }
 
   private func handlePreContentCancellation(
