@@ -262,12 +262,20 @@ final class GenericMailSetupServiceTests: XCTestCase {
       productAccountId: "product-account-001",
       trustedDeviceId: "trusted-device-001"
     )
+    let localStateCleaner = RecordingGenericMailLocalStateCleaner()
+    localStateCleaner.onClear = { connectionId in
+      try store.remove(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )
+    }
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId(session.productAccountId),
       isSessionCurrent: { true },
       service: GenericMailSetupService(
         authorizationStore: store,
         definitionSyncService: sync,
+        localStateCleaner: localStateCleaner,
         verifier: RecordingGenericMailEndpointVerifier()
       ),
       syncSession: session
@@ -823,7 +831,8 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(viewModel.incomingHostname, "draft.imap.example.com")
   }
 
-  func testSyncedRemovalPurgesDeviceLocalGenericAuthorization() async throws {
+  // swiftlint:disable:next function_body_length
+  func testSyncedRemovalRetriesCompleteLocalCleanupUntilReceiptPersists() async throws {
     let definition = GenericMailConnectionDefinition(
       authorizationMethod: .password,
       emailAddress: "reader@example.com",
@@ -847,10 +856,16 @@ final class GenericMailSetupServiceTests: XCTestCase {
       credential: "device-only-secret",
       definition: definition
     )
-    let sync = RecordingGenericSyncService(removedConnectionIds: [definition.connectionId])
+    let sync = RecordingGenericSyncService(
+      localCleanupGenerations: [definition.connectionId: 1],
+      removedConnectionIds: [definition.connectionId]
+    )
+    let localStateCleaner = RecordingGenericMailLocalStateCleaner()
+    localStateCleaner.error = GenericMailSetupTestError.syncUnavailable
     let service = GenericMailSetupService(
       authorizationStore: store,
       definitionSyncService: sync,
+      localStateCleaner: localStateCleaner,
       verifier: RecordingGenericMailEndpointVerifier()
     )
     let session = ProductAccountSessionSnapshot(
@@ -860,9 +875,34 @@ final class GenericMailSetupServiceTests: XCTestCase {
       trustedDeviceId: "trusted-device-002"
     )
 
+    do {
+      _ = try await service.loadSyncedDefinitions(session: session)
+      XCTFail("Expected local cleanup failure")
+    } catch GenericMailSetupTestError.syncUnavailable {
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+
+    XCTAssertEqual(localStateCleaner.clearedConnectionIds, [definition.connectionId])
+    XCTAssertNotNil(store.authorization)
+    XCTAssertNil(sync.completedCleanupGenerations[definition.connectionId])
+
+    localStateCleaner.error = nil
+    localStateCleaner.onClear = { connectionId in
+      try store.remove(
+        productAccountId: ProductAccountId(session.productAccountId),
+        connectionId: connectionId
+      )
+    }
+    _ = try await service.loadSyncedDefinitions(session: session)
     _ = try await service.loadSyncedDefinitions(session: session)
 
+    XCTAssertEqual(
+      localStateCleaner.clearedConnectionIds,
+      [definition.connectionId, definition.connectionId]
+    )
     XCTAssertNil(store.authorization)
+    XCTAssertEqual(sync.completedCleanupGenerations[definition.connectionId], 1)
   }
 
   func testTrustedDevicesAuthorizeGenericDefinitionIndependently() async throws {
@@ -1029,6 +1069,93 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertTrue(didRemoveLocalAuthorization)
     XCTAssertNil(store.authorization)
     XCTAssertNotNil(errorMessage)
+  }
+
+  @MainActor
+  func testGenericRemovalCanRetryAfterConnectionDataCleanupFails() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let session = session(productAccountId: ProductAccountId("product-account-001"))
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+    var cleanupFails = true
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      clearLocalData: { definition, _ in
+        if cleanupFails { throw GenericMailSetupTestError.syncUnavailable }
+        try store.remove(
+          productAccountId: ProductAccountId(session.productAccountId),
+          connectionId: definition.connectionId
+        )
+        return true
+      },
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+
+    let firstRemovalSucceeded = await viewModel.removeEverywhere(definition)
+
+    XCTAssertFalse(firstRemovalSucceeded)
+    XCTAssertEqual(sync.currentSnapshot.connections.map(\.id), [definition.connectionId])
+    XCTAssertNotNil(store.authorization)
+
+    cleanupFails = false
+
+    let retrySucceeded = await viewModel.removeEverywhere(definition)
+
+    XCTAssertTrue(retrySucceeded)
+    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
+    XCTAssertNil(store.authorization)
+  }
+
+  @MainActor
+  func testGenericRemovalCanRetryAfterAuthorizationFallbackFails() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let session = session(productAccountId: ProductAccountId("product-account-001"))
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      clearLocalData: { _, _ in false },
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+    store.removeError = GenericMailSetupTestError.syncUnavailable
+
+    let firstRemovalSucceeded = await viewModel.removeEverywhere(definition)
+
+    XCTAssertFalse(firstRemovalSucceeded)
+    XCTAssertEqual(sync.currentSnapshot.connections.map(\.id), [definition.connectionId])
+    XCTAssertNotNil(store.authorization)
+
+    store.removeError = nil
+
+    let retrySucceeded = await viewModel.removeEverywhere(definition)
+
+    XCTAssertTrue(retrySucceeded)
+    XCTAssertTrue(sync.currentSnapshot.connections.isEmpty)
+    XCTAssertNil(store.authorization)
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {
@@ -2016,6 +2143,7 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
   var clearError: Error?
   var clearedProductAccountId: ProductAccountId?
   var productAccountId: ProductAccountId?
+  var removeError: Error?
 
   func clearAll(productAccountId: ProductAccountId) throws {
     if let clearError { throw clearError }
@@ -2041,6 +2169,7 @@ private final class RecordingGenericMailAuthorizationStore: GenericMailAuthoriza
     productAccountId: ProductAccountId,
     connectionId _: MailboxConnectionId
   ) throws {
+    if let removeError { throw removeError }
     authorization = nil
     self.productAccountId = productAccountId
   }
@@ -2336,12 +2465,16 @@ private final class RecordingGenericSyncService:
 
 private final class RecordingGenericMailLocalStateCleaner: GenericMailLocalStateClearing {
   var clearedConnectionIds: [MailboxConnectionId] = []
+  var error: Error?
+  var onClear: ((MailboxConnectionId) throws -> Void)?
 
   func clear(
     connectionId: MailboxConnectionId,
     session _: ProductAccountSessionSnapshot
   ) async throws {
     clearedConnectionIds.append(connectionId)
+    if let error { throw error }
+    try onClear?(connectionId)
   }
 }
 

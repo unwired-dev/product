@@ -798,9 +798,14 @@ extension GenericMailSetupService {
         else {
           return
         }
-        try authorizationStore.remove(
-          productAccountId: ProductAccountId(session.productAccountId),
-          connectionId: connectionId
+        try await localStateCleaner.clear(
+          connectionId: connectionId,
+          session: session
+        )
+        try definitionSyncService.recordLocalCleanup(
+          in: currentSnapshot,
+          connectionId: connectionId,
+          session: session
         )
       }
     }
