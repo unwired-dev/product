@@ -99,8 +99,8 @@ struct MailEngineConnectionSnapshot: Equatable, Sendable {
 
   static func == (lhs: Self, rhs: Self) -> Bool {
     lhs.capabilities == rhs.capabilities
-      && lhs.mailboxes.count == rhs.mailboxes.count
-      && Set(lhs.mailboxes) == Set(rhs.mailboxes)
+      && Dictionary(grouping: lhs.mailboxes, by: \.self).mapValues(\.count)
+        == Dictionary(grouping: rhs.mailboxes, by: \.self).mapValues(\.count)
       && lhs.transportSecurity == rhs.transportSecurity
   }
 }
