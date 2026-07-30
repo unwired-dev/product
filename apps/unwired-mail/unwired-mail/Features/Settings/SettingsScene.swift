@@ -48,7 +48,15 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
   }
 }
 
+enum AppearanceSettingsControl: String, Hashable {
+  case increasedContrast
+  case messageBody
+  case readingTextSize
+  case theme
+}
+
 enum SettingsRouteContext: Hashable {
+  case appearance(AppearanceSettingsControl)
   case authorization(String?)
   case defaultSendingConnection
   case mailboxConnection(String)
@@ -211,14 +219,14 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
       ]
     case .appearance:
       return [
-        SettingsSearchItem(title: "Theme", route: route),
-        SettingsSearchItem(title: "Reading Text Size", route: route),
+        SettingsSearchItem(title: "Theme", route: .appearance(.theme)),
+        SettingsSearchItem(title: "Reading Text Size", route: .appearance(.readingTextSize)),
         SettingsSearchItem(
           title: "Message Body",
           keywords: ["Sender Formatting", "System Serif", "System Sans Serif"],
-          route: route
+          route: .appearance(.messageBody)
         ),
-        SettingsSearchItem(title: "Increased Contrast", route: route),
+        SettingsSearchItem(title: "Increased Contrast", route: .appearance(.increasedContrast)),
       ]
     default:
       return []
@@ -265,6 +273,13 @@ struct SettingsRoute: Hashable {
     destination: .privacyAndData,
     context: .storage
   )
+
+  static func appearance(_ control: AppearanceSettingsControl) -> SettingsRoute {
+    SettingsRoute(
+      destination: .appearance,
+      context: .appearance(control)
+    )
+  }
 
   static func authorization(connectionId: MailboxConnectionId?) -> SettingsRoute {
     SettingsRoute(
@@ -928,17 +943,28 @@ extension AdaptiveSettingsScene {
           AdaptiveSettingsScene(
             isSignedIn: false,
             showsDismissButton: false,
-            destinationContent: { destination, _ in
+            destinationContent: { destination, request in
               if destination == .appearance {
-                AppearanceSettingsView()
+                AppearanceSettingsView(navigationRequest: request)
               }
             }
           )
         case .failed(let message):
-          ContentUnavailableView(
-            "Settings unavailable",
-            systemImage: "exclamationmark.triangle",
-            description: Text(message)
+          AdaptiveSettingsScene(
+            isSignedIn: false,
+            showsDismissButton: false,
+            attentions: [
+              SettingsAttention(
+                destination: .appearance,
+                kind: .recovery,
+                message: message
+              )
+            ],
+            destinationContent: { destination, request in
+              if destination == .appearance {
+                AppearanceSettingsView(navigationRequest: request)
+              }
+            }
           )
         case .signedIn(let snapshot):
           DevelopmentEmailAccountsSettingsHost(
@@ -1050,7 +1076,7 @@ extension AdaptiveSettingsScene {
               navigationRequest: request
             )
           case .appearance:
-            AppearanceSettingsView()
+            AppearanceSettingsView(navigationRequest: request)
           default:
             EmptyView()
           }

@@ -176,16 +176,10 @@ final class AppearancePreferences {
 struct DeviceAppearanceModifier: ViewModifier {
   let preferences: AppearancePreferences
 
-  @ViewBuilder
   func body(content: Content) -> some View {
-    if preferences.increasedContrast {
-      content
-        .preferredColorScheme(preferences.theme.colorScheme)
-        .contrast(1.2)
-    } else {
-      content
-        .preferredColorScheme(preferences.theme.colorScheme)
-    }
+    content
+      .preferredColorScheme(preferences.theme.colorScheme)
+      .contrast(preferences.increasedContrast ? 1.2 : 1)
   }
 }
 
@@ -198,44 +192,89 @@ extension View {
 struct AppearanceSettingsView: View {
   @Environment(AppearancePreferences.self) private var preferences
 
+  var navigationRequest: SettingsRouteRequest?
+
+  @State private var highlightTask: Task<Void, Never>?
+  @State private var highlightedControl: AppearanceSettingsControl?
+
+  init(navigationRequest: SettingsRouteRequest? = nil) {
+    self.navigationRequest = navigationRequest
+  }
+
   var body: some View {
     @Bindable var preferences = preferences
 
-    Form {
-      Section("Preview") {
-        AppearancePreview(
-          messageBodyTypeface: preferences.messageBodyTypeface,
-          readingTextSize: preferences.readingTextSize
-        )
-      }
-
-      Section("Theme") {
-        Picker("Theme", selection: $preferences.theme) {
-          ForEach(AppearanceTheme.allCases) { theme in
-            Text(theme.title).tag(theme)
-          }
-        }
-        .pickerStyle(.segmented)
-      }
-
-      Section("Reading") {
-        Picker("Reading Text Size", selection: $preferences.readingTextSize) {
-          ForEach(ReadingTextSize.allCases) { size in
-            Text(size.title).tag(size)
-          }
+    ScrollViewReader { proxy in
+      Form {
+        Section("Preview") {
+          AppearancePreview(
+            messageBodyTypeface: preferences.messageBodyTypeface,
+            readingTextSize: preferences.readingTextSize
+          )
         }
 
-        Picker("Message Body", selection: $preferences.messageBodyTypeface) {
-          ForEach(MessageBodyTypeface.allCases) { typeface in
-            Text(typeface.title).tag(typeface)
+        Section("Theme") {
+          Picker("Theme", selection: $preferences.theme) {
+            ForEach(AppearanceTheme.allCases) { theme in
+              Text(theme.title).tag(theme)
+            }
           }
+          .pickerStyle(.segmented)
+          .id(AppearanceSettingsControl.theme)
+          .settingsHighlight(highlightedControl == .theme)
+        }
+
+        Section("Reading") {
+          Picker("Reading Text Size", selection: $preferences.readingTextSize) {
+            ForEach(ReadingTextSize.allCases) { size in
+              Text(size.title).tag(size)
+            }
+          }
+          .id(AppearanceSettingsControl.readingTextSize)
+          .settingsHighlight(highlightedControl == .readingTextSize)
+
+          Picker("Message Body", selection: $preferences.messageBodyTypeface) {
+            ForEach(MessageBodyTypeface.allCases) { typeface in
+              Text(typeface.title).tag(typeface)
+            }
+          }
+          .id(AppearanceSettingsControl.messageBody)
+          .settingsHighlight(highlightedControl == .messageBody)
+        }
+
+        Section {
+          Toggle("Increased Contrast", isOn: $preferences.increasedContrast)
+            .id(AppearanceSettingsControl.increasedContrast)
+            .settingsHighlight(highlightedControl == .increasedContrast)
+        } footer: {
+          Text("Adds contrast beyond the current system setting on this device.")
         }
       }
+      .onChange(of: navigationRequest?.id, initial: true) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
+    }
+    .onDisappear {
+      highlightTask?.cancel()
+    }
+  }
 
-      Section {
-        Toggle("Increased Contrast", isOn: $preferences.increasedContrast)
-      } footer: {
-        Text("Adds contrast beyond the current system setting on this device.")
+  private func applyNavigation(
+    _ route: SettingsRoute?,
+    proxy: ScrollViewProxy
+  ) {
+    guard case .appearance(let control) = route?.context else { return }
+
+    withAnimation {
+      proxy.scrollTo(control, anchor: .center)
+      highlightedControl = control
+    }
+    highlightTask?.cancel()
+    highlightTask = Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard !Task.isCancelled else { return }
+      withAnimation {
+        highlightedControl = nil
       }
     }
   }

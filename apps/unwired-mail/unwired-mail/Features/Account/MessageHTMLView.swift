@@ -107,7 +107,6 @@ enum MessageHTMLDocument {
       body {
         background: \(palette.background);
         color: \(palette.foreground);
-        font-size: \(style.readingTextSize.cssPercentage);
       }
       \(typefaceRule)
       a { color: \(palette.link); }

@@ -245,7 +245,16 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(
       SettingsDestinationRegistry.search(matching: "serif", isSignedIn: false)
         .map(\.route),
-      [destination.route]
+      [.appearance(.messageBody)]
+    )
+    XCTAssertEqual(
+      destination.searchItems.map(\.route),
+      [
+        .appearance(.theme),
+        .appearance(.readingTextSize),
+        .appearance(.messageBody),
+        .appearance(.increasedContrast),
+      ]
     )
   }
 
