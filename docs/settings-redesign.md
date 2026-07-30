@@ -1,6 +1,7 @@
 # Settings redesign
 
-Status: agreed design; not yet implemented.
+Status: implementation in progress. The adaptive shell and Email Accounts destination are
+available through development-only entry points; production still uses Account Settings.
 
 ## Goal
 
@@ -71,11 +72,34 @@ The detail pane is a scrollable, readable-width form composed from native sectio
 
 Simple toggles, pickers, and swipe assignments save immediately. Multi-field entities—Mailbox Connections, signatures, templates, and the Custom Category—use explicit Save and Cancel actions. Leaving an edited entity prompts the user to discard changes or keep editing. A sync error or conflict appears only in the affected destination.
 
-Settings updates apply to the running mail experience without requiring an app restart.
+Settings updates apply to the running mail experience without requiring an app restart. Manual
+provider refreshes notify the separate mail shell after the Settings-owned connection snapshot
+finishes loading without immediately reloading that same router again. A Settings presentation
+that shares the mail shell's view model treats the completed refresh as the update and does not
+invoke another router load. The routed-provider and generic-mail snapshots start together, and
+generic setup remains disabled until its synchronized definition snapshot finishes loading.
+Microsoft, EWS, and generic provider mutations also remain disabled while the routed snapshot is
+loading, so mutation-triggered router refreshes cannot overlap the initial load. Every provider
+mutation refreshes the Settings-owned routed, generic, Microsoft, and EWS default-sender state
+before notifying the separate mail shell, and routed snapshot authority changes update
+synchronization availability even when the routed connection array itself is unchanged. Failed
+or cancelled routed loads leave the last authoritative shared snapshot intact. EWS refreshes
+requested during an active load rerun after that load before notification. Failed generic
+authorization or removal does not send a mutation notification, so its actionable error remains
+visible instead of being cleared by an unrelated definition reload.
+The generic-mail Manage menu offers Default Sending Connection only when the routed snapshot
+contains the same authorized connection with sending capability; read-only IMAP routes and
+unrouted POP3 definitions cannot become the default sender.
 
 ## Destination requirements
 
 ### Email Accounts
+
+The app-scoped Product Account session shares one bootstrap task across mail windows, so closing
+the first window cannot cancel session restoration for surviving windows. Each mail window
+registers its own mailbox-work cancellation and busy state, and row-level synchronization
+notifies every open mail shell to reload observed metadata. Manual row synchronization remains
+disabled while the provider snapshot is partial because freshness state is not authoritative.
 
 - List every Mailbox Connection with provider, address, authorization state, and sync health.
 - Add a Mailbox Connection.
@@ -338,6 +362,23 @@ Implementation is tracked by [#115](https://github.com/unwired-dev/product/issue
 6. Enable the production Settings entry points and remove the old Account Settings sheet.
 
 Each slice includes its own tests and documentation. The new production entry points remain disabled until all destinations meet the release requirements.
+
+The first delivered slice provides the typed destination registry, adaptive compact and
+regular-width navigation, a dedicated Mac Catalyst Settings window with Command-, support,
+and complete Mailbox Connection management in Email Accounts. It reuses the existing
+provider controls so authorization, default-sender selection, synchronization, non-secret
+connection settings, Mailbox Role mapping, and removal retain their established behavior.
+The Mac Catalyst Settings window shares the app's Product Account session, so sign-out moves the
+shared session out of its signed-in state before cleanup begins, immediately removing mailbox
+controls from every window. Provider changes notify the active mail shell. Email Accounts prunes
+shared freshness state only after every provider adapter returns an authoritative connection
+snapshot. Snapshot authority is published with the replacement list and checked by every
+synchronization entry point, so direct refreshes, runtime observers, and manual synchronization
+cannot apply a partial list using stale authority. A partial provider load keeps healthy providers
+visible without cancelling or pruning sync state for providers that could not load, while surfacing
+the provider failure for retry. Generic-mail removal uses the snapshot-aware refresh path after a
+failed removal and the same shared mailbox-work busy state and cancellation boundary as Gmail,
+Microsoft, and EWS removal.
 
 ## Release gate
 

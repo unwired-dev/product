@@ -48,6 +48,29 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testMailboxFreshnessViewModelIsSharedAcrossSessionViews() {
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: store
+    )
+
+    let mailViewModel = session.sharedMailboxFreshnessViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+    let settingsViewModel = session.sharedMailboxFreshnessViewModel(
+      for: Self.restorableSnapshot,
+      service: MailboxConnectionRouter()
+    )
+
+    XCTAssertTrue(mailViewModel === settingsViewModel)
+  }
+
   func testAppleIdentityTokenExpirationRejectsUnverifiableClaims() {
     let invalidTokens = [
       "not-an-identity-token",
@@ -220,6 +243,57 @@ final class ProductAccountSessionTests: XCTestCase {
       pushUnregisterer.sessions.first?.productAccountId,
       ProductAccountConnectResponse.preview.productAccountId
     )
+  }
+
+  func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let cleanupGate = SignOutUnregistrationGate()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: SuspendingDevicePushUnregisterer(gate: cleanupGate),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let signOut = Task { await session.signOut() }
+    await cleanupGate.waitUntilStarted()
+
+    XCTAssertEqual(session.state, .loading)
+
+    await cleanupGate.release()
+    await signOut.value
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
+  func testBeginSignOutImmediatelyExitsSignedInState() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    session.beginSignOut()
+
+    XCTAssertEqual(session.state, .loading)
+    XCTAssertFalse(session.isCurrent(snapshot))
+    await session.signOut()
   }
 
   func testSignOutPreservesSessionSavedByConcurrentSignIn() async throws {
@@ -609,6 +683,56 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }
 
+  func testBootstrapRunsOnlyOnceForSharedMultiWindowSession() async {
+    let countingStore = ControllableProductAccountSessionStore()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      sessionStore: countingStore
+    )
+
+    await session.bootstrap()
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertEqual(countingStore.loadCount, 1)
+  }
+
+  func testBootstrapSurvivesCancellationOfFirstWindowCaller() async throws {
+    let snapshot = Self.restorableSnapshot
+    let countingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    let restoreGate = BootstrapRestoreGate()
+    let session = ProductAccountSession(
+      appleSignInService: SuspendingAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        ),
+        gate: restoreGate
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: countingStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let firstWindowBootstrap = Task { await session.bootstrap() }
+    await restoreGate.waitUntilStarted()
+    let survivingWindowBootstrap = Task { await session.bootstrap() }
+    firstWindowBootstrap.cancel()
+    await restoreGate.release()
+    await survivingWindowBootstrap.value
+    await firstWindowBootstrap.value
+
+    guard case .signedIn = session.state else {
+      return XCTFail("Expected the shared bootstrap to finish for the surviving window.")
+    }
+    XCTAssertEqual(countingStore.loadCount, 1)
+  }
+
   func testBootstrapPreservesStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -868,6 +992,52 @@ private struct RevokedAppleSignInService: AppleSignInPerforming {
   }
 }
 
+private actor BootstrapRestoreGate {
+  private var hasStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { continuation in
+      releaseContinuation = continuation
+    }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { continuation in
+      startContinuations.append(continuation)
+    }
+  }
+
+  func release() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
+  }
+}
+
+private struct SuspendingAppleSignInService: AppleSignInPerforming {
+  let credential: AppleSignInCredential
+  let gate: BootstrapRestoreGate
+
+  func signIn() async throws -> AppleSignInCredential {
+    credential
+  }
+
+  func restoreSession(
+    snapshot _: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    await gate.waitForRelease()
+    return credential
+  }
+}
+
 private enum ProductAccountSessionTestError: Error {
   case gmailCleanupFailed
   case pushUnregistrationFailed
@@ -877,6 +1047,7 @@ private enum ProductAccountSessionTestError: Error {
 
 private final class ControllableProductAccountSessionStore: ProductAccountSessionPersisting {
   var didClear = false
+  var loadCount = 0
   var loadError: Error?
   var saveError: Error?
 
@@ -887,6 +1058,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   }
 
   func load() throws -> ProductAccountSessionSnapshot? {
+    loadCount += 1
     if let loadError {
       throw loadError
     }
