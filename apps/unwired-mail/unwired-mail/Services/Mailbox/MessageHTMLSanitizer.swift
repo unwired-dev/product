@@ -115,7 +115,7 @@ enum MessageHTMLSanitizer {
   private static func hasZeroDimension(_ element: Element) -> Bool {
     for attribute in ["width", "height"] {
       guard let value = try? element.attr(attribute), !value.isEmpty else { continue }
-      if value.range(
+      if value.trimmingCharacters(in: .whitespacesAndNewlines).range(
         of: #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#,
         options: [.regularExpression, .caseInsensitive]
       ) != nil {

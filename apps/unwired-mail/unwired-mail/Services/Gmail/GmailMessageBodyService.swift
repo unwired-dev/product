@@ -1892,7 +1892,7 @@ private struct GmailMessageBodyPart: Decodable {
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
     guard !hasAttachmentDisposition, !isEmbeddedMessage,
-      !(hasFilename && parts?.isEmpty == false)
+      !(hasFilename && (parts?.isEmpty == false || !hasInlineDisposition))
     else { return [:] }
     var result: [String: GmailMessageBodyPart] = [:]
     if let contentID {

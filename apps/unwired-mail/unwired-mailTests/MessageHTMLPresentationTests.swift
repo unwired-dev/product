@@ -102,6 +102,18 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.documentHTML.contains("src=\"cid:barcode@example.com\""))
   }
 
+  func testReferencedInlineImagesIgnoreWhitespacePaddedZeroDimensions() {
+    let contentIDs = MessageHTMLSanitizer.referencedInlineImageContentIDs(
+      in: """
+        <img src="cid:zero-width@example.com" width=" 0 ">
+        <img src="cid:zero-height@example.com" height="\n0px\t">
+        <img src="cid:visible@example.com">
+        """
+    )
+
+    XCTAssertEqual(contentIDs, ["visible@example.com"])
+  }
+
   func testSanitizerRetainsCIDImageInsideZeroLineHeightContainer() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

@@ -910,6 +910,45 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReadDoesNotResolveFilenameOnlyCIDLeafFromMixedFallback() async throws {
+    let imageData = pngImageData()
+    let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
+    let fixture = try makeFixture(
+      attachmentResponses: [
+        "attached-image": #"{"data":"\#(imageData.base64EncodedString())"}"#
+      ],
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "filename": "attached.png",
+                "headers": [{"name": "Content-ID", "value": "<attached@example.com>"}],
+                "body": {"attachmentId": "attached-image", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages, [])
+    XCTAssertFalse(
+      fixture.requestPaths.compactMap { $0 as? String }.contains {
+        $0.contains("/attachments/")
+      }
+    )
+  }
+
   func testReadDoesNotResolveCIDImageInsideBareEmbeddedMessage() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
