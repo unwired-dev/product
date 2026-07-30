@@ -50,9 +50,9 @@ provides a `MailEngineQualificationCandidateFactory` for the same fixtures,
 including fixture-specific bound IMAP and SMTP endpoints, and must pass the
 contract unchanged. The reference scripted candidate proves the
 harness covers per-service TLS and authentication ordering, complete snapshots
-across transport modes and accepted TLS 1.2 paths, certificate and server-identity failure teardown, connection isolation and cancellation, UID mapping
+across transport modes and accepted TLS 1.2 paths, including reduced-capability profiles with order-independent mailbox snapshots, certificate and server-identity failure teardown, connection isolation and cancellation across active SMTP sessions, UID mapping
 and UIDVALIDITY resets across every metadata page, order-independent mailbox and body-part results, exact connection-scoped paging and body-selection requests, single-attempt malformed UID mapping rejection, bounded IDLE recovery waits with the TLS floor reapplied,
-successful IDLE recovery authentication before callback delivery, actual metadata mailbox/cursor/limit requests, pre- and post-content SMTP task cancellation, sender/recipient/`DATA` rejection, accepted responses without message IDs, exact multi-recipient SMTP and Sent-append payloads,
-Sent-append-only recovery, partial-setup cleanup, concurrent IDLE and body-fetch termination on close without collateral transport teardown, and complete post-close candidate trace capture across distinct sessions.
+successful IDLE recovery authentication before callback delivery, actual metadata mailbox/cursor/limit requests, pre- and post-content SMTP task cancellation, sender/recipient/`DATA` rejection, accepted responses without message IDs, exact multi-recipient SMTP and connection-scoped Sent-append payloads,
+Sent-append-only recovery, partial-setup cleanup, concurrent IDLE, body-fetch, and pre-content SMTP termination on close without collateral transport teardown, unpadded base64 privacy-trace inspection, and complete post-close candidate trace capture across distinct sessions.
 Provider-backed, MIME, search, mutation, and performance qualification remain
 the later gates already defined above.
