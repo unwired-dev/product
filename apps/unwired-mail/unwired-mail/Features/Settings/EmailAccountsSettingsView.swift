@@ -323,13 +323,19 @@ struct EmailAccountsSettingsView: View {
   private func providerConnectionsDidChange() {
     Task {
       connectionsAreAuthoritative = false
-      connectionsAreAuthoritative = await gmailViewModel.load()
+      await Self.refreshConnectionAuthority(
+        loadRoutedConnections: gmailViewModel.load,
+        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+        loadMicrosoftConnections: microsoftGraphViewModel.load,
+        loadEWSConnections: ewsViewModel.load,
+        connectionsDidChange: gmailConnectionsDidChange
+      )
+      connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
       Self.updateFreshnessConnections(
         gmailViewModel.connections,
         connectionsAreAuthoritative: connectionsAreAuthoritative,
         freshnessViewModel: freshnessViewModel
       )
-      connectionsDidChange()
     }
   }
 

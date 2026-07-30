@@ -6313,6 +6313,10 @@ final class MailboxProviderConnectionViewModel {
         let connectionsAreAuthoritative = try await refreshConnections()
         await completeLoadingConnections()
         return connectionsAreAuthoritative
+      } catch let error as MailboxConnectionLoadError {
+        await completeLoadingConnections()
+        errorMessage = error.localizedDescription
+        return false
       } catch {
         errorMessage = originalError.localizedDescription
         return false
@@ -6408,8 +6412,10 @@ final class MailboxProviderConnectionViewModel {
     guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
+    var removalCompleted = false
     do {
       try await service.clearLocalConnection(connection, session: session)
+      removalCompleted = true
       try await refreshConnections()
       pushStatusMessages[connection.id] = nil
       selectedConnectionId = connection.id
@@ -6424,7 +6430,7 @@ final class MailboxProviderConnectionViewModel {
         selectedConnectionId = connections.first?.id
       }
       errorMessage = error.localizedDescription
-      return false
+      return removalCompleted
     }
   }
 
@@ -6432,8 +6438,10 @@ final class MailboxProviderConnectionViewModel {
     guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
+    var removalCompleted = false
     do {
       try await service.removeMailboxConnectionEverywhere(connection, session: session)
+      removalCompleted = true
       try await refreshConnections()
       pushStatusMessages[connection.id] = nil
       if selectedConnectionId == connection.id {
@@ -6444,7 +6452,7 @@ final class MailboxProviderConnectionViewModel {
     } catch {
       try? await refreshConnections()
       errorMessage = error.localizedDescription
-      return false
+      return removalCompleted
     }
   }
 
