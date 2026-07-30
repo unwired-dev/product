@@ -5292,11 +5292,14 @@ extension GmailMailActionViewModel {
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
+  private static let maximumLoadedMessageBodyTextByteCount = 5 * 1_024 * 1_024
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
+  private var loadedMessageBodyTextByteCount = 0
+  private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   var errorMessage: String?
   var isAssigningCategory = false
@@ -5396,7 +5399,7 @@ final class GmailInboxViewModel {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
     let body = try await reader.loadMessageBody(message: message, session: session)
-    loadedMessageBodyTexts[message.id] = body.text
+    retainLoadedMessageBodyText(body.text, for: message.id)
     return body
   }
 
@@ -5418,6 +5421,30 @@ final class GmailInboxViewModel {
     }
   }
 
+  private func retainLoadedMessageBodyText(
+    _ text: String,
+    for messageId: StableProviderMessageIdentity
+  ) {
+    if let replacedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
+      loadedMessageBodyTextByteCount -= replacedText.utf8.count
+      loadedMessageBodyTextOrder.removeAll { $0 == messageId }
+    }
+    let byteCount = text.utf8.count
+    guard byteCount <= Self.maximumLoadedMessageBodyTextByteCount else { return }
+    while loadedMessageBodyTextByteCount + byteCount
+      > Self.maximumLoadedMessageBodyTextByteCount,
+      let evictedMessageId = loadedMessageBodyTextOrder.first
+    {
+      loadedMessageBodyTextOrder.removeFirst()
+      if let evictedText = loadedMessageBodyTexts.removeValue(forKey: evictedMessageId) {
+        loadedMessageBodyTextByteCount -= evictedText.utf8.count
+      }
+    }
+    loadedMessageBodyTexts[messageId] = text
+    loadedMessageBodyTextOrder.append(messageId)
+    loadedMessageBodyTextByteCount += byteCount
+  }
+
   func clear() {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
@@ -5426,6 +5453,8 @@ final class GmailInboxViewModel {
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    loadedMessageBodyTextByteCount = 0
+    loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]
     threads = []
     searchQuery = ""

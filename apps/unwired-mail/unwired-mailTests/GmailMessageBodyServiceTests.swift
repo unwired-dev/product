@@ -1210,6 +1210,42 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
   }
 
+  func testReadResolvesDispositionlessCIDSiblingFromEnclosingMixedScope() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                  {"mimeType": "text/plain", "body": {"data": "UmVjZWlwdA=="}},
+                  {
+                    "mimeType": "text/html",
+                    "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                  }
+                ]
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<mixed@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
+  }
+
   func testReadPrefersNearestRelatedScopeForDuplicateCID() async throws {
     let innerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
     let outerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])

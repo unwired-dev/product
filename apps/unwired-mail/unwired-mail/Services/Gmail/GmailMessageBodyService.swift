@@ -1919,10 +1919,14 @@ private struct GmailMessageBodyPart: Decodable {
       if mimeType == "multipart/related" || mimeType == "multipart/mixed" {
         var siblingImageScope: [String: GmailMessageBodyPart] = [:]
         for siblingIndex in parts.indices where siblingIndex != index {
-          guard mimeType == "multipart/related" || parts[siblingIndex].hasInlineDisposition else {
+          let sibling = parts[siblingIndex]
+          guard
+            mimeType == "multipart/related" || sibling.hasInlineDisposition
+              || (!sibling.hasFilename && !sibling.hasAttachmentDisposition)
+          else {
             continue
           }
-          for (contentID, imagePart) in parts[siblingIndex].inlineImagePartsByContentID
+          for (contentID, imagePart) in sibling.inlineImagePartsByContentID
           where siblingImageScope[contentID] == nil {
             siblingImageScope[contentID] = imagePart
           }

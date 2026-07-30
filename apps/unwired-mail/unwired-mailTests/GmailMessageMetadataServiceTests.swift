@@ -2932,6 +2932,46 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelBoundsOpenedBodyTextRetainedForForwarding() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let retainedText = String(repeating: "x", count: 3 * 1_024 * 1_024)
+    let reader = ImmediateMailboxMessageReader(
+      bodyTexts: [
+        firstMessage.id: retainedText,
+        secondMessage.id: retainedText,
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    _ = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    let evictedBodyText = try await viewModel.loadMessageBodyText(firstMessage, using: reader)
+    let retainedBodyText = try await viewModel.loadMessageBodyText(secondMessage, using: reader)
+
+    XCTAssertEqual(evictedBodyText, "Provider body text")
+    XCTAssertEqual(retainedBodyText, retainedText)
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
     let providerMessage = metadata(
       messageId: "message-001",
@@ -5945,6 +5985,42 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
   func releaseLoad() async {
     await loadGate.release()
   }
+}
+
+private final class ImmediateMailboxMessageReader: MailboxMessageReading {
+  private let bodyTexts: [StableProviderMessageIdentity: String]
+  private(set) var loadBodyTextCallCount = 0
+
+  init(bodyTexts: [StableProviderMessageIdentity: String]) {
+    self.bodyTexts = bodyTexts
+  }
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func loadMessageBody(
+    message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageBody {
+    MailboxMessageBody(text: bodyTexts[message.id] ?? "")
+  }
+
+  func loadMessageBodyText(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    loadBodyTextCallCount += 1
+    return "Provider body text"
+  }
+
+  func removeCachedMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
 }
 
 private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisting {
