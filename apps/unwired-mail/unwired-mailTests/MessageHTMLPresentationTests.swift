@@ -309,6 +309,20 @@ extension MessageHTMLPresentationTests {
 }
 
 extension MessageHTMLPresentationTests {
+  func testSanitizerRejectsContentOnlyReadableThroughNonRenderingUnicode() throws {
+    for text in ["&zwnj;", "&#847;"] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          """
+          <div>\(text)</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        ),
+        "Expected \(text) content to be unreadable"
+      )
+    }
+  }
+
   func testSanitizerRejectsNegativeValuesAnywhereInMarginShorthand() throws {
     for style in ["margin: 0 -9999px", "margin: 0 0 -9999px", "margin: 0 0 0 -9999px"] {
       XCTAssertNil(

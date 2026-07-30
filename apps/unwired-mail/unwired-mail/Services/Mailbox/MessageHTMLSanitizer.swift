@@ -36,9 +36,15 @@ enum MessageHTMLSanitizer {
         try element.remove()
       }
     }
-    let readableText = try readableDocument.text()
-      .trimmingCharacters(in: .whitespacesAndNewlines)
-    guard !readableText.isEmpty else { return nil }
+    let ignoredReadableScalars =
+      CharacterSet.whitespacesAndNewlines
+      .union(.controlCharacters)
+      .union(.nonBaseCharacters)
+    let hasReadableText = try readableDocument.text().unicodeScalars.contains { scalar in
+      !ignoredReadableScalars.contains(scalar)
+        && scalar.properties.generalCategory != .format
+    }
+    guard hasReadableText else { return nil }
 
     return SanitizedMessageHTML(documentHTML: document(bodyHTML: bodyHTML))
   }
