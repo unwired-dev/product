@@ -217,6 +217,7 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
     mailbox: MailEngineMailboxIdentity,
     rawMessage: Data
   )
+  case stateChangingOperationQuiesced(connectionID: String)
   case submitted(connectionID: String)
   case submissionEnvelopeAccepted(connectionID: String, envelope: MailEngineEnvelope)
   case submissionStarted(connectionID: String)
@@ -249,8 +250,9 @@ extension MailEngineQualificationEvent {
       .connectionSetupQuiesced, .copyReceived, .idleCancelled, .idleEventDelivered,
       .idleLateCallbackAttempted, .idleStarted, .metadataPageRequested,
       .movePreservedUnrelatedDeletedUIDs, .moveReceived, .moveRemovedSourceUIDs, .sentAppend,
-      .sentAppendReceived, .submissionContentAccepted, .submissionEnvelopeAccepted,
-      .submissionReceived, .submissionStarted, .submissionTransportTerminated, .submitted:
+      .sentAppendReceived, .stateChangingOperationQuiesced, .submissionContentAccepted,
+      .submissionEnvelopeAccepted, .submissionReceived, .submissionStarted,
+      .submissionTransportTerminated, .submitted:
       false
     }
   }
@@ -685,6 +687,7 @@ struct MailEngineQualificationContract {
     let mixedSources = [
       [first, messageIdentity(connectionID, archive, 5, 44)],
       [first, messageIdentity(connectionID, inbox, 5, 45)],
+      [first, messageIdentity("foreign-connection", inbox, 5, 44)],
     ]
     for messages in mixedSources {
       do {
@@ -704,7 +707,7 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(
       mutationEvents,
       [],
-      "Mixed mailbox or UIDVALIDITY batches must be rejected before COPY or MOVE reaches IMAP."
+      "Mixed account, mailbox, or UIDVALIDITY batches must be rejected before COPY or MOVE reaches IMAP."
     )
   }
 
@@ -974,13 +977,31 @@ struct MailEngineQualificationContract {
       for: message
     )
     XCTAssertEqual(parts.map(\.data), [Data("INBOX-99-9-1.TEXT".utf8)])
-    _ = try await session.copy(
+    let copy = try await session.copy(
       messages: [message],
       to: archive
     )
-    _ = try await session.move(
+    let move = try await session.move(
       messages: [message],
       to: archive
+    )
+    assertResetUIDMapping(copy, message: message, archive: archive)
+    assertResetUIDMapping(move, message: message, archive: archive)
+  }
+
+  private func assertResetUIDMapping(
+    _ mapping: MailEngineUIDMapping,
+    message: MailEngineMessageIdentity,
+    archive: MailEngineMailboxIdentity
+  ) {
+    XCTAssertEqual(mapping.sourceMailbox, message.mailbox)
+    XCTAssertEqual(mapping.sourceUIDValidity, message.uidValidity)
+    XCTAssertEqual(mapping.destinationMailbox, archive)
+    XCTAssertTrue((1...4_294_967_295).contains(mapping.destinationUIDValidity))
+    XCTAssertEqual(mapping.pairs.map(\.sourceUID), [message.uid])
+    XCTAssertEqual(mapping.pairs.count, 1)
+    XCTAssertTrue(
+      mapping.pairs.allSatisfy { (1...4_294_967_295).contains($0.destinationUID) }
     )
   }
 
@@ -3449,8 +3470,9 @@ struct MailEngineQualificationContract {
       connectionID: "connection-two",
       failureMessage: "Cancelling one IDLE must not close the other account's transport."
     )
-    await assertTaskStillPending(
+    await assertIdleStillActive(
       secondTask,
+      connectionID: "connection-two",
       failureMessage: "Cancelling the first IDLE must leave the second IDLE active."
     )
   }
@@ -3484,6 +3506,11 @@ struct MailEngineQualificationContract {
     callbacks: LockedBox<[MailEngineIdleEvent]>
   ) async throws {
     let callbacksBeforeCancellation = callbacks.value
+    await assertIdleStillActive(
+      task,
+      connectionID: "connection-two",
+      failureMessage: "The peer IDLE must remain active until its explicit cancellation."
+    )
     await assertIdleCancellation(
       task,
       failureMessage: "Cancelling the second IDLE must report cancellation."
@@ -3827,8 +3854,8 @@ struct MailEngineQualificationContract {
     )
     try await verifyPreservedPeerSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await session.close()
-    await peer.close()
+    _ = await assertCloseCompletes(session, connectionID: connectionID)
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyTransmittedMoveCancellation() async throws {
@@ -3861,8 +3888,8 @@ struct MailEngineQualificationContract {
     )
     try await verifyPreservedPeerSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await session.close()
-    await peer.close()
+    _ = await assertCloseCompletes(session, connectionID: connectionID)
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func verifyTransmittedSentAppendCancellation() async throws {
@@ -3895,8 +3922,8 @@ struct MailEngineQualificationContract {
     )
     try await verifyPreservedPeerSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
-    await session.close()
-    await peer.close()
+    _ = await assertCloseCompletes(session, connectionID: connectionID)
+    _ = await assertCloseCompletes(peer, connectionID: peerConnectionID)
   }
 
   private func assertFirstSessionSurvivesSecondBodyFetchCancellation(
@@ -4036,17 +4063,32 @@ struct MailEngineQualificationContract {
     }
   }
 
-  private func assertTaskStillPending<Success>(
-    _ task: Task<Success, Error>,
+  private func assertIdleStillActive(
+    _ task: Task<Void, Error>,
+    connectionID: String,
     failureMessage: String
   ) async {
-    let completion = LockedBox<Result<Success, Error>?>(nil)
+    let completion = LockedBox<Result<Void, Error>?>(nil)
     let completionObserver = Task {
       let result = await task.result
       completion.withValue { $0 = result }
     }
-    try? await Task.sleep(for: .milliseconds(50))
+    await Task.yield()
     XCTAssertNil(completion.value, failureMessage)
+    let events = await factory.events()
+    XCTAssertTrue(
+      events.contains {
+        if case .idleStarted(let eventConnectionID, _) = $0 {
+          return eventConnectionID == connectionID
+        }
+        return false
+      },
+      failureMessage
+    )
+    XCTAssertFalse(
+      events.contains(.idleCancelled(connectionID: connectionID)),
+      failureMessage
+    )
     completionObserver.cancel()
   }
 
@@ -4180,7 +4222,7 @@ struct MailEngineQualificationContract {
       )
       let submissionEvents = Array(
         (await factory.events()).dropFirst(eventCountBeforeSubmission)
-      ).filter { $0.belongs(to: "connection-a", service: .smtp) }
+      )
       if previousStage.map(smtpStageRequiresReauthentication) == true {
         XCTAssertTrue(
           submissionEvents.starts(with: [
@@ -4437,9 +4479,7 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .tlsVersionUnsupported)
     }
-    let reuseEvents = Array((await factory.events()).dropFirst(eventCountBeforeReuse)).filter {
-      $0.belongs(to: connectionID, service: .smtp)
-    }
+    let reuseEvents = Array((await factory.events()).dropFirst(eventCountBeforeReuse))
     XCTAssertEqual(
       reuseEvents,
       [.serviceClosed(connectionID: connectionID, service: .smtp)],
@@ -4924,17 +4964,19 @@ struct MailEngineQualificationContract {
       oauthSession: oauthSession,
       passwordSession: passwordSession
     )
-    await oauthSession.close()
-    await passwordSession.close()
+    _ = await assertCloseCompletes(oauthSession, connectionID: "privacy-oauth")
+    _ = await assertCloseCompletes(passwordSession, connectionID: "privacy-password")
 
     await assertCandidateOutputContainsNoQualificationSecrets()
   }
 
+  // swiftlint:disable:next function_body_length
   private func exercisePrivateAuthenticationPaths(
     logger: any MailEngineLogging
   ) async throws {
     for service in [MailEngineService.imap, .smtp] {
       let fixture = MailEngineQualificationFixture.xoauth2Challenge(service: service)
+      let connectionID = "privacy-challenge-\(service)"
       let session = try await factory.makeEngine(fixture: fixture).connect(
         configuration: configuration(
           fixture: fixture,
@@ -4942,11 +4984,11 @@ struct MailEngineQualificationContract {
             username: "private-challenge@example.com",
             accessToken: "private-challenge-token"
           ),
-          connectionID: "privacy-challenge-\(service)"
+          connectionID: connectionID
         ),
         logger: logger
       ).session
-      await session.close()
+      _ = await assertCloseCompletes(session, connectionID: connectionID)
     }
 
     let rejectedAuthorizations = [
@@ -4974,7 +5016,10 @@ struct MailEngineQualificationContract {
             ),
             logger: logger
           ).session
-          await session.close()
+          _ = await assertCloseCompletes(
+            session,
+            connectionID: "privacy-rejection-\(service)-\(index)"
+          )
           XCTFail("The private authentication-rejection fixture must reject the connection.")
         } catch {
           XCTAssertEqual(error as? MailEngineError, .authenticationRejected)
@@ -5684,6 +5729,14 @@ struct MailEngineQualificationContract {
     connectionID: String,
     expectsServiceTeardown: Bool = true
   ) async {
+    do {
+      try await waitForInFlightStateChangingOperation {
+        $0 == .stateChangingOperationQuiesced(connectionID: connectionID)
+      }
+    } catch {
+      XCTFail("Timed out waiting for \(connectionID) mutation cancellation to quiesce.")
+      return
+    }
     let events = await factory.events()
     let stateChangingEvents = events.filter {
       switch $0 {
@@ -7363,8 +7416,10 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         try await Task.sleep(for: .milliseconds(10))
       }
     } catch is CancellationError {
+      await state.record(.stateChangingOperationQuiesced(connectionID: connectionID))
       throw MailEngineError.operationOutcomeUnknown
     }
+    await state.record(.stateChangingOperationQuiesced(connectionID: connectionID))
     throw MailEngineError.operationOutcomeUnknown
   }
 
