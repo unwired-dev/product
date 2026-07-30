@@ -3076,6 +3076,40 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelDiscardsOpenedBodyTextForClearedConnection() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    viewModel.discardLoadedMessageBodies(connectionId: message.id.connectionId)
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Text-only body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
     let providerMessage = metadata(
       messageId: "message-001",

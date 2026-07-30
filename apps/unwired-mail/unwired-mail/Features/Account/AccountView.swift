@@ -1211,6 +1211,9 @@ struct AccountView: View {
           } else {
             try messageReader.clearCachedMessageBodies(session: snapshot)
           }
+          inboxViewModel.discardLoadedMessageBodies(
+            connectionId: selectedConnection?.id
+          )
         }
       )
     } detail: {
@@ -4052,7 +4055,16 @@ struct MailShellMessageBody: View {
   var body: some View {
     Group {
       if let loadedContent {
-        MailShellMessageContent(loadedContent: loadedContent)
+        MailShellMessageContent(
+          loadedContent: loadedContent,
+          onRenderingFailure: {
+            self.loadedContent = MailShellLoadedMessageContent(
+              fallbackText: loadedContent.fallbackText,
+              presentation: .plainText(loadedContent.fallbackText)
+            )
+            onRelease()
+          }
+        )
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
@@ -4117,19 +4129,16 @@ private struct MailShellLoadedMessageContent {
 
 private struct MailShellMessageContent: View {
   let loadedContent: MailShellLoadedMessageContent
+  let onRenderingFailure: () -> Void
   @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
-  @State private var renderingFailed = false
 
   var body: some View {
-    switch renderingFailed
-      ? MessageHTMLPresentation.plainText(loadedContent.fallbackText)
-      : loadedContent.presentation
-    {
+    switch loadedContent.presentation {
     case .html(let html):
       MessageHTMLView(
         html: html,
-        onRenderingFailure: { renderingFailed = true }
+        onRenderingFailure: onRenderingFailure
       )
     case .plainText(let text):
       Text(text)
@@ -5476,6 +5485,16 @@ final class GmailInboxViewModel {
       loadedMessageBodyTextOrder.removeAll { $0 == messageId }
     }
     unavailableLoadedMessageBodyTextIds.insert(messageId)
+  }
+
+  func discardLoadedMessageBodies(connectionId: MailboxConnectionId?) {
+    let messageIds = Set(loadedMessageBodyTexts.keys)
+      .union(loadedInlineImagePixelCounts.keys)
+      .filter { connectionId == nil || $0.connectionId == connectionId }
+    for messageId in messageIds {
+      discardLoadedMessageBodyText(for: messageId)
+      discardLoadedMessageBodyPresentation(for: messageId)
+    }
   }
 
   func discardLoadedMessageBodyPresentation(

@@ -746,7 +746,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       <div style="display: none"><img src="cid:hidden@example.com"></div>
       <img hidden src="cid:hidden-attribute@example.com">
       <img style="visibility: hidden" src="cid:hidden-visibility@example.com">
-      <div style="opacity: 0 !important"><img src="cid:hidden-opacity@example.com"></div>
+      <div style="opacity: 0% !important"><img src="cid:hidden-opacity@example.com"></div>
       """
     let fixture = try makeFixture(
       attachmentResponses: [
@@ -953,7 +953,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                 "mimeType": "image/png",
                 "headers": [
                   {"name": "Content-ID", "value": "<attached@example.com>"},
-                  {"name": "Content-Disposition", "value": "attachment (generated);"}
+                  {"name": "Content-Disposition", "value": "(generated) \\r\\n attachment;"}
                 ],
                 "body": {"attachmentId": "attached-image", "size": \(imageData.count)}
               }

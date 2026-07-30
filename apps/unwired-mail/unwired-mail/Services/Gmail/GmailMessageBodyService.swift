@@ -2120,7 +2120,33 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
     else {
       return nil
     }
-    let token = value.trimmingCharacters(in: .whitespacesAndNewlines).prefix {
+    var remainder = value[...]
+    while true {
+      remainder = remainder.drop(while: \.isWhitespace)
+      guard remainder.first == "(" else { break }
+      var depth = 0
+      var isEscaped = false
+      var closingIndex: Substring.Index?
+      for index in remainder.indices {
+        let character = remainder[index]
+        if isEscaped {
+          isEscaped = false
+        } else if character == "\\" {
+          isEscaped = true
+        } else if character == "(" {
+          depth += 1
+        } else if character == ")" {
+          depth -= 1
+          if depth == 0 {
+            closingIndex = index
+            break
+          }
+        }
+      }
+      guard let closingIndex else { return nil }
+      remainder = remainder[remainder.index(after: closingIndex)...]
+    }
+    let token = remainder.prefix {
       !$0.isWhitespace && $0 != "(" && $0 != ";"
     }
     return token.isEmpty ? nil : String(token)
