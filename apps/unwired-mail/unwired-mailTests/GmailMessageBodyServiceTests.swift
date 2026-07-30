@@ -250,6 +250,32 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testPrefetchAcceptsHeaderlessTopLevelTextBody() async throws {
+    let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let prefetchedMessage = prefetchMessage(
+      id: "message-001",
+      internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
+      labels: ["INBOX"]
+    )
+    let fixture = try makeFixture(
+      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      prefetchMetadataResponse:
+        #"{"id":"message-001","payload":{"mimeType":"text/plain","headers":[]}}"#
+    )
+
+    try await fixture.service.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [],
+      referenceDate: referenceDate,
+      session: session
+    )
+
+    XCTAssertEqual(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text,
+      "Private trip details"
+    )
+  }
+
   func testPrefetchRecordsTopLevelAttachmentExclusionWithoutRetrying() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -916,6 +942,117 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.inlineImages.map(\.data), [selectedImageData])
+  }
+
+  func testReadResolvesCIDFromEnclosingRelatedScope() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = #"<p>Receipt</p><img src="cid:related@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                  {"mimeType": "text/plain", "body": {"data": "UmVjZWlwdA=="}},
+                  {
+                    "mimeType": "text/html",
+                    "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                  }
+                ]
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<related@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["related@example.com"])
+  }
+
+  func testReadBoundsFailedInlineImageFetchAttempts() async throws {
+    let contentIDs = (0..<21).map { "malformed-\($0)@example.com" }
+    let html = contentIDs.map { #"<img src="cid:\#($0)">"# }.joined()
+    let imageParts = contentIDs.enumerated().map { index, contentID in
+      """
+      {
+        "mimeType": "image/png",
+        "headers": [{"name": "Content-ID", "value": "<\(contentID)>"}],
+        "body": {"attachmentId": "image-\(index)", "size": 9}
+      }
+      """
+    }.joined(separator: ",")
+    let attachmentResponses = Dictionary(
+      uniqueKeysWithValues: (0..<21).map { ("image-\($0)", #"{"data":"bm90LWEtcG5n"}"#) }
+    )
+    let fixture = try makeFixture(
+      attachmentResponses: attachmentResponses,
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              \(imageParts)
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages, [])
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }.filter {
+        $0.contains("/attachments/")
+      }.count,
+      20
+    )
+  }
+
+  func testReadMatchesPercentEscapedCIDToLiteralContentIDHeader() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = #"<img src="cid:logo%2541@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<logo%41@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["logo%41@example.com"])
   }
 
   func testPrefetchDoesNotRetrieveInlineImagesButExplicitOpenDoes() async throws {

@@ -1448,6 +1448,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     accessToken: String
   ) async throws -> [MailboxMessageInlineImage] {
     var decodedByteCount = 0
+    var attemptedImageCount = 0
     var images: [MailboxMessageInlineImage] = []
     for contentID in referencedContentIDs {
       try Task.checkCancellation()
@@ -1456,17 +1457,18 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       }
       guard let part = partsByContentID[contentID],
         let mimeType = GmailInlineImagePolicy.normalizedSupportedMIMEType(part.mimeType),
-        let body = part.body
+        let body = part.body,
+        GmailInlineImagePolicy.canAttempt(
+          body,
+          remainingByteCount: GmailInlineImagePolicy.maximumTotalByteCount - decodedByteCount
+        )
       else {
         continue
       }
-      if body.attachmentId != nil {
-        guard let size = body.size, size <= GmailInlineImagePolicy.maximumImageByteCount else {
-          continue
-        }
-      } else if body.size.map({ $0 > GmailInlineImagePolicy.maximumImageByteCount }) == true {
+      guard attemptedImageCount < GmailInlineImagePolicy.maximumImageAttemptCount else {
         continue
       }
+      attemptedImageCount += 1
       do {
         let encodedData = try await encodedBodyData(
           bodyPart: part,
@@ -1772,13 +1774,18 @@ struct GmailMessageBodyCachePayload: Codable {
     guard let text = payload.text else {
       throw GmailMessageBodyError.missingMessageBody
     }
-    let didResolveInlineImages =
-      payload.html.flatMap {
-        try? MessageHTMLSanitizer.sanitize($0)
-      }.map {
-        MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
-      }
-      ?? true
+    let didResolveInlineImages: Bool
+    if let html = payload.html,
+      html.range(of: "cid:", options: .caseInsensitive) != nil
+    {
+      didResolveInlineImages =
+        (try? MessageHTMLSanitizer.sanitize(html)).map {
+          MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
+        }
+        ?? true
+    } else {
+      didResolveInlineImages = true
+    }
     return .body(
       GmailMessageBody(
         text: text,
@@ -1807,20 +1814,17 @@ private struct GmailMessageBodyPart: Decodable {
 
   var isSafeForBodyPrefetch: Bool {
     guard !isAttachment else { return false }
-    guard let contentType = topLevelContentType else { return false }
+    guard
+      let contentType = topLevelContentType
+        ?? mimeType?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    else { return false }
     return contentType == "text/html" || contentType == "text/plain"
   }
 
   var readableBodyPartCandidates: [GmailReadableMessageBodyCandidate] {
-    let alternatives = readableMultipartAlternativeParts
+    let alternatives = readableMultipartAlternativeCandidates(inlineImageScope: nil)
     if !alternatives.isEmpty {
-      return alternatives.map {
-        GmailReadableMessageBodyCandidate(
-          plainText: $0.readablePlainTextPart,
-          html: $0.readableHTMLPart,
-          inlineImagePartsByContentID: $0.preferredHTMLInlineImageParts
-        )
-      }
+      return alternatives
     }
     let candidate = readableBodyParts
     return candidate.plainText != nil || candidate.html != nil
@@ -1877,16 +1881,28 @@ private struct GmailMessageBodyPart: Decodable {
     preferredNonEmptyHTMLPart ?? preferredHTMLPart
   }
 
-  private var readableMultipartAlternativeParts: [GmailMessageBodyPart] {
+  private func readableMultipartAlternativeCandidates(
+    inlineImageScope: [String: GmailMessageBodyPart]?
+  ) -> [GmailReadableMessageBodyCandidate] {
     guard !isAttachment else {
       return []
     }
+    let imageScope =
+      mimeType == "multipart/related" ? inlineImagePartsByContentID : inlineImageScope
     if mimeType == "multipart/alternative",
       preferredNonEmptyPlainTextPart != nil || preferredNonEmptyHTMLPart != nil
     {
-      return [self]
+      return [
+        GmailReadableMessageBodyCandidate(
+          plainText: readablePlainTextPart,
+          html: readableHTMLPart,
+          inlineImagePartsByContentID: imageScope ?? preferredHTMLInlineImageParts
+        )
+      ]
     }
-    return parts?.flatMap(\.readableMultipartAlternativeParts) ?? []
+    return parts?.flatMap {
+      $0.readableMultipartAlternativeCandidates(inlineImageScope: imageScope)
+    } ?? []
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
@@ -2021,8 +2037,19 @@ private struct GmailMessageBodyAttachment: Decodable {
 
 private enum GmailInlineImagePolicy {
   static let maximumImageByteCount = 5 * 1_024 * 1_024
+  static let maximumImageAttemptCount = 20
   static let maximumImageCount = 20
   static let maximumTotalByteCount = 20 * 1_024 * 1_024
+
+  static func canAttempt(
+    _ body: GmailMessageBodyData,
+    remainingByteCount: Int
+  ) -> Bool {
+    guard let size = body.size else {
+      return body.attachmentId == nil
+    }
+    return size <= maximumImageByteCount && size <= remainingByteCount
+  }
 
   static func normalizedSupportedMIMEType(_ mimeType: String?) -> String? {
     guard let mimeType else { return nil }

@@ -68,8 +68,8 @@ enum MessageHTMLSanitizer {
     }
   }
 
-  static func normalizedContentID(_ value: String) -> String? {
-    let decoded = value.removingPercentEncoding ?? value
+  static func normalizedContentID(_ value: String, decodesPercentEscapes: Bool = false) -> String? {
+    let decoded = decodesPercentEscapes ? (value.removingPercentEncoding ?? value) : value
     var normalized = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
     if normalized.lowercased().hasPrefix("cid:") {
       normalized.removeFirst(4)
@@ -93,7 +93,7 @@ enum MessageHTMLSanitizer {
     return imageElements.compactMap { element in
       guard let source = try? element.attr("src"),
         source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("cid:"),
-        let contentID = normalizedContentID(source),
+        let contentID = normalizedContentID(source, decodesPercentEscapes: true),
         seenContentIDs.insert(contentID).inserted
       else {
         return nil
@@ -208,7 +208,10 @@ enum MessageHTMLInlineImageResolver {
     for element in imageElements {
       guard
         let source = try? element.attr("src"),
-        let contentID = MessageHTMLSanitizer.normalizedContentID(source),
+        let contentID = MessageHTMLSanitizer.normalizedContentID(
+          source,
+          decodesPercentEscapes: true
+        ),
         let image = imagesByContentID[contentID]
       else {
         _ = try? element.removeAttr("src")
