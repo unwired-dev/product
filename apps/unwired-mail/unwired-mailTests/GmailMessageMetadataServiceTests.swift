@@ -1909,6 +1909,36 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessPublishesBackfillAfterProvisionalExternalStatusEnds() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      completesBackfill: false
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    for phase in [MailboxSyncPhase.syncing, .idle] {
+      fixture.viewModel.recordExternalSync(
+        connectionIdRawValue: connection.id.rawValue,
+        phase: phase,
+        successfulSyncAt: nil,
+        supersedesHistoricalBackfill: false
+      )
+    }
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+  }
+
+  @MainActor
   func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)

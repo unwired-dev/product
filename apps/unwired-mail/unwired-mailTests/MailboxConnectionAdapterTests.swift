@@ -3600,6 +3600,34 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testGmailAdapterRechecksCancellationAfterHistoricalBackfillReturns() async throws {
+    let eventLog = RecordingAdapterEventLog()
+    let metadataService = RecordingAdapterMetadataService(eventLog: eventLog)
+    metadataService.cancelsAfterHistoricalBackfill = true
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore())
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+
+    do {
+      _ = try await adapter.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected cancellation after the historical page returned")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+
+    XCTAssertTrue(eventLog.events.isEmpty)
+  }
+
   func testGmailAdapterStaleRecentSyncDoesNotPreemptHistoricalBackfill() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(
@@ -7023,6 +7051,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   private let historicalBackfillGate: AdapterLifecycleOperationGate?
   private let loadGate: AdapterLifecycleOperationGate?
   private let syncPriorityProbe: AdapterSyncPriorityProbe?
+  var cancelsAfterHistoricalBackfill = false
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
@@ -7093,6 +7122,9 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   ) async throws -> GmailMetadataSyncResult {
     try await syncPriorityProbe?.suspendBackfill()
     await historicalBackfillGate?.waitForRelease()
+    if cancelsAfterHistoricalBackfill {
+      withUnsafeCurrentTask { $0?.cancel() }
+    }
     return inboxSyncResult
   }
 

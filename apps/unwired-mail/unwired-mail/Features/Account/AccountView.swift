@@ -18,6 +18,7 @@ enum MailboxSyncNotificationUserInfoKey {
   static let productAccountId = "productAccountId"
   static let reloadObservedMetadata = "reloadObservedMetadata"
   static let successfulSyncAt = "successfulSyncAt"
+  static let supersedesHistoricalBackfill = "supersedesHistoricalBackfill"
 }
 
 @MainActor
@@ -337,14 +338,17 @@ final class MailboxFreshnessViewModel {
   func recordExternalSync(
     connectionIdRawValue: String,
     phase: MailboxSyncPhase,
-    successfulSyncAt: Date?
+    successfulSyncAt: Date?,
+    supersedesHistoricalBackfill: Bool = true
   ) {
     guard
       let connection = knownConnections.values.first(where: {
         $0.id.rawValue == connectionIdRawValue
       })
     else { return }
-    externalSyncRevisions[connection.id, default: 0] += 1
+    if supersedesHistoricalBackfill {
+      externalSyncRevisions[connection.id, default: 0] += 1
+    }
     let currentStatus = status(for: connection)
     if let successfulSyncAt {
       successStore.save(
@@ -1424,7 +1428,12 @@ struct AccountView: View {
       mailboxFreshnessViewModel.recordExternalSync(
         connectionIdRawValue: connectionId,
         phase: phase,
-        successfulSyncAt: successfulSyncAt
+        successfulSyncAt: successfulSyncAt,
+        supersedesHistoricalBackfill:
+          notification.userInfo?[
+            MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+          ] as? Bool
+          ?? true
       )
       let reloadObservedMetadata =
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]

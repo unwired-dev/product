@@ -2346,6 +2346,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
+      try Task.checkCancellation()
       if result.historicalMetadataBackfillIsComplete {
         let observedMessages = try await metadataService.loadMailbox(
           .allObserved,
