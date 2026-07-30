@@ -76,6 +76,9 @@ enum MailEngineQualificationFixture: Sendable {
   case idleDisconnectThenRecover(maximumReconnectTLSVersion: MailEngineTLSVersion?)
   case idleUntilCancelled
   case inFlightOperationsUntilClosed
+  case invalidMetadataMessageUIDValidity
+  case invalidMetadataPageUIDValidity
+  case invalidMetadataUID(uid: Int64)
   case malformedCopyUIDMapping
   case mismatchedUIDMappingCardinality
   case malformedMoveUIDMapping
@@ -89,6 +92,7 @@ enum MailEngineQualificationFixture: Sendable {
   case invalidSourceUIDMapping(uid: Int64)
   case invalidUIDValidityMapping(uidValidity: Int64)
   case reducedCapabilityMove(hasMove: Bool, hasUIDPlus: Bool)
+  case reducedCapabilityMoveMalformedCopyUID
   case repeatedSourceUIDMapping
   case sentAppendOutcomeUnknown
   case sentAppendFailsOnce
@@ -165,6 +169,7 @@ enum MailEngineQualificationEvent: Equatable, Sendable {
     envelope: MailEngineEnvelope,
     rawMessage: Data
   )
+  case submissionTransportTerminated(connectionID: String)
   case tlsEstablished(
     connectionID: String,
     service: MailEngineService,
@@ -187,7 +192,7 @@ extension MailEngineQualificationEvent {
       .idleCancelled, .idleEventDelivered, .idleStarted, .metadataPageRequested,
       .movePreservedUnrelatedDeletedUIDs, .moveReceived, .moveRemovedSourceUIDs, .sentAppend,
       .sentAppendReceived, .submissionContentAccepted, .submissionReceived, .submissionStarted,
-      .submitted:
+      .submissionTransportTerminated, .submitted:
       false
     }
   }
@@ -1355,6 +1360,34 @@ struct MailEngineQualificationContract {
         archive: archive
       )
     }
+    try await verifyMalformedReducedCapabilityCopyUID(inbox: inbox, archive: archive)
+  }
+
+  private func verifyMalformedReducedCapabilityCopyUID(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
+    let connectionID = "copy-delete-malformed-copyuid"
+    let session = try await connect(
+      fixture: .reducedCapabilityMoveMalformedCopyUID,
+      connectionID: connectionID
+    ).session
+    do {
+      _ = try await session.move(
+        sourceUIDs: [9],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("The UIDPLUS fallback must reject malformed COPYUID before source removal.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
+    }
+    let events = await factory.events()
+    XCTAssertFalse(
+      events.contains(.moveRemovedSourceUIDs(connectionID: connectionID, uids: [9])),
+      "Malformed COPYUID must not remove the source message."
+    )
   }
 
   private func verifyReducedCapabilityMoveProfile(
@@ -1544,6 +1577,33 @@ struct MailEngineQualificationContract {
       messages: Array(firstPage.messages.prefix(2)),
       selectors: requestedParts
     )
+    try await verifyInvalidMetadataIdentifiers(mailbox: inbox)
+  }
+
+  private func verifyInvalidMetadataIdentifiers(
+    mailbox: MailEngineMailboxIdentity
+  ) async throws {
+    for invalidUID in [Int64(0), 4_294_967_296] {
+      let session = try await connect(fixture: .invalidMetadataUID(uid: invalidUID)).session
+      do {
+        _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
+        XCTFail("Metadata UID \(invalidUID) must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
+      }
+    }
+    for fixture in [
+      MailEngineQualificationFixture.invalidMetadataPageUIDValidity,
+      .invalidMetadataMessageUIDValidity,
+    ] {
+      let session = try await connect(fixture: fixture).session
+      do {
+        _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
+        XCTFail("Invalid metadata UIDVALIDITY must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+      }
+    }
   }
 
   private func assertBodyParts(
@@ -1955,16 +2015,17 @@ struct MailEngineQualificationContract {
     second: any MailEngineSession,
     inbox: MailEngineMailboxIdentity
   ) async throws {
-    let firstPage = try await first.loadMetadataPage(
+    async let firstPageResult = first.loadMetadataPage(
       mailbox: inbox,
       beforeUID: nil,
       limit: 1
     )
-    let secondPage = try await second.loadMetadataPage(
+    async let secondPageResult = second.loadMetadataPage(
       mailbox: inbox,
       beforeUID: nil,
       limit: 1
     )
+    let (firstPage, secondPage) = try await (firstPageResult, secondPageResult)
     XCTAssertEqual(firstPage.messages.map(\.identity.uid), [19])
     XCTAssertEqual(secondPage.messages.map(\.identity.uid), [29])
     let requests = await factory.events().filter { event in
@@ -1973,23 +2034,21 @@ struct MailEngineQualificationContract {
       }
       return false
     }
-    XCTAssertEqual(
+    assertExactlyOnce(
       requests,
-      [
+      events:
         .metadataPageRequested(
           connectionID: "connection-one",
           mailbox: inbox,
           beforeUID: nil,
           limit: 1
         ),
-        .metadataPageRequested(
-          connectionID: "connection-two",
-          mailbox: inbox,
-          beforeUID: nil,
-          limit: 1
-        ),
-      ],
-      "Each metadata request must reach only its owning account transport."
+      .metadataPageRequested(
+        connectionID: "connection-two",
+        mailbox: inbox,
+        beforeUID: nil,
+        limit: 1
+      )
     )
   }
 
@@ -2475,6 +2534,7 @@ struct MailEngineQualificationContract {
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
     submissionTask.cancel()
     await assertPreContentSMTPCancellation(submissionTask)
+    try await Task.sleep(for: .milliseconds(50))
     let contentEvents = await factory.events().filter {
       if case .submissionReceived(
         connectionID: cancelledConnectionID,
@@ -2486,6 +2546,11 @@ struct MailEngineQualificationContract {
       return false
     }
     XCTAssertEqual(contentEvents, [])
+    let events = await factory.events()
+    XCTAssertTrue(
+      events.contains(.submissionTransportTerminated(connectionID: cancelledConnectionID)),
+      "Cancellation must terminate the owning SMTP transport."
+    )
     try await assertSMTPSessionRemainsUsable(
       cancelledSession,
       connectionID: cancelledConnectionID
@@ -2635,11 +2700,12 @@ struct MailEngineQualificationContract {
 
   private func assertSMTPSessionRemainsUsable(
     _ session: any MailEngineSession,
-    connectionID: String
+    connectionID: String,
+    preservationReason: String = "Cancelling an SMTP submission must preserve connected sessions."
   ) async throws {
     await assertNoServiceClose(
       connectionID: connectionID,
-      failureMessage: "Cancelling an SMTP submission must preserve connected session transports."
+      failureMessage: preservationReason
     )
     let envelope = MailEngineEnvelope(
       recipients: ["peer-recipient@example.com"],
@@ -2914,7 +2980,7 @@ struct MailEngineQualificationContract {
       Data("Subject: private append message\r\n\r\nprivate append body".utf8),
     ]
     var inspectedOutput = candidateOutput
-    inspectedOutput.append(decodedBase64Records(in: candidateOutput))
+    inspectedOutput.append(recursivelyDecodedBase64Records(in: candidateOutput))
     for secret in secrets.map({ Data($0.utf8) }) + authenticationExchanges + messagePayloads {
       XCTAssertFalse(
         inspectedOutput.range(of: secret) != nil,
@@ -2933,6 +2999,20 @@ struct MailEngineQualificationContract {
     var fieldPrefixedPassword = Data("payload=".utf8)
     fieldPrefixedPassword.append(password.base64EncodedData())
     XCTAssertNotNil(decodedBase64Records(in: fieldPrefixedPassword).range(of: password))
+    let nestedPassword = password.base64EncodedData().base64EncodedData()
+    XCTAssertNotNil(recursivelyDecodedBase64Records(in: nestedPassword).range(of: password))
+  }
+
+  private func recursivelyDecodedBase64Records(in output: Data) -> Data {
+    var decodedLayers = Data()
+    var currentLayer = output
+    for _ in 0..<8 {
+      let decodedLayer = decodedBase64Records(in: currentLayer)
+      guard !decodedLayer.isEmpty else { break }
+      decodedLayers.append(decodedLayer)
+      currentLayer = decodedLayer
+    }
+    return decodedLayers
   }
 
   private func decodedBase64Records(in output: Data) -> Data {
@@ -3017,7 +3097,7 @@ struct MailEngineQualificationContract {
     await assertInFlightOperationClosed(submissionTask)
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     await assertNoSubmissionContentAccepted(connectionID: "connection-a")
-    try await assertSessionRemainsUsable(preservedSession, connectionID: "connection-b")
+    try await verifyPreservedPeerSession(preservedSession)
     let eventsBeforeClosedOperations = await factory.events()
     await assertClosedOperations(session)
     try? await Task.sleep(for: .milliseconds(50))
@@ -3031,6 +3111,15 @@ struct MailEngineQualificationContract {
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
     assertServiceTeardownEvents(events)
     await preservedSession.close()
+  }
+
+  private func verifyPreservedPeerSession(_ session: any MailEngineSession) async throws {
+    try await assertSessionRemainsUsable(session, connectionID: "connection-b")
+    try await assertSMTPSessionRemainsUsable(
+      session,
+      connectionID: "connection-b",
+      preservationReason: "Closing one session must preserve the peer SMTP transport."
+    )
   }
 
   private func assertNoIdleCallbacks(
@@ -3414,6 +3503,15 @@ private actor ScriptedMailEngineState {
     }
   }
 
+  func waitForOverlappingMetadataStarts(timeout: Duration) async throws {
+    try await waitForEvents(2, timeout: timeout) {
+      if case .metadataPageRequested(let connectionID, _, _, _) = $0 {
+        return connectionID == "connection-one" || connectionID == "connection-two"
+      }
+      return false
+    }
+  }
+
   func waitForSubmissionContentStarts(
     _ count: Int,
     connectionID: String,
@@ -3516,6 +3614,8 @@ private struct ScriptedMailEngine: MailEngine {
       negotiatedVersion = maximumTLSVersion
     } else if case .reducedCapabilityMove = fixture {
       negotiatedVersion = .tls12
+    } else if case .reducedCapabilityMoveMalformedCopyUID = fixture {
+      negotiatedVersion = .tls12
     } else {
       negotiatedVersion = .tls13
     }
@@ -3604,6 +3704,8 @@ private struct ScriptedMailEngine: MailEngine {
       if hasUIDPlus {
         capabilities.insert(.uidPlus)
       }
+    } else if case .reducedCapabilityMoveMalformedCopyUID = fixture {
+      capabilities = [.idle, .specialUse, .uidPlus]
     } else {
       capabilities = [.idle, .move, .specialUse, .uidPlus]
     }
@@ -3883,11 +3985,37 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         limit: limit
       )
     )
-    let availableUIDs = metadataUIDs().filter { uid in
+    if connectionID == "connection-one" || connectionID == "connection-two" {
+      try await state.waitForOverlappingMetadataStarts(timeout: .seconds(2))
+    }
+    let page = makeMetadataPage(mailbox: mailbox, beforeUID: beforeUID, limit: limit)
+    try validateMetadataPage(page)
+    return page
+  }
+
+  private func makeMetadataPage(
+    mailbox: MailEngineMailboxIdentity,
+    beforeUID: Int64?,
+    limit: Int
+  ) -> MailEngineMetadataPage {
+    let rawUIDs = if case .invalidMetadataUID(let uid) = fixture { [uid] } else { metadataUIDs() }
+    let availableUIDs = rawUIDs.filter { uid in
       beforeUID.map { uid < $0 } ?? true
     }
     let selectedUIDs = Array(availableUIDs.prefix(limit))
     let hasMore = availableUIDs.count > selectedUIDs.count
+    let pageUIDValidity =
+      if case .invalidMetadataPageUIDValidity = fixture {
+        Int64(0)
+      } else {
+        uidValidity(for: mailbox)
+      }
+    let messageUIDValidity =
+      if case .invalidMetadataMessageUIDValidity = fixture {
+        Int64(4_294_967_296)
+      } else {
+        pageUIDValidity
+      }
     return MailEngineMetadataPage(
       messages: selectedUIDs.map {
         MailEngineMessageMetadata(
@@ -3895,15 +4023,28 @@ private actor ScriptedMailEngineSession: MailEngineSession {
           identity: MailEngineMessageIdentity(
             mailbox: mailbox,
             uid: $0,
-            uidValidity: uidValidity(for: mailbox)
+            uidValidity: messageUIDValidity
           ),
           internalDate: Date(timeIntervalSince1970: TimeInterval($0)),
           rfcMessageID: "<\($0)@example.com>"
         )
       },
       nextOlderUID: hasMore ? selectedUIDs.last : nil,
-      uidValidity: uidValidity(for: mailbox)
+      uidValidity: pageUIDValidity
     )
+  }
+
+  private func validateMetadataPage(_ page: MailEngineMetadataPage) throws {
+    guard (1...4_294_967_295).contains(page.uidValidity),
+      page.messages.allSatisfy({
+        (1...4_294_967_295).contains($0.identity.uidValidity)
+      })
+    else {
+      throw MailEngineUIDMappingError.invalidSourceUIDValidity
+    }
+    guard page.messages.allSatisfy({ (1...4_294_967_295).contains($0.identity.uid) }) else {
+      throw MailEngineUIDMappingError.invalidUID
+    }
   }
 
   func move(
@@ -3931,6 +4072,18 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .overlappingUIDMutations = fixture {
       try await state.waitForMutationStarts(2, timeout: .seconds(2))
     }
+    let mapping = try validatedMoveMapping(
+      sourceUIDs: sourceUIDs,
+      sourceUIDValidity: sourceUIDValidity,
+      sourceMailbox: sourceMailbox,
+      destinationMailbox: destinationMailbox
+    )
+    await recordReducedCapabilityRemoval(sourceUIDs: sourceUIDs)
+    try throwConfiguredMoveFailure()
+    return mapping
+  }
+
+  private func recordReducedCapabilityRemoval(sourceUIDs: [Int64]) async {
     if case .reducedCapabilityMove = fixture {
       if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: true) = fixture {
         await state.record(
@@ -3941,6 +4094,14 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
       )
     }
+    if case .reducedCapabilityMoveMalformedCopyUID = fixture {
+      await state.record(
+        .moveRemovedSourceUIDs(connectionID: connectionID, uids: sourceUIDs)
+      )
+    }
+  }
+
+  private func throwConfiguredMoveFailure() throws {
     if case .moveOutcomeUnknown = fixture {
       throw MailEngineError.operationOutcomeUnknown
     }
@@ -3950,13 +4111,20 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .moveRetryablyRejected = fixture {
       throw MailEngineError.protocolRejected(code: "TRYAGAIN", retryable: true)
     }
-    let reported = reportedMoveUIDMapping(sourceUIDs: sourceUIDs)
-    return try MailEngineUIDMapping.validated(
+  }
+
+  private func validatedMoveMapping(
+    sourceUIDs: [Int64],
+    sourceUIDValidity: Int64,
+    sourceMailbox: MailEngineMailboxIdentity,
+    destinationMailbox: MailEngineMailboxIdentity
+  ) throws -> MailEngineUIDMapping {
+    try MailEngineUIDMapping.validated(
       sourceMailbox: sourceMailbox,
       sourceUIDValidity: sourceUIDValidity,
       destinationMailbox: destinationMailbox,
       requestedSourceUIDs: sourceUIDs,
-      reported: reported
+      reported: reportedMoveUIDMapping(sourceUIDs: sourceUIDs)
     )
   }
 
@@ -3967,6 +4135,16 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     destinationMailbox: MailEngineMailboxIdentity
   ) async {
     if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: true) = fixture {
+      await state.record(
+        .copyReceived(
+          connectionID: connectionID,
+          sourceUIDs: sourceUIDs,
+          sourceUIDValidity: sourceUIDValidity,
+          sourceMailbox: sourceMailbox,
+          destinationMailbox: destinationMailbox
+        )
+      )
+    } else if case .reducedCapabilityMoveMalformedCopyUID = fixture {
       await state.record(
         .copyReceived(
           connectionID: connectionID,
@@ -3992,6 +4170,13 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func reportedMoveUIDMapping(
     sourceUIDs: [Int64]
   ) -> MailEngineReportedUIDMapping {
+    if case .reducedCapabilityMoveMalformedCopyUID = fixture {
+      return MailEngineReportedUIDMapping(
+        destinationUIDValidity: 92,
+        destinationUIDs: [],
+        sourceUIDs: []
+      )
+    }
     if case .malformedMoveUIDMapping = fixture {
       return MailEngineReportedUIDMapping(
         destinationUIDValidity: 92,
@@ -4006,6 +4191,26 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         sourceUIDs: [4, 4]
       )
     }
+    if let invalidMapping = reportedInvalidMoveUIDMapping(sourceUIDs: sourceUIDs) {
+      return invalidMapping
+    }
+    if case .mismatchedUIDMappingCardinality = fixture {
+      return MailEngineReportedUIDMapping(
+        destinationUIDValidity: 92,
+        destinationUIDs: [204],
+        sourceUIDs: sourceUIDs
+      )
+    }
+    return MailEngineReportedUIDMapping(
+      destinationUIDValidity: 92,
+      destinationUIDs: sourceUIDs.map { $0 + 200 },
+      sourceUIDs: sourceUIDs
+    )
+  }
+
+  private func reportedInvalidMoveUIDMapping(
+    sourceUIDs: [Int64]
+  ) -> MailEngineReportedUIDMapping? {
     if case .invalidDestinationUIDMapping(let uid) = fixture {
       return MailEngineReportedUIDMapping(
         destinationUIDValidity: 92,
@@ -4027,18 +4232,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         sourceUIDs: sourceUIDs
       )
     }
-    if case .mismatchedUIDMappingCardinality = fixture {
-      return MailEngineReportedUIDMapping(
-        destinationUIDValidity: 92,
-        destinationUIDs: [204],
-        sourceUIDs: sourceUIDs
-      )
-    }
-    return MailEngineReportedUIDMapping(
-      destinationUIDValidity: 92,
-      destinationUIDs: sourceUIDs.map { $0 + 200 },
-      sourceUIDs: sourceUIDs
-    )
+    return nil
   }
 
   func submit(
@@ -4104,6 +4298,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
           try await Task.sleep(for: .milliseconds(10))
         }
       } catch is CancellationError {
+        await state.record(.submissionTransportTerminated(connectionID: connectionID))
         throw MailEngineError.cancelled
       }
     }
