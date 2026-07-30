@@ -190,12 +190,26 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+    let sceneManifest =
+      Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
+
+    XCTAssertEqual(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
+  }
+
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
-    XCTAssertEqual(SettingsDestinationRegistry.implementedDestinations, [.emailAccounts])
-    XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts])
+    XCTAssertEqual(
+      SettingsDestinationRegistry.implementedDestinations,
+      [.emailAccounts, .appearance]
+    )
+    XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts, .application])
     XCTAssertEqual(
       SettingsDestinationRegistry.destinations(in: .accounts),
       [.emailAccounts]
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.destinations(in: .application),
+      [.appearance]
     )
   }
 
@@ -219,6 +233,34 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         "Microsoft 365",
         "On-Premises Exchange",
         "Other Mail Server",
+      ]
+    )
+  }
+
+  func testAppearanceMetadataDrivesSignedOutNavigationAndSearch() {
+    let destination = SettingsDestination.appearance
+
+    XCTAssertEqual(destination.group, .application)
+    XCTAssertEqual(destination.title, "Appearance")
+    XCTAssertEqual(destination.systemImage, "paintbrush")
+    XCTAssertEqual(destination.route, SettingsRoute(destination: .appearance))
+    XCTAssertTrue(destination.isAvailableWhenSignedOut)
+    XCTAssertEqual(
+      destination.searchItems.map(\.title),
+      ["Theme", "Reading Text Size", "Message Body", "Increased Contrast"]
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "serif", isSignedIn: false)
+        .map(\.route),
+      [.appearance(.messageBody)]
+    )
+    XCTAssertEqual(
+      destination.searchItems.map(\.route),
+      [
+        .appearance(.theme),
+        .appearance(.readingTextSize),
+        .appearance(.messageBody),
+        .appearance(.increasedContrast),
       ]
     )
   }
@@ -327,7 +369,10 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       ),
       .authorization(connectionId: connectionId)
     )
-    XCTAssertEqual(SettingsDestinationRegistry.implementedDestinations, [.emailAccounts])
+    XCTAssertEqual(
+      SettingsDestinationRegistry.implementedDestinations,
+      [.emailAccounts, .appearance]
+    )
   }
 
   func testUnsavedChangesRequireConfirmationBeforeChangingContext() {
@@ -502,15 +547,23 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
   func testSignedInSettingsDefaultsToEmailAccounts() {
     XCTAssertEqual(SettingsDestinationRegistry.defaultDestination(isSignedIn: true), .emailAccounts)
-    XCTAssertNil(SettingsDestinationRegistry.defaultDestination(isSignedIn: false))
+    XCTAssertEqual(
+      SettingsDestinationRegistry.defaultDestination(isSignedIn: false),
+      .appearance
+    )
   }
 
   func testSignedOutSettingsHideUnavailableDestinations() {
-    XCTAssertTrue(
-      SettingsDestinationRegistry.implementedGroups(isSignedIn: false).isEmpty
+    XCTAssertEqual(
+      SettingsDestinationRegistry.implementedGroups(isSignedIn: false),
+      [.application]
     )
     XCTAssertTrue(
       SettingsDestinationRegistry.destinations(in: .accounts, isSignedIn: false).isEmpty
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false),
+      [.appearance]
     )
   }
 
@@ -565,12 +618,79 @@ final class SettingsDestinationRegistryTests: XCTestCase {
       ),
       .emailAccounts
     )
-    XCTAssertNil(
+    XCTAssertEqual(
       SettingsDestinationRegistry.resolveDestination(
         storedRawValue: SettingsDestination.emailAccounts.rawValue,
         isSignedIn: false
-      )
+      ),
+      .appearance
     )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.resolveDestination(
+        storedRawValue: SettingsDestination.appearance.rawValue,
+        isSignedIn: false
+      ),
+      .appearance
+    )
+  }
+}
+
+final class AppearancePreferencesTests: XCTestCase {
+  @MainActor
+  func testDefaultsAreDeviceLocalSystemAppearanceValues() {
+    withIsolatedDefaults { defaults in
+      let preferences = AppearancePreferences(defaults: defaults)
+
+      XCTAssertEqual(preferences.theme, .system)
+      XCTAssertEqual(preferences.readingTextSize, .standard)
+      XCTAssertEqual(preferences.messageBodyTypeface, .senderFormatting)
+      XCTAssertFalse(preferences.increasedContrast)
+    }
+  }
+
+  @MainActor
+  func testChangesPersistWithoutNetworkOrAccountState() {
+    withIsolatedDefaults { defaults in
+      let preferences = AppearancePreferences(defaults: defaults)
+      preferences.theme = .dark
+      preferences.readingTextSize = .large
+      preferences.messageBodyTypeface = .systemSerif
+      preferences.increasedContrast = true
+
+      let reloaded = AppearancePreferences(defaults: defaults)
+
+      XCTAssertEqual(reloaded.theme, .dark)
+      XCTAssertEqual(reloaded.readingTextSize, .large)
+      XCTAssertEqual(reloaded.messageBodyTypeface, .systemSerif)
+      XCTAssertTrue(reloaded.increasedContrast)
+    }
+  }
+
+  @MainActor
+  func testInvalidStoredValuesFallBackIndependently() {
+    withIsolatedDefaults { defaults in
+      defaults.set("invalid", forKey: AppearancePreferences.StorageKey.theme.rawValue)
+      defaults.set("invalid", forKey: AppearancePreferences.StorageKey.readingTextSize.rawValue)
+      defaults.set("invalid", forKey: AppearancePreferences.StorageKey.messageBodyTypeface.rawValue)
+      defaults.set(true, forKey: AppearancePreferences.StorageKey.increasedContrast.rawValue)
+
+      let preferences = AppearancePreferences(defaults: defaults)
+
+      XCTAssertEqual(preferences.theme, .system)
+      XCTAssertEqual(preferences.readingTextSize, .standard)
+      XCTAssertEqual(preferences.messageBodyTypeface, .senderFormatting)
+      XCTAssertTrue(preferences.increasedContrast)
+    }
+  }
+
+  @MainActor
+  private func withIsolatedDefaults(_ body: (UserDefaults) -> Void) {
+    let suiteName = "AppearancePreferencesTests.\(UUID().uuidString)"
+    guard let defaults = UserDefaults(suiteName: suiteName) else {
+      return XCTFail("Expected isolated UserDefaults suite")
+    }
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    body(defaults)
   }
 }
 
