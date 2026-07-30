@@ -1504,6 +1504,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
           MailboxMessageInlineImage(
             contentID: contentID,
             data: decodedImage.data,
+            decodedPixelCount: decodedImage.pixelCount,
             mimeType: mimeType
           )
         )
@@ -2104,25 +2105,25 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
   }
 
   private var hasAttachmentDisposition: Bool {
-    return headers?.contains {
-      guard $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame else {
-        return false
-      }
-      let disposition = $0.value.split(separator: ";", maxSplits: 1).first?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      return disposition?.caseInsensitiveCompare("attachment") == .orderedSame
-    } == true
+    contentDispositionToken?.caseInsensitiveCompare("attachment") == .orderedSame
   }
 
   private var hasInlineDisposition: Bool {
-    return headers?.contains {
-      guard $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame else {
-        return false
-      }
-      let disposition = $0.value.split(separator: ";", maxSplits: 1).first?
-        .trimmingCharacters(in: .whitespacesAndNewlines)
-      return disposition?.caseInsensitiveCompare("inline") == .orderedSame
-    } == true
+    contentDispositionToken?.caseInsensitiveCompare("inline") == .orderedSame
+  }
+
+  private var contentDispositionToken: String? {
+    guard
+      let value = headers?.first(where: {
+        $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
+      })?.value
+    else {
+      return nil
+    }
+    let token = value.trimmingCharacters(in: .whitespacesAndNewlines).prefix {
+      !$0.isWhitespace && $0 != "(" && $0 != ";"
+    }
+    return token.isEmpty ? nil : String(token)
   }
 
   private var contentID: String? {

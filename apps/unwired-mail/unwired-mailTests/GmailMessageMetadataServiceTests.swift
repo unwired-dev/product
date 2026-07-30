@@ -2974,6 +2974,74 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelBoundsInlineImagePixelsAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let maximumImagePixelCount = 16 * 1_024 * 1_024
+    let firstBody = MailboxMessageBody(
+      text: "First",
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "first@example.com",
+          data: Data([1]),
+          decodedPixelCount: maximumImagePixelCount,
+          mimeType: "image/png"
+        ),
+        MailboxMessageInlineImage(
+          contentID: "second@example.com",
+          data: Data([2]),
+          decodedPixelCount: maximumImagePixelCount,
+          mimeType: "image/png"
+        ),
+      ]
+    )
+    let secondBody = MailboxMessageBody(
+      text: "Second",
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "third@example.com",
+          data: Data([3]),
+          decodedPixelCount: 1,
+          mimeType: "image/png"
+        )
+      ]
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: firstBody,
+        secondMessage.id: secondBody,
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.count, 2)
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["third@example.com"])
+  }
+
+  @MainActor
   func testInboxViewModelDiscardsOpenedBodyTextWhenCachedBodyIsRemoved() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let reader = DelayedMailboxMessageReader()
@@ -6030,11 +6098,15 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
 }
 
 private final class ImmediateMailboxMessageReader: MailboxMessageReading {
-  private let bodyTexts: [StableProviderMessageIdentity: String]
+  private let bodies: [StableProviderMessageIdentity: MailboxMessageBody]
   private(set) var loadBodyTextCallCount = 0
 
   init(bodyTexts: [StableProviderMessageIdentity: String]) {
-    self.bodyTexts = bodyTexts
+    bodies = bodyTexts.mapValues { MailboxMessageBody(text: $0) }
+  }
+
+  init(bodies: [StableProviderMessageIdentity: MailboxMessageBody]) {
+    self.bodies = bodies
   }
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
@@ -6048,7 +6120,7 @@ private final class ImmediateMailboxMessageReader: MailboxMessageReading {
     message: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody {
-    MailboxMessageBody(text: bodyTexts[message.id] ?? "")
+    bodies[message.id] ?? MailboxMessageBody(text: "")
   }
 
   func loadMessageBodyText(

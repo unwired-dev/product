@@ -643,6 +643,7 @@ struct HistoricalCategorizationScope: Equatable, Sendable {
 struct MailboxMessageInlineImage: Equatable, Sendable {
   let contentID: String
   let data: Data
+  let decodedPixelCount: Int
   let mimeType: String
 }
 

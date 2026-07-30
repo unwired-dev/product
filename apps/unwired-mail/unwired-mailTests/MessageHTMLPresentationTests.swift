@@ -224,6 +224,7 @@ extension MessageHTMLPresentationTests {
         MailboxMessageInlineImage(
           contentID: " <image-001@example.com> ",
           data: imageData,
+          decodedPixelCount: 1,
           mimeType: "image/png"
         )
       ]
@@ -277,6 +278,7 @@ extension MessageHTMLPresentationTests {
         MailboxMessageInlineImage(
           contentID: "pixel@example.com",
           data: imageData,
+          decodedPixelCount: 1,
           mimeType: "image/png"
         )
       ]

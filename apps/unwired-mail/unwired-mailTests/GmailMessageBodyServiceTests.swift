@@ -305,7 +305,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
             "mimeType": "text/plain",
             "headers": [
               {"name": "Content-Type", "value": "text/plain; charset=UTF-8"},
-              {"name": "Content-Disposition", "value": "attachment"}
+              {"name": "Content-Disposition", "value": "attachment (generated);"}
             ]
           }
         }
@@ -745,12 +745,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       <img src="cid:missing@example.com">
       <div style="display: none"><img src="cid:hidden@example.com"></div>
       <img hidden src="cid:hidden-attribute@example.com">
+      <img style="visibility: hidden" src="cid:hidden-visibility@example.com">
+      <div style="opacity: 0 !important"><img src="cid:hidden-opacity@example.com"></div>
       """
     let fixture = try makeFixture(
       attachmentResponses: [
         "inline-png": #"{"data":"\#(imageData.base64EncodedString())"}"#,
         "hidden": #"{"data":"\#(imageData.base64EncodedString())"}"#,
         "hidden-attribute": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+        "hidden-visibility": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+        "hidden-opacity": #"{"data":"\#(imageData.base64EncodedString())"}"#,
         "unreferenced": #"{"data":"\#(imageData.base64EncodedString())"}"#,
       ],
       messageResponse: """
@@ -801,6 +805,16 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                 "mimeType": "image/png",
                 "headers": [{"name": "Content-ID", "value": "<hidden-attribute@example.com>"}],
                 "body": {"attachmentId": "hidden-attribute", "size": \(imageData.count)}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<hidden-visibility@example.com>"}],
+                "body": {"attachmentId": "hidden-visibility", "size": \(imageData.count)}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<hidden-opacity@example.com>"}],
+                "body": {"attachmentId": "hidden-opacity", "size": \(imageData.count)}
               }
             ]
           }
@@ -816,6 +830,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         MailboxMessageInlineImage(
           contentID: "image-001@example.com",
           data: imageData,
+          decodedPixelCount: 1,
           mimeType: "image/png"
         )
       ]
@@ -917,7 +932,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
-  func testReadDoesNotResolveFilenameOnlyCIDLeafFromMixedFallback() async throws {
+  func testReadDoesNotResolveCommentedAttachmentCIDLeafFromMixedFallback() async throws {
     let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
     let fixture = try makeFixture(
@@ -936,8 +951,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
               },
               {
                 "mimeType": "image/png",
-                "filename": "attached.png",
-                "headers": [{"name": "Content-ID", "value": "<attached@example.com>"}],
+                "headers": [
+                  {"name": "Content-ID", "value": "<attached@example.com>"},
+                  {"name": "Content-Disposition", "value": "attachment (generated);"}
+                ],
                 "body": {"attachmentId": "attached-image", "size": \(imageData.count)}
               }
             ]

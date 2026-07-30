@@ -12,8 +12,15 @@ enum MessageHTMLSanitizer {
   ) throws -> SanitizedMessageHTML? {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
+    let sourceDocument = try SwiftSoup.parseBodyFragment(html)
+    let preCleanHiddenStylePattern =
+      #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
+      + #"opacity\s*:\s*(?:0+(?:\.0*)?|\.0+))"#
+      + #"(?:\s*!important)?\s*(?:;|$)"#
+    try removeElements(matching: preCleanHiddenStylePattern, from: sourceDocument)
+    let sourceHTML = try sourceDocument.body()?.html() ?? ""
     let bodyHTML =
-      try SwiftSoup.clean(html, "", allowlist())
+      try SwiftSoup.clean(sourceHTML, "", allowlist())
       ?? ""
     try cancellationCheck()
     let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
