@@ -1015,6 +1015,65 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.data), [htmlImageData])
   }
 
+  func testReadResolvesDuplicateCIDFromSelectedNestedAlternative() async throws {
+    let plainImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+    let htmlImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/alternative",
+            "parts": [
+              {"mimeType": "text/plain", "body": {"data": "UGxhaW4="}},
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                  {
+                    "mimeType": "multipart/related",
+                    "parts": [
+                      {"mimeType": "text/plain", "body": {"data": "TmVzdGVkIHBsYWlu"}},
+                      {
+                        "mimeType": "image/png",
+                        "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                        "body": {
+                          "data": "\(plainImageData.base64EncodedString())",
+                          "size": \(plainImageData.count)
+                        }
+                      }
+                    ]
+                  },
+                  {
+                    "mimeType": "multipart/related",
+                    "parts": [
+                      {
+                        "mimeType": "text/html",
+                        "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                      },
+                      {
+                        "mimeType": "image/png",
+                        "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                        "body": {
+                          "data": "\(htmlImageData.base64EncodedString())",
+                          "size": \(htmlImageData.count)
+                        }
+                      }
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.data), [htmlImageData])
+  }
+
   func testReadResolvesCIDFromEnclosingRelatedScope() async throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     let html = #"<p>Receipt</p><img src="cid:related@example.com">"#
@@ -1340,6 +1399,36 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertTrue(fixture.cache.didRemove)
     XCTAssertEqual(
       fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+  }
+
+  func testReadPropagatesCancellationInsteadOfReturningCachedUnresolvedHTML() async throws {
+    let fixture = try makeFixture(messageError: CancellationError())
+    fixture.cache.payload = try encryptedCachedBody(
+      GmailMessageBodyCachePayload.encode(
+        GmailMessageBody(
+          text: "Cached receipt",
+          html: #"<p>Cached receipt</p><img src="c&#105;d:logo@example.com">"#
+        )
+      ),
+      versioned: true
+    )
+    XCTAssertFalse(
+      try XCTUnwrap(
+        fixture.service.loadCachedMessageBody(message: message, session: session)
+      ).didResolveInlineImages
+    )
+
+    do {
+      _ = try await fixture.service.loadMessageBody(message: message, session: session)
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+      XCTAssertEqual(
+        try fixture.service.loadCachedMessageBody(message: message, session: session)?.text,
+        "Cached receipt"
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   func testCachedReadRejectsMalformedVersionedPayload() throws {
@@ -2436,6 +2525,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
+    messageError: Error? = nil,
     messageStatusCode: Int = 200,
     prefetchMetadataResponse: String =
       """
@@ -2531,6 +2621,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       XCTAssertEqual(
         request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
       XCTAssertEqual(request.url?.query, "format=full")
+      if let messageError {
+        throw messageError
+      }
       return (
         HTTPURLResponse(
           url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil

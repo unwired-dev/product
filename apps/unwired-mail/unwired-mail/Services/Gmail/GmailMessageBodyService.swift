@@ -953,6 +953,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       }
     }
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
+    try Task.checkCancellation()
 
     do {
       return try await loadFreshMessageBody(
@@ -963,6 +964,14 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
         requiresPrefetchSafeMIME: false
       )
     } catch {
+      let nsError = error as NSError
+      if error is CancellationError
+        || (error as? URLError)?.code == .cancelled
+        || nsError.domain == "Swift.CancellationError"
+      {
+        throw CancellationError()
+      }
+      try Task.checkCancellation()
       if let cachedBody {
         return cachedBody
       }
@@ -1853,10 +1862,13 @@ private struct GmailMessageBodyPart: Decodable {
 
   private var preferredHTMLInlineImageParts: [String: GmailMessageBodyPart] {
     guard let parts else { return [:] }
-    if let part = parts.first(where: { $0.preferredNonEmptyHTMLPart != nil }) {
-      return part.inlineImagePartsByContentID
-    }
-    return parts.first(where: { $0.preferredHTMLPart != nil })?.inlineImagePartsByContentID ?? [:]
+    let selectedPart =
+      parts.first(where: { $0.preferredNonEmptyHTMLPart != nil })
+      ?? parts.first(where: { $0.preferredHTMLPart != nil })
+    guard let selectedPart else { return [:] }
+    return selectedPart.readableMultipartAlternativeCandidates(inlineImageScope: nil)
+      .first(where: { $0.html != nil })?.inlineImagePartsByContentID
+      ?? selectedPart.inlineImagePartsByContentID
   }
 
   private var readableBodyParts:
