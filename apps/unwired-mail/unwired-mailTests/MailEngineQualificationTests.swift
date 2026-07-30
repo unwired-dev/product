@@ -143,6 +143,7 @@ enum MailEngineQualificationFixture: Sendable {
 }
 
 enum ReducedCapabilityMalformedCopyUID: Sendable {
+  case empty
   case invalidDestinationUID(Int64)
   case invalidDestinationUIDValidity(Int64)
   case invalidSourceUID(Int64)
@@ -575,15 +576,21 @@ struct MailEngineQualificationContract {
     let archive = MailEngineMailboxIdentity("Archive")
 
     let copy = try await session.copy(
-      sourceUIDs: [5, 4],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "connection-a",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [5, 4]
+      ),
       to: archive
     )
     let move = try await session.move(
-      sourceUIDs: [9, 8],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "connection-a",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [9, 8]
+      ),
       to: archive
     )
 
@@ -672,9 +679,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await copySession.copy(
-        sourceUIDs: [5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "copy-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [5]
+        ),
         to: archive
       )
       XCTFail("An indeterminate copy outcome must be classified for reconciliation.")
@@ -687,9 +697,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await moveSession.move(
-        sourceUIDs: [5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "move-outcome-unknown",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [5]
+        ),
         to: archive
       )
       XCTFail("An indeterminate move outcome must be classified for reconciliation.")
@@ -860,15 +873,11 @@ struct MailEngineQualificationContract {
     )
     XCTAssertEqual(parts.map(\.data), [Data("INBOX-99-9-1.TEXT".utf8)])
     _ = try await session.copy(
-      sourceUIDs: [message.uid],
-      sourceUIDValidity: message.uidValidity,
-      from: message.mailbox,
+      messages: [message],
       to: archive
     )
     _ = try await session.move(
-      sourceUIDs: [message.uid],
-      sourceUIDValidity: message.uidValidity,
-      from: message.mailbox,
+      messages: [message],
       to: archive
     )
   }
@@ -917,15 +926,11 @@ struct MailEngineQualificationContract {
       for: pageBeforeReset.messages[0].identity
     )
     _ = try await session.copy(
-      sourceUIDs: [pageBeforeReset.messages[0].identity.uid],
-      sourceUIDValidity: pageBeforeReset.uidValidity,
-      from: inbox,
+      messages: [pageBeforeReset.messages[0].identity],
       to: archive
     )
     _ = try await session.move(
-      sourceUIDs: [pageBeforeReset.messages[0].identity.uid],
-      sourceUIDValidity: pageBeforeReset.uidValidity,
-      from: inbox,
+      messages: [pageBeforeReset.messages[0].identity],
       to: archive
     )
   }
@@ -976,9 +981,7 @@ struct MailEngineQualificationContract {
       [Data("Archive-73-9-1.TEXT".utf8)]
     )
     _ = try await session.copy(
-      sourceUIDs: [pageBeforeReset.messages[0].identity.uid],
-      sourceUIDValidity: pageBeforeReset.uidValidity,
-      from: pageBeforeReset.messages[0].identity.mailbox,
+      messages: [pageBeforeReset.messages[0].identity],
       to: inbox
     )
   }
@@ -998,9 +1001,7 @@ struct MailEngineQualificationContract {
     }
     do {
       _ = try await session.copy(
-        sourceUIDs: [message.uid],
-        sourceUIDValidity: message.uidValidity,
-        from: message.mailbox,
+        messages: [message],
         to: archive
       )
       XCTFail("A stale copy input must be rejected.")
@@ -1009,9 +1010,7 @@ struct MailEngineQualificationContract {
     }
     do {
       _ = try await session.move(
-        sourceUIDs: [message.uid],
-        sourceUIDValidity: message.uidValidity,
-        from: message.mailbox,
+        messages: [message],
         to: archive
       )
       XCTFail("A stale move input must be rejected.")
@@ -1033,6 +1032,7 @@ struct MailEngineQualificationContract {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func verifyInvalidUIDMappings(
     inbox: MailEngineMailboxIdentity,
     archive: MailEngineMailboxIdentity
@@ -1059,9 +1059,12 @@ struct MailEngineQualificationContract {
     let malformedMoveCopyEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await malformedMoveSession.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a COPYUID response with repeated destination UIDs.")
@@ -1073,9 +1076,12 @@ struct MailEngineQualificationContract {
     let malformedMoveEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await malformedMoveSession.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a MOVEUID response with repeated destination UIDs.")
@@ -1097,16 +1103,22 @@ struct MailEngineQualificationContract {
       do {
         if operation == "copy" {
           _ = try await session.copy(
-            sourceUIDs: [4],
-            sourceUIDValidity: 44,
-            from: inbox,
+            messages: messageIdentities(
+              connectionID: "connection-a",
+              mailbox: inbox,
+              uidValidity: 44,
+              uids: [4]
+            ),
             to: archive
           )
         } else {
           _ = try await session.move(
-            sourceUIDs: [4],
-            sourceUIDValidity: 44,
-            from: inbox,
+            messages: messageIdentities(
+              connectionID: "connection-a",
+              mailbox: inbox,
+              uidValidity: 44,
+              uids: [4]
+            ),
             to: archive
           )
         }
@@ -1126,9 +1138,12 @@ struct MailEngineQualificationContract {
     let malformedCopyEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await malformedCopySession.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a COPYUID response missing a requested UID.")
@@ -1150,9 +1165,12 @@ struct MailEngineQualificationContract {
     )
     do {
       _ = try await malformedMoveSession.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "mismatched-move-source",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a MOVEUID response missing a requested UID.")
@@ -1177,9 +1195,12 @@ struct MailEngineQualificationContract {
     let copyEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await mismatchedCardinalitySession.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject unequal source and destination UID counts.")
@@ -1194,9 +1215,12 @@ struct MailEngineQualificationContract {
     let moveEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await mismatchedCardinalitySession.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject unequal MOVE source and destination UID counts.")
@@ -1218,9 +1242,12 @@ struct MailEngineQualificationContract {
     let previousCopyEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await session.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a COPYUID response with repeated source UIDs.")
@@ -1232,9 +1259,12 @@ struct MailEngineQualificationContract {
     let previousEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await session.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject a MOVEUID response with repeated source UIDs.")
@@ -1258,9 +1288,12 @@ struct MailEngineQualificationContract {
         let previousEvents = await mutationEvents(connectionID: "connection-a")
         do {
           _ = try await invalidUIDSession.copy(
-            sourceUIDs: [4, 5],
-            sourceUIDValidity: 44,
-            from: inbox,
+            messages: messageIdentities(
+              connectionID: "connection-a",
+              mailbox: inbox,
+              uidValidity: 44,
+              uids: [4, 5]
+            ),
             to: archive
           )
           XCTFail("The candidate must reject UIDs outside the IMAP protocol range.")
@@ -1274,9 +1307,12 @@ struct MailEngineQualificationContract {
         let previousMoveEvents = await mutationEvents(connectionID: "connection-a")
         do {
           _ = try await invalidUIDMoveSession.move(
-            sourceUIDs: [4, 5],
-            sourceUIDValidity: 44,
-            from: inbox,
+            messages: messageIdentities(
+              connectionID: "connection-a",
+              mailbox: inbox,
+              uidValidity: 44,
+              uids: [4, 5]
+            ),
             to: archive
           )
           XCTFail("The candidate must reject MOVE UIDs outside the IMAP protocol range.")
@@ -1319,9 +1355,12 @@ struct MailEngineQualificationContract {
     let previousEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await invalidUIDValiditySession.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject destination UIDVALIDITY outside the IMAP range.")
@@ -1337,9 +1376,12 @@ struct MailEngineQualificationContract {
     let previousMoveEvents = await mutationEvents(connectionID: "connection-a")
     do {
       _ = try await invalidUIDValidityMoveSession.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: "connection-a",
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject MOVE UIDVALIDITY outside the IMAP range.")
@@ -1361,9 +1403,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await invalidSourceSession.copy(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: invalidUIDValidity,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: sourceConnectionID,
+          mailbox: inbox,
+          uidValidity: invalidUIDValidity,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject source UIDVALIDITY outside the IMAP range.")
@@ -1372,9 +1417,12 @@ struct MailEngineQualificationContract {
     }
     do {
       _ = try await invalidSourceSession.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: invalidUIDValidity,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: sourceConnectionID,
+          mailbox: inbox,
+          uidValidity: invalidUIDValidity,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The candidate must reject MOVE source UIDVALIDITY outside the IMAP range.")
@@ -1433,15 +1481,21 @@ struct MailEngineQualificationContract {
       connectionID: "copy-connection-two"
     ).session
     async let firstCopy = firstCopySession.copy(
-      sourceUIDs: [19],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "copy-connection-one",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [19]
+      ),
       to: firstArchive
     )
     async let secondCopy = secondCopySession.copy(
-      sourceUIDs: [29],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "copy-connection-two",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [29]
+      ),
       to: secondArchive
     )
     let copyMappings = try await (firstCopy, secondCopy)
@@ -1463,15 +1517,21 @@ struct MailEngineQualificationContract {
       connectionID: "move-connection-two"
     ).session
     async let firstMove = firstMoveSession.move(
-      sourceUIDs: [19],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "move-connection-one",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [19]
+      ),
       to: firstArchive
     )
     async let secondMove = secondMoveSession.move(
-      sourceUIDs: [29],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: "move-connection-two",
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [29]
+      ),
       to: secondArchive
     )
     let moveMappings = try await (firstMove, secondMove)
@@ -1630,9 +1690,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await copySession.copy(
-        sourceUIDs: [5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: copyConnectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [5]
+        ),
         to: archive
       )
       XCTFail("A permanent COPY rejection must be preserved.")
@@ -1668,9 +1731,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await moveSession.move(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: moveConnectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: archive
       )
       XCTFail("A permanent MOVE rejection must be preserved.")
@@ -1704,9 +1770,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await session.copy(
-        sourceUIDs: [5],
-        sourceUIDValidity: 44,
-        from: MailEngineMailboxIdentity("INBOX"),
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: MailEngineMailboxIdentity("INBOX"),
+          uidValidity: 44,
+          uids: [5]
+        ),
         to: MailEngineMailboxIdentity("Archive")
       )
       XCTFail("A retryable COPY rejection must be preserved.")
@@ -1740,9 +1809,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await session.move(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: MailEngineMailboxIdentity("INBOX"),
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: MailEngineMailboxIdentity("INBOX"),
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: MailEngineMailboxIdentity("Archive")
       )
       XCTFail("A retryable MOVE rejection must be preserved.")
@@ -1802,9 +1874,12 @@ struct MailEngineQualificationContract {
       ).session
       do {
         _ = try await session.move(
-          sourceUIDs: [9],
-          sourceUIDValidity: 44,
-          from: inbox,
+          messages: messageIdentities(
+            connectionID: connectionID,
+            mailbox: inbox,
+            uidValidity: 44,
+            uids: [9]
+          ),
           to: archive
         )
         XCTFail("A rejected fallback COPY must fail without source removal.")
@@ -1866,6 +1941,7 @@ struct MailEngineQualificationContract {
     let invalidUIDs = [Int64(-1), 0, 4_294_967_296]
     return
       [
+        (.empty, .invalidUID),
         (.mismatchedSourceUIDs, .mismatchedSourceUIDs),
         (.repeatedDestinationUID, .repeatedUID),
         (.repeatedSourceUID, .repeatedUID),
@@ -1893,9 +1969,12 @@ struct MailEngineQualificationContract {
     ).session
     do {
       _ = try await session.move(
-        sourceUIDs: [4, 5],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [4, 5]
+        ),
         to: archive
       )
       XCTFail("The UIDPLUS fallback must reject malformed COPYUID before source removal.")
@@ -1977,9 +2056,12 @@ struct MailEngineQualificationContract {
     }
 
     let mapping = try await connection.session.move(
-      sourceUIDs: [9, 8],
-      sourceUIDValidity: 44,
-      from: inbox,
+      messages: messageIdentities(
+        connectionID: connectionID,
+        mailbox: inbox,
+        uidValidity: 44,
+        uids: [9, 8]
+      ),
       to: archive
     )
     assertReducedCapabilityMoveMapping(mapping, inbox: inbox, archive: archive)
@@ -2050,9 +2132,12 @@ struct MailEngineQualificationContract {
   ) async {
     do {
       _ = try await session.move(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: archive
       )
       XCTFail("Move must be unsupported without MOVE or UIDPLUS.")
@@ -2138,6 +2223,7 @@ struct MailEngineQualificationContract {
     try await verifyCrossAccountIdentityRejection(mailbox: inbox)
   }
 
+  // swiftlint:disable:next function_body_length
   private func verifyCrossAccountIdentityRejection(
     mailbox: MailEngineMailboxIdentity
   ) async throws {
@@ -2185,6 +2271,35 @@ struct MailEngineQualificationContract {
       requestsAfter,
       requestsBefore,
       "A cross-account identity must be rejected before reaching IMAP."
+    )
+    let mutationRequestsBefore = await mutationEvents(
+      connectionID: "identity-connection-two"
+    ).count
+    for operation in ["copy", "move"] {
+      do {
+        if operation == "copy" {
+          _ = try await second.copy(
+            messages: [firstMessage],
+            to: MailEngineMailboxIdentity("Archive")
+          )
+        } else {
+          _ = try await second.move(
+            messages: [firstMessage],
+            to: MailEngineMailboxIdentity("Archive")
+          )
+        }
+        XCTFail("A mutation identity from another connection must be rejected.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      }
+    }
+    let mutationRequestsAfter = await mutationEvents(
+      connectionID: "identity-connection-two"
+    ).count
+    XCTAssertEqual(
+      mutationRequestsAfter,
+      mutationRequestsBefore,
+      "A cross-account mutation identity must be rejected before reaching IMAP."
     )
   }
 
@@ -2325,6 +2440,15 @@ struct MailEngineQualificationContract {
       uid: uid,
       uidValidity: uidValidity
     )
+  }
+
+  private func messageIdentities(
+    connectionID: String,
+    mailbox: MailEngineMailboxIdentity,
+    uidValidity: Int64,
+    uids: [Int64]
+  ) -> [MailEngineMessageIdentity] {
+    uids.map { messageIdentity(connectionID, mailbox, $0, uidValidity) }
   }
 
   private func assertMetadataPagination(
@@ -2831,7 +2955,12 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .authenticationRejected)
     }
-    XCTAssertEqual(callbacks.value, [])
+    await assertNoDelayedCallbacks(
+      callbacks,
+      after: [],
+      connectionID: connectionID,
+      failureMessage: "Rejected recovery authentication must not deliver a late callback."
+    )
     return eventCount
   }
 
@@ -2840,6 +2969,10 @@ struct MailEngineQualificationContract {
     connectionID: String,
     expectsXOAUTH2Challenge: Bool
   ) {
+    let events = events.filter {
+      if case .idleLateCallbackAttempted = $0 { return false }
+      return true
+    }
     guard
       case .tlsEstablished(
         connectionID: connectionID,
@@ -3036,6 +3169,7 @@ struct MailEngineQualificationContract {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   private func verifyRejectedIDLERecovery(
     transportMode: MailEngineTransportMode,
     fixture: MailEngineQualificationFixture,
@@ -3082,7 +3216,12 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, expectedError)
     }
-    XCTAssertEqual(callbacks.value, [])
+    await assertNoDelayedCallbacks(
+      callbacks,
+      after: [],
+      connectionID: connectionID,
+      failureMessage: "Rejected recovery transport must not deliver a late callback."
+    )
     let recoveryEvents = await factory.events()
     XCTAssertEqual(
       countIMAPAuthenticationStarts(recoveryEvents, connectionID: connectionID),
@@ -3520,7 +3659,7 @@ struct MailEngineQualificationContract {
       fixture: .successful,
       connectionID: peerConnectionID
     ).session
-    let task = inFlightCopyTask(session)
+    let task = inFlightCopyTask(session, connectionID: connectionID)
     try await waitForInFlightStateChangingOperation {
       if case .copyReceived(let eventConnectionID, _, _, _, _) = $0 {
         return eventConnectionID == connectionID
@@ -3554,7 +3693,7 @@ struct MailEngineQualificationContract {
       fixture: .successful,
       connectionID: peerConnectionID
     ).session
-    let task = inFlightMoveTask(session)
+    let task = inFlightMoveTask(session, connectionID: connectionID)
     try await waitForInFlightStateChangingOperation {
       if case .moveReceived(let eventConnectionID, _, _, _, _) = $0 {
         return eventConnectionID == connectionID
@@ -4292,10 +4431,21 @@ struct MailEngineQualificationContract {
     )
     let rawMessage = Data("Subject: Peer remains active\r\n\r\nBody".utf8)
     let submissionsBefore = await submissionEvents(connectionID: connectionID)
-    let outcome = try await session.submit(
-      envelope: envelope,
-      rawMessage: rawMessage
-    )
+    let submission = Task {
+      try await session.submit(
+        envelope: envelope,
+        rawMessage: rawMessage
+      )
+    }
+    guard
+      let submissionResult = await boundedResult(
+        of: submission,
+        timeoutMessage: "Timed out waiting for follow-up SMTP submission."
+      )
+    else {
+      return
+    }
+    let outcome = try submissionResult.get()
     XCTAssertEqual(outcome, .accepted(serverMessageID: expectedServerMessageID))
     let submissionsAfter = await submissionEvents(connectionID: connectionID)
     XCTAssertEqual(
@@ -5068,26 +5218,34 @@ struct MailEngineQualificationContract {
   }
 
   private func inFlightCopyTask(
-    _ session: any MailEngineSession
+    _ session: any MailEngineSession,
+    connectionID: String
   ) -> Task<MailEngineUIDMapping, Error> {
     Task {
       try await session.copy(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: MailEngineMailboxIdentity("INBOX"),
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: MailEngineMailboxIdentity("INBOX"),
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: MailEngineMailboxIdentity("Archive")
       )
     }
   }
 
   private func inFlightMoveTask(
-    _ session: any MailEngineSession
+    _ session: any MailEngineSession,
+    connectionID: String
   ) -> Task<MailEngineUIDMapping, Error> {
     Task {
       try await session.move(
-        sourceUIDs: [10],
-        sourceUIDValidity: 44,
-        from: MailEngineMailboxIdentity("INBOX"),
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: MailEngineMailboxIdentity("INBOX"),
+          uidValidity: 44,
+          uids: [10]
+        ),
         to: MailEngineMailboxIdentity("Archive")
       )
     }
@@ -5121,7 +5279,7 @@ struct MailEngineQualificationContract {
       fixture: .successful,
       connectionID: peerConnectionID
     ).session
-    let task = inFlightCopyTask(session)
+    let task = inFlightCopyTask(session, connectionID: connectionID)
     try await waitForInFlightStateChangingOperation {
       if case .copyReceived(let eventConnectionID, _, _, _, _) = $0 {
         return eventConnectionID == connectionID
@@ -5153,7 +5311,7 @@ struct MailEngineQualificationContract {
       fixture: .successful,
       connectionID: peerConnectionID
     ).session
-    let task = inFlightMoveTask(session)
+    let task = inFlightMoveTask(session, connectionID: connectionID)
     try await waitForInFlightStateChangingOperation {
       if case .moveReceived(let eventConnectionID, _, _, _, _) = $0 {
         return eventConnectionID == connectionID
@@ -5287,15 +5445,49 @@ struct MailEngineQualificationContract {
     _ session: any MailEngineSession,
     connectionID: String
   ) async throws {
-    _ = try await session.loadMetadataPage(
-      mailbox: MailEngineMailboxIdentity("INBOX"),
-      beforeUID: nil,
-      limit: 1
-    )
+    let metadataLoad = Task {
+      try await session.loadMetadataPage(
+        mailbox: MailEngineMailboxIdentity("INBOX"),
+        beforeUID: nil,
+        limit: 1
+      )
+    }
+    guard
+      let metadataResult = await boundedResult(
+        of: metadataLoad,
+        timeoutMessage: "Timed out waiting for follow-up IMAP metadata."
+      )
+    else {
+      return
+    }
+    _ = try metadataResult.get()
     await assertNoServiceClose(
       connectionID: connectionID,
       failureMessage: "Closing one session must preserve other connected sessions."
     )
+  }
+
+  private func boundedResult<Success: Sendable>(
+    of task: Task<Success, Error>,
+    timeoutMessage: String
+  ) async -> Result<Success, Error>? {
+    let completion = LockedBox<Result<Success, Error>?>(nil)
+    let completionObserver = Task {
+      let result = await task.result
+      completion.withValue { $0 = result }
+    }
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(2))
+    while completion.value == nil, clock.now < deadline {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+    guard let result = completion.value else {
+      task.cancel()
+      completionObserver.cancel()
+      XCTFail(timeoutMessage)
+      return nil
+    }
+    return result
   }
 
   private func assertInFlightOperationClosed(_ task: Task<Void, Error>) async {
@@ -5356,6 +5548,7 @@ struct MailEngineQualificationContract {
     }
   }
 
+  // swiftlint:disable:next function_body_length
   private func assertClosedOperations(
     _ session: any MailEngineSession,
     connectionID: String
@@ -5373,9 +5566,12 @@ struct MailEngineQualificationContract {
     }
     await assertClosedOperation("copy") {
       _ = try await session.copy(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: archive
       )
     }
@@ -5394,9 +5590,12 @@ struct MailEngineQualificationContract {
     }
     await assertClosedOperation("move") {
       _ = try await session.move(
-        sourceUIDs: [9],
-        sourceUIDValidity: 44,
-        from: inbox,
+        messages: messageIdentities(
+          connectionID: connectionID,
+          mailbox: inbox,
+          uidValidity: 44,
+          uids: [9]
+        ),
         to: archive
       )
     }
@@ -6159,6 +6358,12 @@ private struct ScriptedMailEngine: MailEngine {
   }
 }
 
+private struct MailEngineMutationSource {
+  let mailbox: MailEngineMailboxIdentity
+  let uidValidity: Int64
+  let uids: [Int64]
+}
+
 private actor ScriptedMailEngineSession: MailEngineSession {
   let authorization: MailEngineAuthorization
   let connectionID: String
@@ -6270,6 +6475,29 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     }
   }
 
+  private func mutationSource(
+    _ messages: [MailEngineMessageIdentity]
+  ) throws -> MailEngineMutationSource {
+    guard let first = messages.first else {
+      throw MailEngineUIDMappingError.invalidUID
+    }
+    guard messages.allSatisfy({ $0.connectionID == connectionID }) else {
+      throw MailEngineError.staleMessageIdentity
+    }
+    guard
+      messages.allSatisfy({
+        $0.mailbox == first.mailbox && $0.uidValidity == first.uidValidity
+      })
+    else {
+      throw MailEngineError.staleMessageIdentity
+    }
+    return MailEngineMutationSource(
+      mailbox: first.mailbox,
+      uidValidity: first.uidValidity,
+      uids: messages.map(\.uid)
+    )
+  }
+
   func close() async {
     isClosed = true
     await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
@@ -6278,12 +6506,14 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   }
 
   func copy(
-    sourceUIDs: [Int64],
-    sourceUIDValidity: Int64,
-    from sourceMailbox: MailEngineMailboxIdentity,
+    messages: [MailEngineMessageIdentity],
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try await ensureOpen()
+    let source = try mutationSource(messages)
+    let sourceMailbox = source.mailbox
+    let sourceUIDValidity = source.uidValidity
+    let sourceUIDs = source.uids
     guard (1...4_294_967_295).contains(sourceUIDValidity) else {
       throw MailEngineUIDMappingError.invalidSourceUIDValidity
     }
@@ -6512,6 +6742,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
         throw MailEngineError.connectionClosed
       }
+      await state.record(.idleLateCallbackAttempted(connectionID: connectionID))
       await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
       throw MailEngineError.startTLSRejected
     case .idleDisconnectThenRejectRecovery(let error):
@@ -6520,6 +6751,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
         throw MailEngineError.connectionClosed
       }
+      await state.record(.idleLateCallbackAttempted(connectionID: connectionID))
       await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
       throw error
     default:
@@ -6535,6 +6767,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   ) async throws -> Bool {
     try await beginIDLERecovery(mailbox: mailbox)
     if let maximumTLSVersion, maximumTLSVersion < minimumTLSVersion {
+      await state.record(.idleLateCallbackAttempted(connectionID: connectionID))
       await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
       throw MailEngineError.tlsVersionUnsupported
     }
@@ -6566,6 +6799,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     )
     await state.record(.authenticationStarted(connectionID: connectionID, service: .imap))
     try await answerXOAUTH2ChallengeIfRequired(requiresXOAUTH2Challenge)
+    await state.record(.idleLateCallbackAttempted(connectionID: connectionID))
     await state.record(.serviceClosed(connectionID: connectionID, service: .imap))
     throw MailEngineError.authenticationRejected
   }
@@ -6712,12 +6946,14 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   }
 
   func move(
-    sourceUIDs: [Int64],
-    sourceUIDValidity: Int64,
-    from sourceMailbox: MailEngineMailboxIdentity,
+    messages: [MailEngineMessageIdentity],
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
     try await ensureOpen()
+    let source = try mutationSource(messages)
+    let sourceMailbox = source.mailbox
+    let sourceUIDValidity = source.uidValidity
+    let sourceUIDs = source.uids
     if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: false) = fixture {
       throw MailEngineError.operationUnsupported
     }
@@ -6940,6 +7176,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     sourceUIDs: [Int64]
   ) -> MailEngineReportedUIDMapping {
     switch malformed {
+    case .empty:
+      emptyReportedUIDMapping(destinationUIDValidity: 92)
     case .invalidDestinationUID(let uid):
       MailEngineReportedUIDMapping(
         destinationUIDValidity: 92,

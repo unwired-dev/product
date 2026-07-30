@@ -299,9 +299,7 @@ protocol MailEngineSession: Sendable {
   func close() async
 
   func copy(
-    sourceUIDs: [Int64],
-    sourceUIDValidity: Int64,
-    from sourceMailbox: MailEngineMailboxIdentity,
+    messages: [MailEngineMessageIdentity],
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
 
@@ -322,9 +320,7 @@ protocol MailEngineSession: Sendable {
   ) async throws -> MailEngineMetadataPage
 
   func move(
-    sourceUIDs: [Int64],
-    sourceUIDValidity: Int64,
-    from sourceMailbox: MailEngineMailboxIdentity,
+    messages: [MailEngineMessageIdentity],
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping
 
