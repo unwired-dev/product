@@ -62,6 +62,10 @@ protocol MailEngineQualificationCandidateFactory: Sendable {
     connectionID: String,
     timeout: Duration
   ) async throws
+  func waitForClosedSessionQuiescence(
+    connectionID: String,
+    timeout: Duration
+  ) async throws
   func waitForIdleLateCallbackAttempt(
     connectionID: String,
     timeout: Duration
@@ -2080,6 +2084,57 @@ struct MailEngineQualificationContract {
       selectors: requestedParts
     )
     try await verifyInvalidMetadataIdentifiers(mailbox: inbox)
+    try await verifyCrossAccountIdentityRejection(mailbox: inbox)
+  }
+
+  private func verifyCrossAccountIdentityRejection(
+    mailbox: MailEngineMailboxIdentity
+  ) async throws {
+    let first = try await connect(
+      fixture: .successful,
+      connectionID: "identity-connection-one"
+    ).session
+    let second = try await connect(
+      fixture: .successful,
+      connectionID: "identity-connection-two"
+    ).session
+    let firstMessage = try await first.loadMetadataPage(
+      mailbox: mailbox,
+      beforeUID: nil,
+      limit: 1
+    ).messages[0].identity
+    let secondMessage = try await second.loadMetadataPage(
+      mailbox: mailbox,
+      beforeUID: nil,
+      limit: 1
+    ).messages[0].identity
+    XCTAssertNotEqual(firstMessage, secondMessage)
+    let requestsBefore = await factory.events().filter {
+      if case .bodyPartsRequested(connectionID: "identity-connection-two", _, _) = $0 {
+        return true
+      }
+      return false
+    }.count
+    do {
+      _ = try await second.fetchBodyParts(
+        [MailEngineBodyPartSelector("1.TEXT")],
+        for: firstMessage
+      )
+      XCTFail("A message identity from another connection must be rejected.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+    }
+    let requestsAfter = await factory.events().filter {
+      if case .bodyPartsRequested(connectionID: "identity-connection-two", _, _) = $0 {
+        return true
+      }
+      return false
+    }.count
+    XCTAssertEqual(
+      requestsAfter,
+      requestsBefore,
+      "A cross-account identity must be rejected before reaching IMAP."
+    )
   }
 
   private func verifyInvalidMetadataIdentifiers(
@@ -2207,6 +2262,20 @@ struct MailEngineQualificationContract {
     ]
   }
 
+  private func messageIdentity(
+    _ connectionID: String,
+    _ mailbox: MailEngineMailboxIdentity,
+    _ uid: Int64,
+    _ uidValidity: Int64 = 44
+  ) -> MailEngineMessageIdentity {
+    MailEngineMessageIdentity(
+      connectionID: connectionID,
+      mailbox: mailbox,
+      uid: uid,
+      uidValidity: uidValidity
+    )
+  }
+
   private func assertMetadataPagination(
     firstPage: MailEngineMetadataPage,
     historicalPage: MailEngineMetadataPage
@@ -2234,11 +2303,7 @@ struct MailEngineQualificationContract {
         }
       return MailEngineMessageMetadata(
         flags: flags,
-        identity: MailEngineMessageIdentity(
-          mailbox: mailbox,
-          uid: uid,
-          uidValidity: uidValidity
-        ),
+        identity: messageIdentity("connection-a", mailbox, uid, uidValidity),
         internalDate: Date(timeIntervalSince1970: TimeInterval(uid)),
         rfcMessageID: "<\(uid)@example.com>"
       )
@@ -3334,13 +3399,13 @@ struct MailEngineQualificationContract {
     let firstFetchTask = Task {
       try await first.fetchBodyParts(
         [MailEngineBodyPartSelector("1.TEXT")],
-        for: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44)
+        for: messageIdentity("body-fetch-one", inbox, 19)
       )
     }
     let secondFetchTask = Task {
       try await second.fetchBodyParts(
         [MailEngineBodyPartSelector("2.TEXT")],
-        for: MailEngineMessageIdentity(mailbox: inbox, uid: 29, uidValidity: 44)
+        for: messageIdentity("body-fetch-two", inbox, 29)
       )
     }
     try await factory.waitForBodyFetchStarts(2, timeout: .seconds(2))
@@ -3537,11 +3602,11 @@ struct MailEngineQualificationContract {
     let secondSelector = MailEngineBodyPartSelector("2.TEXT")
     async let firstParts = first.fetchBodyParts(
       [firstSelector],
-      for: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44)
+      for: messageIdentity("body-result-one", inbox, 19)
     )
     async let secondParts = second.fetchBodyParts(
       [secondSelector],
-      for: MailEngineMessageIdentity(mailbox: inbox, uid: 29, uidValidity: 44)
+      for: messageIdentity("body-result-two", inbox, 29)
     )
     let (firstResult, secondResult) = try await (firstParts, secondParts)
     XCTAssertEqual(
@@ -3573,12 +3638,12 @@ struct MailEngineQualificationContract {
     }
     let firstRequest = MailEngineQualificationEvent.bodyPartsRequested(
       connectionID: "body-fetch-one",
-      message: MailEngineMessageIdentity(mailbox: inbox, uid: 19, uidValidity: 44),
+      message: messageIdentity("body-fetch-one", inbox, 19),
       selectors: [MailEngineBodyPartSelector("1.TEXT")]
     )
     let secondRequest = MailEngineQualificationEvent.bodyPartsRequested(
       connectionID: "body-fetch-two",
-      message: MailEngineMessageIdentity(mailbox: inbox, uid: 29, uidValidity: 44),
+      message: messageIdentity("body-fetch-two", inbox, 29),
       selectors: [MailEngineBodyPartSelector("2.TEXT")]
     )
     XCTAssertEqual(bodyRequests.count, 2)
@@ -4241,7 +4306,7 @@ struct MailEngineQualificationContract {
     )
     XCTAssertEqual(
       appended,
-      MailEngineMessageIdentity(mailbox: sentMailbox, uid: 11, uidValidity: 45)
+      messageIdentity("connection-a", sentMailbox, 11, 45)
     )
     await assertSentRecoveryEvents(rawMessage: rawMessage, sentMailbox: sentMailbox)
   }
@@ -4307,11 +4372,11 @@ struct MailEngineQualificationContract {
     let identities = try await (firstIdentity, secondIdentity)
     XCTAssertEqual(
       identities.0,
-      MailEngineMessageIdentity(mailbox: firstMailbox, uid: 101, uidValidity: 45)
+      messageIdentity("sent-append-one", firstMailbox, 101, 45)
     )
     XCTAssertEqual(
       identities.1,
-      MailEngineMessageIdentity(mailbox: secondMailbox, uid: 202, uidValidity: 73)
+      messageIdentity("sent-append-two", secondMailbox, 202, 73)
     )
     let events = await factory.events().filter {
       if case .sentAppendReceived(let connectionID, _, _) = $0 {
@@ -4468,7 +4533,7 @@ struct MailEngineQualificationContract {
     let privateMailbox = MailEngineMailboxIdentity("private-mailbox")
     _ = try await oauthSession.fetchBodyParts(
       [MailEngineBodyPartSelector("private-body.TEXT")],
-      for: MailEngineMessageIdentity(mailbox: privateMailbox, uid: 19, uidValidity: 44)
+      for: messageIdentity("privacy-oauth", privateMailbox, 19)
     )
     _ = try await passwordSession.submit(
       envelope: MailEngineEnvelope(
@@ -4485,7 +4550,7 @@ struct MailEngineQualificationContract {
     )
     XCTAssertEqual(
       appendIdentity,
-      MailEngineMessageIdentity(mailbox: sentMailbox, uid: 11, uidValidity: 45)
+      messageIdentity("privacy-oauth", sentMailbox, 11, 45)
     )
     let privacyAppendEvents = await factory.events().filter {
       if case .sentAppendReceived(let connectionID, _, _) = $0 {
@@ -4693,8 +4758,11 @@ struct MailEngineQualificationContract {
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
     let eventsBeforeClosedOperations = await factory.events()
     let contentAfterClose = await submissionContentAcceptedMessages(connectionID: connectionID)
-    await assertClosedOperations(session)
-    try? await Task.sleep(for: .milliseconds(50))
+    await assertClosedOperations(session, connectionID: connectionID)
+    try await factory.waitForClosedSessionQuiescence(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
     let events = await factory.events()
     await assertClosedSessionRemainedQuiescent(
       events,
@@ -4719,7 +4787,7 @@ struct MailEngineQualificationContract {
       fixture: .successful,
       connectionID: peerConnectionID
     ).session
-    let bodyFetchTask = inFlightBodyFetchTask(session)
+    let bodyFetchTask = inFlightBodyFetchTask(session, connectionID: connectionID)
     let submissionTask = inFlightSubmissionTask(session)
     try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
@@ -4732,8 +4800,11 @@ struct MailEngineQualificationContract {
     await assertNoSubmissionContentAccepted(connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
     let eventsBeforeClosedOperations = await factory.events()
-    await assertClosedOperations(session)
-    try? await Task.sleep(for: .milliseconds(50))
+    await assertClosedOperations(session, connectionID: connectionID)
+    try await factory.waitForClosedSessionQuiescence(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
     let events = await factory.events()
     await assertClosedSessionRemainedQuiescent(
       events,
@@ -4779,7 +4850,7 @@ struct MailEngineQualificationContract {
       rawMessage: rawMessage,
       submissionsBefore: submissionsBefore
     )
-    await verifyClosedSMTPContentSession(session, connectionID: connectionID)
+    try await verifyClosedSMTPContentSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(
       preservedSession,
       connectionID: peerConnectionID
@@ -4824,11 +4895,14 @@ struct MailEngineQualificationContract {
   private func verifyClosedSMTPContentSession(
     _ session: any MailEngineSession,
     connectionID: String
-  ) async {
+  ) async throws {
     let eventsBeforeClosedOperations = await factory.events()
     let contentAfterClose = await submissionContentAcceptedMessages(connectionID: connectionID)
-    await assertClosedOperations(session)
-    try? await Task.sleep(for: .milliseconds(50))
+    await assertClosedOperations(session, connectionID: connectionID)
+    try await factory.waitForClosedSessionQuiescence(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
     await assertClosedSessionRemainedQuiescent(
       await factory.events(),
       baselineEvents: eventsBeforeClosedOperations,
@@ -4905,12 +4979,14 @@ struct MailEngineQualificationContract {
   }
 
   private func inFlightBodyFetchTask(
-    _ session: any MailEngineSession
+    _ session: any MailEngineSession,
+    connectionID: String
   ) -> Task<Void, Error> {
     Task {
       _ = try await session.fetchBodyParts(
         [MailEngineBodyPartSelector("1.TEXT")],
         for: MailEngineMessageIdentity(
+          connectionID: connectionID,
           mailbox: MailEngineMailboxIdentity("INBOX"),
           uid: 9,
           uidValidity: 44
@@ -4989,7 +5065,7 @@ struct MailEngineQualificationContract {
     await assertInFlightStateChangingOperationWasNotReplayed(
       connectionID: connectionID
     )
-    await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
+    try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
     await peer.close()
   }
@@ -5021,7 +5097,7 @@ struct MailEngineQualificationContract {
     await assertInFlightStateChangingOperationWasNotReplayed(
       connectionID: connectionID
     )
-    await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
+    try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
     await peer.close()
   }
@@ -5053,7 +5129,7 @@ struct MailEngineQualificationContract {
     await assertInFlightStateChangingOperationWasNotReplayed(
       connectionID: connectionID
     )
-    await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
+    try await assertClosedStateChangingOperationSession(session, connectionID: connectionID)
     try await verifyPreservedPeerSession(peer, connectionID: peerConnectionID)
     await peer.close()
   }
@@ -5061,11 +5137,14 @@ struct MailEngineQualificationContract {
   private func assertClosedStateChangingOperationSession(
     _ session: any MailEngineSession,
     connectionID: String
-  ) async {
+  ) async throws {
     let eventsBeforeClosedOperations = await factory.events()
     let contentAfterClose = await submissionContentAcceptedMessages(connectionID: connectionID)
-    await assertClosedOperations(session)
-    try? await Task.sleep(for: .milliseconds(50))
+    await assertClosedOperations(session, connectionID: connectionID)
+    try await factory.waitForClosedSessionQuiescence(
+      connectionID: connectionID,
+      timeout: .seconds(2)
+    )
     await assertClosedSessionRemainedQuiescent(
       await factory.events(),
       baselineEvents: eventsBeforeClosedOperations,
@@ -5205,10 +5284,18 @@ struct MailEngineQualificationContract {
     }
   }
 
-  private func assertClosedOperations(_ session: any MailEngineSession) async {
+  private func assertClosedOperations(
+    _ session: any MailEngineSession,
+    connectionID: String
+  ) async {
     let inbox = MailEngineMailboxIdentity("INBOX")
     let archive = MailEngineMailboxIdentity("Archive")
-    let message = MailEngineMessageIdentity(mailbox: inbox, uid: 9, uidValidity: 44)
+    let message = MailEngineMessageIdentity(
+      connectionID: connectionID,
+      mailbox: inbox,
+      uid: 9,
+      uidValidity: 44
+    )
     await assertClosedOperation("appendToSent") {
       _ = try await session.appendToSent(Data("message".utf8), mailbox: archive)
     }
@@ -5505,6 +5592,16 @@ private final class ScriptedMailEngineQualificationFactory:
     )
   }
 
+  func waitForClosedSessionQuiescence(
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
+    try await state.waitForClosedSessionQuiescence(
+      connectionID: connectionID,
+      timeout: timeout
+    )
+  }
+
   func waitForIdleLateCallbackAttempt(
     connectionID: String,
     timeout: Duration
@@ -5560,6 +5657,7 @@ private final class ScriptedMailEngineQualificationFactory:
 private actor ScriptedMailEngineState {
   private(set) var events: [MailEngineQualificationEvent] = []
   private(set) var candidateLogOutput = Data()
+  private var closedOperationRejections: [String: Int] = [:]
 
   func record(_ event: MailEngineQualificationEvent) {
     events.append(event)
@@ -5567,6 +5665,10 @@ private actor ScriptedMailEngineState {
 
   func recordCandidateLogOutput(_ output: Data) {
     candidateLogOutput.append(output)
+  }
+
+  func recordClosedOperationRejection(connectionID: String) {
+    closedOperationRejections[connectionID, default: 0] += 1
   }
 
   func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws {
@@ -5582,6 +5684,20 @@ private actor ScriptedMailEngineState {
   ) async throws {
     try await waitForEvents(1, timeout: timeout) {
       $0 == .connectionSetupQuiesced(connectionID: connectionID)
+    }
+  }
+
+  func waitForClosedSessionQuiescence(
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: timeout)
+    while closedOperationRejections[connectionID, default: 0] < 7 {
+      guard clock.now < deadline else {
+        throw MailEngineQualificationHarnessError.operationStartTimedOut
+      }
+      try await Task.sleep(for: .milliseconds(10))
     }
   }
 
@@ -6002,7 +6118,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     _ rawMessage: Data,
     mailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineMessageIdentity {
-    try ensureOpen()
+    try await ensureOpen()
     appendAttempt += 1
     await state.record(.sentAppend(connectionID: connectionID))
     await state.record(
@@ -6027,22 +6143,47 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .overlappingSentAppend = fixture {
       try await state.waitForOverlappingSentAppendStarts(timeout: .seconds(2))
     }
-    let identity =
-      switch fixture {
-      case .invalidSentAppendIdentity(let uid, let uidValidity):
-        MailEngineMessageIdentity(mailbox: mailbox, uid: uid, uidValidity: uidValidity)
-      case .overlappingSentAppend(let uid, let uidValidity):
-        MailEngineMessageIdentity(mailbox: mailbox, uid: uid, uidValidity: uidValidity)
-      default:
-        MailEngineMessageIdentity(mailbox: mailbox, uid: 11, uidValidity: 45)
-      }
+    let identity = sentAppendIdentity(mailbox: mailbox)
+    try validateSentAppendIdentity(identity)
+    return identity
+  }
+
+  private func sentAppendIdentity(
+    mailbox: MailEngineMailboxIdentity
+  ) -> MailEngineMessageIdentity {
+    let uid: Int64
+    let uidValidity: Int64
+    switch fixture {
+    case .invalidSentAppendIdentity(let fixtureUID, let fixtureUIDValidity):
+      uid = fixtureUID
+      uidValidity = fixtureUIDValidity
+    case .overlappingSentAppend(let fixtureUID, let fixtureUIDValidity):
+      uid = fixtureUID
+      uidValidity = fixtureUIDValidity
+    default:
+      uid = 11
+      uidValidity = 45
+    }
+    return MailEngineMessageIdentity(
+      connectionID: connectionID,
+      mailbox: mailbox,
+      uid: uid,
+      uidValidity: uidValidity
+    )
+  }
+
+  private func validateSentAppendIdentity(
+    _ identity: MailEngineMessageIdentity
+  ) throws {
     guard (1...4_294_967_295).contains(identity.uidValidity) else {
       throw MailEngineUIDMappingError.invalidSourceUIDValidity
     }
     guard (1...4_294_967_295).contains(identity.uid) else {
       throw MailEngineUIDMappingError.invalidUID
     }
-    return identity
+    guard identity.connectionID == connectionID else {
+      throw MailEngineError.staleMessageIdentity
+    }
   }
 
   func close() async {
@@ -6058,7 +6199,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     from sourceMailbox: MailEngineMailboxIdentity,
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
-    try ensureOpen()
+    try await ensureOpen()
     guard (1...4_294_967_295).contains(sourceUIDValidity) else {
       throw MailEngineUIDMappingError.invalidSourceUIDValidity
     }
@@ -6172,8 +6313,10 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     _ selectors: Set<MailEngineBodyPartSelector>,
     for message: MailEngineMessageIdentity
   ) async throws -> [MailEngineBodyPart] {
-    try ensureOpen()
-    guard message.uidValidity == uidValidity(for: message.mailbox) else {
+    try await ensureOpen()
+    guard message.connectionID == connectionID,
+      message.uidValidity == uidValidity(for: message.mailbox)
+    else {
       throw MailEngineError.staleMessageIdentity
     }
     await state.record(
@@ -6206,7 +6349,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     await state.record(.bodyFetchStarted(connectionID: connectionID))
     do {
       while true {
-        try ensureOpen()
+        try await ensureOpen()
         try Task.checkCancellation()
         try await Task.sleep(for: .milliseconds(10))
       }
@@ -6220,7 +6363,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     mailbox: MailEngineMailboxIdentity,
     onEvent: @escaping @Sendable (MailEngineIdleEvent) async -> Void
   ) async throws {
-    try ensureOpen()
+    try await ensureOpen()
     idleAttempt += 1
     if try await handleIDLERecovery(mailbox: mailbox, onEvent: onEvent) {
       return
@@ -6381,7 +6524,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     beforeUID: Int64?,
     limit: Int
   ) async throws -> MailEngineMetadataPage {
-    try ensureOpen()
+    try await ensureOpen()
     await state.record(
       .metadataPageRequested(
         connectionID: connectionID,
@@ -6441,6 +6584,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         return MailEngineMessageMetadata(
           flags: metadataFlags(for: uid),
           identity: MailEngineMessageIdentity(
+            connectionID: connectionID,
             mailbox: mailbox,
             uid: uid,
             uidValidity: messageUIDValidity
@@ -6457,7 +6601,8 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func validateMetadataPage(_ page: MailEngineMetadataPage) throws {
     guard (1...4_294_967_295).contains(page.uidValidity),
       page.messages.allSatisfy({
-        (1...4_294_967_295).contains($0.identity.uidValidity)
+        $0.identity.connectionID == connectionID
+          && (1...4_294_967_295).contains($0.identity.uidValidity)
           && $0.identity.uidValidity == page.uidValidity
       })
     else {
@@ -6477,7 +6622,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     from sourceMailbox: MailEngineMailboxIdentity,
     to destinationMailbox: MailEngineMailboxIdentity
   ) async throws -> MailEngineUIDMapping {
-    try ensureOpen()
+    try await ensureOpen()
     if case .reducedCapabilityMove(hasMove: false, hasUIDPlus: false) = fixture {
       throw MailEngineError.operationUnsupported
     }
@@ -6763,7 +6908,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     envelope: MailEngineEnvelope,
     rawMessage: Data
   ) async throws -> MailEngineSMTPOutcome {
-    try ensureOpen()
+    try await ensureOpen()
     await reauthenticateSMTPIfNeeded()
     if case .smtpStages(let stages) = fixture, smtpStageIndex < stages.count {
       defer { smtpStageIndex += 1 }
@@ -6840,7 +6985,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func waitForClosedSubmission() async throws -> MailEngineSMTPOutcome {
     await state.record(.submissionStarted(connectionID: connectionID))
     while true {
-      try ensureOpen()
+      try await ensureOpen()
       try await Task.sleep(for: .milliseconds(10))
     }
   }
@@ -6977,14 +7122,17 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     }
   }
 
-  private func ensureOpen() throws {
-    guard !isClosed else { throw MailEngineError.connectionClosed }
+  private func ensureOpen() async throws {
+    guard !isClosed else {
+      await state.recordClosedOperationRejection(connectionID: connectionID)
+      throw MailEngineError.connectionClosed
+    }
   }
 
   private func waitForIdleCancellation() async throws {
     do {
       while true {
-        try ensureOpen()
+        try await ensureOpen()
         try Task.checkCancellation()
         try await Task.sleep(for: .milliseconds(10))
       }

@@ -12,6 +12,7 @@ struct MailEngineMailboxIdentity: Equatable, Hashable, Sendable {
 }
 
 struct MailEngineMessageIdentity: Equatable, Hashable, Sendable {
+  let connectionID: String
   let mailbox: MailEngineMailboxIdentity
   let uid: Int64
   let uidValidity: Int64
