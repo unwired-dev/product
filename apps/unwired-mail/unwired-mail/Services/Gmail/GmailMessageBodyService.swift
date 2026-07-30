@@ -2120,10 +2120,22 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
     else {
       return nil
     }
-    var remainder = value[...]
+    guard let remainder = droppingLeadingMIMECommentsAndWhitespace(from: value[...]) else {
+      return nil
+    }
+    let token = remainder.prefix {
+      !$0.isWhitespace && $0 != "(" && $0 != ";"
+    }
+    return token.isEmpty ? nil : String(token)
+  }
+
+  private func droppingLeadingMIMECommentsAndWhitespace(
+    from value: Substring
+  ) -> Substring? {
+    var remainder = value
     while true {
       remainder = remainder.drop(while: \.isWhitespace)
-      guard remainder.first == "(" else { break }
+      guard remainder.first == "(" else { return remainder }
       var depth = 0
       var isEscaped = false
       var closingIndex: Substring.Index?
@@ -2146,10 +2158,6 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
       guard let closingIndex else { return nil }
       remainder = remainder[remainder.index(after: closingIndex)...]
     }
-    let token = remainder.prefix {
-      !$0.isWhitespace && $0 != "(" && $0 != ";"
-    }
-    return token.isEmpty ? nil : String(token)
   }
 
   private var contentID: String? {
@@ -2160,7 +2168,22 @@ private struct GmailMessageBodyPart: Decodable, Equatable {
     else {
       return nil
     }
-    return MessageHTMLSanitizer.normalizedContentID(value)
+    guard
+      let remainder = droppingLeadingMIMECommentsAndWhitespace(from: value[...]),
+      remainder.first == "<",
+      let closingIndex = remainder.firstIndex(of: ">")
+    else {
+      return nil
+    }
+    let token = remainder[...closingIndex]
+    let suffix = remainder[remainder.index(after: closingIndex)...]
+    guard
+      let trailing = droppingLeadingMIMECommentsAndWhitespace(from: suffix),
+      trailing.isEmpty
+    else {
+      return nil
+    }
+    return MessageHTMLSanitizer.normalizedContentID(String(token))
   }
 
   private var hasBodyData: Bool {

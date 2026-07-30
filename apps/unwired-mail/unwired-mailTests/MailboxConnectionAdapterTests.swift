@@ -3607,6 +3607,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
   func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async {
     let loadStarted = expectation(description: "Message body load started")
+    let presentationReleased = expectation(description: "late presentation released")
     let loader = GatedMessageBodyLoader(started: loadStarted)
     let clearSignal = MessageBodyClearSignal()
     var didPublishLoadedBody = false
@@ -3614,6 +3615,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       rootView: ClearableMessageBodyHarness(
         clearSignal: clearSignal,
         onLoaded: { didPublishLoadedBody = true },
+        onRelease: { presentationReleased.fulfill() },
         load: { await loader.load() }
       )
     )
@@ -3622,8 +3624,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [loadStarted], timeout: 1)
     clearSignal.value = UUID()
     await releaseRenderFrame(host.view)
-    loader.resume()
-    await releaseRenderFrame(host.view)
+    loader.resume(
+      with: MailboxMessageBody(
+        text: "Private body",
+        inlineImages: [
+          MailboxMessageInlineImage(
+            contentID: "late@example.com",
+            data: Data([1]),
+            decodedPixelCount: 1,
+            mimeType: "image/png"
+          )
+        ]
+      )
+    )
+    await fulfillment(of: [presentationReleased], timeout: 1)
 
     XCTAssertFalse(didPublishLoadedBody)
     withExtendedLifetime(window) {}
@@ -6258,8 +6272,8 @@ private final class GatedMessageBodyLoader {
     }
   }
 
-  func resume() {
-    continuation?.resume(returning: MailboxMessageBody(text: "Private body"))
+  func resume(with body: MailboxMessageBody = MailboxMessageBody(text: "Private body")) {
+    continuation?.resume(returning: body)
     continuation = nil
   }
 }

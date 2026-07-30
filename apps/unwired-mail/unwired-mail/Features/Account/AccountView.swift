@@ -3451,6 +3451,12 @@ struct MailShellConversationReader: View {
                 loadBody: {
                   try await inboxViewModel.loadMessageBody(message, using: messageReader)
                 },
+                markBodyDisplayed: {
+                  inboxViewModel.markMessageBodyDisplayed(message.id)
+                },
+                markBodyHidden: {
+                  inboxViewModel.markMessageBodyHidden(message.id)
+                },
                 message: message,
                 removeCachedBody: {
                   do {
@@ -3938,6 +3944,8 @@ private struct MailShellConversationMessage: View {
   let isPinned: Bool
   let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
+  let markBodyDisplayed: () -> Void
+  let markBodyHidden: () -> Void
   let message: MailboxMessageMetadata
   let removeCachedBody: () -> Bool
   let releaseBodyPresentation: () -> Void
@@ -3979,6 +3987,8 @@ private struct MailShellConversationMessage: View {
         Divider()
         MailShellMessageBody(
           clearSignal: clearBodySignal,
+          onDisplay: markBodyDisplayed,
+          onDismiss: markBodyHidden,
           onRelease: releaseBodyPresentation,
           load: loadBody
         )
@@ -4029,6 +4039,8 @@ private struct MailShellConversationMessage: View {
 struct MailShellMessageBody: View {
   let clearSignal: UUID?
   let load: () async throws -> MailboxMessageBody
+  let onDisplay: () -> Void
+  let onDismiss: () -> Void
   let onLoaded: () -> Void
   let onRelease: () -> Void
   @State private var loadedContent: MailShellLoadedMessageContent?
@@ -4040,12 +4052,16 @@ struct MailShellMessageBody: View {
 
   init(
     clearSignal: UUID? = nil,
+    onDisplay: @escaping () -> Void = {},
+    onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
     onRelease: @escaping () -> Void = {},
     load: @escaping () async throws -> MailboxMessageBody
   ) {
     self.clearSignal = clearSignal
     self.load = load
+    self.onDisplay = onDisplay
+    self.onDismiss = onDismiss
     self.onLoaded = onLoaded
     self.onRelease = onRelease
   }
@@ -4088,22 +4104,33 @@ struct MailShellMessageBody: View {
       }
       do {
         let loadedMessageBody = try await load()
-        guard generation == loadGeneration else { return }
+        isPresentationRetained = true
+        guard generation == loadGeneration else {
+          releasePresentation()
+          return
+        }
         let presentation = try await MessageHTMLPresentation.prepare(body: loadedMessageBody)
-        guard generation == loadGeneration else { return }
+        guard generation == loadGeneration else {
+          releasePresentation()
+          return
+        }
         loadedContent = MailShellLoadedMessageContent(
           fallbackText: loadedMessageBody.text,
           presentation: presentation
         )
-        isPresentationRetained = true
         errorMessage = nil
         isCleared = false
         onLoaded()
       } catch is CancellationError {
+        releasePresentation()
       } catch {
+        releasePresentation()
         guard generation == loadGeneration else { return }
         errorMessage = error.localizedDescription
       }
+    }
+    .onAppear {
+      onDisplay()
     }
     .onChange(of: clearSignal) {
       releasePresentation()
@@ -4114,6 +4141,7 @@ struct MailShellMessageBody: View {
       isLoading = false
     }
     .onDisappear {
+      onDismiss()
       loadGeneration = UUID()
       loadedContent = nil
       isLoading = false
@@ -5350,6 +5378,7 @@ extension GmailMailActionViewModel {
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
+  private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
   private static let maximumLoadedInlineImagePixelCount = 32 * 1_024 * 1_024
   private static let maximumLoadedMessageBodyTextByteCount = 5 * 1_024 * 1_024
   private var backfillTask: Task<Void, Never>?
@@ -5357,6 +5386,9 @@ final class GmailInboxViewModel {
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
+  private var displayedMessageBodyIds: Set<StableProviderMessageIdentity> = []
+  private var loadedInlineImageByteCount = 0
+  private var loadedInlineImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedInlineImagePixelCount = 0
   private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
@@ -5508,6 +5540,7 @@ final class GmailInboxViewModel {
   func discardLoadedMessageBodies(connectionId: MailboxConnectionId?) {
     let messageIds = Set(loadedMessageBodyTexts.keys)
       .union(loadedInlineImagePixelCounts.keys)
+      .union(displayedMessageBodyIds)
       .filter { connectionId == nil || $0.connectionId == connectionId }
     for messageId in messageIds {
       discardLoadedMessageBody(for: messageId)
@@ -5517,10 +5550,22 @@ final class GmailInboxViewModel {
   func discardLoadedMessageBodyPresentation(
     for messageId: StableProviderMessageIdentity
   ) {
+    loadedInlineImageByteCount -=
+      loadedInlineImageByteCounts.removeValue(
+        forKey: messageId
+      ) ?? 0
     loadedInlineImagePixelCount -=
       loadedInlineImagePixelCounts.removeValue(
         forKey: messageId
       ) ?? 0
+  }
+
+  func markMessageBodyDisplayed(_ messageId: StableProviderMessageIdentity) {
+    displayedMessageBodyIds.insert(messageId)
+  }
+
+  func markMessageBodyHidden(_ messageId: StableProviderMessageIdentity) {
+    displayedMessageBodyIds.remove(messageId)
   }
 
   var messageCount: Int {
@@ -5563,17 +5608,28 @@ final class GmailInboxViewModel {
     for messageId: StableProviderMessageIdentity
   ) -> MailboxMessageBody {
     discardLoadedMessageBodyPresentation(for: messageId)
+    var remainingByteCount =
+      Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
     var remainingPixelCount =
       Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
+    var retainedByteCount = 0
     var retainedPixelCount = 0
     let inlineImages = body.inlineImages.filter { image in
-      guard image.decodedPixelCount <= remainingPixelCount else {
+      let byteCount = image.data.count
+      guard
+        byteCount <= remainingByteCount,
+        image.decodedPixelCount <= remainingPixelCount
+      else {
         return false
       }
+      remainingByteCount -= byteCount
       remainingPixelCount -= image.decodedPixelCount
+      retainedByteCount += byteCount
       retainedPixelCount += image.decodedPixelCount
       return true
     }
+    loadedInlineImageByteCounts[messageId] = retainedByteCount
+    loadedInlineImageByteCount += retainedByteCount
     loadedInlineImagePixelCounts[messageId] = retainedPixelCount
     loadedInlineImagePixelCount += retainedPixelCount
     return MailboxMessageBody(
@@ -5588,9 +5644,12 @@ final class GmailInboxViewModel {
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
     currentConnectionId = nil
+    displayedMessageBodyIds = []
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    loadedInlineImageByteCount = 0
+    loadedInlineImageByteCounts = [:]
     loadedInlineImagePixelCount = 0
     loadedInlineImagePixelCounts = [:]
     loadedMessageBodyClearSignals = [:]

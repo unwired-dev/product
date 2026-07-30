@@ -771,7 +771,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                 "mimeType": "image/png",
                 "filename": "attachment.png",
                 "headers": [
-                  {"name": "Content-ID", "value": " <Image-001@Example.COM> "},
+                  {
+                    "name": "Content-ID",
+                    "value": "(generated) <Image-001@Example.COM> (rendered)"
+                  },
                   {"name": "Content-Disposition", "value": "inline; filename=attachment.png"}
                 ],
                 "body": {"attachmentId": "inline-png", "size": \(imageData.count)}

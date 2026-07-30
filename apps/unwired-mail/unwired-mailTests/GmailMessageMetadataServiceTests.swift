@@ -3042,6 +3042,66 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelBoundsInlineImageBytesAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let imageData = Data(repeating: 1, count: 11 * 1_024 * 1_024)
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "first@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["first@example.com"])
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
   func testInboxViewModelRetainsPixelReservationUntilClearedViewReleasesIt() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -3100,6 +3160,47 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: firstMessage.id))
     XCTAssertEqual(constrainedSecondBody.inlineImages, [])
     XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelSignalsDisplayedFallbackBodyDuringBulkCacheRemoval() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        message.id: MailboxMessageBody(
+          text: String(repeating: "x", count: 5 * 1_024 * 1_024 + 1),
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "image@example.com",
+              data: Data([1]),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    viewModel.markMessageBodyDisplayed(message.id)
+    _ = try await viewModel.loadMessageBody(message, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: message.id)
+
+    viewModel.discardLoadedMessageBodies(connectionId: message.connectionId)
+
+    XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: message.id))
   }
 
   @MainActor
