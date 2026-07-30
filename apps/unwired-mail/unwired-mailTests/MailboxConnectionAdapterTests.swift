@@ -3480,6 +3480,58 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     try await actionTask.value
   }
 
+  func testGmailAdapterRecentSyncPreemptsHistoricalBackfillWithoutOverlap() async throws {
+    let backfillStarted = expectation(description: "historical backfill started")
+    let recentSyncStarted = expectation(description: "recent sync started")
+    let priorityProbe = AdapterSyncPriorityProbe(
+      backfillStarted: backfillStarted,
+      recentSyncStarted: recentSyncStarted
+    )
+    let metadataService = RecordingAdapterMetadataService(syncPriorityProbe: priorityProbe)
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: PendingProviderActionService(store: AdapterPendingActionStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let backfillTask = Task {
+      try await adapter.continueHistoricalBackfill(connection: connection, session: session)
+    }
+    await fulfillment(of: [backfillStarted], timeout: 1)
+
+    let recentSyncTask = Task {
+      try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: true,
+        session: session,
+        sinceHistoryId: "10",
+        throughHistoryId: "11",
+        shouldPersist: { true }
+      )
+    }
+    await fulfillment(of: [recentSyncStarted], timeout: 1)
+    await priorityProbe.releaseBackfill()
+
+    _ = try await recentSyncTask.value
+    do {
+      _ = try await backfillTask.value
+      XCTFail("Expected recent sync to cancel the historical backfill")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    let snapshot = await priorityProbe.snapshot()
+    XCTAssertEqual(snapshot.maximumConcurrentOperations, 1)
+    XCTAssertEqual(
+      snapshot.events,
+      ["backfill-started", "backfill-cancelled", "recent-sync-started"]
+    )
+  }
+
   func testMailShellPreservesSelectedThreadAcrossReordering() {
     let olderThread = mailShellThread(
       providerThreadId: "thread-older",
@@ -6779,6 +6831,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   private let eventLog: RecordingAdapterEventLog?
   private let historicalBackfillGate: AdapterLifecycleOperationGate?
   private let loadGate: AdapterLifecycleOperationGate?
+  private let syncPriorityProbe: AdapterSyncPriorityProbe?
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
@@ -6791,11 +6844,13 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   init(
     eventLog: RecordingAdapterEventLog? = nil,
     historicalBackfillGate: AdapterLifecycleOperationGate? = nil,
-    loadGate: AdapterLifecycleOperationGate? = nil
+    loadGate: AdapterLifecycleOperationGate? = nil,
+    syncPriorityProbe: AdapterSyncPriorityProbe? = nil
   ) {
     self.eventLog = eventLog
     self.historicalBackfillGate = historicalBackfillGate
     self.loadGate = loadGate
+    self.syncPriorityProbe = syncPriorityProbe
   }
 
   func categorizeHistorical(
@@ -6845,6 +6900,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     connection _: GmailProviderConnectionStatus,
     session _: ProductAccountSessionSnapshot
   ) async throws -> GmailMetadataSyncResult {
+    try await syncPriorityProbe?.suspendBackfill()
     await historicalBackfillGate?.waitForRelease()
     return inboxSyncResult
   }
@@ -6870,7 +6926,8 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
-    recentSyncResult
+    await syncPriorityProbe?.recordRecentSync()
+    return recentSyncResult
   }
 
   func overrideCategory(
@@ -7056,6 +7113,75 @@ private actor AdapterLifecycleEventLog {
 
   func snapshot() -> [String] {
     events
+  }
+}
+
+private actor AdapterSyncPriorityProbe {
+  struct Snapshot {
+    let events: [String]
+    let maximumConcurrentOperations: Int
+  }
+
+  private let backfillStarted: XCTestExpectation
+  private let recentSyncStarted: XCTestExpectation
+  private var activeOperationCount = 0
+  private var backfillContinuation: CheckedContinuation<Void, Error>?
+  private var events: [String] = []
+  private var maximumConcurrentOperations = 0
+
+  init(
+    backfillStarted: XCTestExpectation,
+    recentSyncStarted: XCTestExpectation
+  ) {
+    self.backfillStarted = backfillStarted
+    self.recentSyncStarted = recentSyncStarted
+  }
+
+  func suspendBackfill() async throws {
+    beginOperation("backfill-started")
+    backfillStarted.fulfill()
+    defer { activeOperationCount -= 1 }
+    try await withTaskCancellationHandler {
+      let _: Void = try await withCheckedThrowingContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(throwing: CancellationError())
+          return
+        }
+        backfillContinuation = continuation
+      }
+    } onCancel: {
+      Task { await self.cancelBackfill() }
+    }
+  }
+
+  func recordRecentSync() {
+    beginOperation("recent-sync-started")
+    recentSyncStarted.fulfill()
+    activeOperationCount -= 1
+  }
+
+  func releaseBackfill() {
+    backfillContinuation?.resume()
+    backfillContinuation = nil
+  }
+
+  func snapshot() -> Snapshot {
+    Snapshot(
+      events: events,
+      maximumConcurrentOperations: maximumConcurrentOperations
+    )
+  }
+
+  private func beginOperation(_ event: String) {
+    activeOperationCount += 1
+    maximumConcurrentOperations = max(maximumConcurrentOperations, activeOperationCount)
+    events.append(event)
+  }
+
+  private func cancelBackfill() {
+    events.append("backfill-cancelled")
+    backfillContinuation?.resume(throwing: CancellationError())
+    backfillContinuation = nil
   }
 }
 

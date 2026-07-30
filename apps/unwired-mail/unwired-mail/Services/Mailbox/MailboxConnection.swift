@@ -77,12 +77,24 @@ actor MailboxConnectionSyncGate {
     case shared
   }
 
+  private enum WaiterPriority: Equatable {
+    case normal
+    case preempting
+  }
+
+  private struct PreemptibleOperation {
+    let cancel: @Sendable () -> Void
+    let id: UUID
+  }
+
   private struct Waiter {
     let continuation: CheckedContinuation<Bool, Never>
     let id: UUID
     let mode: LockMode
+    let priority: WaiterPriority
   }
 
+  private var activePreemptibleOperations: [MailboxConnectionId: PreemptibleOperation] = [:]
   private var exclusivelyLockedConnectionIds: Set<MailboxConnectionId> = []
   private var exclusiveRevisions: [MailboxConnectionId: UInt64] = [:]
   private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
@@ -92,7 +104,11 @@ actor MailboxConnectionSyncGate {
     await acquire(connectionId, mode: .exclusive)
   }
 
-  private func acquire(_ connectionId: MailboxConnectionId, mode: LockMode) async -> Bool {
+  private func acquire(
+    _ connectionId: MailboxConnectionId,
+    mode: LockMode,
+    priority: WaiterPriority = .normal
+  ) async -> Bool {
     let hasExclusiveLock = exclusivelyLockedConnectionIds.contains(connectionId)
     let hasSharedLocks = sharedLockCounts[connectionId, default: 0] > 0
     let hasQueuedWaiters = waiters[connectionId]?.isEmpty == false
@@ -111,13 +127,32 @@ actor MailboxConnectionSyncGate {
           continuation.resume(returning: false)
           return
         }
-        waiters[connectionId, default: []].append(
-          Waiter(continuation: continuation, id: waiterId, mode: mode)
+        enqueue(
+          Waiter(
+            continuation: continuation,
+            id: waiterId,
+            mode: mode,
+            priority: priority
+          ),
+          for: connectionId
         )
       }
     } onCancel: {
       Task { await self.cancelWaiter(waiterId, for: connectionId) }
     }
+  }
+
+  private func enqueue(_ waiter: Waiter, for connectionId: MailboxConnectionId) {
+    guard waiter.priority == .preempting else {
+      waiters[connectionId, default: []].append(waiter)
+      return
+    }
+    var connectionWaiters = waiters[connectionId, default: []]
+    let insertionIndex =
+      connectionWaiters.firstIndex { $0.priority == .normal }
+      ?? connectionWaiters.endIndex
+    connectionWaiters.insert(waiter, at: insertionIndex)
+    waiters[connectionId] = connectionWaiters
   }
 
   private func grant(_ mode: LockMode, for connectionId: MailboxConnectionId) {
@@ -278,6 +313,59 @@ actor MailboxConnectionSyncGate {
       throw CancellationError()
     }
     defer { release(Self.allConnectionsId, mode: .exclusive) }
+    return try await operation()
+  }
+}
+
+extension MailboxConnectionSyncGate {
+  /// Cancelling a preemptible operation does not release its lock until the operation exits.
+  /// This keeps metadata writes serialized while a higher-priority sync waits to take ownership.
+  func withPreemptibleLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: @escaping () async throws -> T
+  ) async throws -> T {
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    guard await acquire(connectionId, mode: .exclusive) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .exclusive) }
+
+    let operationId = UUID()
+    let task = Task {
+      try await operation()
+    }
+    activePreemptibleOperations[connectionId] = PreemptibleOperation(
+      cancel: { task.cancel() },
+      id: operationId
+    )
+    defer {
+      if activePreemptibleOperations[connectionId]?.id == operationId {
+        activePreemptibleOperations[connectionId] = nil
+      }
+    }
+    return try await withTaskCancellationHandler {
+      try await task.value
+    } onCancel: {
+      task.cancel()
+    }
+  }
+
+  func withPreemptingLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: () async throws -> T
+  ) async throws -> T {
+    activePreemptibleOperations[connectionId]?.cancel()
+    guard await acquire(Self.allConnectionsId, mode: .shared, priority: .preempting) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    guard await acquire(connectionId, mode: .exclusive, priority: .preempting) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .exclusive) }
     return try await operation()
   }
 }
@@ -2236,7 +2324,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withPreemptibleLock(connection.id) {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
@@ -2316,7 +2404,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withPreemptingLock(connection.id) {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
