@@ -1252,7 +1252,7 @@ struct AccountView: View {
             ewsSetupViewModel.discardUnsavedChanges()
             genericMailSetupViewModel.discardUnsavedChanges()
           },
-          destinationContent: { destination, route in
+          destinationContent: { destination, request in
             switch destination {
             case .emailAccounts:
               EmailAccountsSettingsView(
@@ -1271,7 +1271,7 @@ struct AccountView: View {
                 isMailboxBusy: mailboxWorkCoordinator.isBusy(
                   productAccountId: snapshot.productAccountId
                 ),
-                navigationRoute: route
+                navigationRequest: request
               )
             default:
               EmptyView()

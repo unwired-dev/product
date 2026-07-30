@@ -21,7 +21,7 @@ struct EmailAccountsSettingsView: View {
   let connectionsDidChange: () -> Void
   let gmailConnectionsDidChange: () -> Void
   let isMailboxBusy: Bool
-  var navigationRoute: SettingsRoute?
+  var navigationRequest: SettingsRouteRequest?
 
   @State private var connectionsAreAuthoritative = false
   @State private var detailTarget: MailProviderId?
@@ -105,8 +105,8 @@ struct EmailAccountsSettingsView: View {
         }
         detailTarget = nil
       }
-      .onChange(of: navigationRoute, initial: true) { _, route in
-        applyNavigation(route, proxy: proxy)
+      .onChange(of: navigationRequest?.id, initial: true) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
       }
       .task {
         connectionsAreAuthoritative = await Self.loadInitialConnections(
@@ -119,7 +119,7 @@ struct EmailAccountsSettingsView: View {
           connectionsAreAuthoritative: connectionsAreAuthoritative,
           freshnessViewModel: freshnessViewModel
         )
-        applyNavigation(navigationRoute, proxy: proxy)
+        applyNavigation(navigationRequest?.route, proxy: proxy)
       }
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
@@ -452,6 +452,11 @@ struct EmailAccountsSettingsView: View {
   }
 
   private func requestDetails(for connection: MailboxConnection) {
+    guard
+      SettingsNavigationPolicy.canDiscardChanges(
+        isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+      )
+    else { return }
     if ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges {
       pendingDetailsConnection = connection
     } else {

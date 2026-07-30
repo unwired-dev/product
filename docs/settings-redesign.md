@@ -389,9 +389,11 @@ hidden rather than opening placeholders. Authorization-required mail surfaces ca
 affected connection in Email Accounts; selected controls scroll into view and receive a temporary
 highlight. Normal entry restores the last available destination, changing route context or
 dismissing Settings prompts before discarding an edited generic-mail or EWS connection, and the
-discard action remains disabled while either setup is actively verifying. Email Accounts shows an
-indicator and explanatory banner only for authorization or synchronization failures that require
-action.
+discard action remains disabled across navigation, provider selection, and summary-detail actions
+while either setup is actively verifying. Repeating the same contextual deep link replays its
+scroll, selection, and temporary highlight using the router request identity. Email Accounts shows
+an indicator and explanatory banner only for authorization or synchronization failures that
+require action.
 
 ## Release gate
 

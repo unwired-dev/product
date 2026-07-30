@@ -426,8 +426,16 @@ enum SettingsNavigationLayout: Equatable {
 }
 
 struct SettingsRouteRequest: Equatable {
-  let id = UUID()
+  let id: UUID
   let route: SettingsRoute?
+
+  init(
+    id: UUID = UUID(),
+    route: SettingsRoute?
+  ) {
+    self.id = id
+    self.route = route
+  }
 }
 
 @MainActor
@@ -578,21 +586,21 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   private let canDiscardChanges: () -> Bool
   private let discardChanges: () -> Void
   private let hasUnsavedChanges: () -> Bool
-  private let destinationContent: (SettingsDestination, SettingsRoute?) -> DestinationContent
+  private let destinationContent: (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
 
   @AppStorage("settings.lastDestination") private var storedDestination = ""
   @Environment(\.dismiss) private var dismiss
   @Environment(\.dismissSearch) private var dismissSearch
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
   @Environment(SettingsRouter.self) private var router
-  @State private var activeRoute: SettingsRoute?
+  @State private var activeRequest: SettingsRouteRequest?
   @State private var pendingAction: PendingAction?
   @State private var searchQuery = ""
   @State private var selection: SettingsDestination?
 
   private enum PendingAction {
     case dismiss
-    case navigate(SettingsRoute)
+    case navigate(SettingsRouteRequest)
     case showList
   }
 
@@ -604,7 +612,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     canDiscardChanges: @escaping () -> Bool = { true },
     discardChanges: @escaping () -> Void = {},
     @ViewBuilder destinationContent:
-      @escaping (SettingsDestination, SettingsRoute?) -> DestinationContent
+      @escaping (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
   ) {
     self.isSignedIn = isSignedIn
     self.showsDismissButton = showsDismissButton
@@ -784,7 +792,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
       }
       destinationContent(
         destination,
-        activeRoute?.destination == destination ? activeRoute : nil
+        activeRequest?.route?.destination == destination ? activeRequest : nil
       )
     }
     .navigationTitle(destination.title)
@@ -813,12 +821,12 @@ extension AdaptiveSettingsScene {
   }
 
   private func handleRouterRequest() {
-    guard let route = router.request?.route else {
+    guard let request = router.request, request.route != nil else {
       guard selection == nil else { return }
       restoreSelection()
       return
     }
-    requestNavigation(route)
+    requestNavigation(request)
   }
 
   private func restoreSelection() {
@@ -829,23 +837,28 @@ extension AdaptiveSettingsScene {
       )
     else {
       selection = nil
-      activeRoute = nil
+      activeRequest = nil
       return
     }
-    apply(destination.route)
+    apply(SettingsRouteRequest(route: destination.route))
   }
 
   private func requestNavigation(_ route: SettingsRoute) {
+    requestNavigation(SettingsRouteRequest(route: route))
+  }
+
+  private func requestNavigation(_ request: SettingsRouteRequest) {
+    guard let requestedRoute = request.route else { return }
     switch SettingsNavigationPolicy.decision(
-      currentRoute: activeRoute,
-      requestedRoute: route,
+      currentRoute: activeRequest?.route,
+      requestedRoute: requestedRoute,
       hasUnsavedChanges: hasUnsavedChanges(),
       isSignedIn: isSignedIn
     ) {
     case .confirmDiscard(let route):
-      pendingAction = .navigate(route)
+      pendingAction = .navigate(SettingsRouteRequest(id: request.id, route: route))
     case .navigate(let route):
-      apply(route)
+      apply(SettingsRouteRequest(id: request.id, route: route))
     case .unavailable:
       break
     }
@@ -876,13 +889,14 @@ extension AdaptiveSettingsScene {
       apply(route)
     case .showList:
       selection = nil
-      activeRoute = nil
+      activeRequest = nil
     }
   }
 
-  private func apply(_ route: SettingsRoute) {
+  private func apply(_ request: SettingsRouteRequest) {
+    guard let route = request.route else { return }
     selection = route.destination
-    activeRoute = route
+    activeRequest = request
     storedDestination = route.destination.rawValue
     searchQuery = ""
     dismissSearch()
@@ -1000,7 +1014,7 @@ extension AdaptiveSettingsScene {
           ewsViewModel.discardUnsavedChanges()
           genericMailViewModel.discardUnsavedChanges()
         },
-        destinationContent: { destination, route in
+        destinationContent: { destination, request in
           switch destination {
           case .emailAccounts:
             EmailAccountsSettingsView(
@@ -1019,7 +1033,7 @@ extension AdaptiveSettingsScene {
               isMailboxBusy: mailboxWorkCoordinator.isBusy(
                 productAccountId: snapshot.productAccountId
               ),
-              navigationRoute: route
+              navigationRequest: request
             )
           default:
             EmptyView()

@@ -396,6 +396,9 @@ struct EWSSetupPanel: View {
 
 extension EWSSetupPanel {
   fileprivate func requestSelection(_ connection: MailboxConnection) {
+    guard SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: viewModel.isWorking) else {
+      return
+    }
     if viewModel.hasUnsavedChanges {
       pendingSelection = connection
     } else {
