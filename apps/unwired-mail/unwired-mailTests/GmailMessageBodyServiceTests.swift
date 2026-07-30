@@ -473,6 +473,19 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertFalse(body.didResolveInlineImages)
   }
 
+  func testCachedPayloadSkipsCIDParsingForOrdinaryHTML() throws {
+    XCTAssertFalse(
+      MessageHTMLSanitizer.mayReferenceInlineImage(
+        in: #"<p>Receipt &amp; delivery details</p><img src="https://example.com/logo.png">"#
+      )
+    )
+    XCTAssertTrue(
+      MessageHTMLSanitizer.mayReferenceInlineImage(
+        in: #"<p>Receipt</p><img src="c&#105;d&#58;logo@example.com">"#
+      )
+    )
+  }
+
   func testReadPreservesSeparatorsBetweenHTMLTableCells() async throws {
     let fixture = try makeFixture(
       messageResponse:
@@ -898,6 +911,54 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     let body = try await fixture.service.loadMessageBody(message: message, session: session)
 
     XCTAssertEqual(body.inlineImages.map(\.contentID), ["valid@example.com"])
+  }
+
+  func testReadExcludesZeroSizedImagesBeforeApplyingRequestLimit() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let hiddenImages = (0..<20).map {
+      #"<img width="0" src="cid:hidden-\#($0)@example.com">"#
+    }.joined()
+    let html = hiddenImages + #"<img src="cid:visible@example.com">"#
+    let hiddenParts = (0..<20).map {
+      """
+      {
+        "mimeType": "image/png",
+        "headers": [{"name": "Content-ID", "value": "<hidden-\($0)@example.com>"}],
+        "body": {"attachmentId": "hidden-\($0)", "size": \(imageData.count)}
+      }
+      """
+    }.joined(separator: ",")
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              \(hiddenParts),
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<visible@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["visible@example.com"])
+    XCTAssertFalse(
+      fixture.requestPaths.compactMap { $0 as? String }.contains {
+        $0.contains("/attachments/hidden-")
+      }
+    )
   }
 
   func testReadResolvesDuplicateCIDFromSelectedMIMEAlternative() async throws {

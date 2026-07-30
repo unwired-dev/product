@@ -2900,6 +2900,38 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelReusesOpenedBodyTextForForwarding() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 0)
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresProviderSearchResultsWhenQueryChanges() async {
     let providerMessage = metadata(
       messageId: "message-001",
@@ -5876,6 +5908,7 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
 private final class DelayedMailboxMessageReader: MailboxMessageReading {
   private let loadGate = OverrideGate()
+  private(set) var loadBodyTextCallCount = 0
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
 
@@ -5890,6 +5923,14 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
   ) async throws -> MailboxMessageBody {
     await loadGate.waitForRelease()
     return MailboxMessageBody(text: "Body")
+  }
+
+  func loadMessageBodyText(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    loadBodyTextCallCount += 1
+    return "Text-only body"
   }
 
   func removeCachedMessageBody(

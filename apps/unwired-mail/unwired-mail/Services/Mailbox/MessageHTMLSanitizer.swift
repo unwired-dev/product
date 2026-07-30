@@ -87,7 +87,8 @@ enum MessageHTMLSanitizer {
     }
     var seenContentIDs: Set<String> = []
     return imageElements.compactMap { element in
-      guard let source = try? element.attr("src"),
+      guard !hasZeroDimension(element),
+        let source = try? element.attr("src"),
         source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("cid:"),
         let contentID = normalizedContentID(source, decodesPercentEscapes: true),
         seenContentIDs.insert(contentID).inserted
@@ -96,6 +97,32 @@ enum MessageHTMLSanitizer {
       }
       return contentID
     }
+  }
+
+  static func mayReferenceInlineImage(in html: String) -> Bool {
+    if html.range(of: "cid:", options: .caseInsensitive) != nil {
+      return true
+    }
+    let encodedCIDPattern =
+      #"(?:c|&#(?:0*99|x0*63);?)(?:i|&#(?:0*105|x0*69);?)"#
+      + #"(?:d|&#(?:0*100|x0*64);?)(?::|&#(?:0*58|x0*3a);?|&colon;)"#
+    return html.range(
+      of: encodedCIDPattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil
+  }
+
+  private static func hasZeroDimension(_ element: Element) -> Bool {
+    for attribute in ["width", "height"] {
+      guard let value = try? element.attr(attribute), !value.isEmpty else { continue }
+      if value.range(
+        of: #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil {
+        return true
+      }
+    }
+    return false
   }
 
   private static func allowlist() throws -> Whitelist {

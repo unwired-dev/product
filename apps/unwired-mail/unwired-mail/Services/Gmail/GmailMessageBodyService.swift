@@ -1784,7 +1784,7 @@ struct GmailMessageBodyCachePayload: Codable {
       throw GmailMessageBodyError.missingMessageBody
     }
     let didResolveInlineImages: Bool
-    if let html = payload.html {
+    if let html = payload.html, MessageHTMLSanitizer.mayReferenceInlineImage(in: html) {
       didResolveInlineImages =
         (try? MessageHTMLSanitizer.sanitize(html)).map {
           MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty

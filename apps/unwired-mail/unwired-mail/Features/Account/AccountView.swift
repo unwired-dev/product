@@ -3428,6 +3428,7 @@ struct MailShellConversationReader: View {
                 canForward: connection.capabilities.canForward,
                 canReply: connection.capabilities.canReply,
                 isExpanded: selection.isMessageExpanded(message, in: thread),
+                isForwardDisabled: inboxViewModel.isLoadingMessageBody,
                 isLatest: message.id == thread.latestMessage.id,
                 isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
                 isUpdatingPin: pinViewModel.isUpdating(message.id),
@@ -3901,6 +3902,7 @@ private struct MailShellConversationMessage: View {
   let canForward: Bool
   let canReply: Bool
   let isExpanded: Bool
+  let isForwardDisabled: Bool
   let isLatest: Bool
   let isPinned: Bool
   let isUpdatingPin: Bool
@@ -3966,6 +3968,7 @@ private struct MailShellConversationMessage: View {
               Task { await forward() }
             }
             .buttonStyle(.bordered)
+            .disabled(isForwardDisabled)
           }
           Button("Remove Cached Body", role: .destructive) {
             if removeCachedBody() {
@@ -5282,6 +5285,7 @@ final class GmailInboxViewModel {
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
+  private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -5379,13 +5383,18 @@ final class GmailInboxViewModel {
   ) async throws -> MailboxMessageBody {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
-    return try await reader.loadMessageBody(message: message, session: session)
+    let body = try await reader.loadMessageBody(message: message, session: session)
+    loadedMessageBodyTexts[message.id] = body.text
+    return body
   }
 
   func loadMessageBodyText(
     _ message: MailboxMessageMetadata,
     using reader: MailboxMessageReading
   ) async throws -> String {
+    if let loadedBodyText = loadedMessageBodyTexts[message.id] {
+      return loadedBodyText
+    }
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
     return try await reader.loadMessageBodyText(message: message, session: session)
@@ -5405,6 +5414,7 @@ final class GmailInboxViewModel {
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    loadedMessageBodyTexts = [:]
     threads = []
     searchQuery = ""
     searchResult = nil
