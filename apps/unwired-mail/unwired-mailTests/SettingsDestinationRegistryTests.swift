@@ -190,12 +190,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
-  func testAppSupportsMultipleScenesForDevelopmentSettingsWindow() throws {
-    let sceneManifest = try XCTUnwrap(
+  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+    let sceneManifest =
       Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
-    )
 
-    XCTAssertEqual(sceneManifest["UIApplicationSupportsMultipleScenes"] as? Bool, true)
+    XCTAssertEqual(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
   }
 
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {

@@ -8,47 +8,87 @@ import Foundation
   import UIKit
 #endif
 
+struct AuthenticationPresentationWindowSnapshot {
+  let anchor: ASPresentationAnchor
+  let isKeyWindow: Bool
+}
+struct AuthenticationPresentationSceneSnapshot {
+  let isForegroundActive: Bool
+  let windows: [AuthenticationPresentationWindowSnapshot]
+}
+
 enum AuthenticationPresentationAnchor {
+  typealias Resolver = @MainActor () -> ASPresentationAnchor?
+
+  @MainActor
+  static func preferredAnchor(
+    in scenes: [AuthenticationPresentationSceneSnapshot]
+  ) -> ASPresentationAnchor? {
+    for scene in scenes where scene.isForegroundActive {
+      if let anchor = scene.windows.first(where: \.isKeyWindow)?.anchor {
+        return anchor
+      }
+    }
+    return nil
+  }
+
   @MainActor
   static func current() -> ASPresentationAnchor? {
     #if canImport(UIKit)
-      UIApplication.shared.connectedScenes
-        .compactMap { $0 as? UIWindowScene }
-        .filter { $0.activationState == .foregroundActive }
-        .flatMap(\.windows)
-        .first(where: \.isKeyWindow)
+      let windowScenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+      let scenes = windowScenes.map { windowScene in
+        return AuthenticationPresentationSceneSnapshot(
+          isForegroundActive: windowScene.activationState == .foregroundActive,
+          windows: windowScene.windows.map {
+            AuthenticationPresentationWindowSnapshot(anchor: $0, isKeyWindow: $0.isKeyWindow)
+          }
+        )
+      }
+      return preferredAnchor(in: scenes)
     #elseif canImport(AppKit)
-      NSApplication.shared.keyWindow
+      return NSApplication.shared.keyWindow
     #else
-      nil
+      return nil
     #endif
   }
 }
 
 final class AuthenticationPresentationAnchorStore: @unchecked Sendable {
   private let lock = NSLock()
-  private var anchor: ASPresentationAnchor?
+  private let resolve: AuthenticationPresentationAnchor.Resolver
+  private var capturedAnchor: ASPresentationAnchor?
 
-  init(anchor: ASPresentationAnchor? = nil) {
-    self.anchor = anchor
+  init(
+    resolve: @escaping AuthenticationPresentationAnchor.Resolver =
+      AuthenticationPresentationAnchor.current
+  ) {
+    self.resolve = resolve
   }
 
   @MainActor
   func captureCurrent() -> Bool {
-    guard let anchor = AuthenticationPresentationAnchor.current() else {
+    guard let anchor = resolve() else {
       return false
     }
     lock.withLock {
-      self.anchor = anchor
+      capturedAnchor = anchor
     }
     return true
   }
 
   nonisolated func current() -> ASPresentationAnchor {
-    guard let anchor = lock.withLock({ anchor }) else {
-      preconditionFailure("Authentication started without a presentation anchor")
+    lock.withLock {
+      guard let capturedAnchor else {
+        preconditionFailure("Authentication presentation anchor requested before capture")
+      }
+      return capturedAnchor
     }
-    return anchor
+  }
+
+  nonisolated func clear() {
+    lock.withLock {
+      capturedAnchor = nil
+    }
   }
 }
 
@@ -268,6 +308,7 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
     }
     self.continuation = nil
     authorizationController = nil
+    presentationAnchorStore.clear()
     continuation.resume(with: result)
   }
 }

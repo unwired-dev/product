@@ -223,9 +223,6 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    guard presentationAnchorStore.captureCurrent() else {
-      throw GoogleGmailOAuthError.webAuthenticationUnavailable
-    }
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
@@ -233,6 +230,10 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
           return
         }
 
+        guard presentationAnchorStore.captureCurrent() else {
+          continuation.resume(throwing: GoogleGmailOAuthError.webAuthenticationUnavailable)
+          return
+        }
         authenticationContinuation = continuation
         let authenticationSession = ASWebAuthenticationSession(
           url: authorizationURL,
@@ -265,6 +266,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     authenticationContinuation = nil
     webAuthenticationSession?.cancel()
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     continuation?.resume(throwing: CancellationError())
   }
 
@@ -272,6 +274,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     guard let continuation = authenticationContinuation else { return }
     authenticationContinuation = nil
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
 
     if let authenticationError = error as? ASWebAuthenticationSessionError,
       authenticationError.code == .canceledLogin

@@ -4038,13 +4038,14 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    guard presentationAnchorStore.captureCurrent() else {
-      throw MicrosoftGraphOAuthError.webAuthenticationUnavailable
-    }
     return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
+          return
+        }
+        guard presentationAnchorStore.captureCurrent() else {
+          continuation.resume(throwing: MicrosoftGraphOAuthError.webAuthenticationUnavailable)
           return
         }
         authenticationContinuation = continuation
@@ -4076,6 +4077,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     authenticationContinuation = nil
     webAuthenticationSession?.cancel()
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     continuation?.resume(throwing: CancellationError())
   }
 
@@ -4083,6 +4085,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     guard let continuation = authenticationContinuation else { return }
     authenticationContinuation = nil
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     if let authenticationError = error as? ASWebAuthenticationSessionError,
       authenticationError.code == .canceledLogin
     {
