@@ -270,7 +270,8 @@ struct EmailAccountsSettingsView: View {
       return .connection(connectionId)
     case .provider(let providerId):
       return .provider(providerId)
-    case .missingSignature, .notificationPermission, .preferenceConflict, .readReceipt, .storage:
+    case .appearance, .missingSignature, .notificationPermission, .preferenceConflict,
+      .readReceipt, .storage:
       return nil
     }
   }
@@ -671,7 +672,7 @@ private struct SettingsMailboxConnectionRow: View {
 }
 
 extension View {
-  fileprivate func settingsHighlight(_ isHighlighted: Bool) -> some View {
+  func settingsHighlight(_ isHighlighted: Bool) -> some View {
     overlay {
       RoundedRectangle(cornerRadius: 12)
         .stroke(isHighlighted ? Color.accentColor : Color.clear, lineWidth: 2)
