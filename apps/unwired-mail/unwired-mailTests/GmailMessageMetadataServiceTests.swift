@@ -1842,13 +1842,14 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     fixture.viewModel.recordExternalSync(
       connectionIdRawValue: connection.id.rawValue,
       phase: .syncing,
-      successfulSyncAt: nil
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false
     )
 
     await fixture.service.releaseHistoricalBackfill()
     for _ in 0..<100
     where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(10))
     }
 
     XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
