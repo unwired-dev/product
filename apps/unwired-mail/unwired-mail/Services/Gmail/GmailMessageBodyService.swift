@@ -1,5 +1,6 @@
 import CoreFoundation
 import Foundation
+import ImageIO
 
 // swiftlint:disable file_length type_body_length
 
@@ -1452,6 +1453,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return GmailDecodedReadableBody(html: html, plainText: plainText, text: text)
   }
 
+  // swiftlint:disable:next function_body_length
   private func decodedInlineImages(
     referencedContentIDs: [String],
     partsByContentID: [String: GmailMessageBodyPart],
@@ -1459,6 +1461,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     accessToken: String
   ) async throws -> [MailboxMessageInlineImage] {
     var decodedByteCount = 0
+    var decodedPixelCount = 0
     var attemptedImageCount = 0
     var images: [MailboxMessageInlineImage] = []
     for contentID in referencedContentIDs {
@@ -1481,23 +1484,23 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       }
       attemptedImageCount += 1
       do {
-        let encodedData = try await encodedBodyData(
-          bodyPart: part,
-          message: message,
-          accessToken: accessToken
-        )
-        guard let data = Data(gmailBase64URLEncoded: encodedData),
-          data.count <= GmailInlineImagePolicy.maximumImageByteCount,
-          decodedByteCount + data.count <= GmailInlineImagePolicy.maximumTotalByteCount,
-          GmailInlineImagePolicy.hasValidSignature(data, mimeType: mimeType)
+        guard
+          let decodedImage = try await decodedInlineImage(
+            part,
+            remainingByteCount: GmailInlineImagePolicy.maximumTotalByteCount - decodedByteCount,
+            remainingPixelCount: GmailInlineImagePolicy.maximumTotalPixelCount - decodedPixelCount,
+            message: message,
+            accessToken: accessToken
+          )
         else {
           continue
         }
-        decodedByteCount += data.count
+        decodedByteCount += decodedImage.data.count
+        decodedPixelCount += decodedImage.pixelCount
         images.append(
           MailboxMessageInlineImage(
             contentID: contentID,
-            data: data,
+            data: decodedImage.data,
             mimeType: mimeType
           )
         )
@@ -1508,6 +1511,34 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       }
     }
     return images
+  }
+
+  private func decodedInlineImage(
+    _ part: GmailMessageBodyPart,
+    remainingByteCount: Int,
+    remainingPixelCount: Int,
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> (data: Data, pixelCount: Int)? {
+    guard let mimeType = GmailInlineImagePolicy.normalizedSupportedMIMEType(part.mimeType) else {
+      return nil
+    }
+    let encodedData = try await encodedBodyData(
+      bodyPart: part,
+      message: message,
+      accessToken: accessToken
+    )
+    guard let data = Data(gmailBase64URLEncoded: encodedData),
+      let pixelCount = GmailInlineImagePolicy.admittedPixelCount(
+        data,
+        mimeType: mimeType,
+        remainingByteCount: remainingByteCount,
+        remainingPixelCount: remainingPixelCount
+      )
+    else {
+      return nil
+    }
+    return (data, pixelCount)
   }
 
   private func refreshedTokens(
@@ -1860,7 +1891,9 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
-    guard !hasAttachmentDisposition, !(hasFilename && parts?.isEmpty == false) else { return [:] }
+    guard !hasAttachmentDisposition, !isEmbeddedMessage,
+      !(hasFilename && parts?.isEmpty == false)
+    else { return [:] }
     var result: [String: GmailMessageBodyPart] = [:]
     if let contentID {
       result[contentID] = self
@@ -2016,8 +2049,14 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   private var isAttachment: Bool {
+    guard !isEmbeddedMessage else { return true }
     guard !hasFilename else { return true }
     return hasAttachmentDisposition
+  }
+
+  private var isEmbeddedMessage: Bool {
+    mimeType?.trimmingCharacters(in: .whitespacesAndNewlines)
+      .caseInsensitiveCompare("message/rfc822") == .orderedSame
   }
 
   private var hasFilename: Bool {
@@ -2098,7 +2137,10 @@ private enum GmailInlineImagePolicy {
   static let maximumImageByteCount = 5 * 1_024 * 1_024
   static let maximumImageAttemptCount = 20
   static let maximumImageCount = 20
+  static let maximumImageDimension = 8_192
+  static let maximumImagePixelCount = 16 * 1_024 * 1_024
   static let maximumTotalByteCount = 20 * 1_024 * 1_024
+  static let maximumTotalPixelCount = 32 * 1_024 * 1_024
 
   static func canAttempt(
     _ body: GmailMessageBodyData,
@@ -2118,6 +2160,23 @@ private enum GmailInlineImagePolicy {
       : nil
   }
 
+  static func admittedPixelCount(
+    _ data: Data,
+    mimeType: String,
+    remainingByteCount: Int,
+    remainingPixelCount: Int
+  ) -> Int? {
+    guard data.count <= maximumImageByteCount,
+      data.count <= remainingByteCount,
+      hasValidSignature(data, mimeType: mimeType),
+      let pixelCount = pixelCountIfAllowed(data),
+      pixelCount <= remainingPixelCount
+    else {
+      return nil
+    }
+    return pixelCount
+  }
+
   static func hasValidSignature(_ data: Data, mimeType: String) -> Bool {
     switch mimeType {
     case "image/gif":
@@ -2133,6 +2192,24 @@ private enum GmailInlineImagePolicy {
     default:
       return false
     }
+  }
+
+  static func pixelCountIfAllowed(_ data: Data) -> Int? {
+    let options = [kCGImageSourceShouldCache: false] as CFDictionary
+    guard let source = CGImageSourceCreateWithData(data as CFData, options),
+      let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options)
+        as? [CFString: Any],
+      let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
+      let height = (properties[kCGImagePropertyPixelHeight] as? NSNumber)?.intValue,
+      width > 0,
+      height > 0,
+      width <= maximumImageDimension,
+      height <= maximumImageDimension,
+      width <= maximumImagePixelCount / height
+    else {
+      return nil
+    }
+    return width * height
   }
 }
 

@@ -3521,6 +3521,7 @@ struct MailShellConversationReader: View {
               }
               .disabled(
                 isConnectionBusy || mailActionViewModel.isPerformingAction
+                  || inboxViewModel.isLoadingMessageBody
                   || inboxViewModel.isLoadedMessageBodyTextUnavailable(
                     for: thread.latestMessage.id
                   )

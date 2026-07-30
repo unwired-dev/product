@@ -5,6 +5,11 @@ import XCTest
 // swiftlint:disable file_length function_body_length type_body_length
 
 final class GmailMessageBodyServiceTests: XCTestCase {
+  private static let validPNGData = Data(
+    base64Encoded:
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYGD4DwABBAEAHnOcQAAAAABJRU5ErkJggg=="
+  )!
+
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "apple-token",
@@ -37,6 +42,14 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       trustedDeviceId: session.trustedDeviceId,
       updatedAt: 1
     )
+  }
+
+  private func pngImageData(marker: UInt8? = nil) -> Data {
+    var data = Self.validPNGData
+    if let marker {
+      data.append(marker)
+    }
+    return data
   }
 
   func testPrefetchPlanSelectsNewestFiveHundredRecentInboxAndSentMessages() {
@@ -722,7 +735,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadFetchesOnlySanitizedReferencedValidInlineImagesWithoutCachingThem() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = """
       <p>Receipt</p>
       <img src="cid:image-001@example.com">
@@ -814,7 +827,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesImageOnlyHTMLBody() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<img src="cid:barcode@example.com" alt="Barcode">"#
     let fixture = try makeFixture(
       attachmentResponses: [
@@ -854,7 +867,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadDoesNotResolveCIDImageInsideAttachmentTree() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
     let fixture = try makeFixture(
       attachmentResponses: [
@@ -897,8 +910,84 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReadDoesNotResolveCIDImageInsideBareEmbeddedMessage() async throws {
+    let imageData = pngImageData()
+    let html = #"<p>Receipt</p><img src="cid:attached@example.com">"#
+    let fixture = try makeFixture(
+      attachmentResponses: [
+        "attached-image": #"{"data":"\#(imageData.base64EncodedString())"}"#
+      ],
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "message/rfc822",
+                "parts": [
+                  {
+                    "mimeType": "image/png",
+                    "headers": [{"name": "Content-ID", "value": "<attached@example.com>"}],
+                    "body": {"attachmentId": "attached-image", "size": \(imageData.count)}
+                  }
+                ]
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages, [])
+    XCTAssertFalse(
+      fixture.requestPaths.compactMap { $0 as? String }.contains {
+        $0.contains("/attachments/")
+      }
+    )
+  }
+
+  func testReadRejectsInlineImageWithExcessiveDecodedDimensions() async throws {
+    let imageData = Data(
+      base64Encoded:
+        "iVBORw0KGgoAAAANSUhEUgAAJxAAACcQCAYAAAC6TmInAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII="
+    )!
+    let html = #"<p>Receipt</p><img src="cid:oversized@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<oversized@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages, [])
+  }
+
   func testReadCountsAdmittedInlineImagesInsteadOfMissingReferences() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let missingImages = (0..<20).map {
       #"<img src="cid:missing-\#($0)@example.com">"#
     }.joined()
@@ -931,7 +1020,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadExcludesZeroSizedImagesBeforeApplyingRequestLimit() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let hiddenImages = (0..<20).map {
       #"<img width="0" src="cid:hidden-\#($0)@example.com">"#
     }.joined()
@@ -979,8 +1068,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesDuplicateCIDFromSelectedMIMEAlternative() async throws {
-    let firstImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
-    let selectedImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let firstImageData = pngImageData(marker: 1)
+    let selectedImageData = pngImageData(marker: 2)
     let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1038,8 +1127,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesDuplicateCIDFromSelectedAlternativeInsideRelatedScope() async throws {
-    let plainImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
-    let htmlImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let plainImageData = pngImageData(marker: 1)
+    let htmlImageData = pngImageData(marker: 2)
     let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1094,8 +1183,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesDuplicateCIDFromSelectedNestedAlternative() async throws {
-    let plainImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
-    let htmlImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let plainImageData = pngImageData(marker: 1)
+    let htmlImageData = pngImageData(marker: 2)
     let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1153,7 +1242,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesCIDFromEnclosingRelatedScope() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:related@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1189,7 +1278,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesInlineCIDSiblingFromEnclosingMixedScope() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1228,7 +1317,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadResolvesDispositionlessCIDSiblingFromEnclosingMixedScope() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1264,8 +1353,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadPrefersNearestRelatedScopeForDuplicateCID() async throws {
-    let innerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
-    let outerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let innerImageData = pngImageData(marker: 1)
+    let outerImageData = pngImageData(marker: 2)
     let html = #"<p>Receipt</p><img src="cid:duplicate@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1359,7 +1448,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testReadMatchesPercentEscapedCIDToLiteralContentIDHeader() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<img src="cid:logo%2541@example.com">"#
     let fixture = try makeFixture(
       messageResponse: """
@@ -1389,7 +1478,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
   }
 
   func testPrefetchDoesNotRetrieveInlineImagesButExplicitOpenDoes() async throws {
-    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let imageData = pngImageData()
     let html = #"<p>Receipt</p><img src="cid:image-001@example.com">"#
     let prefetchedMessage = prefetchMessage(
       id: "message-001",
