@@ -3898,7 +3898,7 @@ struct MailShellMessageBody: View {
   let clearSignal: UUID?
   let load: () async throws -> MailboxMessageBody
   let onLoaded: () -> Void
-  @State private var messageBody: MailboxMessageBody?
+  @State private var loadedContent: MailShellLoadedMessageContent?
   @State private var errorMessage: String?
   @State private var isCleared = false
   @State private var isLoading = false
@@ -3916,10 +3916,8 @@ struct MailShellMessageBody: View {
 
   var body: some View {
     Group {
-      if let messageBody {
-        Text(messageBody.text)
-          .frame(maxWidth: .infinity, alignment: .leading)
-          .textSelection(.enabled)
+      if let loadedContent {
+        MailShellMessageContent(loadedContent: loadedContent)
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
@@ -3946,7 +3944,12 @@ struct MailShellMessageBody: View {
       do {
         let loadedMessageBody = try await load()
         guard generation == loadGeneration else { return }
-        messageBody = loadedMessageBody
+        let presentation = try await MessageHTMLPresentation.prepare(body: loadedMessageBody)
+        guard generation == loadGeneration else { return }
+        loadedContent = MailShellLoadedMessageContent(
+          fallbackText: loadedMessageBody.text,
+          presentation: presentation
+        )
         errorMessage = nil
         isCleared = false
         onLoaded()
@@ -3958,10 +3961,37 @@ struct MailShellMessageBody: View {
     }
     .onChange(of: clearSignal) {
       loadGeneration = UUID()
-      messageBody = nil
+      loadedContent = nil
       errorMessage = nil
       isCleared = true
       isLoading = false
+    }
+  }
+}
+
+private struct MailShellLoadedMessageContent {
+  let fallbackText: String
+  let presentation: MessageHTMLPresentation
+}
+
+private struct MailShellMessageContent: View {
+  let loadedContent: MailShellLoadedMessageContent
+  @State private var renderingFailed = false
+
+  var body: some View {
+    switch renderingFailed
+      ? MessageHTMLPresentation.plainText(loadedContent.fallbackText)
+      : loadedContent.presentation
+    {
+    case .html(let html):
+      MessageHTMLView(
+        html: html,
+        onRenderingFailure: { renderingFailed = true }
+      )
+    case .plainText(let text):
+      Text(text)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .textSelection(.enabled)
     }
   }
 }
