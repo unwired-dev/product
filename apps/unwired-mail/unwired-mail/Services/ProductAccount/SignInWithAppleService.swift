@@ -8,6 +8,38 @@ import Foundation
   import UIKit
 #endif
 
+enum AuthenticationPresentationAnchor {
+  nonisolated static func current() -> ASPresentationAnchor {
+    if Thread.isMainThread {
+      return MainActor.assumeIsolated {
+        currentOnMainActor()
+      }
+    }
+
+    return DispatchQueue.main.sync {
+      MainActor.assumeIsolated {
+        currentOnMainActor()
+      }
+    }
+  }
+
+  @MainActor
+  private static func currentOnMainActor() -> ASPresentationAnchor {
+    #if canImport(UIKit)
+      let scenes = UIApplication.shared.connectedScenes
+      let windowScene =
+        scenes.first {
+          $0.activationState == .foregroundActive
+        } as? UIWindowScene
+      return windowScene?.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
+    #elseif canImport(AppKit)
+      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
+    #else
+      return ASPresentationAnchor()
+    #endif
+  }
+}
+
 struct AppleSignInCredential: Equatable {
   let appleUserIdentifier: String
   let identityToken: String
@@ -282,17 +314,10 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
 }
 
 extension SignInWithAppleService: ASAuthorizationControllerPresentationContextProviding {
-  func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scenes = UIApplication.shared.connectedScenes
-      let windowScene = scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
-      let window = windowScene?.windows.first { $0.isKeyWindow }
-      return window ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  nonisolated func presentationAnchor(
+    for controller: ASAuthorizationController
+  ) -> ASPresentationAnchor {
+    AuthenticationPresentationAnchor.current()
   }
 }
 

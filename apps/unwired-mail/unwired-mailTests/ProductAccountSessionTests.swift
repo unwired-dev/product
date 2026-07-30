@@ -48,6 +48,38 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testAuthenticationPresentationAnchorsCanBeRequestedOffMainThread() {
+    let appleProvider = UncheckedSendableValue<
+      ASAuthorizationControllerPresentationContextProviding
+    >(
+      value: SignInWithAppleService()
+    )
+    let callbackCompleted = expectation(description: "Presentation callbacks complete")
+
+    DispatchQueue.global().async {
+      XCTAssertFalse(Thread.isMainThread)
+      let authorizationController = ASAuthorizationController(
+        authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()]
+      )
+      let webAuthenticationSession = ASWebAuthenticationSession(
+        url: URL(string: "https://example.test")!,
+        callbackURLScheme: nil
+      ) { _, _ in }
+      let webProviders: [ASWebAuthenticationPresentationContextProviding] = [
+        GoogleGmailOAuthService(clientIdentifier: nil),
+        MicrosoftGraphOAuthService(callbackScheme: nil, clientIdentifier: nil),
+      ]
+
+      _ = appleProvider.value.presentationAnchor(for: authorizationController)
+      for provider in webProviders {
+        _ = provider.presentationAnchor(for: webAuthenticationSession)
+      }
+      callbackCompleted.fulfill()
+    }
+
+    wait(for: [callbackCompleted], timeout: 1)
+  }
+
   func testMailboxFreshnessViewModelIsSharedAcrossSessionViews() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1191,6 +1223,10 @@ private struct SuspendingDevicePushUnregisterer: DevicePushUnregistering {
   func unregister(session _: ProductAccountSessionSnapshot) async throws {
     await gate.waitForRelease()
   }
+}
+
+private struct UncheckedSendableValue<Value>: @unchecked Sendable {
+  let value: Value
 }
 
 private struct SuspendingGmailProviderConnecting:

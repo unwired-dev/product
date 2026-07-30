@@ -6510,11 +6510,11 @@ final class MailboxProviderConnectionViewModel {
       switch error {
       case .connectionRemoved(let observation):
         removalObservation = observation
-        try? await refreshConnections()
+        _ = try? await refreshConnections()
         restoreSelection()
       case .concurrentModification:
         removalObservation = nil
-        try? await refreshConnections()
+        _ = try? await refreshConnections()
         restoreSelection()
       case .invalidDefaultSendingConnection, .missingProductSyncKeyMaterial:
         break
@@ -6577,7 +6577,7 @@ final class MailboxProviderConnectionViewModel {
       errorMessage = nil
       return true
     } catch {
-      try? await refreshConnections()
+      _ = try? await refreshConnections()
       errorMessage = error.localizedDescription
       return removalCompleted
     }

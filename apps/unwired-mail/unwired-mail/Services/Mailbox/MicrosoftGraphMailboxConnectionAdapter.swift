@@ -4091,18 +4091,10 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
 }
 
 extension MicrosoftGraphOAuthService: ASWebAuthenticationPresentationContextProviding {
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scene =
-        UIApplication.shared.connectedScenes.first {
-          $0.activationState == .foregroundActive
-        } as? UIWindowScene
-      return scene?.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  nonisolated func presentationAnchor(
+    for session: ASWebAuthenticationSession
+  ) -> ASPresentationAnchor {
+    AuthenticationPresentationAnchor.current()
   }
 }
 

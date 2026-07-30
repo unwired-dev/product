@@ -281,17 +281,10 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
 }
 
 extension GoogleGmailOAuthService: ASWebAuthenticationPresentationContextProviding {
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scenes = UIApplication.shared.connectedScenes
-      let windowScene = scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
-      let window = windowScene?.windows.first { $0.isKeyWindow }
-      return window ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  nonisolated func presentationAnchor(
+    for session: ASWebAuthenticationSession
+  ) -> ASPresentationAnchor {
+    AuthenticationPresentationAnchor.current()
   }
 }
 
