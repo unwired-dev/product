@@ -4,11 +4,20 @@ import Foundation
 // swiftlint:disable file_length type_body_length
 
 struct GmailMessageBody: Equatable {
+  let didResolveInlineImages: Bool
   let html: String?
+  let inlineImages: [MailboxMessageInlineImage]
   let text: String
 
-  init(text: String, html: String? = nil) {
+  init(
+    text: String,
+    html: String? = nil,
+    inlineImages: [MailboxMessageInlineImage] = [],
+    didResolveInlineImages: Bool = true
+  ) {
+    self.didResolveInlineImages = didResolveInlineImages
     self.html = html
+    self.inlineImages = inlineImages
     self.text = text
   }
 }
@@ -214,6 +223,11 @@ protocol GmailMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody
 
+  func loadMessageBodyText(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String
+
   func prefetchMessageBodies(
     connection: GmailProviderConnectionStatus,
     pinnedMessageIds: Set<String>,
@@ -228,6 +242,13 @@ protocol GmailMessageReading {
 }
 
 extension GmailMessageReading {
+  func loadMessageBodyText(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    try await loadMessageBody(message: message, session: session).text
+  }
+
   func prefetchMessageBodies(
     connection _: GmailProviderConnectionStatus,
     pinnedMessageIds _: Set<String>,
@@ -889,16 +910,64 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     message: GmailMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) async throws -> GmailMessageBody {
+    let cachedBody = try loadCachedMessageBody(message: message, session: session)
+    if let cachedBody {
+      try? cache.recordMessageBodyAccess(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId,
+        accessedAt: Date()
+      )
+      if cachedBody.didResolveInlineImages {
+        return cachedBody
+      }
+    }
+    let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
+
+    do {
+      return try await loadFreshMessageBody(
+        message: message,
+        session: session,
+        keyMaterial: material,
+        includesInlineImages: true,
+        requiresPrefetchSafeMIME: false
+      )
+    } catch {
+      if let cachedBody {
+        return cachedBody
+      }
+      throw error
+    }
+  }
+
+  func loadMessageBodyText(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
     if let cachedBody = try loadCachedMessageBody(message: message, session: session) {
       try? cache.recordMessageBodyAccess(
         productAccountId: session.productAccountId,
         stableProviderMessageId: message.stableProviderMessageId,
         accessedAt: Date()
       )
-      return cachedBody
+      return cachedBody.text
     }
     let material = try requiredKeyMaterial(productAccountId: session.productAccountId)
+    return try await loadFreshMessageBody(
+      message: message,
+      session: session,
+      keyMaterial: material,
+      includesInlineImages: false,
+      requiresPrefetchSafeMIME: true
+    ).text
+  }
 
+  private func loadFreshMessageBody(
+    message: GmailMessageMetadata,
+    session: ProductAccountSessionSnapshot,
+    keyMaterial: ProductSyncKeyMaterial,
+    includesInlineImages: Bool,
+    requiresPrefetchSafeMIME: Bool
+  ) async throws -> GmailMessageBody {
     guard
       let tokens = try tokenStore.load(
         productAccountId: session.productAccountId,
@@ -916,12 +985,25 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       refreshedTokens.accessToken,
       providerAccountIdentifier: message.providerAccountIdentifier
     )
+    if requiresPrefetchSafeMIME {
+      guard
+        try await canPrefetchMessageBody(
+          message: message,
+          accessToken: refreshedTokens.accessToken
+        )
+      else {
+        throw GmailMessageBodyError.missingMessageBody
+      }
+    }
     let result = try await fetchMessageBody(
-      message: message, accessToken: refreshedTokens.accessToken)
+      message: message,
+      accessToken: refreshedTokens.accessToken,
+      includesInlineImages: includesInlineImages
+    )
     if result.isCacheable,
       let payload = try? encryptedPayload(
         for: result.body,
-        keyMaterial: material,
+        keyMaterial: keyMaterial,
         message: message
       )
     {
@@ -998,11 +1080,20 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     if try loadCachedMessageBody(message: message, session: context.session) != nil {
       return true
     }
+    guard
+      try await canPrefetchMessageBody(
+        message: message,
+        accessToken: context.accessToken
+      )
+    else {
+      return true
+    }
     let result: GmailMessageBodyFetchResult
     do {
       result = try await fetchMessageBody(
         message: message,
-        accessToken: context.accessToken
+        accessToken: context.accessToken,
+        includesInlineImages: false
       )
     } catch GmailMessageBodyError.missingMessageBody {
       return true
@@ -1027,6 +1118,35 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       productAccountId: context.session.productAccountId,
       stableProviderMessageId: message.stableProviderMessageId
     )
+  }
+
+  private func canPrefetchMessageBody(
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> Bool {
+    var components = URLComponents(
+      url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
+      resolvingAgainstBaseURL: false
+    )
+    components?.queryItems = [
+      URLQueryItem(name: "format", value: "metadata"),
+      URLQueryItem(name: "metadataHeaders", value: "Content-Type"),
+      URLQueryItem(name: "metadataHeaders", value: "Content-Disposition"),
+    ]
+    guard let url = components?.url else {
+      throw GmailMessageBodyError.gmailRequestFailed
+    }
+
+    var request = URLRequest(url: url)
+    request.setValue("Bearer \(accessToken)", forHTTPHeaderField: "Authorization")
+    let (data, response) = try await session.data(for: request)
+    guard let httpResponse = response as? HTTPURLResponse,
+      (200..<300).contains(httpResponse.statusCode)
+    else {
+      throw GmailMessageBodyError.gmailRequestFailed
+    }
+    let responseBody = try JSONDecoder().decode(GmailMessageBodyResponse.self, from: data)
+    return responseBody.payload.isSafeForBodyPrefetch
   }
 
   private func uncachedMessages(
@@ -1103,7 +1223,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
 
   private func fetchMessageBody(
     message: GmailMessageMetadata,
-    accessToken: String
+    accessToken: String,
+    includesInlineImages: Bool
   ) async throws -> GmailMessageBodyFetchResult {
     var components = URLComponents(
       url: gmailBaseURL.appendingPathComponent("users/me/messages/\(message.providerMessageId)"),
@@ -1127,27 +1248,30 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     return try await decodedMessageBody(
       responseBody.payload,
       message: message,
-      accessToken: accessToken
+      accessToken: accessToken,
+      includesInlineImages: includesInlineImages
     )
   }
 
   private func decodedMessageBody(
     _ payload: GmailMessageBodyPart,
     message: GmailMessageMetadata,
-    accessToken: String
+    accessToken: String,
+    includesInlineImages: Bool
   ) async throws -> GmailMessageBodyFetchResult {
     let candidates = payload.readableBodyPartCandidates
     guard !candidates.isEmpty else {
       throw GmailMessageBodyError.missingMessageBody
     }
     var decodingError: Error?
-    for (plainTextPart, htmlPart) in candidates {
+    for candidate in candidates {
       do {
         return try await decodedMessageBody(
-          plainTextPart: plainTextPart,
-          htmlPart: htmlPart,
+          candidate: candidate,
+          inlineImagePartsByContentID: payload.inlineImagePartsByContentID,
           message: message,
-          accessToken: accessToken
+          accessToken: accessToken,
+          includesInlineImages: includesInlineImages
         )
       } catch {
         try Task.checkCancellation()
@@ -1158,14 +1282,52 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
   }
 
   private func decodedMessageBody(
-    plainTextPart: GmailMessageBodyPart?,
-    htmlPart: GmailMessageBodyPart?,
+    candidate: GmailReadableMessageBodyCandidate,
+    inlineImagePartsByContentID: [String: GmailMessageBodyPart],
+    message: GmailMessageMetadata,
+    accessToken: String,
+    includesInlineImages: Bool
+  ) async throws -> GmailMessageBodyFetchResult {
+    let content = try await decodedReadableContent(
+      candidate: candidate,
+      message: message,
+      accessToken: accessToken
+    )
+    let sanitizedHTML = try content.html.flatMap {
+      try MessageHTMLSanitizer.sanitize($0)
+    }
+    let referencedContentIDs =
+      sanitizedHTML.map {
+        MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML)
+      } ?? []
+    let inlineImages =
+      includesInlineImages
+      ? try await decodedInlineImages(
+        referencedContentIDs: referencedContentIDs,
+        partsByContentID: inlineImagePartsByContentID,
+        message: message,
+        accessToken: accessToken
+      )
+      : []
+    return .init(
+      text: content.text,
+      plain: content.plainText,
+      plainPart: candidate.plainText,
+      html: content.html,
+      htmlPart: candidate.html,
+      inlineImages: inlineImages,
+      didResolveInlineImages: includesInlineImages || referencedContentIDs.isEmpty
+    )
+  }
+
+  private func decodedReadableContent(
+    candidate: GmailReadableMessageBodyCandidate,
     message: GmailMessageMetadata,
     accessToken: String
-  ) async throws -> GmailMessageBodyFetchResult {
+  ) async throws -> GmailDecodedReadableBody {
     var decodingError: Error?
     let plainText: String?
-    if let plainTextPart {
+    if let plainTextPart = candidate.plainText {
       do {
         plainText = try await decodedText(
           bodyPart: plainTextPart,
@@ -1181,7 +1343,7 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       plainText = nil
     }
     let html: String?
-    if let htmlPart {
+    if let htmlPart = candidate.html {
       do {
         html = try await decodedText(
           bodyPart: htmlPart,
@@ -1206,8 +1368,60 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
     } else {
       throw decodingError ?? GmailMessageBodyError.missingMessageBody
     }
-    return .init(
-      text: text, plain: plainText, plainPart: plainTextPart, html: html, htmlPart: htmlPart)
+    return GmailDecodedReadableBody(html: html, plainText: plainText, text: text)
+  }
+
+  private func decodedInlineImages(
+    referencedContentIDs: [String],
+    partsByContentID: [String: GmailMessageBodyPart],
+    message: GmailMessageMetadata,
+    accessToken: String
+  ) async throws -> [MailboxMessageInlineImage] {
+    var decodedByteCount = 0
+    var images: [MailboxMessageInlineImage] = []
+    for contentID in referencedContentIDs.prefix(GmailInlineImagePolicy.maximumImageCount) {
+      try Task.checkCancellation()
+      guard let part = partsByContentID[contentID],
+        let mimeType = GmailInlineImagePolicy.normalizedSupportedMIMEType(part.mimeType),
+        let body = part.body
+      else {
+        continue
+      }
+      if body.attachmentId != nil {
+        guard let size = body.size, size <= GmailInlineImagePolicy.maximumImageByteCount else {
+          continue
+        }
+      } else if body.size.map({ $0 > GmailInlineImagePolicy.maximumImageByteCount }) == true {
+        continue
+      }
+      do {
+        let encodedData = try await encodedBodyData(
+          bodyPart: part,
+          message: message,
+          accessToken: accessToken
+        )
+        guard let data = Data(gmailBase64URLEncoded: encodedData),
+          data.count <= GmailInlineImagePolicy.maximumImageByteCount,
+          decodedByteCount + data.count <= GmailInlineImagePolicy.maximumTotalByteCount,
+          GmailInlineImagePolicy.hasValidSignature(data, mimeType: mimeType)
+        else {
+          continue
+        }
+        decodedByteCount += data.count
+        images.append(
+          MailboxMessageInlineImage(
+            contentID: contentID,
+            data: data,
+            mimeType: mimeType
+          )
+        )
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        try Task.checkCancellation()
+      }
+    }
+    return images
   }
 
   private func refreshedTokens(
@@ -1386,6 +1600,17 @@ private struct GmailMessageBodyResponse: Decodable {
   let payload: GmailMessageBodyPart
 }
 
+private struct GmailDecodedReadableBody {
+  let html: String?
+  let plainText: String?
+  let text: String
+}
+
+private struct GmailReadableMessageBodyCandidate {
+  let plainText: GmailMessageBodyPart?
+  let html: GmailMessageBodyPart?
+}
+
 private struct GmailMessageBodyFetchResult {
   let body: GmailMessageBody
   let isCacheable: Bool
@@ -1395,9 +1620,16 @@ private struct GmailMessageBodyFetchResult {
     plain: String?,
     plainPart: GmailMessageBodyPart?,
     html: String?,
-    htmlPart: GmailMessageBodyPart?
+    htmlPart: GmailMessageBodyPart?,
+    inlineImages: [MailboxMessageInlineImage],
+    didResolveInlineImages: Bool
   ) {
-    body = GmailMessageBody(text: text, html: html)
+    body = GmailMessageBody(
+      text: text,
+      html: html,
+      inlineImages: inlineImages,
+      didResolveInlineImages: didResolveInlineImages
+    )
     isCacheable =
       (plainPart?.body?.attachmentId == nil || plain != nil)
       && (htmlPart?.body?.attachmentId == nil || html != nil)
@@ -1412,7 +1644,14 @@ struct GmailMessageBodyCachePayload: Codable {
 
   static func encode(_ body: GmailMessageBody) throws -> Data {
     var data = header
-    data.append(try JSONEncoder().encode(Self(html: body.html, text: body.text)))
+    data.append(
+      try JSONEncoder().encode(
+        Self(
+          html: body.html,
+          text: body.text
+        )
+      )
+    )
     return data
   }
 
@@ -1422,9 +1661,21 @@ struct GmailMessageBodyCachePayload: Codable {
     }
     let payload = try JSONDecoder().decode(
       Self.self,
-      from: Data(data.dropFirst(header.count))
+      from: Data(data.dropFirst(Self.header.count))
     )
-    return GmailMessageBody(text: payload.text, html: payload.html)
+    let didResolveInlineImages =
+      payload.html.flatMap {
+        try? MessageHTMLSanitizer.sanitize($0)
+      }.map {
+        MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
+      }
+      ?? true
+    return GmailMessageBody(
+      text: payload.text,
+      html: payload.html,
+      inlineImages: [],
+      didResolveInlineImages: didResolveInlineImages
+    )
   }
 }
 
@@ -1435,18 +1686,48 @@ private struct GmailMessageBodyPart: Decodable {
   let mimeType: String?
   let parts: [GmailMessageBodyPart]?
 
-  var readableBodyPartCandidates:
-    [(
-      plainText: GmailMessageBodyPart?,
-      html: GmailMessageBodyPart?
-    )]
-  {
+  var topLevelContentType: String? {
+    headers?.first {
+      $0.name.caseInsensitiveCompare("Content-Type") == .orderedSame
+    }?.value.split(separator: ";", maxSplits: 1).first.map {
+      $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    }
+  }
+
+  var isSafeForBodyPrefetch: Bool {
+    guard !isAttachment else { return false }
+    guard let contentType = topLevelContentType else { return false }
+    return contentType == "text/html" || contentType == "text/plain"
+  }
+
+  var readableBodyPartCandidates: [GmailReadableMessageBodyCandidate] {
     let alternatives = readableMultipartAlternativeParts
     if !alternatives.isEmpty {
-      return alternatives.map { ($0.readablePlainTextPart, $0.readableHTMLPart) }
+      return alternatives.map {
+        GmailReadableMessageBodyCandidate(
+          plainText: $0.readablePlainTextPart,
+          html: $0.readableHTMLPart
+        )
+      }
     }
     let candidate = readableBodyParts
-    return candidate.plainText != nil || candidate.html != nil ? [candidate] : []
+    return candidate.plainText != nil || candidate.html != nil
+      ? [GmailReadableMessageBodyCandidate(plainText: candidate.plainText, html: candidate.html)]
+      : []
+  }
+
+  var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
+    var result: [String: GmailMessageBodyPart] = [:]
+    if !isExplicitAttachment, let contentID {
+      result[contentID] = self
+    }
+    for part in parts ?? [] {
+      for (contentID, imagePart) in part.inlineImagePartsByContentID
+      where result[contentID] == nil {
+        result[contentID] = imagePart
+      }
+    }
+    return result
   }
 
   private var readableBodyParts:
@@ -1551,6 +1832,24 @@ private struct GmailMessageBodyPart: Decodable {
     } == true
   }
 
+  private var contentID: String? {
+    guard
+      let value = headers?.first(where: {
+        $0.name.caseInsensitiveCompare("Content-ID") == .orderedSame
+      })?.value
+    else {
+      return nil
+    }
+    return MessageHTMLSanitizer.normalizedContentID(value)
+  }
+
+  private var isExplicitAttachment: Bool {
+    headers?.contains {
+      $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
+        && $0.value.lowercased().contains("attachment")
+    } == true
+  }
+
   private var hasBodyData: Bool {
     body?.attachmentId != nil || body?.data != nil
   }
@@ -1576,6 +1875,7 @@ private struct GmailMessageBodyPart: Decodable {
 private struct GmailMessageBodyData: Decodable {
   let attachmentId: String?
   let data: String?
+  let size: Int?
 }
 
 private struct GmailMessageBodyHeader: Decodable {
@@ -1585,6 +1885,37 @@ private struct GmailMessageBodyHeader: Decodable {
 
 private struct GmailMessageBodyAttachment: Decodable {
   let data: String?
+}
+
+private enum GmailInlineImagePolicy {
+  static let maximumImageByteCount = 5 * 1_024 * 1_024
+  static let maximumImageCount = 20
+  static let maximumTotalByteCount = 20 * 1_024 * 1_024
+
+  static func normalizedSupportedMIMEType(_ mimeType: String?) -> String? {
+    guard let mimeType else { return nil }
+    let normalized = mimeType.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return ["image/gif", "image/jpeg", "image/png", "image/webp"].contains(normalized)
+      ? normalized
+      : nil
+  }
+
+  static func hasValidSignature(_ data: Data, mimeType: String) -> Bool {
+    switch mimeType {
+    case "image/gif":
+      return data.starts(with: Data("GIF87a".utf8)) || data.starts(with: Data("GIF89a".utf8))
+    case "image/jpeg":
+      return data.starts(with: Data([0xFF, 0xD8, 0xFF]))
+    case "image/png":
+      return data.starts(with: Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]))
+    case "image/webp":
+      return data.count >= 12
+        && data.starts(with: Data("RIFF".utf8))
+        && Data(data[8..<12]) == Data("WEBP".utf8)
+    default:
+      return false
+    }
+  }
 }
 
 private struct GmailMessageBodyTokenResponse: Decodable {

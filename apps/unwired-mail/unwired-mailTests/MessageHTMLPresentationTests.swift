@@ -3,6 +3,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 final class MessageHTMLPresentationTests: XCTestCase {
   func testSanitizerPreservesCommonEmailLayoutAndSafeStyles() throws {
     let result = try XCTUnwrap(
@@ -133,13 +135,106 @@ final class MessageHTMLPresentationTests: XCTestCase {
     let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
 
     XCTAssertTrue(result.documentHTML.contains("default-src 'none'"))
-    XCTAssertTrue(result.documentHTML.contains("img-src 'none'"))
+    XCTAssertTrue(result.documentHTML.contains("img-src data:"))
     XCTAssertTrue(result.documentHTML.contains("connect-src 'none'"))
     XCTAssertTrue(result.documentHTML.contains("frame-src 'none'"))
     XCTAssertTrue(result.documentHTML.contains("object-src 'none'"))
     XCTAssertTrue(result.documentHTML.contains("base-uri 'none'"))
     XCTAssertTrue(result.documentHTML.contains("form-action 'none'"))
     XCTAssertTrue(result.documentHTML.contains("<p>Hello</p>"))
+  }
+}
+
+extension MessageHTMLPresentationTests {
+  func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47])
+    let body = MailboxMessageBody(
+      text: "Receipt",
+      html: """
+        <p>Receipt</p>
+        <img src="CID:%49mage-001@Example.COM" alt="Barcode">
+        """,
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: " <image-001@example.com> ",
+          data: imageData,
+          mimeType: "image/png"
+        )
+      ]
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertTrue(
+      presentation.documentHTML.contains(
+        "src=\"data:image/png;base64,\(imageData.base64EncodedString())\""
+      )
+    )
+    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
+  }
+
+  func testPresentationLeavesMissingCIDImagesAsNonLoadingPlaceholders() throws {
+    let body = MailboxMessageBody(
+      text: "Receipt",
+      html: """
+        <p>Receipt</p>
+        <img src="cid:missing@example.com" alt="Missing image">
+        <img src="https://tracker.example/pixel.gif" alt="Remote image">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertTrue(presentation.documentHTML.contains("alt=\"Missing image\""))
+    XCTAssertTrue(presentation.documentHTML.contains("alt=\"Remote image\""))
+    XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
+    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+    XCTAssertFalse(presentation.documentHTML.contains("<img src="))
+  }
+
+  @MainActor
+  func testResolvedCIDImageRendersInsideSecuredWebView() async throws {
+    let imageData = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    let body = MailboxMessageBody(
+      text: "Receipt",
+      html: #"<p>Receipt</p><img src="cid:pixel@example.com">"#,
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "pixel@example.com",
+          data: imageData,
+          mimeType: "image/png"
+        )
+      ]
+    )
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+    let configuration = MessageHTMLWebViewConfiguration.make()
+    let webView = WKWebView(frame: .zero, configuration: configuration)
+    MessageHTMLWebViewConfiguration.applyPrivacySettings(to: webView)
+    let navigationFinished = expectation(description: "Inline image document loaded")
+    let navigationDelegate = MessageHTMLTestNavigationDelegate(expectation: navigationFinished)
+    webView.navigationDelegate = navigationDelegate
+
+    webView.loadHTMLString(presentation.documentHTML, baseURL: nil)
+    await fulfillment(of: [navigationFinished], timeout: 5)
+
+    XCTAssertNil(navigationDelegate.error)
+    let didRender =
+      try await webView.evaluateJavaScript(
+        "document.images.length === 1 && document.images[0].complete "
+          + "&& document.images[0].naturalWidth === 1"
+      ) as? Bool
+    XCTAssertEqual(didRender, true)
   }
 
   func testSanitizedDocumentNormalizesEmailColorsOntoANeutralLightCanvas() throws {
@@ -356,4 +451,23 @@ extension MessageHTMLPresentationTests {
 
 private enum TestError: Error {
   case sanitizationFailed
+}
+
+@MainActor
+private final class MessageHTMLTestNavigationDelegate: NSObject, WKNavigationDelegate {
+  let errorExpectation: XCTestExpectation
+  var error: Error?
+
+  init(expectation: XCTestExpectation) {
+    errorExpectation = expectation
+  }
+
+  func webView(_: WKWebView, didFinish _: WKNavigation!) {
+    errorExpectation.fulfill()
+  }
+
+  func webView(_: WKWebView, didFail _: WKNavigation!, withError error: Error) {
+    self.error = error
+    errorExpectation.fulfill()
+  }
 }

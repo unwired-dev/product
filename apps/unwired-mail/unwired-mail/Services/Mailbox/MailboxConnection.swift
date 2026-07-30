@@ -629,12 +629,24 @@ struct HistoricalCategorizationScope: Equatable, Sendable {
   }
 }
 
+struct MailboxMessageInlineImage: Equatable, Sendable {
+  let contentID: String
+  let data: Data
+  let mimeType: String
+}
+
 struct MailboxMessageBody: Equatable, Sendable {
   let html: String?
+  let inlineImages: [MailboxMessageInlineImage]
   let text: String
 
-  init(text: String, html: String? = nil) {
+  init(
+    text: String,
+    html: String? = nil,
+    inlineImages: [MailboxMessageInlineImage] = []
+  ) {
     self.html = html
+    self.inlineImages = inlineImages
     self.text = text
   }
 }
@@ -1183,10 +1195,24 @@ protocol MailboxMessageReading {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageBody
 
+  func loadMessageBodyText(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String
+
   func removeCachedMessageBody(
     message: MailboxMessageMetadata,
     session: ProductAccountSessionSnapshot
   ) throws
+}
+
+extension MailboxMessageReading {
+  func loadMessageBodyText(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    try await loadMessageBody(message: message, session: session).text
+  }
 }
 
 protocol MailboxPushRegistering {
@@ -2386,7 +2412,31 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
           message: message.gmailMetadata,
           session: session
         )
-        return MailboxMessageBody(text: body.text, html: body.html)
+        return MailboxMessageBody(
+          text: body.text,
+          html: body.html,
+          inlineImages: body.inlineImages
+        )
+      }
+    } catch MailboxConnectionAdapterError.connectionRemoved {
+      try? await syncGate.withLock(message.connectionId) {
+        try await clearRemovedConnectionState(message.connectionId, session: session)
+      }
+      throw MailboxConnectionAdapterError.connectionRemoved
+    }
+  }
+
+  func loadMessageBodyText(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    do {
+      return try await syncGate.withSharedLock(message.connectionId) {
+        try await ensureConnectionIsActive(message.connectionId, session: session)
+        return try await bodyReader.loadMessageBodyText(
+          message: message.gmailMetadata,
+          session: session
+        )
       }
     } catch MailboxConnectionAdapterError.connectionRemoved {
       try? await syncGate.withLock(message.connectionId) {

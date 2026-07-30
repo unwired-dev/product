@@ -2220,6 +2220,16 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     try await adapter(for: message.connectionId).loadMessageBody(message: message, session: session)
   }
 
+  func loadMessageBodyText(
+    message: MailboxMessageMetadata,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    try await adapter(for: message.connectionId).loadMessageBodyText(
+      message: message,
+      session: session
+    )
+  }
+
   func prefetchMessageBodies(
     connection: MailboxConnection,
     pinnedMessageIds: Set<StableProviderMessageIdentity>,

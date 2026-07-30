@@ -3765,11 +3765,11 @@ struct MailShellConversationReader: View {
   private func prepareForward(_ message: MailboxMessageMetadata) async {
     let selectedThreadId = selection.selectedThreadId
     do {
-      let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
+      let bodyText = try await inboxViewModel.loadMessageBodyText(message, using: messageReader)
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
-      compositionDraft = .forward(message, body: body.text)
+      compositionDraft = .forward(message, body: bodyText)
       readerErrorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -5284,6 +5284,15 @@ final class GmailInboxViewModel {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
     return try await reader.loadMessageBody(message: message, session: session)
+  }
+
+  func loadMessageBodyText(
+    _ message: MailboxMessageMetadata,
+    using reader: MailboxMessageReading
+  ) async throws -> String {
+    loadingMessageBodyCount += 1
+    defer { loadingMessageBodyCount -= 1 }
+    return try await reader.loadMessageBodyText(message: message, session: session)
   }
 
   var messageCount: Int {

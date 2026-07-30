@@ -46,7 +46,43 @@ enum MessageHTMLSanitizer {
     }
     guard hasReadableText else { return nil }
 
-    return SanitizedMessageHTML(documentHTML: document(bodyHTML: bodyHTML))
+    return SanitizedMessageHTML(
+      documentHTML: document(bodyHTML: try readableDocument.body()?.html() ?? "")
+    )
+  }
+
+  static func normalizedContentID(_ value: String) -> String? {
+    let decoded = value.removingPercentEncoding ?? value
+    var normalized = decoded.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalized.lowercased().hasPrefix("cid:") {
+      normalized.removeFirst(4)
+    }
+    normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
+    if normalized.hasPrefix("<"), normalized.hasSuffix(">") {
+      normalized.removeFirst()
+      normalized.removeLast()
+    }
+    normalized = normalized.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+    return normalized.isEmpty ? nil : normalized
+  }
+
+  static func referencedInlineImageContentIDs(in html: String) -> [String] {
+    guard let document = try? SwiftSoup.parse(html),
+      let imageElements = try? document.select("img[src]")
+    else {
+      return []
+    }
+    var seenContentIDs: Set<String> = []
+    return imageElements.compactMap { element in
+      guard let source = try? element.attr("src"),
+        source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("cid:"),
+        let contentID = normalizedContentID(source),
+        seenContentIDs.insert(contentID).inserted
+      else {
+        return nil
+      }
+      return contentID
+    }
   }
 
   private static func allowlist() throws -> Whitelist {
@@ -63,7 +99,7 @@ enum MessageHTMLSanitizer {
       .addAttributes("blockquote", "cite")
       .addAttributes("col", "align", "span", "valign", "width")
       .addAttributes("colgroup", "align", "span", "valign", "width")
-      .addAttributes("img", "alt", "height", "width")
+      .addAttributes("img", "alt", "height", "src", "width")
       .addAttributes("li", "value")
       .addAttributes("ol", "start", "type")
       .addAttributes("q", "cite")
@@ -81,6 +117,7 @@ enum MessageHTMLSanitizer {
       .addProtocols("a", "href", "http", "https", "mailto", "tel")
       .addProtocols("blockquote", "cite", "http", "https")
       .addProtocols("q", "cite", "http", "https")
+      .addProtocols("img", "src", "cid")
       .urlWhitespace(.strict)
       .addEnforcedAttribute("a", "rel", "noreferrer noopener")
       .addCSSProperties(
@@ -107,7 +144,7 @@ enum MessageHTMLSanitizer {
       <meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1">
       <meta http-equiv="Content-Security-Policy" content="
-        default-src 'none'; img-src 'none'; media-src 'none'; style-src 'unsafe-inline';
+        default-src 'none'; img-src data:; media-src 'none'; style-src 'unsafe-inline';
         font-src 'none'; connect-src 'none'; frame-src 'none'; object-src 'none';
         base-uri 'none'; form-action 'none'
       ">
@@ -132,6 +169,46 @@ enum MessageHTMLSanitizer {
   }
 }
 
+enum MessageHTMLInlineImageResolver {
+  static func resolve(
+    _ html: SanitizedMessageHTML,
+    inlineImages: [MailboxMessageInlineImage]
+  ) -> SanitizedMessageHTML {
+    guard html.documentHTML.range(of: "cid:", options: .caseInsensitive) != nil,
+      let document = try? SwiftSoup.parse(html.documentHTML)
+    else {
+      return html
+    }
+    let imagesByContentID = Dictionary(
+      inlineImages.compactMap { image in
+        MessageHTMLSanitizer.normalizedContentID(image.contentID).map { ($0, image) }
+      },
+      uniquingKeysWith: { first, _ in first }
+    )
+    guard let imageElements = try? document.select("img[src]") else {
+      return html
+    }
+    for element in imageElements {
+      guard
+        let source = try? element.attr("src"),
+        let contentID = MessageHTMLSanitizer.normalizedContentID(source),
+        let image = imagesByContentID[contentID]
+      else {
+        _ = try? element.removeAttr("src")
+        continue
+      }
+      _ = try? element.attr(
+        "src",
+        "data:\(image.mimeType);base64,\(image.data.base64EncodedString())"
+      )
+    }
+    guard let resolvedHTML = try? document.outerHtml() else {
+      return html
+    }
+    return SanitizedMessageHTML(documentHTML: resolvedHTML)
+  }
+}
+
 enum MessageHTMLPresentation: Equatable, Sendable {
   case html(SanitizedMessageHTML)
   case plainText(String)
@@ -147,7 +224,12 @@ enum MessageHTMLPresentation: Equatable, Sendable {
     else {
       return .plainText(body.text)
     }
-    return .html(sanitizedHTML)
+    return .html(
+      MessageHTMLInlineImageResolver.resolve(
+        sanitizedHTML,
+        inlineImages: body.inlineImages
+      )
+    )
   }
 
   static func prepare(

@@ -161,7 +161,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.text, "Private trip details")
     XCTAssertNil(body.html)
     XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
+    )
     XCTAssertNotNil(fixture.cache.payload)
     XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
 
@@ -169,7 +170,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
     XCTAssertEqual(cachedBody, body)
     XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
+    )
   }
 
   func testPrefetchFetchesEligibleBodyAndCachesOnlyEncryptedPayload() async throws {
@@ -190,7 +192,12 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(
-      fixture.requestPaths, ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"])
+      fixture.requestPaths,
+      [
+        "/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001",
+        "/gmail/v1/users/me/messages/message-001",
+      ]
+    )
     XCTAssertEqual(fixture.cache.retention, .prefetched)
     XCTAssertNotNil(fixture.cache.payload)
     XCTAssertFalse(fixture.cache.serializedPayload.contains("Private trip details"))
@@ -198,6 +205,85 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.text,
       "Private trip details"
     )
+  }
+
+  func testPrefetchFetchesSinglePartHTMLAfterBodyFreeMetadataCheck() async throws {
+    let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let prefetchedMessage = prefetchMessage(
+      id: "message-001",
+      internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
+      labels: ["INBOX"]
+    )
+    let fixture = try makeFixture(
+      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      prefetchMetadataResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "text/html",
+            "headers": [{"name": "Content-Type", "value": "text/html; charset=UTF-8"}]
+          }
+        }
+        """,
+      messageResponse:
+        #"{"id":"message-001","payload":{"mimeType":"text/html","body":{"data":"PHA+UmVjZWlwdDwvcD4="}}}"#
+    )
+
+    try await fixture.service.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [],
+      referenceDate: referenceDate,
+      session: session
+    )
+
+    XCTAssertEqual(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)?.html,
+      "<p>Receipt</p>"
+    )
+    XCTAssertEqual(
+      fixture.requestQueries.compactMap { $0 as? String },
+      [
+        "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition",
+        "format=full",
+      ]
+    )
+  }
+
+  func testPrefetchDoesNotFetchTopLevelTextAttachmentWithoutFilename() async throws {
+    let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
+    let prefetchedMessage = prefetchMessage(
+      id: "message-001",
+      internalDateMilliseconds: Int64(referenceDate.timeIntervalSince1970 * 1_000),
+      labels: ["INBOX"]
+    )
+    let fixture = try makeFixture(
+      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      prefetchMetadataResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "text/plain",
+            "headers": [
+              {"name": "Content-Type", "value": "text/plain; charset=UTF-8"},
+              {"name": "Content-Disposition", "value": "attachment"}
+            ]
+          }
+        }
+        """
+    )
+
+    try await fixture.service.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [],
+      referenceDate: referenceDate,
+      session: session
+    )
+
+    XCTAssertEqual(
+      fixture.requestQueries.compactMap { $0 as? String },
+      ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
+    )
+    XCTAssertNil(fixture.cache.payload)
   }
 
   func testPrefetchFailsBeforeProviderAccessWhenEncryptionMaterialIsMissing() async throws {
@@ -322,7 +408,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(
       fixture.requestPaths.compactMap { $0 as? String }
         .filter { $0 == "/gmail/v1/users/me/messages/message-001" }.count,
-      2
+      4
     )
   }
 
@@ -551,6 +637,210 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(cachedBody, body)
     XCTAssertFalse(fixture.cache.serializedPayload.contains("Plain content"))
     XCTAssertFalse(fixture.cache.serializedPayload.contains("HTML content"))
+  }
+
+  func testReadFetchesOnlySanitizedReferencedValidInlineImagesWithoutCachingThem() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = """
+      <p>Receipt</p>
+      <img src="cid:image-001@example.com">
+      <img src="cid:unsupported@example.com">
+      <img src="cid:oversized@example.com">
+      <img src="cid:malformed@example.com">
+      <img src="cid:missing@example.com">
+      <div style="display: none"><img src="cid:hidden@example.com"></div>
+      """
+    let fixture = try makeFixture(
+      attachmentResponses: [
+        "inline-png": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+        "hidden": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+        "unreferenced": #"{"data":"\#(imageData.base64EncodedString())"}"#,
+      ],
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [
+                  {"name": "Content-ID", "value": " <Image-001@Example.COM> "},
+                  {"name": "Content-Disposition", "value": "inline"}
+                ],
+                "body": {"attachmentId": "inline-png", "size": \(imageData.count)}
+              },
+              {
+                "mimeType": "image/svg+xml",
+                "headers": [{"name": "Content-ID", "value": "<unsupported@example.com>"}],
+                "body": {"attachmentId": "unsupported", "size": 100}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<oversized@example.com>"}],
+                "body": {"attachmentId": "oversized", "size": 5242881}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<malformed@example.com>"}],
+                "body": {"data": "bm90LWEtcG5n", "size": 9}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<unreferenced@example.com>"}],
+                "body": {"attachmentId": "unreferenced", "size": \(imageData.count)}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<hidden@example.com>"}],
+                "body": {"attachmentId": "hidden", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(
+      body.inlineImages,
+      [
+        MailboxMessageInlineImage(
+          contentID: "image-001@example.com",
+          data: imageData,
+          mimeType: "image/png"
+        )
+      ]
+    )
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }.filter {
+        $0.contains("/attachments/")
+      },
+      ["/gmail/v1/users/me/messages/message-001/attachments/inline-png"]
+    )
+    let cachedBody = try fixture.service.loadCachedMessageBody(message: message, session: session)
+    XCTAssertEqual(cachedBody?.text, body.text)
+    XCTAssertEqual(cachedBody?.html, body.html)
+    XCTAssertEqual(cachedBody?.inlineImages, [])
+    XCTAssertEqual(cachedBody?.didResolveInlineImages, false)
+  }
+
+  func testPrefetchDoesNotRetrieveInlineImagesButExplicitOpenDoes() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = #"<p>Receipt</p><img src="cid:image-001@example.com">"#
+    let prefetchedMessage = prefetchMessage(
+      id: "message-001",
+      internalDateMilliseconds: 1_800_000_000_000,
+      labels: ["INBOX"]
+    )
+    let fixture = try makeFixture(
+      attachmentResponses: [
+        "inline-png": #"{"data":"\#(imageData.base64EncodedString())"}"#
+      ],
+      metadataStore: RecordingBodyPrefetchMetadataStore(messages: [prefetchedMessage]),
+      prefetchMetadataResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "headers": [{"name": "Content-Type", "value": "multipart/related; boundary=receipt"}]
+          }
+        }
+        """,
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<image-001@example.com>"}],
+                "body": {"attachmentId": "inline-png", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    try await fixture.service.prefetchMessageBodies(
+      connection: connection,
+      pinnedMessageIds: [],
+      referenceDate: Date(timeIntervalSince1970: 1_800_000_000),
+      session: session
+    )
+
+    XCTAssertFalse(
+      fixture.requestPaths.compactMap { $0 as? String }.contains {
+        $0.contains("/attachments/")
+      }
+    )
+    XCTAssertNil(
+      try fixture.service.loadCachedMessageBody(message: prefetchedMessage, session: session)
+    )
+    XCTAssertEqual(
+      fixture.requestQueries.compactMap { $0 as? String },
+      ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
+    )
+
+    let body = try await fixture.service.loadMessageBody(
+      message: prefetchedMessage,
+      session: session
+    )
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["image-001@example.com"])
+    XCTAssertEqual(
+      fixture.requestPaths.compactMap { $0 as? String }.filter {
+        $0.contains("/attachments/")
+      }.count,
+      1
+    )
+    let requestCount = fixture.requestPaths.count
+
+    let forwardedText = try await fixture.service.loadMessageBodyText(
+      message: prefetchedMessage,
+      session: session
+    )
+
+    XCTAssertEqual(forwardedText, body.text)
+    XCTAssertEqual(fixture.requestPaths.count, requestCount)
+  }
+
+  func testTextOnlyReadDoesNotFetchMultipartBodyWithoutCachedText() async throws {
+    let fixture = try makeFixture(
+      prefetchMetadataResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "headers": [{"name": "Content-Type", "value": "multipart/related"}]
+          }
+        }
+        """
+    )
+
+    do {
+      _ = try await fixture.service.loadMessageBodyText(message: message, session: session)
+      XCTFail("Expected unsafe multipart body to remain unopened")
+    } catch GmailMessageBodyError.missingMessageBody {
+      XCTAssertEqual(
+        fixture.requestQueries.compactMap { $0 as? String },
+        ["format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"]
+      )
+      XCTAssertNil(fixture.cache.payload)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
   }
 
   func testReadRefetchesLegacyPlainTextPayloadThatLooksVersioned() async throws {
@@ -1526,10 +1816,21 @@ final class GmailMessageBodyServiceTests: XCTestCase {
 
   private func makeFixture(
     attachmentIdWithStatus: String = "html-001",
+    attachmentResponses: [String: String] = [:],
     attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageStatusCode: Int = 200,
+    prefetchMetadataResponse: String =
+      """
+    {
+      "id": "message-001",
+      "payload": {
+        "mimeType": "text/plain",
+        "headers": [{"name": "Content-Type", "value": "text/plain; charset=UTF-8"}]
+      }
+    }
+    """,
     tokenInfoResponse: String =
       #"{"scope":"https://www.googleapis.com/auth/gmail.readonly","sub":"gmail-user-001"}"#,
     messageResponse: String =
@@ -1552,6 +1853,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let requestPaths = NSMutableArray()
+    let requestQueries = NSMutableArray()
     let urlSession = ConvexClientTesting.makeSession { request in
       requestPaths.add(request.url!.path)
       if request.url?.path == "/token" {
@@ -1566,6 +1868,9 @@ final class GmailMessageBodyServiceTests: XCTestCase {
           Data(tokenInfoResponse.utf8)
         )
       }
+      if let query = request.url?.query {
+        requestQueries.add(query)
+      }
       if let attachmentStatusCode,
         request.url?.path.hasSuffix("/attachments/\(attachmentIdWithStatus)") == true
       {
@@ -1577,6 +1882,34 @@ final class GmailMessageBodyServiceTests: XCTestCase {
             headerFields: nil
           )!,
           Data()
+        )
+      }
+      if let attachmentID = request.url?.path.split(separator: "/").last.map(String.init),
+        let attachmentResponse = attachmentResponses[attachmentID],
+        request.url?.path.contains("/attachments/") == true
+      {
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token")
+        return (
+          HTTPURLResponse(
+            url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil
+          )!,
+          Data(attachmentResponse.utf8)
+        )
+      }
+      if request.url?.query?.contains("format=metadata") == true {
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Authorization"), "Bearer refreshed-access-token"
+        )
+        XCTAssertEqual(
+          request.url?.query,
+          "format=metadata&metadataHeaders=Content-Type&metadataHeaders=Content-Disposition"
+        )
+        return (
+          HTTPURLResponse(
+            url: request.url!, statusCode: messageStatusCode, httpVersion: nil, headerFields: nil
+          )!,
+          Data(prefetchMetadataResponse.utf8)
         )
       }
       XCTAssertEqual(
@@ -1592,6 +1925,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     return GmailMessageBodyFixture(
       cache: cache,
       requestPaths: requestPaths,
+      requestQueries: requestQueries,
       service: GmailMessageBodyService(
         gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
         cache: cache,
@@ -1642,6 +1976,7 @@ private final class CountingFileManager: FileManager, @unchecked Sendable {
 private struct GmailMessageBodyFixture {
   let cache: RecordingGmailMessageBodyCache
   let requestPaths: NSMutableArray
+  let requestQueries: NSMutableArray
   let service: GmailMessageBodyService
 }
 
