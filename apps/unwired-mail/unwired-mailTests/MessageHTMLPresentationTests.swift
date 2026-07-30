@@ -116,7 +116,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   func testSanitizerRejectsContentOnlyReadableThroughOffCanvasPreheaderText() throws {
-    for property in ["text-indent", "margin-left", "margin-right", "margin-top"] {
+    for property in ["text-indent", "margin", "margin-left", "margin-right", "margin-top"] {
       XCTAssertNil(
         try MessageHTMLSanitizer.sanitize(
           """
