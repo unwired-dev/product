@@ -959,6 +959,62 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.data), [selectedImageData])
   }
 
+  func testReadResolvesDuplicateCIDFromSelectedAlternativeInsideRelatedScope() async throws {
+    let plainImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+    let htmlImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let html = #"<p>Selected</p><img src="cid:duplicate@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [{
+              "mimeType": "multipart/alternative",
+              "parts": [
+                {
+                  "mimeType": "multipart/related",
+                  "parts": [
+                    {"mimeType": "text/plain", "body": {"data": "UGxhaW4="}},
+                    {
+                      "mimeType": "image/png",
+                      "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                      "body": {
+                        "data": "\(plainImageData.base64EncodedString())",
+                        "size": \(plainImageData.count)
+                      }
+                    }
+                  ]
+                },
+                {
+                  "mimeType": "multipart/related",
+                  "parts": [
+                    {
+                      "mimeType": "text/html",
+                      "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                    },
+                    {
+                      "mimeType": "image/png",
+                      "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                      "body": {
+                        "data": "\(htmlImageData.base64EncodedString())",
+                        "size": \(htmlImageData.count)
+                      }
+                    }
+                  ]
+                }
+              ]
+            }]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.data), [htmlImageData])
+  }
+
   func testReadResolvesCIDFromEnclosingRelatedScope() async throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
     let html = #"<p>Receipt</p><img src="cid:related@example.com">"#

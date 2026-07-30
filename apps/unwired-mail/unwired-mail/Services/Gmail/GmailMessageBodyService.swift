@@ -1885,22 +1885,37 @@ private struct GmailMessageBodyPart: Decodable {
     guard !isAttachment else {
       return []
     }
-    let imageScope =
-      mimeType == "multipart/related" ? inlineImagePartsByContentID : inlineImageScope
     if mimeType == "multipart/alternative",
       preferredNonEmptyPlainTextPart != nil || preferredNonEmptyHTMLPart != nil
     {
+      let imageScope = preferredHTMLInlineImageParts.merging(
+        inlineImageScope ?? [:]
+      ) { selectedAlternative, _ in
+        selectedAlternative
+      }
       return [
         GmailReadableMessageBodyCandidate(
           plainText: readablePlainTextPart,
           html: readableHTMLPart,
-          inlineImagePartsByContentID: imageScope ?? preferredHTMLInlineImageParts
+          inlineImagePartsByContentID: imageScope
         )
       ]
     }
-    return parts?.flatMap {
-      $0.readableMultipartAlternativeCandidates(inlineImageScope: imageScope)
-    } ?? []
+    guard let parts else { return [] }
+    return parts.indices.flatMap { index in
+      var imageScope = inlineImageScope ?? [:]
+      if mimeType == "multipart/related" {
+        for siblingIndex in parts.indices where siblingIndex != index {
+          for (contentID, imagePart) in parts[siblingIndex].inlineImagePartsByContentID
+          where imageScope[contentID] == nil {
+            imageScope[contentID] = imagePart
+          }
+        }
+      }
+      return parts[index].readableMultipartAlternativeCandidates(
+        inlineImageScope: imageScope
+      )
+    }
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
