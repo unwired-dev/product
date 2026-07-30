@@ -25,6 +25,7 @@ final class MessageAppearanceTests: XCTestCase {
     XCTAssertTrue(document.contains(":root { color-scheme: dark; }"))
     XCTAssertTrue(document.contains("background: #000;"))
     XCTAssertTrue(document.contains("color: #fff;"))
+    XCTAssertTrue(document.contains("-webkit-text-size-adjust: 112.5%;"))
     XCTAssertTrue(document.contains("font-size: 112.5%;"))
     XCTAssertTrue(document.contains("font-family: ui-serif, Georgia, serif !important;"))
     XCTAssertTrue(document.contains("font-family:Courier"))
@@ -49,6 +50,7 @@ final class MessageAppearanceTests: XCTestCase {
     )
 
     XCTAssertTrue(document.contains("font-size: 87.5%;"))
+    XCTAssertTrue(document.contains("-webkit-text-size-adjust: 87.5%;"))
     XCTAssertTrue(document.contains("<p style=\"font-family:Courier\">"))
     XCTAssertFalse(document.contains("body * { font-family:"))
   }

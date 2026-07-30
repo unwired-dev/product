@@ -99,11 +99,16 @@ enum MessageHTMLDocument {
 
     return """
       :root { color-scheme: \(style.colorScheme == .dark ? "dark" : "light"); }
-      html, body {
+      html {
         background: \(palette.background);
         color: \(palette.foreground);
+        -webkit-text-size-adjust: \(style.readingTextSize.cssPercentage);
       }
-      body { font-size: \(style.readingTextSize.cssPercentage); }
+      body {
+        background: \(palette.background);
+        color: \(palette.foreground);
+        font-size: \(style.readingTextSize.cssPercentage);
+      }
       \(typefaceRule)
       a { color: \(palette.link); }
       """
