@@ -3922,6 +3922,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
   private let callbackScheme: String?
   private let clientIdentifier: String?
   nonisolated private let now: @Sendable () -> Date
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
   private let session: URLSession
   private var authenticationContinuation: CheckedContinuation<URL, Error>?
   private var webAuthenticationSession: ASWebAuthenticationSession?
@@ -3936,11 +3937,14 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
       ?? DotEnvFile.value(for: "MICROSOFT_GRAPH_CLIENT_ID")
       ?? Bundle.main.object(forInfoDictionaryKey: "MicrosoftGraphClientId") as? String,
     now: @escaping @Sendable () -> Date = { Date() },
-    session: URLSession = .shared
+    session: URLSession = .shared,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
   ) {
     self.callbackScheme = callbackScheme?.nonEmpty
     self.clientIdentifier = clientIdentifier?.nonEmpty
     self.now = now
+    self.presentationAnchorStore = presentationAnchorStore
     self.session = session
   }
 
@@ -4034,10 +4038,14 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    try await withTaskCancellationHandler {
+    return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
+          return
+        }
+        guard presentationAnchorStore.captureCurrent() else {
+          continuation.resume(throwing: MicrosoftGraphOAuthError.webAuthenticationUnavailable)
           return
         }
         authenticationContinuation = continuation
@@ -4069,6 +4077,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     authenticationContinuation = nil
     webAuthenticationSession?.cancel()
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     continuation?.resume(throwing: CancellationError())
   }
 
@@ -4076,6 +4085,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     guard let continuation = authenticationContinuation else { return }
     authenticationContinuation = nil
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     if let authenticationError = error as? ASWebAuthenticationSessionError,
       authenticationError.code == .canceledLogin
     {
@@ -4091,18 +4101,10 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
 }
 
 extension MicrosoftGraphOAuthService: ASWebAuthenticationPresentationContextProviding {
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scene =
-        UIApplication.shared.connectedScenes.first {
-          $0.activationState == .foregroundActive
-        } as? UIWindowScene
-      return scene?.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  nonisolated func presentationAnchor(
+    for session: ASWebAuthenticationSession
+  ) -> ASPresentationAnchor {
+    presentationAnchorStore.current()
   }
 }
 

@@ -190,6 +190,13 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testAppDoesNotEnableMultipleScenesOutsideDevelopmentCatalyst() {
+    let sceneManifest =
+      Bundle.main.object(forInfoDictionaryKey: "UIApplicationSceneManifest") as? [String: Any]
+
+    XCTAssertEqual(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
+  }
+
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     XCTAssertEqual(SettingsDestinationRegistry.implementedDestinations, [.emailAccounts])
     XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts])
