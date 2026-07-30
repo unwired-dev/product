@@ -458,6 +458,21 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(fixture.requestPaths, [])
   }
 
+  func testCachedPayloadDetectsEntityEncodedCIDReference() throws {
+    let encoded = try GmailMessageBodyCachePayload.encode(
+      GmailMessageBody(
+        text: "Receipt",
+        html: #"<p>Receipt</p><img src="c&#105;d:logo@example.com">"#
+      )
+    )
+
+    guard case .body(let body) = try GmailMessageBodyCachePayload.decode(encoded) else {
+      return XCTFail("Expected cached body")
+    }
+
+    XCTAssertFalse(body.didResolveInlineImages)
+  }
+
   func testReadPreservesSeparatorsBetweenHTMLTableCells() async throws {
     let fixture = try makeFixture(
       messageResponse:

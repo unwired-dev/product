@@ -30,7 +30,7 @@ enum MessageHTMLSanitizer {
       + #"(?:\s*!important)?\s*(?:;|$)"#
     let presentationHiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
-      + #"(?:font-size|height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+      + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
       + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
       + #"(?:[1-9]\d*(?:\.\d+)?|"#
       + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
