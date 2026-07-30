@@ -72,7 +72,9 @@ The detail pane is a scrollable, readable-width form composed from native sectio
 
 Simple toggles, pickers, and swipe assignments save immediately. Multi-field entities—Mailbox Connections, signatures, templates, and the Custom Category—use explicit Save and Cancel actions. Leaving an edited entity prompts the user to discard changes or keep editing. A sync error or conflict appears only in the affected destination.
 
-Settings updates apply to the running mail experience without requiring an app restart.
+Settings updates apply to the running mail experience without requiring an app restart. Manual
+provider refreshes notify the separate mail shell after the Settings-owned connection snapshot
+finishes loading.
 
 ## Destination requirements
 

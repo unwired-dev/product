@@ -6915,7 +6915,12 @@ struct MailboxProviderConnectionPanel: View {
         Spacer()
 
         Button {
-          Task { _ = await viewModel.load() }
+          Task {
+            await Self.performManualRefresh(
+              load: { _ = await viewModel.load() },
+              connectionsDidChange: connectionsDidChange
+            )
+          }
         } label: {
           Label("Refresh", systemImage: "arrow.clockwise")
         }
@@ -7069,6 +7074,15 @@ struct MailboxProviderConnectionPanel: View {
     .onDisappear {
       connectTask?.cancel()
     }
+  }
+
+  @MainActor
+  static func performManualRefresh(
+    load: () async -> Void,
+    connectionsDidChange: () -> Void
+  ) async {
+    await load()
+    connectionsDidChange()
   }
 }
 

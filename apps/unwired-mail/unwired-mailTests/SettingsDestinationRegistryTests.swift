@@ -3,6 +3,18 @@ import XCTest
 @testable import unwired_mail
 
 final class SettingsDestinationRegistryTests: XCTestCase {
+  @MainActor
+  func testManualProviderRefreshNotifiesMailShellAfterLoadCompletes() async {
+    var events: [String] = []
+
+    await MailboxProviderConnectionPanel.performManualRefresh(
+      load: { events.append("load") },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["load", "notify"])
+  }
+
   func testProductionKeepsOnlyExistingAccountSettingsEntryPoint() {
     XCTAssertEqual(
       SettingsEntryPointRegistry.entries(isDevelopmentBuild: false),
