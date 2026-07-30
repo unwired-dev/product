@@ -1904,13 +1904,18 @@ private struct GmailMessageBodyPart: Decodable {
     guard let parts else { return [] }
     return parts.indices.flatMap { index in
       var imageScope = inlineImageScope ?? [:]
-      if mimeType == "multipart/related" {
+      if mimeType == "multipart/related" || mimeType == "multipart/mixed" {
+        var siblingImageScope: [String: GmailMessageBodyPart] = [:]
         for siblingIndex in parts.indices where siblingIndex != index {
+          guard mimeType == "multipart/related" || parts[siblingIndex].hasInlineDisposition else {
+            continue
+          }
           for (contentID, imagePart) in parts[siblingIndex].inlineImagePartsByContentID
-          where imageScope[contentID] == nil {
-            imageScope[contentID] = imagePart
+          where siblingImageScope[contentID] == nil {
+            siblingImageScope[contentID] = imagePart
           }
         }
+        imageScope.merge(siblingImageScope) { _, nearerScope in nearerScope }
       }
       return parts[index].readableMultipartAlternativeCandidates(
         inlineImageScope: imageScope
@@ -1997,6 +2002,17 @@ private struct GmailMessageBodyPart: Decodable {
       let disposition = $0.value.split(separator: ";", maxSplits: 1).first?
         .trimmingCharacters(in: .whitespacesAndNewlines)
       return disposition?.caseInsensitiveCompare("attachment") == .orderedSame
+    } == true
+  }
+
+  private var hasInlineDisposition: Bool {
+    return headers?.contains {
+      guard $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame else {
+        return false
+      }
+      let disposition = $0.value.split(separator: ";", maxSplits: 1).first?
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return disposition?.caseInsensitiveCompare("inline") == .orderedSame
     } == true
   }
 

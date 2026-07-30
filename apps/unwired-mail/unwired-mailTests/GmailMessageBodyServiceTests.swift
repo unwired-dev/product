@@ -1051,6 +1051,95 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.contentID), ["related@example.com"])
   }
 
+  func testReadResolvesInlineCIDSiblingFromEnclosingMixedScope() async throws {
+    let imageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A])
+    let html = #"<p>Receipt</p><img src="cid:mixed@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "mimeType": "multipart/alternative",
+                "parts": [
+                  {"mimeType": "text/plain", "body": {"data": "UmVjZWlwdA=="}},
+                  {
+                    "mimeType": "text/html",
+                    "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                  }
+                ]
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [
+                  {"name": "Content-ID", "value": "<mixed@example.com>"},
+                  {"name": "Content-Disposition", "value": "inline"}
+                ],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
+  }
+
+  func testReadPrefersNearestRelatedScopeForDuplicateCID() async throws {
+    let innerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x01])
+    let outerImageData = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x02])
+    let html = #"<p>Receipt</p><img src="cid:duplicate@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "multipart/related",
+                "parts": [
+                  {
+                    "mimeType": "multipart/alternative",
+                    "parts": [{
+                      "mimeType": "text/html",
+                      "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+                    }]
+                  },
+                  {
+                    "mimeType": "image/png",
+                    "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                    "body": {
+                      "data": "\(innerImageData.base64EncodedString())",
+                      "size": \(innerImageData.count)
+                    }
+                  }
+                ]
+              },
+              {
+                "mimeType": "image/png",
+                "headers": [{"name": "Content-ID", "value": "<duplicate@example.com>"}],
+                "body": {
+                  "data": "\(outerImageData.base64EncodedString())",
+                  "size": \(outerImageData.count)
+                }
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages.map(\.data), [innerImageData])
+  }
+
   func testReadBoundsFailedInlineImageFetchAttempts() async throws {
     let contentIDs = (0..<21).map { "malformed-\($0)@example.com" }
     let html = contentIDs.map { #"<img src="cid:\#($0)">"# }.joined()

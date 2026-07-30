@@ -31,11 +31,7 @@ enum MessageHTMLSanitizer {
     let presentationHiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
-      + #"(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
-      + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
+      + #"(?:[a-z%]+)?)"#
       + #"(?:\s*!important)?\s*(?:;|$)"#
     try removeElements(matching: hiddenStylePattern, from: readableDocument)
     try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)

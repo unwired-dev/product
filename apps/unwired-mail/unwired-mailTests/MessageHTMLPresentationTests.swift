@@ -167,6 +167,23 @@ final class MessageHTMLPresentationTests: XCTestCase {
     }
   }
 
+  func testSanitizerPreservesContentWithSmallNegativeLayoutOffsets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Receipt</p>
+        <div style="margin-top: -1px">
+          Visible details
+          <img src="cid:logo@example.com" alt="Logo">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Visible details"))
+    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+  }
+
   func testSanitizedDocumentUsesRestrictiveContentSecurityPolicy() throws {
     let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize("<p>Hello</p>"))
 
