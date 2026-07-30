@@ -357,8 +357,9 @@ extension MailboxConnectionSyncGate {
     _ connectionId: MailboxConnectionId,
     operation: () async throws -> T
   ) async throws -> T {
+    try Task.checkCancellation()
     activePreemptibleOperations[connectionId]?.cancel()
-    guard await acquire(Self.allConnectionsId, mode: .shared, priority: .preempting) else {
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
       throw CancellationError()
     }
     defer { release(Self.allConnectionsId, mode: .shared) }

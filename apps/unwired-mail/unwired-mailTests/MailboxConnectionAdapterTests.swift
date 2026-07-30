@@ -3532,6 +3532,87 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testMailboxConnectionSyncGateCancelledPreemptorLeavesBackfillRunning() async throws {
+    let backfillStarted = expectation(description: "historical backfill started")
+    let priorityProbe = AdapterSyncPriorityProbe(
+      backfillStarted: backfillStarted
+    )
+    let entryGate = AdapterLifecycleOperationGate()
+    let gate = MailboxConnectionSyncGate()
+    let connectionId = adapterConnectionId
+    let backfill = Task {
+      try await gate.withPreemptibleLock(connectionId) {
+        try await priorityProbe.suspendBackfill()
+      }
+    }
+    await fulfillment(of: [backfillStarted], timeout: 1)
+    let preemptor = Task {
+      await entryGate.waitForRelease()
+      try await gate.withPreemptingLock(connectionId) {}
+    }
+    await entryGate.waitUntilStarted()
+
+    preemptor.cancel()
+    await entryGate.release()
+
+    do {
+      try await preemptor.value
+      XCTFail("Expected the cancelled preemptor to stop before acquiring the gate")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    let snapshot = await priorityProbe.snapshot()
+    XCTAssertEqual(snapshot.events, ["backfill-started"])
+    await priorityProbe.releaseBackfill()
+    try await backfill.value
+  }
+
+  func testMailboxConnectionSyncGateKeepsQueuedGlobalExclusiveAheadOfPreemptor() async throws {
+    let backfillStarted = expectation(description: "historical backfill started")
+    let priorityProbe = AdapterSyncPriorityProbe(
+      backfillStarted: backfillStarted
+    )
+    let eventLog = AdapterLifecycleEventLog()
+    let gate = MailboxConnectionSyncGate()
+    let connectionId = adapterConnectionId
+    let backfill = Task {
+      try await gate.withPreemptibleLock(connectionId) {
+        try await priorityProbe.suspendBackfill()
+      }
+    }
+    await fulfillment(of: [backfillStarted], timeout: 1)
+    let exclusiveAttempted = expectation(description: "global exclusive attempted")
+    let exclusive = Task {
+      exclusiveAttempted.fulfill()
+      try await gate.withAllConnectionsLocked {
+        await eventLog.record("global-exclusive")
+      }
+    }
+    await fulfillment(of: [exclusiveAttempted])
+    for _ in 0..<10 {
+      await Task.yield()
+    }
+
+    let preemptor = Task {
+      try await gate.withPreemptingLock(connectionId) {
+        await eventLog.record("preemptor")
+      }
+    }
+
+    try await exclusive.value
+    try await preemptor.value
+    do {
+      try await backfill.value
+      XCTFail("Expected the preemptor to cancel the historical backfill")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(events, ["global-exclusive", "preemptor"])
+  }
+
   func testMailShellPreservesSelectedThreadAcrossReordering() {
     let olderThread = mailShellThread(
       providerThreadId: "thread-older",
@@ -7123,7 +7204,7 @@ private actor AdapterSyncPriorityProbe {
   }
 
   private let backfillStarted: XCTestExpectation
-  private let recentSyncStarted: XCTestExpectation
+  private let recentSyncStarted: XCTestExpectation?
   private var activeOperationCount = 0
   private var backfillContinuation: CheckedContinuation<Void, Error>?
   private var events: [String] = []
@@ -7131,7 +7212,7 @@ private actor AdapterSyncPriorityProbe {
 
   init(
     backfillStarted: XCTestExpectation,
-    recentSyncStarted: XCTestExpectation
+    recentSyncStarted: XCTestExpectation? = nil
   ) {
     self.backfillStarted = backfillStarted
     self.recentSyncStarted = recentSyncStarted
@@ -7156,7 +7237,7 @@ private actor AdapterSyncPriorityProbe {
 
   func recordRecentSync() {
     beginOperation("recent-sync-started")
-    recentSyncStarted.fulfill()
+    recentSyncStarted?.fulfill()
     activeOperationCount -= 1
   }
 

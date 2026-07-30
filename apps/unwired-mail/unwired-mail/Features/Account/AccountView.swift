@@ -801,7 +801,10 @@ final class MailboxFreshnessViewModel {
         phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending
       )
     case .failure(let error):
-      guard !Self.isCancellation(error) else { return }
+      guard !Self.isCancellation(error) else {
+        statuses[connection.id] = priorStatus
+        return
+      }
       successfulSyncAt = nil
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
@@ -826,6 +829,9 @@ final class MailboxFreshnessViewModel {
   }
 
   private static func isCancellation(_ error: Error) -> Bool {
+    if error is CancellationError {
+      return true
+    }
     let error = error as NSError
     return error.domain == NSURLErrorDomain
       && error.code == URLError.cancelled.rawValue

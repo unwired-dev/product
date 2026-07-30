@@ -1805,6 +1805,30 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessRestoresPriorStatusWhenAutomaticBackfillIsPreempted() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      cancelsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+  }
+
+  @MainActor
   func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
@@ -2291,7 +2315,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       suspendsSync: false,
       suspendsBackfill: false,
       completesBackfill: true,
-      failsBackfill: false
+      failsBackfill: false,
+      cancelsBackfill: false
     )
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -4666,6 +4691,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     suspendsBackfill: Bool = false,
     completesBackfill: Bool = true,
     failsBackfill: Bool = false,
+    cancelsBackfill: Bool = false,
     sleep: @escaping (Duration) async throws -> Void = { _ in throw CancellationError() }
   ) -> MailboxFreshnessFixture {
     let secondConnection = GmailProviderConnectionStatus(
@@ -4682,7 +4708,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       suspendsSync: suspendsSync,
       suspendsBackfill: suspendsBackfill,
       completesBackfill: completesBackfill,
-      failsBackfill: failsBackfill
+      failsBackfill: failsBackfill,
+      cancelsBackfill: cancelsBackfill
     )
     let now = Date(timeIntervalSince1970: 1_781_200_000)
     let sessionState = MailboxFreshnessSessionState()
@@ -4828,6 +4855,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   private var syncContinuations: [CheckedContinuation<Void, Error>] = []
   private let completesBackfill: Bool
   private let failsBackfill: Bool
+  private let cancelsBackfill: Bool
   private let suspendsBackfill: Bool
   private let suspendsSync: Bool
 
@@ -4836,8 +4864,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     suspendsSync: Bool,
     suspendsBackfill: Bool,
     completesBackfill: Bool,
-    failsBackfill: Bool
+    failsBackfill: Bool,
+    cancelsBackfill: Bool
   ) {
+    self.cancelsBackfill = cancelsBackfill
     self.completesBackfill = completesBackfill
     self.failsBackfill = failsBackfill
     self.outcomes = outcomes
@@ -4942,6 +4972,9 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     }
     if failsBackfill {
       throw URLError(.timedOut)
+    }
+    if cancelsBackfill {
+      throw CancellationError()
     }
     guard !completesBackfill else { return .empty }
     return MailboxMetadataSyncResult(
