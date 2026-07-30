@@ -60,7 +60,11 @@ protocol MailEngineQualificationCandidateFactory: Sendable {
   func waitForBodyFetchStarts(_ count: Int, timeout: Duration) async throws
   func waitForIdleStarts(_ count: Int, timeout: Duration) async throws
   func waitForSubmissionStarts(_ count: Int, timeout: Duration) async throws
-  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws
+  func waitForSubmissionContentStarts(
+    _ count: Int,
+    connectionID: String,
+    timeout: Duration
+  ) async throws
 }
 
 enum MailEngineQualificationFixture: Sendable {
@@ -1058,14 +1062,13 @@ struct MailEngineQualificationContract {
     let events = await factory.events()
     XCTAssertEqual(
       events.filter {
-        $0
-          == .sentAppendReceived(
-            connectionID: appendConnectionID,
-            mailbox: sentMailbox,
-            rawMessage: rawMessage
-          )
+        if case .sentAppendReceived(let connectionID, _, _) = $0 {
+          return connectionID == appendConnectionID
+        }
+        return false
       }.count,
-      1
+      1,
+      "A permanent Sent append rejection must not retry with rewritten arguments."
     )
   }
 
@@ -1319,11 +1322,15 @@ struct MailEngineQualificationContract {
     let events = await factory.events()
     XCTAssertFalse(
       events.contains { event in
-        if case .moveReceived(let eventConnectionID, _, _, _, _) = event {
+        switch event {
+        case .copyReceived(let eventConnectionID, _, _, _, _),
+          .moveReceived(let eventConnectionID, _, _, _, _):
           return eventConnectionID == connectionID
+        default:
+          return false
         }
-        return false
-      }
+      },
+      "An unsupported move must not create a destination copy."
     )
   }
 
@@ -2288,9 +2295,9 @@ struct MailEngineQualificationContract {
         rawMessage: Data("Subject: Post-content cancellation\r\n\r\nPrivate body".utf8)
       )
     }
-    try await factory.waitForSubmissionContentStarts(
-      contentAcceptancesBeforeSubmission + 1,
-      timeout: .seconds(2)
+    try await waitForSubmissionContent(
+      after: contentAcceptancesBeforeSubmission,
+      connectionID: "connection-a"
     )
     submissionTask.cancel()
     let completion = LockedBox<Result<MailEngineSMTPOutcome, Error>?>(nil)
@@ -2317,6 +2324,14 @@ struct MailEngineQualificationContract {
     try await assertSMTPPeerRemainsUsable(
       preservedSession,
       connectionID: preservedConnectionID
+    )
+  }
+
+  private func waitForSubmissionContent(after count: Int, connectionID: String) async throws {
+    try await factory.waitForSubmissionContentStarts(
+      count + 1,
+      connectionID: connectionID,
+      timeout: .seconds(2)
     )
   }
 
@@ -2519,6 +2534,9 @@ struct MailEngineQualificationContract {
       unpaddedPassword.removeLast()
     }
     XCTAssertNotNil(decodedBase64Records(in: unpaddedPassword).range(of: password))
+    var fieldPrefixedPassword = Data("payload=".utf8)
+    fieldPrefixedPassword.append(password.base64EncodedData())
+    XCTAssertNotNil(decodedBase64Records(in: fieldPrefixedPassword).range(of: password))
   }
 
   private func decodedBase64Records(in output: Data) -> Data {
@@ -2527,19 +2545,29 @@ struct MailEngineQualificationContract {
     var token = Data()
 
     func appendDecodedToken() {
-      guard token.count >= 4 else {
+      let assignmentIndex = token.indices.last { index in
+        guard token[index] == UInt8(ascii: "=") else { return false }
+        let valueStart = token.index(after: index)
+        return valueStart < token.endIndex
+          && token[valueStart...].contains { $0 != UInt8(ascii: "=") }
+      }
+      var encodedToken =
+        assignmentIndex.map { Data(token[token.index(after: $0)...]) } ?? token
+      guard encodedToken.count >= 4 else {
         token.removeAll(keepingCapacity: true)
         return
       }
-      let remainder = token.count % 4
+      let remainder = encodedToken.count % 4
       guard remainder != 1 else {
         token.removeAll(keepingCapacity: true)
         return
       }
       if remainder > 0 {
-        token.append(contentsOf: repeatElement(UInt8(ascii: "="), count: 4 - remainder))
+        encodedToken.append(
+          contentsOf: repeatElement(UInt8(ascii: "="), count: 4 - remainder)
+        )
       }
-      guard let decoded = Data(base64Encoded: token) else {
+      guard let decoded = Data(base64Encoded: encodedToken) else {
         token.removeAll(keepingCapacity: true)
         return
       }
@@ -2586,14 +2614,15 @@ struct MailEngineQualificationContract {
     try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
     try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
+    let callbacksBeforeClose = callbacks.value
     await session.close()
     await assertInFlightOperationClosed(idleTask)
     await assertInFlightOperationClosed(bodyFetchTask)
     await assertInFlightOperationClosed(submissionTask)
+    assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     await assertNoSubmissionContentAccepted(connectionID: "connection-a")
     try await assertSessionRemainsUsable(preservedSession, connectionID: "connection-b")
     let eventsBeforeClosedOperations = await factory.events()
-    let callbacksBeforeClosedOperations = callbacks.value
     await assertClosedOperations(session)
     try? await Task.sleep(for: .milliseconds(50))
     let events = await factory.events()
@@ -2602,14 +2631,21 @@ struct MailEngineQualificationContract {
       eventsBeforeClosedOperations,
       "Closed-session operations must not reach the server fixture."
     )
-    XCTAssertEqual(
-      callbacks.value,
-      callbacksBeforeClosedOperations,
-      "No callback may be delivered after the session closes."
-    )
+    assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
     assertServiceTeardownEvents(events)
     await preservedSession.close()
+  }
+
+  private func assertNoIdleCallbacks(
+    _ callbacks: LockedBox<[MailEngineIdleEvent]>,
+    after expected: [MailEngineIdleEvent]
+  ) {
+    XCTAssertEqual(
+      callbacks.value,
+      expected,
+      "No callback may be delivered after session close begins."
+    )
   }
 
   private func inFlightSubmissionTask(
@@ -2928,8 +2964,16 @@ private final class ScriptedMailEngineQualificationFactory:
     try await state.waitForIdleStarts(count, timeout: timeout)
   }
 
-  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws {
-    try await state.waitForSubmissionContentStarts(count, timeout: timeout)
+  func waitForSubmissionContentStarts(
+    _ count: Int,
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
+    try await state.waitForSubmissionContentStarts(
+      count,
+      connectionID: connectionID,
+      timeout: timeout
+    )
   }
 
   func waitForSubmissionStarts(_ count: Int, timeout: Duration) async throws {
@@ -2963,9 +3007,15 @@ private actor ScriptedMailEngineState {
     }
   }
 
-  func waitForSubmissionContentStarts(_ count: Int, timeout: Duration) async throws {
+  func waitForSubmissionContentStarts(
+    _ count: Int,
+    connectionID: String,
+    timeout: Duration
+  ) async throws {
     try await waitForEvents(count, timeout: timeout) {
-      if case .submissionContentAccepted = $0 { return true }
+      if case .submissionContentAccepted(let eventConnectionID, _) = $0 {
+        return eventConnectionID == connectionID
+      }
       return false
     }
   }
