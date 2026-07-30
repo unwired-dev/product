@@ -832,6 +832,7 @@ final class MailboxFreshnessViewModel {
         statuses[connection.id] = priorStatus
         return
       }
+      guard externalStatusIsCurrent(externalStatusRevision, for: connection.id) else { return }
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
         phase: .failure(for: error)
