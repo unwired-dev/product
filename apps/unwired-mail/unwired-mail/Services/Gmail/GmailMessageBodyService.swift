@@ -1269,6 +1269,8 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       let decrypted = try material.decryptPayload(
         cached, associatedData: associatedData(for: message))
       return try GmailMessageBodyCachePayload.decode(decrypted)
+    } catch is CancellationError {
+      throw CancellationError()
     } catch {
       try? cache.removeMessageBody(
         productAccountId: session.productAccountId,
@@ -1769,7 +1771,10 @@ struct GmailMessageBodyCachePayload: Codable {
     return data
   }
 
-  static func decode(_ data: Data) throws -> Value {
+  static func decode(
+    _ data: Data,
+    cancellationCheck: () throws -> Void = { try Task.checkCancellation() }
+  ) throws -> Value {
     guard data.starts(with: header) else {
       throw GmailMessageBodyError.missingMessageBody
     }
@@ -1785,11 +1790,20 @@ struct GmailMessageBodyCachePayload: Codable {
     }
     let didResolveInlineImages: Bool
     if let html = payload.html, MessageHTMLSanitizer.mayReferenceInlineImage(in: html) {
-      didResolveInlineImages =
-        (try? MessageHTMLSanitizer.sanitize(html)).map {
-          MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
-        }
-        ?? true
+      do {
+        didResolveInlineImages =
+          try MessageHTMLSanitizer.sanitize(
+            html,
+            cancellationCheck: cancellationCheck
+          ).map {
+            MessageHTMLSanitizer.referencedInlineImageContentIDs(in: $0.documentHTML).isEmpty
+          }
+          ?? true
+      } catch is CancellationError {
+        throw CancellationError()
+      } catch {
+        didResolveInlineImages = true
+      }
     } else {
       didResolveInlineImages = true
     }

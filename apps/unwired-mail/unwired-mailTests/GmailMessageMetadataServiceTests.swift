@@ -2969,6 +2969,42 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(evictedBodyText, "Provider body text")
     XCTAssertEqual(retainedBodyText, retainedText)
     XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: firstMessage.id))
+    XCTAssertFalse(viewModel.isLoadedMessageBodyTextUnavailable(for: secondMessage.id))
+  }
+
+  @MainActor
+  func testInboxViewModelDiscardsOpenedBodyTextWhenCachedBodyIsRemoved() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    viewModel.discardLoadedMessageBodyText(for: message.id)
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Text-only body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
   }
 
   @MainActor

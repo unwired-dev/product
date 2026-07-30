@@ -473,6 +473,23 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertFalse(body.didResolveInlineImages)
   }
 
+  func testCachedPayloadPropagatesCancellationDuringCIDInspection() throws {
+    let encoded = try GmailMessageBodyCachePayload.encode(
+      GmailMessageBody(
+        text: "Receipt",
+        html: #"<p>Receipt</p><img src="cid:logo@example.com">"#
+      )
+    )
+
+    XCTAssertThrowsError(
+      try GmailMessageBodyCachePayload.decode(encoded) {
+        throw CancellationError()
+      }
+    ) { error in
+      XCTAssertTrue(error is CancellationError)
+    }
+  }
+
   func testCachedPayloadSkipsCIDParsingForOrdinaryHTML() throws {
     XCTAssertFalse(
       MessageHTMLSanitizer.mayReferenceInlineImage(

@@ -3430,7 +3430,8 @@ struct MailShellConversationReader: View {
                 canForward: connection.capabilities.canForward,
                 canReply: connection.capabilities.canReply,
                 isExpanded: selection.isMessageExpanded(message, in: thread),
-                isForwardDisabled: inboxViewModel.isLoadingMessageBody,
+                isForwardDisabled: inboxViewModel.isLoadingMessageBody
+                  || inboxViewModel.isLoadedMessageBodyTextUnavailable(for: message.id),
                 isLatest: message.id == thread.latestMessage.id,
                 isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
                 isUpdatingPin: pinViewModel.isUpdating(message.id),
@@ -3441,6 +3442,7 @@ struct MailShellConversationReader: View {
                 removeCachedBody: {
                   do {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
+                    inboxViewModel.discardLoadedMessageBodyText(for: message.id)
                     readerErrorMessage = nil
                     return true
                   } catch {
@@ -3517,7 +3519,12 @@ struct MailShellConversationReader: View {
               } label: {
                 Label("Forward", systemImage: "arrowshape.turn.up.right")
               }
-              .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+              .disabled(
+                isConnectionBusy || mailActionViewModel.isPerformingAction
+                  || inboxViewModel.isLoadedMessageBodyTextUnavailable(
+                    for: thread.latestMessage.id
+                  )
+              )
             }
             providerActionMenu(thread: thread, connection: connection)
           }
@@ -5301,6 +5308,7 @@ final class GmailInboxViewModel {
   private var loadedMessageBodyTextByteCount = 0
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
   private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
+  private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -5415,6 +5423,20 @@ final class GmailInboxViewModel {
     return try await reader.loadMessageBodyText(message: message, session: session)
   }
 
+  func isLoadedMessageBodyTextUnavailable(
+    for messageId: StableProviderMessageIdentity
+  ) -> Bool {
+    unavailableLoadedMessageBodyTextIds.contains(messageId)
+  }
+
+  func discardLoadedMessageBodyText(for messageId: StableProviderMessageIdentity) {
+    if let discardedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
+      loadedMessageBodyTextByteCount -= discardedText.utf8.count
+      loadedMessageBodyTextOrder.removeAll { $0 == messageId }
+    }
+    unavailableLoadedMessageBodyTextIds.insert(messageId)
+  }
+
   var messageCount: Int {
     threads.reduce(0) { count, thread in
       count + thread.messages.count
@@ -5425,12 +5447,16 @@ final class GmailInboxViewModel {
     _ text: String,
     for messageId: StableProviderMessageIdentity
   ) {
+    unavailableLoadedMessageBodyTextIds.remove(messageId)
     if let replacedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
       loadedMessageBodyTextByteCount -= replacedText.utf8.count
       loadedMessageBodyTextOrder.removeAll { $0 == messageId }
     }
     let byteCount = text.utf8.count
-    guard byteCount <= Self.maximumLoadedMessageBodyTextByteCount else { return }
+    guard byteCount <= Self.maximumLoadedMessageBodyTextByteCount else {
+      unavailableLoadedMessageBodyTextIds.insert(messageId)
+      return
+    }
     while loadedMessageBodyTextByteCount + byteCount
       > Self.maximumLoadedMessageBodyTextByteCount,
       let evictedMessageId = loadedMessageBodyTextOrder.first
@@ -5438,6 +5464,7 @@ final class GmailInboxViewModel {
       loadedMessageBodyTextOrder.removeFirst()
       if let evictedText = loadedMessageBodyTexts.removeValue(forKey: evictedMessageId) {
         loadedMessageBodyTextByteCount -= evictedText.utf8.count
+        unavailableLoadedMessageBodyTextIds.insert(evictedMessageId)
       }
     }
     loadedMessageBodyTexts[messageId] = text
@@ -5456,6 +5483,7 @@ final class GmailInboxViewModel {
     loadedMessageBodyTextByteCount = 0
     loadedMessageBodyTextOrder = []
     loadedMessageBodyTexts = [:]
+    unavailableLoadedMessageBodyTextIds = []
     threads = []
     searchQuery = ""
     searchResult = nil
