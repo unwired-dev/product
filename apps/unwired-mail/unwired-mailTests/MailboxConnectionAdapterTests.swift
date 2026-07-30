@@ -2904,6 +2904,74 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGmailFreshnessSyncWaitsForHistoricalCategorizationPersistence() async throws {
+    let eventLog = AdapterLifecycleEventLog()
+    let categorizationStarted = expectation(description: "historical categorization starts")
+    let syncTaskStarted = expectation(description: "freshness sync task starts")
+    let freshnessPersistenceStarted = expectation(description: "freshness persistence starts")
+    freshnessPersistenceStarted.isInverted = true
+    let metadataService = DelayedAdapterProviderReadService(
+      eventLog: eventLog,
+      started: categorizationStarted,
+      syncStarted: freshnessPersistenceStarted
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: RecordingAdapterConnectionService(),
+      definitionSyncService: RecordingAdapterDefinitionSyncService(
+        snapshot: MailboxConnectionSyncSnapshot(
+          connections: [connection.definition],
+          defaultSendingConnectionId: nil,
+          removedConnectionIds: [],
+          updatedAt: connection.updatedAt
+        )
+      ),
+      metadataService: metadataService,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore()),
+      syncGate: MailboxConnectionSyncGate()
+    )
+
+    let categorizationTask = Task {
+      try await adapter.categorizeHistorical(
+        scope: HistoricalCategorizationScope(
+          receivedAtOrAfterMilliseconds: 0,
+          receivedBeforeMilliseconds: 100
+        ),
+        connection: connection,
+        session: session
+      )
+    }
+    await fulfillment(of: [categorizationStarted], timeout: 1)
+    let syncTask = Task {
+      syncTaskStarted.fulfill()
+      return try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: false,
+        session: session,
+        sinceHistoryId: nil,
+        throughHistoryId: nil,
+        shouldPersist: { true }
+      )
+    }
+    await fulfillment(of: [syncTaskStarted], timeout: 1)
+    await fulfillment(of: [freshnessPersistenceStarted], timeout: 0.1)
+    let eventsBeforeRelease = await eventLog.snapshot()
+    XCTAssertEqual(eventsBeforeRelease, [])
+
+    await metadataService.release()
+    _ = try await categorizationTask.value
+    _ = try await syncTask.value
+    let events = await eventLog.snapshot()
+    XCTAssertEqual(
+      events,
+      ["historical-categorization-finished", "freshness-sync-finished"]
+    )
+  }
+
   func testGmailMailboxRemovalWaitsForPendingActionPersistence() async throws {
     let eventLog = AdapterLifecycleEventLog()
     let connectionService = RecordingAdapterConnectionService(lifecycleEventLog: eventLog)
@@ -7086,10 +7154,16 @@ private final class DelayedAdapterProviderReadService:
   private let eventLog: AdapterLifecycleEventLog
   private let gate = AdapterLifecycleOperationGate()
   private let started: XCTestExpectation
+  private let syncStarted: XCTestExpectation?
 
-  init(eventLog: AdapterLifecycleEventLog, started: XCTestExpectation) {
+  init(
+    eventLog: AdapterLifecycleEventLog,
+    started: XCTestExpectation,
+    syncStarted: XCTestExpectation? = nil
+  ) {
     self.eventLog = eventLog
     self.started = started
+    self.syncStarted = syncStarted
   }
 
   func categorizeHistorical(
@@ -7149,7 +7223,9 @@ private final class DelayedAdapterProviderReadService:
     throughHistoryId _: String?,
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
-    GmailMetadataSyncResult(messages: [], threads: [])
+    syncStarted?.fulfill()
+    await eventLog.record("freshness-sync-finished")
+    return GmailMetadataSyncResult(messages: [], threads: [])
   }
 
   func overrideCategory(
