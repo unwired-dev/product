@@ -16,6 +16,7 @@ final class ProductAccountSession {
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
+  @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -154,12 +155,12 @@ final class ProductAccountSession {
   }
 
   func signOut() async {
-    let signedInSnapshot = currentSignedInSnapshot()
-    isSigningOut = true
-    state = .loading
-    clearMailboxFreshnessViewModel()
-    defer { isSigningOut = false }
-    let snapshot = signedInSnapshot ?? (try? sessionStore.load())
+    beginSignOut()
+    defer {
+      isSigningOut = false
+      signOutSnapshot = nil
+    }
+    let snapshot = signOutSnapshot ?? (try? sessionStore.load())
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
@@ -275,6 +276,14 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  func beginSignOut() {
+    guard !isSigningOut else { return }
+    signOutSnapshot = currentSignedInSnapshot()
+    isSigningOut = true
+    state = .loading
+    clearMailboxFreshnessViewModel()
+  }
+
   func sharedMailboxFreshnessViewModel(
     for snapshot: ProductAccountSessionSnapshot,
     service: MailboxMetadataSyncing

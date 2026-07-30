@@ -31,7 +31,8 @@ struct EmailAccountsSettingsView: View {
             viewModel: gmailViewModel,
             isMailboxBusy: isMailboxBusy,
             selectMailbox: { gmailViewModel.selectedConnectionId = $0.id },
-            connectionsDidChange: gmailConnectionsDidChange
+            connectionsDidChange: gmailProviderConnectionsDidChange,
+            manualRefreshDidComplete: gmailConnectionsDidChange
           )
           .id(MailProviderId.gmail)
 
@@ -153,6 +154,24 @@ struct EmailAccountsSettingsView: View {
     async let ewsConnectionsLoad: Void = loadEWSConnections()
     _ = await (
       routedConnectionsAreAuthoritative,
+      genericConnectionsLoad,
+      microsoftConnectionsAreAuthoritative,
+      ewsConnectionsLoad
+    )
+    connectionsDidChange()
+  }
+
+  @MainActor
+  static func refreshConnectionAuthorityAfterRoutedMutation(
+    loadGenericConnections: () async -> Void,
+    loadMicrosoftConnections: () async -> Bool,
+    loadEWSConnections: () async -> Void,
+    connectionsDidChange: () -> Void
+  ) async {
+    async let genericConnectionsLoad: Void = loadGenericConnections()
+    async let microsoftConnectionsAreAuthoritative = loadMicrosoftConnections()
+    async let ewsConnectionsLoad: Void = loadEWSConnections()
+    _ = await (
       genericConnectionsLoad,
       microsoftConnectionsAreAuthoritative,
       ewsConnectionsLoad
@@ -311,6 +330,17 @@ struct EmailAccountsSettingsView: View {
         freshnessViewModel: freshnessViewModel
       )
       connectionsDidChange()
+    }
+  }
+
+  private func gmailProviderConnectionsDidChange() {
+    Task {
+      await Self.refreshConnectionAuthorityAfterRoutedMutation(
+        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+        loadMicrosoftConnections: microsoftGraphViewModel.load,
+        loadEWSConnections: ewsViewModel.load,
+        connectionsDidChange: connectionsDidChange
+      )
     }
   }
 }

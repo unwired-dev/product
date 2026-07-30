@@ -28,6 +28,38 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   }
 
   @MainActor
+  func testFailedProviderRemovalDoesNotNotifyConnectionsChanged() async {
+    var events: [String] = []
+
+    await MailboxProviderConnectionPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel") },
+      action: {
+        events.append("remove")
+        return false
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["cancel", "remove"])
+  }
+
+  @MainActor
+  func testSuccessfulProviderRemovalNotifiesConnectionsChanged() async {
+    var events: [String] = []
+
+    await MailboxProviderConnectionPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel") },
+      action: {
+        events.append("remove")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["cancel", "remove", "notify"])
+  }
+
+  @MainActor
   func testProviderChangeRefreshesEveryDefaultSenderBeforeNotifyingMailShell() async {
     var events: [String] = []
 
@@ -53,6 +85,31 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         "load Microsoft",
         "load EWS",
       ])
+    XCTAssertEqual(events.last, "notify")
+  }
+
+  @MainActor
+  func testRoutedProviderMutationRefreshesOtherProvidersWithoutReloadingRoutedProvider() async {
+    var events: [String] = []
+
+    await EmailAccountsSettingsView.refreshConnectionAuthorityAfterRoutedMutation(
+      loadGenericConnections: { events.append("load generic") },
+      loadMicrosoftConnections: {
+        events.append("load Microsoft")
+        return true
+      },
+      loadEWSConnections: { events.append("load EWS") },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(
+      Set(events.dropLast()),
+      [
+        "load generic",
+        "load Microsoft",
+        "load EWS",
+      ]
+    )
     XCTAssertEqual(events.last, "notify")
   }
 

@@ -1053,6 +1053,9 @@ struct AccountView: View {
         }
       }
       .onChange(of: genericMailSetupViewModel.connectionReloadKey) { _, _ in
+        #if DEBUG && !targetEnvironment(macCatalyst)
+          guard !showsDevelopmentSettings else { return }
+        #endif
         Task {
           _ = await gmailViewModel.load()
         }
@@ -1678,6 +1681,7 @@ extension AccountView {
           SmokeView(service: ConvexBackendHealthService())
 
           Button("Sign Out", role: .destructive) {
+            session.beginSignOut()
             ewsSetupViewModel.invalidate()
             genericMailSetupViewModel.invalidate()
             Task {
@@ -6400,8 +6404,8 @@ final class MailboxProviderConnectionViewModel {
     }
   }
 
-  func removeLocalAuthorization(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func removeLocalAuthorization(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
     do {
@@ -6410,6 +6414,7 @@ final class MailboxProviderConnectionViewModel {
       pushStatusMessages[connection.id] = nil
       selectedConnectionId = connection.id
       errorMessage = nil
+      return true
     } catch {
       _ = try? await refreshConnections()
       pushStatusMessages = pushStatusMessages.filter { connectionId, _ in
@@ -6419,11 +6424,12 @@ final class MailboxProviderConnectionViewModel {
         selectedConnectionId = connections.first?.id
       }
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
-  func removeEverywhere(_ connection: MailboxConnection) async {
-    guard !isEditingDisabled else { return }
+  func removeEverywhere(_ connection: MailboxConnection) async -> Bool {
+    guard !isEditingDisabled else { return false }
     isRemoving = true
     defer { isRemoving = false }
     do {
@@ -6434,9 +6440,11 @@ final class MailboxProviderConnectionViewModel {
         selectedConnectionId = connections.first?.id
       }
       errorMessage = nil
+      return true
     } catch {
       try? await refreshConnections()
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -6800,6 +6808,7 @@ struct GmailProviderConnectionPanel: View {
   let isMailboxBusy: Bool
   let selectMailbox: (MailboxConnection) -> Void
   var connectionsDidChange: () -> Void = {}
+  var manualRefreshDidComplete: () -> Void = {}
 
   var body: some View {
     MailboxProviderConnectionPanel(
@@ -6807,6 +6816,7 @@ struct GmailProviderConnectionPanel: View {
       configuration: .gmail,
       connectionsDidChange: connectionsDidChange,
       isMailboxBusy: isMailboxBusy,
+      manualRefreshDidComplete: manualRefreshDidComplete,
       selectMailbox: selectMailbox,
       viewModel: viewModel
     )
@@ -6828,6 +6838,7 @@ struct MicrosoftGraphConnectionPanel: View {
       connectionsDidChange: connectionsDidChange,
       connectionDidConnect: connectionDidConnect,
       isMailboxBusy: isMailboxBusy,
+      manualRefreshDidComplete: connectionsDidChange,
       selectMailbox: selectMailbox,
       viewModel: viewModel
     )
@@ -6882,6 +6893,7 @@ struct MailboxProviderConnectionPanel: View {
   var connectionsDidChange: () -> Void = {}
   var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   let isMailboxBusy: Bool
+  var manualRefreshDidComplete: () -> Void = {}
   let selectMailbox: (MailboxConnection) -> Void
   @Bindable var viewModel: MailboxProviderConnectionViewModel
   @State private var connectTask: Task<Void, Never>?
@@ -6911,7 +6923,7 @@ struct MailboxProviderConnectionPanel: View {
           Task {
             await Self.performManualRefresh(
               load: { _ = await viewModel.load() },
-              connectionsDidChange: connectionsDidChange
+              connectionsDidChange: manualRefreshDidComplete
             )
           }
         } label: {
@@ -6992,18 +7004,22 @@ struct MailboxProviderConnectionPanel: View {
               }
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
-                  await cancelBodyPrefetch()
-                  await viewModel.removeLocalAuthorization(connection)
-                  connectionsDidChange()
+                  await Self.performDestructiveAction(
+                    cancelMailboxWork: cancelBodyPrefetch,
+                    action: { await viewModel.removeLocalAuthorization(connection) },
+                    connectionsDidChange: connectionsDidChange
+                  )
                 }
               }
             }
             Divider()
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
-                await cancelBodyPrefetch()
-                await viewModel.removeEverywhere(connection)
-                connectionsDidChange()
+                await Self.performDestructiveAction(
+                  cancelMailboxWork: cancelBodyPrefetch,
+                  action: { await viewModel.removeEverywhere(connection) },
+                  connectionsDidChange: connectionsDidChange
+                )
               }
             }
           } label: {
@@ -7075,6 +7091,17 @@ struct MailboxProviderConnectionPanel: View {
     connectionsDidChange: () -> Void
   ) async {
     await load()
+    connectionsDidChange()
+  }
+
+  @MainActor
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    await cancelMailboxWork()
+    guard await action() else { return }
     connectionsDidChange()
   }
 }

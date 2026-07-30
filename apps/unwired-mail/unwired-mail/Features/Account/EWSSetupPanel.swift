@@ -153,13 +153,13 @@ final class EWSSetupViewModel {
     username = definition.username
   }
 
-  func removeLocal(_ connection: MailboxConnection) async {
+  func removeLocal(_ connection: MailboxConnection) async -> Bool {
     await remove(connection) {
       try await adapter.clearLocalConnection(connection, session: session)
     }
   }
 
-  func removeEverywhere(_ connection: MailboxConnection) async {
+  func removeEverywhere(_ connection: MailboxConnection) async -> Bool {
     await remove(connection) {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
     }
@@ -183,16 +183,18 @@ final class EWSSetupViewModel {
   private func remove(
     _ connection: MailboxConnection,
     operation: () async throws -> Void
-  ) async {
-    guard !isWorking, isSessionCurrent(session) else { return }
+  ) async -> Bool {
+    guard !isWorking, isSessionCurrent(session) else { return false }
     isWorking = true
     defer { isWorking = false }
     do {
       try await operation()
       try await reloadAfterMutation()
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -265,9 +267,11 @@ struct EWSSetupPanel: View {
               .disabled(viewModel.defaultSendingConnectionId == connection.id)
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
-                  await cancelBodyPrefetch()
-                  await viewModel.removeLocal(connection)
-                  connectionsDidChange()
+                  await MailboxProviderConnectionPanel.performDestructiveAction(
+                    cancelMailboxWork: cancelBodyPrefetch,
+                    action: { await viewModel.removeLocal(connection) },
+                    connectionsDidChange: connectionsDidChange
+                  )
                 }
               }
             } else {
@@ -277,9 +281,11 @@ struct EWSSetupPanel: View {
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
-                await cancelBodyPrefetch()
-                await viewModel.removeEverywhere(connection)
-                connectionsDidChange()
+                await MailboxProviderConnectionPanel.performDestructiveAction(
+                  cancelMailboxWork: cancelBodyPrefetch,
+                  action: { await viewModel.removeEverywhere(connection) },
+                  connectionsDidChange: connectionsDidChange
+                )
               }
             }
           }
