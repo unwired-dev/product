@@ -64,6 +64,10 @@ final class GenericMailSetupViewModel {
       + authorizedSyncedConnectionIds.map(\.rawValue).sorted()
   }
 
+  var isEditingDisabled: Bool {
+    isConnecting || isLoadingSyncedDefinitions
+  }
+
   private let productAccountId: ProductAccountId
   private let clearLocalData: GenericMailLocalDataClearing
   private let isSessionCurrent: () -> Bool
@@ -175,8 +179,9 @@ final class GenericMailSetupViewModel {
     incomingSecurity = endpoint.security
   }
 
-  func connect() async {
-    guard !isConnecting, isValid, isSessionCurrent() else { return }
+  @discardableResult
+  func connect() async -> Bool {
+    guard !isConnecting, isValid, isSessionCurrent() else { return false }
     connectedDefinition = nil
     let incomingEndpoint = GenericMailEndpoint(
       mailProtocol: incomingProtocol,
@@ -188,7 +193,7 @@ final class GenericMailSetupViewModel {
       resetRoleMappingState()
     }
     let draft = makeDraft(incomingEndpoint: incomingEndpoint)
-    guard matchesSelectedSyncedConnection(draft) else { return }
+    guard matchesSelectedSyncedConnection(draft) else { return false }
     isConnecting = true
     defer { isConnecting = false }
 
@@ -209,6 +214,7 @@ final class GenericMailSetupViewModel {
       rolesRequiringMapping = []
       errorMessage = nil
       await loadSyncedDefinitions()
+      return true
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
     } catch is CancellationError {
@@ -217,6 +223,7 @@ final class GenericMailSetupViewModel {
     } catch {
       errorMessage = error.localizedDescription
     }
+    return false
   }
 
   func invalidate() {
@@ -404,13 +411,15 @@ extension GenericMailSetupViewModel {
     }
   }
 
-  func removeEverywhere(_ definition: GenericMailConnectionDefinition) async {
-    guard let syncSession else { return }
+  func removeEverywhere(_ definition: GenericMailConnectionDefinition) async -> Bool {
+    guard let syncSession else { return false }
+    var localAuthorizationRemoved = false
     do {
       let clearedLocalData = try await clearLocalData(definition, syncSession)
       if !clearedLocalData {
         try service.removeLocalAuthorization(definition, productAccountId: productAccountId)
       }
+      localAuthorizationRemoved = true
       try await service.removeEverywhere(
         definition,
         session: syncSession,
@@ -420,6 +429,7 @@ extension GenericMailSetupViewModel {
         connectedDefinition = nil
       }
       await loadSyncedDefinitions()
+      return true
     } catch {
       authorizedSyncedConnectionIds.remove(definition.connectionId)
       if connectedDefinition?.connectionId == definition.connectionId {
@@ -427,10 +437,11 @@ extension GenericMailSetupViewModel {
       }
       await loadSyncedDefinitions()
       errorMessage = error.localizedDescription
+      return localAuthorizationRemoved
     }
   }
 
-  func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async {
+  func removeLocalAuthorization(_ definition: GenericMailConnectionDefinition) async -> Bool {
     do {
       let clearedLocalData =
         if let syncSession {
@@ -446,19 +457,41 @@ extension GenericMailSetupViewModel {
       }
       authorizedSyncedConnectionIds.remove(definition.connectionId)
       await loadSyncedDefinitions()
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
-  func setDefaultSendingConnection(_ definition: GenericMailConnectionDefinition) async {
-    guard let syncSession, isAuthorized(definition) else { return }
+  func canSetDefaultSendingConnection(
+    _ definition: GenericMailConnectionDefinition,
+    routedConnections: [MailboxConnection]
+  ) -> Bool {
+    isAuthorized(definition)
+      && routedConnections.contains { connection in
+        connection.id == definition.connectionId
+          && connection.authorizationState == .authorized
+          && connection.capabilities.canSend
+      }
+  }
+
+  func setDefaultSendingConnection(
+    _ definition: GenericMailConnectionDefinition,
+    routedConnections: [MailboxConnection]
+  ) async -> Bool {
+    guard
+      let syncSession,
+      canSetDefaultSendingConnection(definition, routedConnections: routedConnections)
+    else { return false }
     do {
       try await service.setDefaultSendingConnection(definition, session: syncSession)
       defaultSendingConnectionId = definition.connectionId
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -480,6 +513,10 @@ extension GenericMailSetupViewModel {
 
 struct GenericMailSetupPanel: View {
   @Bindable var viewModel: GenericMailSetupViewModel
+  var cancelMailboxWork: () async -> Void = {}
+  var isMailboxBusy = false
+  var connectionsDidChange: () -> Void = {}
+  var routedConnections: [MailboxConnection] = []
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -523,14 +560,50 @@ struct GenericMailSetupPanel: View {
 
               Menu("Manage") {
                 if viewModel.isAuthorized(definition) {
+                  Button("Reauthorize on This Device") {
+                    viewModel.selectSyncedDefinition(definition)
+                  }
+                  if viewModel.canSetDefaultSendingConnection(
+                    definition,
+                    routedConnections: routedConnections
+                  ) {
+                    Button("Set as Default Sending Connection") {
+                      Task {
+                        if await viewModel.setDefaultSendingConnection(
+                          definition,
+                          routedConnections: routedConnections
+                        ) {
+                          connectionsDidChange()
+                        }
+                      }
+                    }
+                    .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
+                  }
                   Button("Remove Device Authorization", role: .destructive) {
-                    Task { await viewModel.removeLocalAuthorization(definition) }
+                    Task {
+                      await Self.performDestructiveAction(
+                        cancelMailboxWork: cancelMailboxWork,
+                        action: { await viewModel.removeLocalAuthorization(definition) },
+                        connectionsDidChange: connectionsDidChange
+                      )
+                    }
+                  }
+                } else {
+                  Button("Authorize on This Device") {
+                    viewModel.selectSyncedDefinition(definition)
                   }
                 }
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
-                  Task { await viewModel.removeEverywhere(definition) }
+                  Task {
+                    await Self.performDestructiveAction(
+                      cancelMailboxWork: cancelMailboxWork,
+                      action: { await viewModel.removeEverywhere(definition) },
+                      connectionsDidChange: connectionsDidChange
+                    )
+                  }
                 }
               }
+              .disabled(viewModel.isEditingDisabled || isMailboxBusy)
             }
           }
         }
@@ -545,14 +618,14 @@ struct GenericMailSetupPanel: View {
           viewModel.discover()
         }
         .buttonStyle(.bordered)
-        .disabled(viewModel.isConnecting)
+        .disabled(viewModel.isEditingDisabled)
       }
 
       Button("Load Saved Setup") {
         viewModel.loadSaved()
       }
       .buttonStyle(.bordered)
-      .disabled(viewModel.isConnecting)
+      .disabled(viewModel.isEditingDisabled)
 
       if let discoverySource = viewModel.discoverySource {
         Text(discoverySource)
@@ -626,7 +699,10 @@ struct GenericMailSetupPanel: View {
       Button {
         connectTask?.cancel()
         connectTask = Task {
-          await viewModel.connect()
+          await Self.performConnect(
+            connect: viewModel.connect,
+            connectionsDidChange: connectionsDidChange
+          )
         }
       } label: {
         Label(
@@ -637,9 +713,11 @@ struct GenericMailSetupPanel: View {
         .frame(minHeight: 32)
       }
       .buttonStyle(.borderedProminent)
-      .disabled(viewModel.isConnecting)
+      .disabled(viewModel.isEditingDisabled)
 
-      if viewModel.isConnecting {
+      if viewModel.isLoadingSyncedDefinitions {
+        ProgressView("Loading synchronized mailbox connections...")
+      } else if viewModel.isConnecting {
         ProgressView("Verifying secure mail transport...")
       }
 
@@ -658,7 +736,7 @@ struct GenericMailSetupPanel: View {
           .font(.footnote)
       }
     }
-    .disabled(viewModel.isConnecting)
+    .disabled(viewModel.isEditingDisabled)
     .onDisappear {
       connectTask?.cancel()
     }
@@ -687,5 +765,25 @@ struct GenericMailSetupPanel: View {
       }
       .pickerStyle(.segmented)
     }
+  }
+
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    await cancelMailboxWork()
+    guard await action() else { return }
+    connectionsDidChange()
+  }
+}
+
+extension GenericMailSetupPanel {
+  static func performConnect(
+    connect: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    guard await connect() else { return }
+    connectionsDidChange()
   }
 }

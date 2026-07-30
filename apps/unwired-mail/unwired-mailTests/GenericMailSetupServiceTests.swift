@@ -5,6 +5,37 @@ import XCTest
 // swiftlint:disable file_length type_body_length
 final class GenericMailSetupServiceTests: XCTestCase {
   @MainActor
+  func testSettingsSummaryIncludesAuthorizedPOP3Definition() {
+    let definition = GenericMailConnectionDefinition(
+      authorizationMethod: .password,
+      emailAddress: "legacy@example.com",
+      incomingEndpoint: GenericMailEndpoint(
+        mailProtocol: .pop3, hostname: "pop.example.com", port: 995, security: .implicitTLS),
+      outgoingEndpoint: GenericMailEndpoint(
+        mailProtocol: .smtp, hostname: "smtp.example.com", port: 465, security: .implicitTLS),
+      roleMappings: [:],
+      username: "legacy@example.com"
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    let connections = EmailAccountsSettingsView.makeSummaryConnections(
+      routedConnections: [],
+      genericDefinitions: [definition],
+      authorizedGenericConnectionIds: [definition.connectionId],
+      session: session
+    )
+
+    XCTAssertEqual(connections.map(\.id), [definition.connectionId])
+    XCTAssertEqual(connections.first?.authorizationState, .authorized)
+    XCTAssertEqual(connections.first?.providerId, .pop3SMTP)
+  }
+
+  @MainActor
   func testConnectionReloadKeyChangesWhenSyncedDefinitionContentChanges() {
     let viewModel = GenericMailSetupViewModel(
       productAccountId: ProductAccountId("product-account-001"),
@@ -862,6 +893,55 @@ final class GenericMailSetupServiceTests: XCTestCase {
     XCTAssertEqual(sync.currentSnapshot.removedConnectionIds, [definition.connectionId])
   }
 
+  @MainActor
+  func testAuthorizedGenericDefinitionRequiresRoutedSendSupportToBecomeDefault() async throws {
+    let sync = RecordingGenericSyncService()
+    let store = RecordingGenericMailAuthorizationStore()
+    let service = GenericMailSetupService(
+      authorizationStore: store,
+      definitionSyncService: sync,
+      verifier: RecordingGenericMailEndpointVerifier()
+    )
+    let session = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "product-token",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    let definition = try await service.authorize(
+      draft: manualDraft(),
+      credential: "device-only-secret",
+      productAccountId: ProductAccountId(session.productAccountId),
+      syncSession: session
+    )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+    await viewModel.loadSyncedDefinitions()
+
+    let didSetUnsupportedDefault = await viewModel.setDefaultSendingConnection(
+      definition,
+      routedConnections: [routedConnection(definition, capabilities: .imapRead)]
+    )
+
+    XCTAssertFalse(didSetUnsupportedDefault)
+    XCTAssertNil(viewModel.defaultSendingConnectionId)
+    XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
+
+    let didSetDefault = await viewModel.setDefaultSendingConnection(
+      definition,
+      routedConnections: [routedConnection(definition, capabilities: .gmail)]
+    )
+
+    XCTAssertTrue(didSetDefault)
+    XCTAssertEqual(viewModel.defaultSendingConnectionId, definition.connectionId)
+    XCTAssertEqual(sync.currentSnapshot.defaultSendingConnectionId, definition.connectionId)
+  }
+
+  @MainActor
   func testGenericRemovalClearsLocalAuthorizationWhenSyncRemovalFails() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
@@ -878,15 +958,21 @@ final class GenericMailSetupServiceTests: XCTestCase {
       draft: manualDraft(), credential: "device-only-secret",
       productAccountId: ProductAccountId(session.productAccountId), syncSession: session
     )
+    let viewModel = GenericMailSetupViewModel(
+      productAccountId: ProductAccountId(session.productAccountId),
+      isSessionCurrent: { true },
+      service: service,
+      syncSession: session
+    )
+    await viewModel.loadSyncedDefinitions()
     sync.removeError = GenericMailSetupTestError.syncUnavailable
 
-    do {
-      try await service.removeEverywhere(definition, session: session)
-      XCTFail("Expected Product Sync failure")
-    } catch is GenericMailSetupTestError {
-    }
+    let didRemoveLocalAuthorization = await viewModel.removeEverywhere(definition)
+    let errorMessage = viewModel.errorMessage
 
+    XCTAssertTrue(didRemoveLocalAuthorization)
     XCTAssertNil(store.authorization)
+    XCTAssertNotNil(errorMessage)
   }
 
   func testOpaqueCredentialWhitespaceIsPreservedForAuthenticationAndStorage() async throws {
@@ -1102,6 +1188,76 @@ final class GenericMailSetupServiceTests: XCTestCase {
     viewModel.discover()
 
     XCTAssertEqual(viewModel.authorizationMethod, .password)
+  }
+
+  @MainActor
+  func testGenericMailDestructiveActionCancelsMailboxWorkBeforeRemoval() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel") },
+      action: {
+        events.append("remove")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["cancel", "remove", "notify"])
+  }
+
+  @MainActor
+  func testGenericMailDestructiveActionNotifiesOnlyAfterSuccess() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel failed") },
+      action: {
+        events.append("failed remove")
+        return false
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+    await GenericMailSetupPanel.performDestructiveAction(
+      cancelMailboxWork: { events.append("cancel successful") },
+      action: {
+        events.append("successful remove")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(
+      events,
+      [
+        "cancel failed",
+        "failed remove",
+        "cancel successful",
+        "successful remove",
+        "notify",
+      ])
+  }
+
+  @MainActor
+  func testGenericConnectNotifiesOnlyAfterSuccessfulAuthorization() async {
+    var events: [String] = []
+
+    await GenericMailSetupPanel.performConnect(
+      connect: {
+        events.append("failed connect")
+        return false
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+    await GenericMailSetupPanel.performConnect(
+      connect: {
+        events.append("successful connect")
+        return true
+      },
+      connectionsDidChange: { events.append("notify") }
+    )
+
+    XCTAssertEqual(events, ["failed connect", "successful connect", "notify"])
   }
 
   @MainActor
@@ -1739,6 +1895,23 @@ final class GenericMailSetupServiceTests: XCTestCase {
         }
       ),
       username: "reader@example.com"
+    )
+  }
+
+  private func routedConnection(
+    _ definition: GenericMailConnectionDefinition,
+    capabilities: MailboxConnectionCapabilities
+  ) -> MailboxConnection {
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: capabilities,
+      connectedAt: 1,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 1,
+      productAccountId: ProductAccountId("product-account-001"),
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1
     )
   }
 

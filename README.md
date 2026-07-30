@@ -144,7 +144,7 @@ On Apple Silicon machines, use the explicit arm64 destination if Xcode tries to 
 xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=macOS,variant=Mac Catalyst,arch=arm64' build
 ```
 
-The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, and register the current trusted device with the backend using only operational account data. After sign-in, the adaptive mail shell becomes the root experience; the current Account Settings sheet contains diagnostics and raw backend health. The planned Settings redesign moves diagnostics to Advanced when that entry point ships.
+The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, and register the current trusted device with the backend using only operational account data. After sign-in, the adaptive mail shell becomes the root experience; the current Account Settings sheet contains diagnostics and raw backend health. Development builds also expose the first adaptive Settings destination for managing Email Accounts. Production builds keep the current Account Settings entry point until every Settings destination meets the release gate; the completed redesign will move diagnostics to Advanced.
 
 ### Sign in with Apple (local development)
 

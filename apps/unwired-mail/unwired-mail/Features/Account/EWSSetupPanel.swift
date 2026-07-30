@@ -19,6 +19,9 @@ final class EWSSetupViewModel {
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var isValid = true
+  private var loadIsActive = false
+  private var loadCompletionWaiters: [CheckedContinuation<Void, Never>] = []
+  private var loadRequestedWhileWorking = false
   private var removalObservation: MailboxConnectionRemovalObservation?
   private var selectedConnectionId: MailboxConnectionId?
   private let service: EWSSetupService
@@ -44,9 +47,31 @@ final class EWSSetupViewModel {
   }
 
   func load() async {
-    guard !isWorking, isSessionCurrent(session) else { return }
+    guard isSessionCurrent(session) else { return }
+    if loadIsActive {
+      loadRequestedWhileWorking = true
+      await withCheckedContinuation { continuation in
+        loadCompletionWaiters.append(continuation)
+      }
+      return
+    }
+    guard !isWorking else { return }
+    loadIsActive = true
     isWorking = true
-    defer { isWorking = false }
+    repeat {
+      loadRequestedWhileWorking = false
+      await performLoad()
+    } while loadRequestedWhileWorking && isValid && isSessionCurrent(session)
+    loadIsActive = false
+    isWorking = false
+    let waiters = loadCompletionWaiters
+    loadCompletionWaiters.removeAll()
+    for waiter in waiters {
+      waiter.resume()
+    }
+  }
+
+  private func performLoad() async {
     do {
       let snapshot = try await definitionSyncService.loadSnapshot(session: session)
       definitionsByConnectionId = Dictionary(
@@ -128,13 +153,13 @@ final class EWSSetupViewModel {
     username = definition.username
   }
 
-  func removeLocal(_ connection: MailboxConnection) async {
+  func removeLocal(_ connection: MailboxConnection) async -> Bool {
     await remove(connection) {
       try await adapter.clearLocalConnection(connection, session: session)
     }
   }
 
-  func removeEverywhere(_ connection: MailboxConnection) async {
+  func removeEverywhere(_ connection: MailboxConnection) async -> Bool {
     await remove(connection) {
       try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
     }
@@ -158,16 +183,20 @@ final class EWSSetupViewModel {
   private func remove(
     _ connection: MailboxConnection,
     operation: () async throws -> Void
-  ) async {
-    guard !isWorking, isSessionCurrent(session) else { return }
+  ) async -> Bool {
+    guard !isWorking, isSessionCurrent(session) else { return false }
     isWorking = true
     defer { isWorking = false }
+    var removalCompleted = false
     do {
       try await operation()
+      removalCompleted = true
       try await reloadAfterMutation()
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return removalCompleted
     }
   }
 
@@ -227,6 +256,9 @@ struct EWSSetupPanel: View {
           .buttonStyle(.plain)
           Menu("Manage") {
             if connection.authorizationState == .authorized {
+              Button("Reauthorize on This Device") {
+                Task { await viewModel.select(connection) }
+              }
               Button("Set as Default Sending Connection") {
                 Task {
                   if await viewModel.setDefaultSendingConnection(connection) {
@@ -237,17 +269,25 @@ struct EWSSetupPanel: View {
               .disabled(viewModel.defaultSendingConnectionId == connection.id)
               Button("Remove Device Authorization", role: .destructive) {
                 Task {
-                  await cancelBodyPrefetch()
-                  await viewModel.removeLocal(connection)
-                  connectionsDidChange()
+                  await MailboxProviderConnectionPanel.performDestructiveAction(
+                    cancelMailboxWork: cancelBodyPrefetch,
+                    action: { await viewModel.removeLocal(connection) },
+                    connectionsDidChange: connectionsDidChange
+                  )
                 }
+              }
+            } else {
+              Button("Authorize on This Device") {
+                Task { await viewModel.select(connection) }
               }
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
               Task {
-                await cancelBodyPrefetch()
-                await viewModel.removeEverywhere(connection)
-                connectionsDidChange()
+                await MailboxProviderConnectionPanel.performDestructiveAction(
+                  cancelMailboxWork: cancelBodyPrefetch,
+                  action: { await viewModel.removeEverywhere(connection) },
+                  connectionsDidChange: connectionsDidChange
+                )
               }
             }
           }

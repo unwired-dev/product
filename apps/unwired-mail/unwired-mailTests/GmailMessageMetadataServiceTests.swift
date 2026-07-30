@@ -1539,6 +1539,48 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessRowRefreshPreservesOtherConnectionState() async {
+    let fixture = makeMailboxFreshnessFixture()
+    let selectedConnection = fixture.connections[0]
+    let preservedConnection = fixture.connections[1]
+    fixture.viewModel.updateConnections(fixture.connections)
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: preservedConnection.id.rawValue,
+      phase: .backfillPending,
+      successfulSyncAt: fixture.now
+    )
+    let reloadPublished = expectation(description: "row synchronization reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == selectedConnection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+
+    await fixture.viewModel.synchronizeFully(
+      connection: selectedConnection,
+      among: fixture.connections
+    )
+    await fulfillment(of: [reloadPublished], timeout: 1)
+
+    let syncedConnectionIds = await fixture.service.syncedConnectionIds()
+    XCTAssertEqual(syncedConnectionIds, [selectedConnection.id])
+    XCTAssertEqual(fixture.viewModel.status(for: preservedConnection).phase, .backfillPending)
+    XCTAssertEqual(
+      fixture.viewModel.status(for: preservedConnection).lastSuccessfulSyncAt,
+      fixture.now
+    )
+  }
+
+  @MainActor
   func testMailboxFreshnessKeepsNonGmailForegroundSynchronizationUnchanged() async {
     let fixture = makeMailboxFreshnessFixture()
     let connection = MailboxConnection(
@@ -1917,6 +1959,34 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await fulfillment(of: [statusPublished], timeout: 1)
 
     XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+  }
+
+  @MainActor
+  func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
+    let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    EmailAccountsSettingsView.updateFreshnessConnections(
+      [],
+      connectionsAreAuthoritative: false,
+      freshnessViewModel: fixture.viewModel
+    )
+    await fixture.viewModel.synchronize(
+      connections: [],
+      snapshotIsAuthoritative: false
+    )
+
+    XCTAssertTrue(fixture.viewModel.isHistoricalBackfillActive(for: connection))
+    await fixture.service.releaseHistoricalBackfill()
+    _ = try await backfill.value
   }
 
   @MainActor
