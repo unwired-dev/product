@@ -118,14 +118,25 @@ enum MessageHTMLSanitizer {
   }
 
   private static func hasZeroDimension(_ element: Element) -> Bool {
+    let zeroDimensionPattern =
+      #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {
       guard let value = try? element.attr(attribute), !value.isEmpty else { continue }
       if value.trimmingCharacters(in: .whitespacesAndNewlines).range(
-        of: #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#,
+        of: zeroDimensionPattern,
         options: [.regularExpression, .caseInsensitive]
       ) != nil {
         return true
       }
+    }
+    if let style = try? element.attr("style"),
+      style.range(
+        of: #"(?:^|;)\s*max-width\s*:\s*(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?"#
+          + #"(?:\s*!important)?\s*(?:;|$)"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    {
+      return true
     }
     return false
   }

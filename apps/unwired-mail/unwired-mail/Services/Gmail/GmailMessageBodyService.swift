@@ -1852,7 +1852,7 @@ struct GmailMessageBodyCachePayload: Codable {
   }
 }
 
-private struct GmailMessageBodyPart: Decodable {
+private struct GmailMessageBodyPart: Decodable, Equatable {
   let body: GmailMessageBodyData?
   let filename: String?
   let headers: [GmailMessageBodyHeader]?
@@ -1882,15 +1882,13 @@ private struct GmailMessageBodyPart: Decodable {
       return alternatives
     }
     let candidate = readableBodyParts
-    return candidate.plainText != nil || candidate.html != nil
-      ? [
-        GmailReadableMessageBodyCandidate(
-          plainText: candidate.plainText,
-          html: candidate.html,
-          inlineImagePartsByContentID: inlineImagePartsByContentID
-        )
-      ]
-      : []
+    guard let selectedPart = candidate.plainText ?? candidate.html else {
+      return []
+    }
+    return readableBodyPartCandidate(
+      for: selectedPart,
+      inlineImageScope: nil
+    ).map { [$0] } ?? []
   }
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
@@ -1965,28 +1963,67 @@ private struct GmailMessageBodyPart: Decodable {
     }
     guard let parts else { return [] }
     return parts.indices.flatMap { index in
-      var imageScope = inlineImageScope ?? [:]
-      if mimeType == "multipart/related" || mimeType == "multipart/mixed" {
-        var siblingImageScope: [String: GmailMessageBodyPart] = [:]
-        for siblingIndex in parts.indices where siblingIndex != index {
-          let sibling = parts[siblingIndex]
-          guard
-            mimeType == "multipart/related" || sibling.hasInlineDisposition
-              || (!sibling.hasFilename && !sibling.hasAttachmentDisposition)
-          else {
-            continue
-          }
-          for (contentID, imagePart) in sibling.inlineImagePartsByContentID
-          where siblingImageScope[contentID] == nil {
-            siblingImageScope[contentID] = imagePart
-          }
-        }
-        imageScope.merge(siblingImageScope) { _, nearerScope in nearerScope }
-      }
       return parts[index].readableMultipartAlternativeCandidates(
-        inlineImageScope: imageScope
+        inlineImageScope: self.inlineImageScope(
+          forPartAt: index,
+          inheriting: inlineImageScope
+        )
       )
     }
+  }
+
+  private func readableBodyPartCandidate(
+    for selectedPart: GmailMessageBodyPart,
+    inlineImageScope: [String: GmailMessageBodyPart]?
+  ) -> GmailReadableMessageBodyCandidate? {
+    guard !isAttachment else { return nil }
+    if self == selectedPart {
+      let isHTML = mimeType == "text/html"
+      return GmailReadableMessageBodyCandidate(
+        plainText: isHTML ? nil : self,
+        html: isHTML ? self : nil,
+        inlineImagePartsByContentID: inlineImageScope ?? [:]
+      )
+    }
+    guard let parts else { return nil }
+    for index in parts.indices {
+      if let candidate = parts[index].readableBodyPartCandidate(
+        for: selectedPart,
+        inlineImageScope: self.inlineImageScope(
+          forPartAt: index,
+          inheriting: inlineImageScope
+        )
+      ) {
+        return candidate
+      }
+    }
+    return nil
+  }
+
+  private func inlineImageScope(
+    forPartAt index: Int,
+    inheriting inlineImageScope: [String: GmailMessageBodyPart]?
+  ) -> [String: GmailMessageBodyPart] {
+    var imageScope = inlineImageScope ?? [:]
+    guard let parts, mimeType == "multipart/related" || mimeType == "multipart/mixed" else {
+      return imageScope
+    }
+    var siblingImageScope: [String: GmailMessageBodyPart] = [:]
+    for siblingIndex in parts.indices where siblingIndex != index {
+      let sibling = parts[siblingIndex]
+      guard
+        mimeType == "multipart/related" || sibling.hasInlineDisposition
+          || (!sibling.hasFilename && !sibling.hasAttachmentDisposition)
+      else {
+        continue
+      }
+      for (contentID, imagePart) in sibling.inlineImagePartsByContentID
+      where siblingImageScope[contentID] == nil {
+        siblingImageScope[contentID] = imagePart
+      }
+    }
+    imageScope.merge(siblingImageScope) { _, nearerScope in nearerScope }
+    return imageScope
   }
 
   private var preferredNonEmptyPlainTextPart: GmailMessageBodyPart? {
@@ -2121,13 +2158,13 @@ private struct GmailMessageBodyPart: Decodable {
   }
 }
 
-private struct GmailMessageBodyData: Decodable {
+private struct GmailMessageBodyData: Decodable, Equatable {
   let attachmentId: String?
   let data: String?
   let size: Int?
 }
 
-private struct GmailMessageBodyHeader: Decodable {
+private struct GmailMessageBodyHeader: Decodable, Equatable {
   let name: String
   let value: String
 }

@@ -107,6 +107,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
       in: """
         <img src="cid:zero-width@example.com" width=" 0 ">
         <img src="cid:zero-height@example.com" height="\n0px\t">
+        <img src="cid:zero-max-width@example.com" style="max-width: .0px !important">
         <img src="cid:visible@example.com">
         """
     )

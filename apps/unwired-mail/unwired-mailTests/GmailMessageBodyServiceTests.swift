@@ -1101,10 +1101,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.contentID), ["valid@example.com"])
   }
 
-  func testReadExcludesZeroSizedImagesBeforeApplyingRequestLimit() async throws {
+  func testReadExcludesCSSZeroSizedImagesBeforeApplyingRequestLimit() async throws {
     let imageData = pngImageData()
     let hiddenImages = (0..<20).map {
-      #"<img width="0" src="cid:hidden-\#($0)@example.com">"#
+      #"<img style="max-width: 0" src="cid:hidden-\#($0)@example.com">"#
     }.joined()
     let html = hiddenImages + #"<img src="cid:visible@example.com">"#
     let hiddenParts = (0..<20).map {
@@ -1434,7 +1434,7 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages.map(\.contentID), ["mixed@example.com"])
   }
 
-  func testReadPrefersNearestRelatedScopeForDuplicateCID() async throws {
+  func testReadPrefersNearestRelatedScopeForDirectHTMLBodyDuplicateCID() async throws {
     let innerImageData = pngImageData(marker: 1)
     let outerImageData = pngImageData(marker: 2)
     let html = #"<p>Receipt</p><img src="cid:duplicate@example.com">"#
@@ -1449,11 +1449,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
                 "mimeType": "multipart/related",
                 "parts": [
                   {
-                    "mimeType": "multipart/alternative",
-                    "parts": [{
-                      "mimeType": "text/html",
-                      "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
-                    }]
+                    "mimeType": "text/html",
+                    "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
                   },
                   {
                     "mimeType": "image/png",
