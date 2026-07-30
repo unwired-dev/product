@@ -79,9 +79,9 @@ enum MailEngineQualificationFixture: Sendable {
   case idleUntilCancelled
   case inFlightOperationsUntilClosed
   case mismatchedMetadataUIDValidity
-  case invalidMetadataMessageUIDValidity
+  case invalidMetadataMessageUIDValidity(uidValidity: Int64)
   case invalidMetadataNextOlderUID(uid: Int64)
-  case invalidMetadataPageUIDValidity
+  case invalidMetadataPageUIDValidity(uidValidity: Int64)
   case invalidMetadataUID(uid: Int64)
   case malformedCopyUIDMapping
   case mismatchedUIDMappingCardinality
@@ -233,26 +233,27 @@ struct MailEngineQualificationContract {
       imapTransportMode: .implicitTLS,
       smtpTransportMode: .startTLS
     )
-    let xoauth2IMAPConnection = try await verifyXOAUTH2Challenge(
-      service: .imap,
-      connectionID: "xoauth2-imap-challenge"
+    let reverseMixedModeConnection = try await connect(
+      fixture: .successful,
+      connectionID: "reverse-mixed-mode-success",
+      imapTransportMode: .startTLS,
+      smtpTransportMode: .implicitTLS
     )
-    let xoauth2SMTPConnection = try await verifyXOAUTH2Challenge(
-      service: .smtp,
-      connectionID: "xoauth2-smtp-challenge"
-    )
-    let successfulSessions: [any MailEngineSession] = [
-      implicitConnection.session,
-      startTLSConnection.session,
-      mixedModeConnection.session,
-      xoauth2IMAPConnection.session,
-      xoauth2SMTPConnection.session,
-    ]
-    verifySuccessfulSnapshot(implicitConnection.snapshot)
-    verifySuccessfulSnapshot(startTLSConnection.snapshot)
-    verifySuccessfulSnapshot(mixedModeConnection.snapshot)
-    verifySuccessfulSnapshot(xoauth2IMAPConnection.snapshot)
-    verifySuccessfulSnapshot(xoauth2SMTPConnection.snapshot)
+    let challengeConnections = try await connectXOAUTH2Challenges()
+    let successfulSessions: [any MailEngineSession] =
+      [
+        implicitConnection.session,
+        startTLSConnection.session,
+        mixedModeConnection.session,
+        reverseMixedModeConnection.session,
+      ] + challengeConnections.map(\.session)
+    verifySuccessfulSnapshots(
+      [
+        implicitConnection.snapshot,
+        startTLSConnection.snapshot,
+        mixedModeConnection.snapshot,
+        reverseMixedModeConnection.snapshot,
+      ] + challengeConnections.map(\.snapshot))
     await verifySetupEvents()
     withExtendedLifetime(successfulSessions) {}
   }
@@ -290,6 +291,22 @@ struct MailEngineQualificationContract {
     )
   }
 
+  private func connectXOAUTH2Challenges() async throws -> [(
+    snapshot: MailEngineConnectionSnapshot,
+    session: any MailEngineSession
+  )] {
+    [
+      try await verifyXOAUTH2Challenge(
+        service: .imap,
+        connectionID: "xoauth2-imap-challenge"
+      ),
+      try await verifyXOAUTH2Challenge(
+        service: .smtp,
+        connectionID: "xoauth2-smtp-challenge"
+      ),
+    ]
+  }
+
   private func verifySuccessfulSnapshot(_ snapshot: MailEngineConnectionSnapshot) {
     assertMinimumTLS(snapshot)
     XCTAssertEqual(
@@ -305,6 +322,12 @@ struct MailEngineQualificationContract {
     )
   }
 
+  private func verifySuccessfulSnapshots(_ snapshots: [MailEngineConnectionSnapshot]) {
+    for snapshot in snapshots {
+      verifySuccessfulSnapshot(snapshot)
+    }
+  }
+
   private func assertMinimumTLS(_ snapshot: MailEngineConnectionSnapshot) {
     XCTAssertEqual(Set(snapshot.transportSecurity.keys), [.imap, .smtp])
     for version in snapshot.transportSecurity.values {
@@ -314,7 +337,12 @@ struct MailEngineQualificationContract {
 
   private func verifySetupEvents() async {
     let events = await factory.events()
-    for connectionID in ["implicit-success", "starttls-success", "mixed-mode-success"] {
+    for connectionID in [
+      "implicit-success",
+      "starttls-success",
+      "mixed-mode-success",
+      "reverse-mixed-mode-success",
+    ] {
       assertSetupEvents(events, connectionID: connectionID, service: .imap)
       assertSetupEvents(events, connectionID: connectionID, service: .smtp)
     }
@@ -666,11 +694,12 @@ struct MailEngineQualificationContract {
     try await assertUIDValidityPeerUnaffected(
       peerSession,
       pageBeforeReset: peerPageBeforeReset,
-      inbox: inbox
+      inbox: inbox,
+      archive: archive
     )
-    await assertIdleCancellation(
+    await assertUIDValidityResetCancellation(
       resetTask,
-      failureMessage: "UIDVALIDITY-reset IDLE must remain active until cancelled."
+      callbacks: events
     )
     XCTAssertEqual(archivePageBeforeReset.uidValidity, 73)
     await verifyStaleBodyFetchIsRejectedBeforeRequest(
@@ -698,6 +727,27 @@ struct MailEngineQualificationContract {
       session: session,
       pageBeforeReset: archivePageBeforeReset,
       inbox: inbox
+    )
+  }
+
+  private func assertUIDValidityResetCancellation(
+    _ task: Task<Void, Error>,
+    callbacks: LockedBox<[MailEngineIdleEvent]>
+  ) async {
+    let callbacksBeforeCancellation = callbacks.value
+    await assertIdleCancellation(
+      task,
+      failureMessage: "UIDVALIDITY-reset IDLE must remain active until cancelled."
+    )
+    let cancellations = await idleCancellationEvents()
+    XCTAssertTrue(
+      cancellations.contains(.idleCancelled(connectionID: "connection-a")),
+      "Cancelling UIDVALIDITY-reset IDLE must cancel its owning server command."
+    )
+    await assertNoDelayedCallbacks(
+      callbacks,
+      after: callbacksBeforeCancellation,
+      failureMessage: "UIDVALIDITY-reset IDLE must not deliver a delayed callback."
     )
   }
 
@@ -744,7 +794,8 @@ struct MailEngineQualificationContract {
   private func assertUIDValidityPeerUnaffected(
     _ session: any MailEngineSession,
     pageBeforeReset: MailEngineMetadataPage,
-    inbox: MailEngineMailboxIdentity
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
   ) async throws {
     let pageDuringReset = try await session.loadMetadataPage(
       mailbox: inbox,
@@ -760,6 +811,18 @@ struct MailEngineQualificationContract {
     _ = try await session.fetchBodyParts(
       [MailEngineBodyPartSelector("1.TEXT")],
       for: pageBeforeReset.messages[0].identity
+    )
+    _ = try await session.copy(
+      sourceUIDs: [pageBeforeReset.messages[0].identity.uid],
+      sourceUIDValidity: pageBeforeReset.uidValidity,
+      from: inbox,
+      to: archive
+    )
+    _ = try await session.move(
+      sourceUIDs: [pageBeforeReset.messages[0].identity.uid],
+      sourceUIDValidity: pageBeforeReset.uidValidity,
+      from: inbox,
+      to: archive
     )
   }
 
@@ -1729,16 +1792,20 @@ struct MailEngineQualificationContract {
         XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidUID)
       }
     }
-    for fixture in [
-      MailEngineQualificationFixture.invalidMetadataPageUIDValidity,
-      .invalidMetadataMessageUIDValidity,
-    ] {
-      let session = try await connect(fixture: fixture).session
-      do {
-        _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
-        XCTFail("Invalid metadata UIDVALIDITY must be rejected.")
-      } catch {
-        XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+    for invalidUIDValidity in [Int64(-1), 0, 4_294_967_296] {
+      for fixture in [
+        MailEngineQualificationFixture.invalidMetadataPageUIDValidity(
+          uidValidity: invalidUIDValidity
+        ),
+        .invalidMetadataMessageUIDValidity(uidValidity: invalidUIDValidity),
+      ] {
+        let session = try await connect(fixture: fixture).session
+        do {
+          _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
+          XCTFail("Metadata UIDVALIDITY \(invalidUIDValidity) must be rejected.")
+        } catch {
+          XCTAssertEqual(error as? MailEngineUIDMappingError, .invalidSourceUIDValidity)
+        }
       }
     }
     let mismatchedSession = try await connect(
@@ -2339,6 +2406,29 @@ struct MailEngineQualificationContract {
     await assertIdleStarts(inbox: inbox, secondMailbox: secondIdleMailbox)
     try await verifyOverlappingSMTPIsolation()
 
+    await assertFirstIdleCancellation(
+      firstTask,
+      secondTask: secondTask,
+      firstCallbacks: firstCallbacks,
+      secondCallbacks: secondCallbacks
+    )
+    try await verifyFirstCancelledIDLESession(first: first, second: second, inbox: inbox)
+
+    try await verifySecondIdleCancellationPreservesSession(
+      secondTask,
+      preservedSession: first,
+      session: second,
+      callbacks: secondCallbacks
+    )
+    try await verifyNonIdleCancellationIsolation(inbox: inbox)
+  }
+
+  private func assertFirstIdleCancellation(
+    _ firstTask: Task<Void, Error>,
+    secondTask: Task<Void, Error>,
+    firstCallbacks: LockedBox<[MailEngineIdleEvent]>,
+    secondCallbacks: LockedBox<[MailEngineIdleEvent]>
+  ) async {
     await assertIdleCancellation(
       firstTask, failureMessage: "Cancelling IDLE must report cancellation.")
     await assertOnlyFirstIdleCancelled()
@@ -2351,14 +2441,6 @@ struct MailEngineQualificationContract {
       secondTask,
       failureMessage: "Cancelling the first IDLE must leave the second IDLE active."
     )
-    try await verifyFirstCancelledIDLESession(first: first, second: second, inbox: inbox)
-
-    try await verifySecondIdleCancellationPreservesSession(
-      secondTask,
-      session: second,
-      callbacks: secondCallbacks
-    )
-    try await verifyNonIdleCancellationIsolation(inbox: inbox)
   }
 
   private func verifyFirstCancelledIDLESession(
@@ -2383,6 +2465,7 @@ struct MailEngineQualificationContract {
 
   private func verifySecondIdleCancellationPreservesSession(
     _ task: Task<Void, Error>,
+    preservedSession: any MailEngineSession,
     session: any MailEngineSession,
     callbacks: LockedBox<[MailEngineIdleEvent]>
   ) async throws {
@@ -2399,6 +2482,11 @@ struct MailEngineQualificationContract {
     )
     try await assertSessionRemainsUsable(session, connectionID: "connection-two")
     try await verifyCancelledIDLEPreservesSMTP(session, connectionID: "connection-two")
+    try await assertSessionRemainsUsable(preservedSession, connectionID: "connection-one")
+    try await verifyCancelledIDLEPreservesSMTP(
+      preservedSession,
+      connectionID: "connection-one"
+    )
   }
 
   private func assertSecondIdleCancelled() async {
@@ -2646,6 +2734,18 @@ struct MailEngineQualificationContract {
       second,
       connectionID: "body-fetch-two",
       preservationReason: "Body-fetch cancellation must preserve the owning SMTP transport."
+    )
+    try await assertFirstSessionSurvivesSecondBodyFetchCancellation(first)
+  }
+
+  private func assertFirstSessionSurvivesSecondBodyFetchCancellation(
+    _ session: any MailEngineSession
+  ) async throws {
+    try await assertSessionRemainsUsable(session, connectionID: "body-fetch-one")
+    try await assertSMTPSessionRemainsUsable(
+      session,
+      connectionID: "body-fetch-one",
+      preservationReason: "Cancelling the peer body fetch must preserve this SMTP transport."
     )
   }
 
@@ -3055,7 +3155,7 @@ struct MailEngineQualificationContract {
       events.contains(.submissionTransportTerminated(connectionID: cancelledConnectionID)),
       "Cancellation must terminate the owning SMTP transport."
     )
-    try await assertSMTPSessionRemainsUsable(
+    try await assertCancelledSMTPSessionRemainsUsable(
       cancelledSession,
       connectionID: cancelledConnectionID
     )
@@ -3134,7 +3234,7 @@ struct MailEngineQualificationContract {
       events.contains(.submissionTransportTerminated(connectionID: cancelledConnectionID)),
       "Post-content cancellation must terminate the owning SMTP transport."
     )
-    try await assertSMTPSessionRemainsUsable(
+    try await assertCancelledSMTPSessionRemainsUsable(
       session,
       connectionID: cancelledConnectionID
     )
@@ -3247,6 +3347,14 @@ struct MailEngineQualificationContract {
       ],
       "The follow-up submission must use the same account's SMTP transport."
     )
+  }
+
+  private func assertCancelledSMTPSessionRemainsUsable(
+    _ session: any MailEngineSession,
+    connectionID: String
+  ) async throws {
+    try await assertSessionRemainsUsable(session, connectionID: connectionID)
+    try await assertSMTPSessionRemainsUsable(session, connectionID: connectionID)
   }
 
   private func verifySentAppendRecovery() async throws {
@@ -3729,6 +3837,11 @@ struct MailEngineQualificationContract {
 
   private func verifyCloseAfterSMTPContentIsAmbiguous() async throws {
     let connectionID = "close-after-smtp-content"
+    let peerConnectionID = "close-after-smtp-content-peer"
+    let preservedSession = try await connect(
+      fixture: .successful,
+      connectionID: peerConnectionID
+    ).session
     let session = try await connect(
       fixture: .smtpStages([.cancelledAfterMessageContent]),
       connectionID: connectionID
@@ -3748,8 +3861,28 @@ struct MailEngineQualificationContract {
     }
     try await waitForSubmissionContent(after: contentBefore, connectionID: connectionID)
     await session.close()
-    let result = await task.result
-    switch result {
+    await assertCloseAfterSMTPContent(
+      task,
+      connectionID: connectionID,
+      envelope: envelope,
+      rawMessage: rawMessage,
+      submissionsBefore: submissionsBefore
+    )
+    await verifyClosedSMTPContentSession(session, connectionID: connectionID)
+    try await verifyPreservedPeerSession(
+      preservedSession,
+      connectionID: peerConnectionID
+    )
+  }
+
+  private func assertCloseAfterSMTPContent(
+    _ task: Task<MailEngineSMTPOutcome, Error>,
+    connectionID: String,
+    envelope: MailEngineEnvelope,
+    rawMessage: Data,
+    submissionsBefore: [MailEngineQualificationEvent]
+  ) async {
+    switch await task.result {
     case .success(let outcome):
       XCTAssertEqual(outcome, .ambiguous)
     case .failure(let error):
@@ -3777,7 +3910,6 @@ struct MailEngineQualificationContract {
       events.contains(.serviceClosed(connectionID: connectionID, service: .imap)),
       "Closing after SMTP content must terminate the owning IMAP transport."
     )
-    await verifyClosedSMTPContentSession(session, connectionID: connectionID)
   }
 
   private func verifyClosedSMTPContentSession(
@@ -3815,11 +3947,14 @@ struct MailEngineQualificationContract {
     )
   }
 
-  private func verifyPreservedPeerSession(_ session: any MailEngineSession) async throws {
-    try await assertSessionRemainsUsable(session, connectionID: "connection-b")
+  private func verifyPreservedPeerSession(
+    _ session: any MailEngineSession,
+    connectionID: String = "connection-b"
+  ) async throws {
+    try await assertSessionRemainsUsable(session, connectionID: connectionID)
     try await assertSMTPSessionRemainsUsable(
       session,
-      connectionID: "connection-b",
+      connectionID: connectionID,
       preservationReason: "Closing one session must preserve the peer SMTP transport."
     )
   }
@@ -4833,14 +4968,14 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     let selectedUIDs = Array(availableUIDs.prefix(limit))
     let hasMore = availableUIDs.count > selectedUIDs.count
     let pageUIDValidity =
-      if case .invalidMetadataPageUIDValidity = fixture {
-        Int64(0)
+      if case .invalidMetadataPageUIDValidity(let uidValidity) = fixture {
+        uidValidity
       } else {
         uidValidity(for: mailbox)
       }
     let messageUIDValidity =
-      if case .invalidMetadataMessageUIDValidity = fixture {
-        Int64(4_294_967_296)
+      if case .invalidMetadataMessageUIDValidity(let uidValidity) = fixture {
+        uidValidity
       } else if case .mismatchedMetadataUIDValidity = fixture {
         pageUIDValidity + 1
       } else {
