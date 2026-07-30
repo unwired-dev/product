@@ -894,7 +894,7 @@ final class GenericMailSetupServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testAuthorizedGenericDefinitionCanBecomeDefaultSender() async throws {
+  func testAuthorizedGenericDefinitionRequiresRoutedSendSupportToBecomeDefault() async throws {
     let sync = RecordingGenericSyncService()
     let store = RecordingGenericMailAuthorizationStore()
     let service = GenericMailSetupService(
@@ -922,7 +922,19 @@ final class GenericMailSetupServiceTests: XCTestCase {
     )
     await viewModel.loadSyncedDefinitions()
 
-    let didSetDefault = await viewModel.setDefaultSendingConnection(definition)
+    let didSetUnsupportedDefault = await viewModel.setDefaultSendingConnection(
+      definition,
+      routedConnections: [routedConnection(definition, capabilities: .imapRead)]
+    )
+
+    XCTAssertFalse(didSetUnsupportedDefault)
+    XCTAssertNil(viewModel.defaultSendingConnectionId)
+    XCTAssertNil(sync.currentSnapshot.defaultSendingConnectionId)
+
+    let didSetDefault = await viewModel.setDefaultSendingConnection(
+      definition,
+      routedConnections: [routedConnection(definition, capabilities: .gmail)]
+    )
 
     XCTAssertTrue(didSetDefault)
     XCTAssertEqual(viewModel.defaultSendingConnectionId, definition.connectionId)
@@ -1818,6 +1830,23 @@ final class GenericMailSetupServiceTests: XCTestCase {
         }
       ),
       username: "reader@example.com"
+    )
+  }
+
+  private func routedConnection(
+    _ definition: GenericMailConnectionDefinition,
+    capabilities: MailboxConnectionCapabilities
+  ) -> MailboxConnection {
+    MailboxConnection(
+      authorizationState: .authorized,
+      capabilities: capabilities,
+      connectedAt: 1,
+      displayName: definition.emailAddress,
+      id: definition.connectionId,
+      lastVerifiedAt: 1,
+      productAccountId: ProductAccountId("product-account-001"),
+      trustedDeviceId: "trusted-device-001",
+      updatedAt: 1
     )
   }
 

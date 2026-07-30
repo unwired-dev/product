@@ -455,8 +455,26 @@ extension GenericMailSetupViewModel {
     }
   }
 
-  func setDefaultSendingConnection(_ definition: GenericMailConnectionDefinition) async -> Bool {
-    guard let syncSession, isAuthorized(definition) else { return false }
+  func canSetDefaultSendingConnection(
+    _ definition: GenericMailConnectionDefinition,
+    routedConnections: [MailboxConnection]
+  ) -> Bool {
+    isAuthorized(definition)
+      && routedConnections.contains { connection in
+        connection.id == definition.connectionId
+          && connection.authorizationState == .authorized
+          && connection.capabilities.canSend
+      }
+  }
+
+  func setDefaultSendingConnection(
+    _ definition: GenericMailConnectionDefinition,
+    routedConnections: [MailboxConnection]
+  ) async -> Bool {
+    guard
+      let syncSession,
+      canSetDefaultSendingConnection(definition, routedConnections: routedConnections)
+    else { return false }
     do {
       try await service.setDefaultSendingConnection(definition, session: syncSession)
       defaultSendingConnectionId = definition.connectionId
@@ -489,6 +507,7 @@ struct GenericMailSetupPanel: View {
   var cancelMailboxWork: () async -> Void = {}
   var isMailboxBusy = false
   var connectionsDidChange: () -> Void = {}
+  var routedConnections: [MailboxConnection] = []
   @State private var connectTask: Task<Void, Never>?
 
   var body: some View {
@@ -535,14 +554,22 @@ struct GenericMailSetupPanel: View {
                   Button("Reauthorize on This Device") {
                     viewModel.selectSyncedDefinition(definition)
                   }
-                  Button("Set as Default Sending Connection") {
-                    Task {
-                      if await viewModel.setDefaultSendingConnection(definition) {
-                        connectionsDidChange()
+                  if viewModel.canSetDefaultSendingConnection(
+                    definition,
+                    routedConnections: routedConnections
+                  ) {
+                    Button("Set as Default Sending Connection") {
+                      Task {
+                        if await viewModel.setDefaultSendingConnection(
+                          definition,
+                          routedConnections: routedConnections
+                        ) {
+                          connectionsDidChange()
+                        }
                       }
                     }
+                    .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
                   }
-                  .disabled(viewModel.defaultSendingConnectionId == definition.connectionId)
                   Button("Remove Device Authorization", role: .destructive) {
                     Task {
                       await Self.performDestructiveAction(

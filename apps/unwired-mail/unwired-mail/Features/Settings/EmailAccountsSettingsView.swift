@@ -2,6 +2,7 @@ import SwiftUI
 
 // swiftlint:disable file_length
 
+// swiftlint:disable:next type_body_length
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
   @Bindable var genericMailViewModel: GenericMailSetupViewModel
@@ -57,7 +58,8 @@ struct EmailAccountsSettingsView: View {
             viewModel: genericMailViewModel,
             cancelMailboxWork: cancelBodyPrefetch,
             isMailboxBusy: isMailboxBusy,
-            connectionsDidChange: providerConnectionsDidChange
+            connectionsDidChange: providerConnectionsDidChange,
+            routedConnections: gmailViewModel.connections
           )
           .id(MailProviderId.imapSMTP)
         }

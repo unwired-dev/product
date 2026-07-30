@@ -78,6 +78,9 @@ finishes loading without immediately reloading that same router again. A Setting
 that shares the mail shell's view model treats the completed refresh as the update and does not
 invoke another router load. The routed-provider and generic-mail snapshots start together, and
 generic setup remains disabled until its synchronized definition snapshot finishes loading.
+The generic-mail Manage menu offers Default Sending Connection only when the routed snapshot
+contains the same authorized connection with sending capability; read-only IMAP routes and
+unrouted POP3 definitions cannot become the default sender.
 
 ## Destination requirements
 
