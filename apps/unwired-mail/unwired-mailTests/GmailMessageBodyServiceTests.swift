@@ -677,9 +677,10 @@ final class GmailMessageBodyServiceTests: XCTestCase {
               },
               {
                 "mimeType": "image/png",
+                "filename": "receipt-logo.png",
                 "headers": [
                   {"name": "Content-ID", "value": " <Image-001@Example.COM> "},
-                  {"name": "Content-Disposition", "value": "inline"}
+                  {"name": "Content-Disposition", "value": "inline; filename=receipt-logo.png"}
                 ],
                 "body": {"attachmentId": "inline-png", "size": \(imageData.count)}
               },
@@ -1260,6 +1261,71 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         stableProviderMessageId: incomingMessageId
       )
     )
+  }
+
+  func testOpenedBodyReplacementPreservesProtectedPinnedSelection() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory.appendingPathComponent(
+      UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let cache = FileGmailMessageBodyCache(
+      maximumByteCount: .max,
+      rootDirectory: rootDirectory
+    )
+    let originalPayload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: "original",
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    let replacementPayload = ProductSyncEncryptedPayload(
+      algorithm: ProductSyncEncryptedPayload.algorithmName,
+      ciphertextBase64: "replacement",
+      keyVersion: 1,
+      nonceBase64: "nonce",
+      schemaVersion: 1,
+      tagBase64: "tag"
+    )
+    XCTAssertTrue(
+      try cache.saveMessageBody(
+        GmailMessageBodyCacheWrite(
+          cachedAt: .distantPast,
+          isPinned: true,
+          isProtected: true,
+          payload: originalPayload,
+          retention: .prefetched
+        ),
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      )
+    )
+
+    try cache.saveMessageBody(
+      replacementPayload,
+      productAccountId: session.productAccountId,
+      stableProviderMessageId: message.stableProviderMessageId
+    )
+
+    XCTAssertEqual(
+      try cache.loadMessageBody(
+        productAccountId: session.productAccountId,
+        stableProviderMessageId: message.stableProviderMessageId
+      ),
+      replacementPayload
+    )
+    let metadataURL = bodyCacheURL(
+      rootDirectory: rootDirectory,
+      stableProviderMessageId: message.stableProviderMessageId
+    ).deletingPathExtension()
+      .appendingPathExtension("metadata")
+      .appendingPathExtension("json")
+    let metadata = try XCTUnwrap(
+      JSONSerialization.jsonObject(with: Data(contentsOf: metadataURL)) as? [String: Any]
+    )
+    XCTAssertEqual(metadata["isPinned"] as? Bool, true)
+    XCTAssertEqual(metadata["isProtected"] as? Bool, true)
+    XCTAssertEqual(metadata["retention"] as? String, GmailMessageBodyCacheRetention.opened.rawValue)
   }
 
   func testFileCacheEvictsOpenedThenPrefetchedThenPinnedBodiesAcrossConnections() throws {

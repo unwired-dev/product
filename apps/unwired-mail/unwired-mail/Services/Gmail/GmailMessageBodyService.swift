@@ -399,16 +399,25 @@ struct FileGmailMessageBodyCache: GmailMessageBodyCaching {
     productAccountId: String,
     stableProviderMessageId: String
   ) throws {
-    _ = try saveMessageBody(
-      GmailMessageBodyCacheWrite(
-        cachedAt: Date(),
-        isPinned: false,
-        isProtected: false,
+    Self.fileLock.lock()
+    defer { Self.fileLock.unlock() }
+    try fileManager.createDirectory(at: rootDirectory, withIntermediateDirectories: true)
+    let destination = fileURL(
+      productAccountId: productAccountId,
+      stableProviderMessageId: stableProviderMessageId
+    )
+    let existingMetadata = try metadata(for: destination)?.value
+    let cachedAt = Date()
+    _ = try writeEntryIfFits(
+      FileGmailMessageBodyCacheEntry(
+        cachedAt: cachedAt,
+        isPinned: existingMetadata?.isPinned ?? false,
+        isProtected: existingMetadata?.isProtected ?? false,
+        lastReadAt: cachedAt,
         payload: payload,
         retention: .opened
       ),
-      productAccountId: productAccountId,
-      stableProviderMessageId: stableProviderMessageId
+      to: destination
     )
   }
 
@@ -1794,7 +1803,7 @@ private struct GmailMessageBodyPart: Decodable {
   }
 
   var inlineImagePartsByContentID: [String: GmailMessageBodyPart] {
-    guard !isAttachment else { return [:] }
+    guard !hasAttachmentDisposition else { return [:] }
     var result: [String: GmailMessageBodyPart] = [:]
     if let contentID {
       result[contentID] = self
@@ -1904,6 +1913,10 @@ private struct GmailMessageBodyPart: Decodable {
 
   private var isAttachment: Bool {
     guard filename?.isEmpty != false else { return true }
+    return hasAttachmentDisposition
+  }
+
+  private var hasAttachmentDisposition: Bool {
     return headers?.contains {
       $0.name.caseInsensitiveCompare("Content-Disposition") == .orderedSame
         && $0.value.lowercased().contains("attachment")
