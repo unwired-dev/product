@@ -28,6 +28,11 @@ Generic IMAP and SMTP connections will use a qualified third-party protocol engi
 - Qualification must simulate an IMAP Sent append failure after confirmed SMTP acceptance and prove recovery retries only the sent-copy append without invoking SMTP send again, uses the discovered special-use Sent mailbox rather than a canonical name, appends the exact bytes accepted by SMTP, and returns a complete Sent mailbox identity whose APPENDUID UID and UIDVALIDITY are both valid positive 32-bit values. Concurrent Sent appends must vary and preserve both identity components.
 - Pull requests run deterministic local IMAP/SMTP contract tests. Secrets-backed iCloud and Fastmail compatibility tests run only in an opt-in or scheduled environment, supplemented by a documented manual soak checklist.
 
+Qualification also rejects missing APPENDUID responses and mixed-mailbox or mixed-UIDVALIDITY
+COPY/MOVE batches before an IMAP command is sent. Overlapping metadata comparisons cover the
+complete page and connection-scoped identity, and loss of the final SMTP response invalidates the
+channel so the next submission must establish TLS and authenticate again.
+
 ## Synchronization budget
 
 The deterministic synchronization fixture contains one mailbox with 10,000 messages whose metadata averages 2 KiB, plus separate no-change and 100-message-change runs after a completed backfill. The server applies a fixed 100 ms round-trip delay and 20 Mbit/s transfer limit. At the 95th percentile over 20 release-build runs on the iPhone 17 reference device, Initial Mailbox Availability must complete within 5 seconds, no-change and 100-message reconciliation within 10 seconds, and complete metadata backfill within 5 minutes. Incremental reconciliation may use at most 20 IMAP command round trips and download 5 MiB; complete backfill pages may contain at most 500 messages and use at most two fetch or search round trips per page plus ten setup and capability round trips. Synchronization may add at most 100 MiB of peak resident memory and must retain ADR-0018's 100 ms main-thread-stall cap. The iCloud Mail and Fastmail spikes use the same message counts and must meet the request, download, page-size, memory, and main-thread limits; their provider/network latency is recorded separately from the deterministic wall-clock thresholds.

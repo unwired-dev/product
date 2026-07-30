@@ -133,6 +133,7 @@ enum MailEngineQualificationFixture: Sendable {
   case sentAppendOutcomeUnknown
   case sentAppendFailsOnce
   case invalidSentAppendIdentity(uid: Int64, uidValidity: Int64)
+  case missingSentAppendIdentity
   case sentAppendPermanentlyRejected
   case smtpCancellationReconnectMaximumTLS12
   case smtpStages([MailEngineSMTPStage])
@@ -597,6 +598,7 @@ struct MailEngineQualificationContract {
 
     assertSuccessfulUIDMappings(copy: copy, move: move, inbox: inbox, archive: archive)
     await assertSuccessfulUIDCommands(inbox: inbox, archive: archive)
+    try await verifyMixedMutationSources(inbox: inbox, archive: archive)
     try await verifyInvalidUIDMappings(inbox: inbox, archive: archive)
     try await verifyOverlappingUIDMutationIsolation(inbox: inbox)
     try await verifyPermanentIMAPRejection()
@@ -667,6 +669,42 @@ struct MailEngineQualificationContract {
         ),
       ],
       "Each successful UID mutation command must be sent exactly once."
+    )
+  }
+
+  private func verifyMixedMutationSources(
+    inbox: MailEngineMailboxIdentity,
+    archive: MailEngineMailboxIdentity
+  ) async throws {
+    let connectionID = "mixed-mutation-source"
+    let session = try await connect(
+      fixture: .successful,
+      connectionID: connectionID
+    ).session
+    let first = messageIdentity(connectionID, inbox, 4, 44)
+    let mixedSources = [
+      [first, messageIdentity(connectionID, archive, 5, 44)],
+      [first, messageIdentity(connectionID, inbox, 5, 45)],
+    ]
+    for messages in mixedSources {
+      do {
+        _ = try await session.copy(messages: messages, to: archive)
+        XCTFail("COPY must reject mixed source identities before reaching IMAP.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      }
+      do {
+        _ = try await session.move(messages: messages, to: archive)
+        XCTFail("MOVE must reject mixed source identities before reaching IMAP.")
+      } catch {
+        XCTAssertEqual(error as? MailEngineError, .staleMessageIdentity)
+      }
+    }
+    let mutationEvents = await mutationEvents(connectionID: connectionID)
+    XCTAssertEqual(
+      mutationEvents,
+      [],
+      "Mixed mailbox or UIDVALIDITY batches must be rejected before COPY or MOVE reaches IMAP."
     )
   }
 
@@ -2760,20 +2798,7 @@ struct MailEngineQualificationContract {
     )
     let (first, second) = try await (firstConnection, secondConnection)
     assertOverlappingSetupSnapshots(first.snapshot, second.snapshot)
-    let inbox = MailEngineMailboxIdentity("INBOX")
-    async let firstPage = first.session.loadMetadataPage(
-      mailbox: inbox,
-      beforeUID: nil,
-      limit: 1
-    )
-    async let secondPage = second.session.loadMetadataPage(
-      mailbox: inbox,
-      beforeUID: nil,
-      limit: 1
-    )
-    let (firstResult, secondResult) = try await (firstPage, secondPage)
-    XCTAssertEqual(firstResult.messages.map(\.identity.uid), [19])
-    XCTAssertEqual(secondResult.messages.map(\.identity.uid), [29])
+    try await assertOverlappingSetupMetadata(first.session, second.session)
     try await assertOverlappingSetupSMTPIsolation(first.session, second.session)
     for (connectionID, authorizationEvent) in [
       (
@@ -2798,6 +2823,32 @@ struct MailEngineQualificationContract {
         "Overlapping setup must keep \(connectionID) authentication connection-scoped."
       )
     }
+  }
+
+  private func assertOverlappingSetupMetadata(
+    _ first: any MailEngineSession,
+    _ second: any MailEngineSession
+  ) async throws {
+    let inbox = MailEngineMailboxIdentity("INBOX")
+    async let firstPage = first.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
+    async let secondPage = second.loadMetadataPage(mailbox: inbox, beforeUID: nil, limit: 1)
+    let (firstResult, secondResult) = try await (firstPage, secondPage)
+    XCTAssertEqual(
+      firstResult,
+      overlappingMetadataPage(
+        connectionID: "setup-connection-one",
+        mailbox: inbox,
+        uid: 19
+      )
+    )
+    XCTAssertEqual(
+      secondResult,
+      overlappingMetadataPage(
+        connectionID: "setup-connection-two",
+        mailbox: inbox,
+        uid: 29
+      )
+    )
   }
 
   private func assertOverlappingSetupSnapshots(
@@ -3582,8 +3633,14 @@ struct MailEngineQualificationContract {
       limit: 1
     )
     let (firstPage, secondPage) = try await (firstPageResult, secondPageResult)
-    XCTAssertEqual(firstPage.messages.map(\.identity.uid), [19])
-    XCTAssertEqual(secondPage.messages.map(\.identity.uid), [29])
+    XCTAssertEqual(
+      firstPage,
+      overlappingMetadataPage(connectionID: "connection-one", mailbox: inbox, uid: 19)
+    )
+    XCTAssertEqual(
+      secondPage,
+      overlappingMetadataPage(connectionID: "connection-two", mailbox: inbox, uid: 29)
+    )
     let requests = await factory.events().filter { event in
       if case .metadataPageRequested(let connectionID, _, _, _) = event {
         return connectionID == "connection-one" || connectionID == "connection-two"
@@ -3605,6 +3662,25 @@ struct MailEngineQualificationContract {
         beforeUID: nil,
         limit: 1
       )
+    )
+  }
+
+  private func overlappingMetadataPage(
+    connectionID: String,
+    mailbox: MailEngineMailboxIdentity,
+    uid: Int64
+  ) -> MailEngineMetadataPage {
+    MailEngineMetadataPage(
+      messages: [
+        MailEngineMessageMetadata(
+          flags: ["\\Seen"],
+          identity: messageIdentity(connectionID, mailbox, uid, 44),
+          internalDate: Date(timeIntervalSince1970: TimeInterval(uid)),
+          rfcMessageID: "<\(uid)@example.com>"
+        )
+      ],
+      nextOlderUID: uid,
+      uidValidity: 44
     )
   }
 
@@ -4154,11 +4230,11 @@ struct MailEngineQualificationContract {
   private func smtpStageRequiresReauthentication(_ stage: MailEngineSMTPStage) -> Bool {
     switch stage {
     case .authenticationRejectedBeforeSubmission, .transportUnavailableAfterSenderAccepted,
-      .transportUnavailableBeforeSubmission:
+      .transportUnavailableBeforeSubmission, .connectionLostAfterSubmission:
       true
     case .accepted, .cancelledAfterMessageContent, .cancelledAfterSenderAccepted,
-      .cancelledBeforeSubmission, .connectionLostAfterSubmission, .dataRejectedBeforeSubmission,
-      .finalResponse, .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
+      .cancelledBeforeSubmission, .dataRejectedBeforeSubmission, .finalResponse,
+      .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
       .senderRejectedBeforeSubmission:
       false
     }
@@ -4720,6 +4796,7 @@ struct MailEngineQualificationContract {
     let sentMailbox = MailEngineMailboxIdentity("Transmitted Items")
     let fixtures: [(fixture: MailEngineQualificationFixture, expected: MailEngineUIDMappingError)] =
       [
+        (.missingSentAppendIdentity, .invalidUID),
         (.invalidSentAppendIdentity(uid: -1, uidValidity: 45), .invalidUID),
         (.invalidSentAppendIdentity(uid: 0, uidValidity: 45), .invalidUID),
         (.invalidSentAppendIdentity(uid: 4_294_967_296, uidValidity: 45), .invalidUID),
@@ -6663,6 +6740,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     if case .sentAppendPermanentlyRejected = fixture {
       throw MailEngineError.protocolRejected(code: "NOPERM", retryable: false)
     }
+    if case .missingSentAppendIdentity = fixture {
+      throw MailEngineUIDMappingError.invalidUID
+    }
     if case .overlappingSentAppend = fixture {
       try await state.waitForOverlappingSentAppendStarts(timeout: .seconds(2))
     }
@@ -7655,12 +7735,12 @@ private actor ScriptedMailEngineSession: MailEngineSession {
   private func invalidateSMTPChannelIfNeeded(after stage: MailEngineSMTPStage) async {
     switch stage {
     case .authenticationRejectedBeforeSubmission, .transportUnavailableAfterSenderAccepted,
-      .transportUnavailableBeforeSubmission:
+      .transportUnavailableBeforeSubmission, .connectionLostAfterSubmission:
       smtpRequiresReauthentication = true
       await state.record(.serviceClosed(connectionID: connectionID, service: .smtp))
     case .accepted, .cancelledAfterMessageContent, .cancelledAfterSenderAccepted,
-      .cancelledBeforeSubmission, .connectionLostAfterSubmission, .dataRejectedBeforeSubmission,
-      .finalResponse, .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
+      .cancelledBeforeSubmission, .dataRejectedBeforeSubmission, .finalResponse,
+      .recipientRejectedAfterAccepted, .recipientRejectedBeforeSubmission,
       .senderRejectedBeforeSubmission:
       break
     }
