@@ -369,6 +369,11 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testDiscardIsBlockedWhileSetupIsWorking() {
+    XCTAssertFalse(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: true))
+    XCTAssertTrue(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: false))
+  }
+
   func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
     XCTAssertEqual(
       SettingsNavigationPolicy.decision(

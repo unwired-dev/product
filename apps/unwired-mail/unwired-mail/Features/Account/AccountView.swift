@@ -1242,6 +1242,12 @@ struct AccountView: View {
             ewsSetupViewModel.hasUnsavedChanges
               || genericMailSetupViewModel.hasUnsavedChanges
           },
+          canDiscardChanges: {
+            SettingsNavigationPolicy.canDiscardChanges(
+              isSetupWorking: ewsSetupViewModel.isWorking
+                || genericMailSetupViewModel.isConnecting
+            )
+          },
           discardChanges: {
             ewsSetupViewModel.discardUnsavedChanges()
             genericMailSetupViewModel.discardUnsavedChanges()
@@ -7350,4 +7356,5 @@ private struct MessageCategoryMenu: View {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
   )
+  .environment(SettingsRouter())
 }

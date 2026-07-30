@@ -391,6 +391,10 @@ enum SettingsNavigationDecision: Equatable {
 }
 
 enum SettingsNavigationPolicy {
+  static func canDiscardChanges(isSetupWorking: Bool) -> Bool {
+    !isSetupWorking
+  }
+
   static func decision(
     currentRoute: SettingsRoute?,
     requestedRoute: SettingsRoute,
@@ -571,6 +575,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   let isSignedIn: Bool
   let showsDismissButton: Bool
   let attentions: [SettingsAttention]
+  private let canDiscardChanges: () -> Bool
   private let discardChanges: () -> Void
   private let hasUnsavedChanges: () -> Bool
   private let destinationContent: (SettingsDestination, SettingsRoute?) -> DestinationContent
@@ -596,6 +601,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     showsDismissButton: Bool,
     attentions: [SettingsAttention] = [],
     hasUnsavedChanges: @escaping () -> Bool = { false },
+    canDiscardChanges: @escaping () -> Bool = { true },
     discardChanges: @escaping () -> Void = {},
     @ViewBuilder destinationContent:
       @escaping (SettingsDestination, SettingsRoute?) -> DestinationContent
@@ -604,6 +610,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     self.showsDismissButton = showsDismissButton
     self.attentions = attentions
     self.hasUnsavedChanges = hasUnsavedChanges
+    self.canDiscardChanges = canDiscardChanges
     self.discardChanges = discardChanges
     self.destinationContent = destinationContent
   }
@@ -640,6 +647,7 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
         discardChanges()
         perform(action)
       }
+      .disabled(!canDiscardChanges())
       Button("Keep Editing", role: .cancel) {
         pendingAction = nil
       }
@@ -982,6 +990,11 @@ extension AdaptiveSettingsScene {
         attentions: settingsAttentions,
         hasUnsavedChanges: {
           ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
+        },
+        canDiscardChanges: {
+          SettingsNavigationPolicy.canDiscardChanges(
+            isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+          )
         },
         discardChanges: {
           ewsViewModel.discardUnsavedChanges()
