@@ -20,6 +20,7 @@ struct PendingProviderAction: Codable, Equatable, Identifiable, Sendable {
   let providerId: String
   let providerMailboxIdentity: String
   let sequence: UInt64
+  let sourceProviderMailboxId: String?
   var state: PendingProviderActionState
   let targetProviderMailboxId: String?
   let targetProviderStateIds: Set<String>?
@@ -131,6 +132,7 @@ struct GraphAmbiguousActionError: LocalizedError {
 typealias PendingProviderActionPerformer =
   @Sendable (
     _ action: ProviderMailAction,
+    _ sourceProviderMailboxId: String?,
     _ targetProviderMailboxId: String?,
     _ messageIds: [String]
   ) async throws -> Void
@@ -259,6 +261,7 @@ actor PendingProviderActionService {
 
   func perform(
     _ action: ProviderMailAction,
+    sourceProviderMailboxId: String? = nil,
     targetProviderMailboxId: String? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
@@ -267,6 +270,7 @@ actor PendingProviderActionService {
   ) async throws {
     try enqueue(
       action,
+      sourceProviderMailboxId: sourceProviderMailboxId,
       targetProviderMailboxId: targetProviderMailboxId,
       messages: messages,
       connection: connection,
@@ -281,6 +285,7 @@ actor PendingProviderActionService {
 
   func enqueue(
     _ action: ProviderMailAction,
+    sourceProviderMailboxId: String? = nil,
     targetProviderMailboxId: String? = nil,
     targetProviderStateIds: Set<String>? = nil,
     messages: [MailboxMessageMetadata],
@@ -309,6 +314,7 @@ actor PendingProviderActionService {
           providerId: connection.providerId.rawValue,
           providerMailboxIdentity: connection.providerMailboxIdentity.value,
           sequence: nextSequence,
+          sourceProviderMailboxId: sourceProviderMailboxId,
           state: .pending,
           targetProviderMailboxId: targetProviderMailboxId,
           targetProviderStateIds: targetProviderStateIds
@@ -343,6 +349,7 @@ actor PendingProviderActionService {
         return current.applying(
           pendingAction.action,
           providerId: connection.providerId,
+          sourceProviderMailboxId: pendingAction.sourceProviderMailboxId,
           targetProviderMailboxId: pendingAction.targetProviderMailboxId,
           targetProviderStateIds: pendingAction.targetProviderStateIds
         )
@@ -650,6 +657,7 @@ actor PendingProviderActionService {
         else { continue }
         try await provider(
           pendingAction.action,
+          pendingAction.sourceProviderMailboxId,
           pendingAction.targetProviderMailboxId,
           pendingAction.messageIds
         )
@@ -823,8 +831,10 @@ extension PendingProviderAction {
         return states.contains("UNREAD")
       case .move:
         guard let targetProviderMailboxId else { return false }
+        let sourceProviderMailboxId = sourceProviderMailboxId ?? "INBOX"
         return states.contains(targetProviderMailboxId)
-          && (targetProviderMailboxId == "INBOX" || !states.contains("INBOX"))
+          && (targetProviderMailboxId == sourceProviderMailboxId
+            || !states.contains(sourceProviderMailboxId))
       case .notSpam:
         return !states.contains("SPAM") && states.contains("INBOX")
       case .restore:
@@ -872,6 +882,7 @@ extension MailboxMessageMetadata {
   fileprivate func applying(
     _ action: ProviderMailAction,
     providerId: MailProviderId,
+    sourceProviderMailboxId: String?,
     targetProviderMailboxId: String?,
     targetProviderStateIds: Set<String>?
   ) -> MailboxMessageMetadata {
@@ -897,7 +908,7 @@ extension MailboxMessageMetadata {
     case .markUnread:
       states.insert("UNREAD")
     case .move:
-      states.remove("INBOX")
+      states.remove(sourceProviderMailboxId ?? "INBOX")
       states = states.filter {
         !$0.hasPrefix("graph-folder:") && !$0.hasPrefix("ews-folder:")
       }

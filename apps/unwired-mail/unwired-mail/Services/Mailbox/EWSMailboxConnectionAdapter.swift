@@ -2482,7 +2482,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) -> PendingProviderActionPerformer {
-    { action, targetFolderId, messageIds in
+    { action, _, targetFolderId, messageIds in
       try await syncGate.withLock(connection.id) {
         let authorization = try await authorizationForProviderAccess(
           connection,

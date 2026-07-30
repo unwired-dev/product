@@ -1989,17 +1989,20 @@ struct MailShellThreadListItem: Equatable, Identifiable {
 struct MailboxBulkActionBatch: Equatable, Sendable {
   let connection: MailboxConnection
   let messages: [MailboxMessageMetadata]
+  let sourceProviderMailboxId: String?
   let targetProviderMailboxId: String?
   let targetProviderStateIds: Set<String>
 
   init(
     connection: MailboxConnection,
     messages: [MailboxMessageMetadata],
+    sourceProviderMailboxId: String? = nil,
     targetProviderMailboxId: String? = nil,
     targetProviderStateIds: Set<String> = []
   ) {
     self.connection = connection
     self.messages = messages
+    self.sourceProviderMailboxId = sourceProviderMailboxId
     self.targetProviderMailboxId = targetProviderMailboxId
     self.targetProviderStateIds = targetProviderStateIds
   }
@@ -2071,6 +2074,7 @@ struct MailboxBulkMoveDestination: Equatable, Identifiable, Sendable {
         MailboxBulkActionBatch(
           connection: batch.connection,
           messages: batch.messages,
+          sourceProviderMailboxId: batch.sourceProviderMailboxId,
           targetProviderMailboxId: providerMailboxId,
           targetProviderStateIds: providerStateIdsByConnection[batch.connection.id] ?? []
         )
@@ -2438,7 +2442,11 @@ final class MailShellSelectionModel {
           }
           .filter { seenMessageIds.insert($0.id).inserted }
         guard !messages.isEmpty else { return nil }
-        return MailboxBulkActionBatch(connection: connection, messages: messages)
+        return MailboxBulkActionBatch(
+          connection: connection,
+          messages: messages,
+          sourceProviderMailboxId: selectedMailbox?.collection?.providerMailboxMoveSourceId
+        )
       }
   }
 
@@ -3745,7 +3753,8 @@ struct MailShellConversationReader: View {
   }
 
   static func allowsMoveFromProviderMailbox(_ providerId: MailProviderId) -> Bool {
-    providerId == .microsoftGraph || providerId == .exchangeWebServices
+    providerId == .gmail || providerId == .microsoftGraph
+      || providerId == .exchangeWebServices
   }
 
   private func bulkMoveDestinations(
@@ -3785,6 +3794,8 @@ struct MailShellConversationReader: View {
             in: thread,
             pinnedMessageIds: inboxViewModel.navigationSnapshot.pinnedMessageIds
           ),
+          sourceProviderMailboxId: selection.selectedMailbox?.collection?
+            .providerMailboxMoveSourceId,
           targetProviderMailboxId: targetProviderMailboxId,
           targetProviderStateIds: targetProviderStateIds
         )
@@ -4544,6 +4555,7 @@ final class GmailMailActionViewModel {
 
   func perform(
     _ action: ProviderMailAction,
+    sourceProviderMailboxId: String? = nil,
     targetProviderMailboxId: String? = nil,
     targetProviderStateIds: Set<String> = [],
     for messages: [MailboxMessageMetadata],
@@ -4557,6 +4569,7 @@ final class GmailMailActionViewModel {
     do {
       try await service.perform(
         action,
+        sourceProviderMailboxId: sourceProviderMailboxId,
         targetProviderMailboxId: targetProviderMailboxId,
         targetProviderStateIds: targetProviderStateIds,
         messages: messages,
@@ -5043,6 +5056,7 @@ extension GmailMailActionViewModel {
     do {
       try await service.perform(
         action,
+        sourceProviderMailboxId: batch.sourceProviderMailboxId,
         targetProviderMailboxId: batch.targetProviderMailboxId,
         targetProviderStateIds: batch.targetProviderStateIds,
         messages: batch.messages,
