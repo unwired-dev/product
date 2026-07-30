@@ -153,7 +153,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   func testSanitizerRejectsSignedAndPercentageZeroOpacityContent() throws {
-    for opacity in ["0%", "-0", "+0.0%"] {
+    for opacity in ["0%", "-0", "+0.0%", "-0.1", "-1%"] {
       XCTAssertNil(
         try MessageHTMLSanitizer.sanitize(
           """

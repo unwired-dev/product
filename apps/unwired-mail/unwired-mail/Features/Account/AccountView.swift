@@ -5497,7 +5497,7 @@ final class GmailInboxViewModel {
     defer { loadingMessageBodyCount -= 1 }
     let loadedBody = try await reader.loadMessageBody(message: message, session: session)
     try Task.checkCancellation()
-    let body = retainLoadedInlineImages(loadedBody, for: message.id)
+    let body = try retainLoadedInlineImages(loadedBody, for: message.id)
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
   }
@@ -5614,11 +5614,14 @@ final class GmailInboxViewModel {
   private func retainLoadedInlineImages(
     _ body: MailboxMessageBody,
     for messageId: StableProviderMessageIdentity
-  ) -> MailboxMessageBody {
+  ) throws -> MailboxMessageBody {
     discardLoadedMessageBodyPresentation(for: messageId)
+    let contentIDOccurrenceList =
+      try body.html.map(
+        MessageHTMLSanitizer.referencedSanitizedInlineImageContentIDOccurrences
+      ) ?? []
     let contentIDOccurrences = Dictionary(
-      grouping: body.html.map(MessageHTMLSanitizer.referencedInlineImageContentIDOccurrences)
-        ?? [],
+      grouping: contentIDOccurrenceList,
       by: { $0 }
     ).mapValues(\.count)
     var remainingByteCount =

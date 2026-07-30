@@ -15,7 +15,7 @@ enum MessageHTMLSanitizer {
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
     let preCleanHiddenStylePattern =
       #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
-      + #"opacity\s*:\s*[+-]?(?:0+(?:\.0*)?|\.0+)(?:%)?)"#
+      + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
       + #"(?:\s*!important)?\s*(?:;|$)"#
     try removeElements(matching: preCleanHiddenStylePattern, from: sourceDocument)
     let sourceHTML = try sourceDocument.body()?.html() ?? ""
@@ -113,6 +113,19 @@ enum MessageHTMLSanitizer {
         return nil
       }
       return contentID
+    }
+  }
+
+  static func referencedSanitizedInlineImageContentIDOccurrences(
+    in html: String
+  ) throws -> [String] {
+    do {
+      guard let sanitizedHTML = try sanitize(html) else { return [] }
+      return referencedInlineImageContentIDOccurrences(in: sanitizedHTML.documentHTML)
+    } catch let error as CancellationError {
+      throw error
+    } catch {
+      return []
     }
   }
 
