@@ -6967,6 +6967,7 @@ struct MailboxProviderConnectionPanel: View {
                 connectTask = Task {
                   if let connected = await viewModel.connect(expectedConnection: connection) {
                     connectionDidConnect(connected)
+                    connectionsDidChange()
                   }
                 }
               }
@@ -6977,6 +6978,7 @@ struct MailboxProviderConnectionPanel: View {
                 connectTask = Task {
                   if let connected = await viewModel.connect(expectedConnection: connection) {
                     connectionDidConnect(connected)
+                    connectionsDidChange()
                   }
                 }
               }
@@ -6994,6 +6996,7 @@ struct MailboxProviderConnectionPanel: View {
                 Task {
                   await cancelBodyPrefetch()
                   await viewModel.removeLocalAuthorization(connection)
+                  connectionsDidChange()
                 }
               }
             }
@@ -7002,6 +7005,7 @@ struct MailboxProviderConnectionPanel: View {
               Task {
                 await cancelBodyPrefetch()
                 await viewModel.removeEverywhere(connection)
+                connectionsDidChange()
               }
             }
           } label: {
@@ -7017,6 +7021,7 @@ struct MailboxProviderConnectionPanel: View {
         connectTask = Task {
           if let connected = await viewModel.connect() {
             connectionDidConnect(connected)
+            connectionsDidChange()
           }
         }
       } label: {
@@ -7060,9 +7065,6 @@ struct MailboxProviderConnectionPanel: View {
     .task {
       guard configuration.loadsOnAppear else { return }
       _ = await viewModel.load()
-    }
-    .onChange(of: viewModel.connections) { _, _ in
-      connectionsDidChange()
     }
     .onDisappear {
       connectTask?.cancel()

@@ -340,9 +340,6 @@ private struct SettingsMailboxConnectionRow: View {
     }
     .padding(12)
     .background(.secondary.opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
-    .onDisappear {
-      syncTask?.cancel()
-    }
   }
 
   private var providerTitle: String {
