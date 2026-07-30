@@ -2893,10 +2893,12 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await reader.waitUntilLoadStarts()
 
     XCTAssertTrue(viewModel.isBusy)
+    XCTAssertFalse(viewModel.hasLoadedMessageBodyText(for: message.id))
     await reader.releaseLoad()
     let body = try await loadTask.value
     XCTAssertEqual(body, MailboxMessageBody(text: "Body"))
     XCTAssertFalse(viewModel.isBusy)
+    XCTAssertTrue(viewModel.hasLoadedMessageBodyText(for: message.id))
   }
 
   @MainActor
@@ -3099,6 +3101,68 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["first@example.com"])
     XCTAssertEqual(constrainedSecondBody.inlineImages, [])
     XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelChargesRepeatedInlineImagesToSharedByteBudget() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let repeatedImageData = Data(repeating: 1, count: 5 * 1_024 * 1_024)
+    let repeatedImageHTML = String(
+      repeating: #"<img src="cid:repeated@example.com">"#,
+      count: 4
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          html: repeatedImageHTML,
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "repeated@example.com",
+              data: repeatedImageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: Data([2]),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["repeated@example.com"])
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
   }
 
   @MainActor

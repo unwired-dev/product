@@ -92,18 +92,23 @@ enum MessageHTMLSanitizer {
   }
 
   static func referencedInlineImageContentIDs(in html: String) -> [String] {
+    var seenContentIDs: Set<String> = []
+    return referencedInlineImageContentIDOccurrences(in: html).filter {
+      seenContentIDs.insert($0).inserted
+    }
+  }
+
+  static func referencedInlineImageContentIDOccurrences(in html: String) -> [String] {
     guard let document = try? SwiftSoup.parse(html),
       let imageElements = try? document.select("img[src]")
     else {
       return []
     }
-    var seenContentIDs: Set<String> = []
     return imageElements.compactMap { element in
       guard !hasZeroDimension(element),
         let source = try? element.attr("src"),
         source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased().hasPrefix("cid:"),
-        let contentID = normalizedContentID(source, decodesPercentEscapes: true),
-        seenContentIDs.insert(contentID).inserted
+        let contentID = normalizedContentID(source, decodesPercentEscapes: true)
       else {
         return nil
       }

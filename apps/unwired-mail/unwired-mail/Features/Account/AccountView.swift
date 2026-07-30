@@ -1203,6 +1203,7 @@ struct AccountView: View {
         ),
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
+          guard !inboxViewModel.isLoadingMessageBody else { return }
           if let selectedConnection {
             try messageReader.clearCachedMessageBodies(
               connection: selectedConnection,
@@ -3281,6 +3282,7 @@ private struct MailShellMailboxTools: View {
 
   private var areCachedBodyActionsDisabled: Bool {
     areCachedMetadataActionsDisabled || viewModel.isHistoricalBackfillRunning
+      || viewModel.isLoadingMessageBody
   }
 
   private var providerDisplayName: String {
@@ -3443,7 +3445,7 @@ struct MailShellConversationReader: View {
                 clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
                 isExpanded: selection.isMessageExpanded(message, in: thread),
                 isForwardDisabled: inboxViewModel.isLoadingMessageBody
-                  || inboxViewModel.isLoadedMessageBodyTextUnavailable(for: message.id),
+                  || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
                 isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
                 isLatest: message.id == thread.latestMessage.id,
                 isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
@@ -3544,7 +3546,7 @@ struct MailShellConversationReader: View {
               .disabled(
                 isConnectionBusy || mailActionViewModel.isPerformingAction
                   || inboxViewModel.isLoadingMessageBody
-                  || inboxViewModel.isLoadedMessageBodyTextUnavailable(
+                  || !inboxViewModel.hasLoadedMessageBodyText(
                     for: thread.latestMessage.id
                   )
               )
@@ -5518,6 +5520,12 @@ final class GmailInboxViewModel {
     unavailableLoadedMessageBodyTextIds.contains(messageId)
   }
 
+  func hasLoadedMessageBodyText(
+    for messageId: StableProviderMessageIdentity
+  ) -> Bool {
+    loadedMessageBodyTexts[messageId] != nil
+  }
+
   func discardLoadedMessageBodyText(for messageId: StableProviderMessageIdentity) {
     if let discardedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
       loadedMessageBodyTextByteCount -= discardedText.utf8.count
@@ -5608,6 +5616,11 @@ final class GmailInboxViewModel {
     for messageId: StableProviderMessageIdentity
   ) -> MailboxMessageBody {
     discardLoadedMessageBodyPresentation(for: messageId)
+    let contentIDOccurrences = Dictionary(
+      grouping: body.html.map(MessageHTMLSanitizer.referencedInlineImageContentIDOccurrences)
+        ?? [],
+      by: { $0 }
+    ).mapValues(\.count)
     var remainingByteCount =
       Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
     var remainingPixelCount =
@@ -5615,8 +5628,13 @@ final class GmailInboxViewModel {
     var retainedByteCount = 0
     var retainedPixelCount = 0
     let inlineImages = body.inlineImages.filter { image in
-      let byteCount = image.data.count
+      let normalizedContentID = MessageHTMLSanitizer.normalizedContentID(image.contentID)
+      let occurrenceCount = max(normalizedContentID.flatMap { contentIDOccurrences[$0] } ?? 0, 1)
+      let (byteCount, byteCountOverflowed) = image.data.count.multipliedReportingOverflow(
+        by: occurrenceCount
+      )
       guard
+        !byteCountOverflowed,
         byteCount <= remainingByteCount,
         image.decodedPixelCount <= remainingPixelCount
       else {
