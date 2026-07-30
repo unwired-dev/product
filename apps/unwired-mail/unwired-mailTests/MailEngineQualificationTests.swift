@@ -80,6 +80,7 @@ enum MailEngineQualificationFixture: Sendable {
   case mismatchedUIDMappingCardinality
   case malformedMoveUIDMapping
   case maximumTLS(service: MailEngineService, version: MailEngineTLSVersion)
+  case overlappingUIDMutations
   case moveOutcomeUnknown
   case movePermanentlyRejected
   case moveRetryablyRejected
@@ -792,8 +793,8 @@ struct MailEngineQualificationContract {
     let mismatchedCardinalitySession = try await connect(
       fixture: .mismatchedUIDMappingCardinality
     ).session
-    let event = copyEvent(inbox: inbox, archive: archive)
-    let eventCount = await mutationEventCount(event)
+    let copyEvent = copyEvent(inbox: inbox, archive: archive)
+    let copyEventCount = await mutationEventCount(copyEvent)
     do {
       _ = try await mismatchedCardinalitySession.copy(
         sourceUIDs: [4, 5],
@@ -806,8 +807,25 @@ struct MailEngineQualificationContract {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
     }
     await assertExactlyOneNewMutationEvent(
-      event,
-      after: eventCount
+      copyEvent,
+      after: copyEventCount
+    )
+    let moveEvent = moveEvent(inbox: inbox, archive: archive)
+    let moveEventCount = await mutationEventCount(moveEvent)
+    do {
+      _ = try await mismatchedCardinalitySession.move(
+        sourceUIDs: [4, 5],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("The candidate must reject unequal MOVE source and destination UID counts.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedCardinality)
+    }
+    await assertExactlyOneNewMutationEvent(
+      moveEvent,
+      after: moveEventCount
     )
   }
 
@@ -989,31 +1007,32 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity
   ) async throws {
     let first = try await connect(
-      fixture: .successful,
+      fixture: .overlappingUIDMutations,
       connectionID: "mutation-connection-one"
     ).session
     let second = try await connect(
-      fixture: .successful,
+      fixture: .overlappingUIDMutations,
       connectionID: "mutation-connection-two"
     ).session
     let firstArchive = MailEngineMailboxIdentity("First Archive")
     let secondArchive = MailEngineMailboxIdentity("Second Archive")
 
-    let firstMapping = try await first.copy(
+    async let firstMapping = first.copy(
       sourceUIDs: [19],
       sourceUIDValidity: 44,
       from: inbox,
       to: firstArchive
     )
-    let secondMapping = try await second.move(
+    async let secondMapping = second.move(
       sourceUIDs: [29],
       sourceUIDValidity: 44,
       from: inbox,
       to: secondArchive
     )
+    let (resolvedFirstMapping, resolvedSecondMapping) = try await (firstMapping, secondMapping)
 
-    XCTAssertEqual(firstMapping.pairs, [.init(destinationUID: 119, sourceUID: 19)])
-    XCTAssertEqual(secondMapping.pairs, [.init(destinationUID: 229, sourceUID: 29)])
+    XCTAssertEqual(resolvedFirstMapping.pairs, [.init(destinationUID: 119, sourceUID: 19)])
+    XCTAssertEqual(resolvedSecondMapping.pairs, [.init(destinationUID: 229, sourceUID: 29)])
     await assertOverlappingUIDMutationEvents(
       inbox: inbox,
       firstArchive: firstArchive,
@@ -1035,26 +1054,23 @@ struct MailEngineQualificationContract {
         false
       }
     }
-    XCTAssertEqual(
-      events,
-      [
-        .copyReceived(
-          connectionID: "mutation-connection-one",
-          sourceUIDs: [19],
-          sourceUIDValidity: 44,
-          sourceMailbox: inbox,
-          destinationMailbox: firstArchive
-        ),
-        .moveReceived(
-          connectionID: "mutation-connection-two",
-          sourceUIDs: [29],
-          sourceUIDValidity: 44,
-          sourceMailbox: inbox,
-          destinationMailbox: secondArchive
-        ),
-      ],
-      "Each UID mutation must reach only its owning account transport."
+    let firstEvent = MailEngineQualificationEvent.copyReceived(
+      connectionID: "mutation-connection-one",
+      sourceUIDs: [19],
+      sourceUIDValidity: 44,
+      sourceMailbox: inbox,
+      destinationMailbox: firstArchive
     )
+    let secondEvent = MailEngineQualificationEvent.moveReceived(
+      connectionID: "mutation-connection-two",
+      sourceUIDs: [29],
+      sourceUIDValidity: 44,
+      sourceMailbox: inbox,
+      destinationMailbox: secondArchive
+    )
+    XCTAssertEqual(events.count, 2)
+    XCTAssertEqual(events.filter { $0 == firstEvent }.count, 1)
+    XCTAssertEqual(events.filter { $0 == secondEvent }.count, 1)
   }
 
   private func copyEvent(
@@ -2022,24 +2038,37 @@ struct MailEngineQualificationContract {
       secondFetchTask,
       failureMessage: "Cancelling the first body fetch must leave the second fetch active."
     )
-    var events = await factory.events()
-    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
-    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
-    XCTAssertFalse(
-      events.contains {
-        if case .serviceClosed(connectionID: "body-fetch-two", service: _) = $0 {
-          return true
-        }
-        return false
-      },
-      "Cancelling one body fetch must not close the other account's transport."
-    )
+    try await assertCancelledBodyFetchPreservesSessions(first, inbox: inbox)
 
     await assertBodyFetchCancellation(
       secondFetchTask,
       failureMessage: "Cancelling the second body fetch must report cancellation."
     )
     await assertSecondBodyFetchCancelled()
+  }
+
+  private func assertCancelledBodyFetchPreservesSessions(
+    _ first: any MailEngineSession,
+    inbox: MailEngineMailboxIdentity
+  ) async throws {
+    let events = await factory.events()
+    XCTAssertTrue(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-one")))
+    XCTAssertFalse(events.contains(.bodyFetchCancelled(connectionID: "body-fetch-two")))
+    XCTAssertFalse(
+      events.contains {
+        if case .serviceClosed(let connectionID, service: _) = $0 {
+          return connectionID == "body-fetch-one" || connectionID == "body-fetch-two"
+        }
+        return false
+      },
+      "Cancelling one body fetch must not close either account's transport."
+    )
+    let firstFollowUpPage = try await first.loadMetadataPage(
+      mailbox: inbox,
+      beforeUID: nil,
+      limit: 1
+    )
+    XCTAssertEqual(firstFollowUpPage.messages.map(\.identity.uid), [19])
   }
 
   private func assertSecondBodyFetchCancelled() async {
@@ -3251,6 +3280,17 @@ private actor ScriptedMailEngineState {
     }
   }
 
+  func waitForMutationStarts(_ count: Int, timeout: Duration) async throws {
+    try await waitForEvents(count, timeout: timeout) {
+      switch $0 {
+      case .copyReceived, .moveReceived:
+        true
+      default:
+        false
+      }
+    }
+  }
+
   func waitForSubmissionContentStarts(
     _ count: Int,
     connectionID: String,
@@ -3543,6 +3583,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         destinationMailbox: destinationMailbox
       )
     )
+    if case .overlappingUIDMutations = fixture {
+      try await state.waitForMutationStarts(2, timeout: .seconds(2))
+    }
     if case .copyOutcomeUnknown = fixture {
       throw MailEngineError.operationOutcomeUnknown
     }
@@ -3762,6 +3805,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       sourceMailbox: sourceMailbox,
       destinationMailbox: destinationMailbox
     )
+    if case .overlappingUIDMutations = fixture {
+      try await state.waitForMutationStarts(2, timeout: .seconds(2))
+    }
     if case .reducedCapabilityMove = fixture {
       await state.record(
         .movePreservedUnrelatedDeletedUIDs(connectionID: connectionID, uids: [6])
@@ -3850,6 +3896,13 @@ private actor ScriptedMailEngineSession: MailEngineSession {
       return MailEngineReportedUIDMapping(
         destinationUIDValidity: uidValidity,
         destinationUIDs: sourceUIDs.map { $0 + 200 },
+        sourceUIDs: sourceUIDs
+      )
+    }
+    if case .mismatchedUIDMappingCardinality = fixture {
+      return MailEngineReportedUIDMapping(
+        destinationUIDValidity: 92,
+        destinationUIDs: [204],
         sourceUIDs: sourceUIDs
       )
     }
