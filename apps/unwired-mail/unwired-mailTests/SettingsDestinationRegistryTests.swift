@@ -437,6 +437,39 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testActionableMailboxStatusesLinkToTheAffectedConnection() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+
+    XCTAssertEqual(
+      MailboxStatusSettingsLink.route(
+        for: .authorizationRequired(lastSuccessfulSyncAt: nil),
+        connectionId: connectionId
+      ),
+      .authorization(connectionId: connectionId)
+    )
+    XCTAssertEqual(
+      MailboxStatusSettingsLink.route(
+        for: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .failed("Server rejected the request.")
+        ),
+        connectionId: connectionId
+      ),
+      .synchronization(connectionId: connectionId)
+    )
+    XCTAssertNil(
+      MailboxStatusSettingsLink.route(
+        for: MailboxSyncStatus(lastSuccessfulSyncAt: nil, phase: .offline),
+        connectionId: connectionId
+      )
+    )
+  }
+
   @MainActor
   func testRouterPublishesRepeatedRequestsForTheSameRoute() {
     let router = SettingsRouter()

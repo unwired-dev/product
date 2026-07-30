@@ -220,6 +220,22 @@ struct MailboxSyncStatus: Equatable {
   }
 }
 
+enum MailboxStatusSettingsLink {
+  static func route(
+    for status: MailboxSyncStatus,
+    connectionId: MailboxConnectionId
+  ) -> SettingsRoute? {
+    switch status.phase {
+    case .authorizationRequired:
+      return .authorization(connectionId: connectionId)
+    case .failed:
+      return .synchronization(connectionId: connectionId)
+    case .backfillPending, .idle, .offline, .syncing:
+      return nil
+    }
+  }
+}
+
 // swiftlint:disable type_body_length
 @MainActor
 @Observable
@@ -1160,6 +1176,7 @@ struct AccountView: View {
         isRefreshing: mailboxFreshnessViewModel.isSynchronizing,
         lastSuccessfulSyncAt: mailboxFreshnessViewModel.lastSuccessfulSyncAt,
         navigationSnapshot: inboxViewModel.navigationSnapshot,
+        openSettings: { openSettings($0) },
         refreshMailboxes: {
           Task { await synchronizeMailboxesFully() }
         },
@@ -2634,6 +2651,7 @@ private struct MailShellSidebar: View {
   let isRefreshing: Bool
   let lastSuccessfulSyncAt: Date?
   let navigationSnapshot: MailboxNavigationSnapshot
+  let openSettings: (SettingsRoute) -> Void
   let refreshMailboxes: () -> Void
   @Binding var selectedMailbox: MailShellMailboxSelection?
   let showAccountSettings: () -> Void
@@ -2713,9 +2731,24 @@ private struct MailShellSidebar: View {
                   )
                 }
               }
-              Text(syncStatus(connection).summary)
+              let status = syncStatus(connection)
+              if let route = MailboxStatusSettingsLink.route(
+                for: status,
+                connectionId: connection.id
+              ) {
+                Button {
+                  openSettings(route)
+                } label: {
+                  Text(status.summary)
+                }
+                .buttonStyle(.plain)
                 .font(.caption2)
-                .foregroundStyle(statusColor(for: connection))
+                .foregroundStyle(statusColor(for: status))
+              } else {
+                Text(status.summary)
+                  .font(.caption2)
+                  .foregroundStyle(statusColor(for: status))
+              }
             }
           }
         }
@@ -2786,8 +2819,8 @@ private struct MailShellSidebar: View {
     }
   }
 
-  private func statusColor(for connection: MailboxConnection) -> Color {
-    switch syncStatus(connection).phase {
+  private func statusColor(for status: MailboxSyncStatus) -> Color {
+    switch status.phase {
     case .authorizationRequired, .backfillPending, .offline:
       return .orange
     case .failed:

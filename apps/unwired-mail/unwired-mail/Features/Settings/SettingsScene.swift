@@ -166,6 +166,15 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
     SettingsRoute(destination: self)
   }
 
+  var searchRoute: SettingsRoute {
+    switch self {
+    case .emailAccounts:
+      return .mailboxConnections
+    default:
+      return route
+    }
+  }
+
   var searchItems: [SettingsSearchItem] {
     switch self {
     case .emailAccounts:
@@ -489,7 +498,7 @@ enum SettingsDestinationRegistry {
           SettingsSearchResult(
             title: destination.title,
             subtitle: destination.group.title,
-            route: destination.searchItems.first?.route ?? destination.route
+            route: destination.searchRoute
           )
         )
       }
