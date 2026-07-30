@@ -797,7 +797,7 @@ final class MailboxFreshnessViewModel {
       isSessionCurrent(session),
       knownConnections[connection.id] != nil
     else { return }
-    let successfulSyncAt: Date?
+    var successfulSyncAt: Date?
     switch result {
     case .success(let result):
       let completionDate = now()
@@ -807,7 +807,7 @@ final class MailboxFreshnessViewModel {
         productAccountId: session.productAccountId,
         connectionId: connection.id
       )
-      guard externalSyncRevisions[connection.id, default: 0] == externalSyncRevision else {
+      guard externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id) else {
         return
       }
       statuses[connection.id] = MailboxSyncStatus(
@@ -815,13 +815,13 @@ final class MailboxFreshnessViewModel {
         phase: result.historicalMetadataBackfillIsComplete ? .idle : .backfillPending
       )
     case .failure(let error):
-      guard !Self.isCancellation(error) else {
-        if externalSyncRevisions[connection.id, default: 0] == externalSyncRevision {
-          statuses[connection.id] = priorStatus
-        }
+      guard externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id) else {
         return
       }
-      successfulSyncAt = nil
+      guard !Self.isCancellation(error) else {
+        statuses[connection.id] = priorStatus
+        return
+      }
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
         phase: .failure(for: error)
@@ -842,6 +842,13 @@ final class MailboxFreshnessViewModel {
       object: nil,
       userInfo: userInfo
     )
+  }
+
+  private func externalSyncRevisionIsCurrent(
+    _ revision: UInt64,
+    for connectionId: MailboxConnectionId
+  ) -> Bool {
+    externalSyncRevisions[connectionId, default: 0] == revision
   }
 
   private static func isCancellation(_ error: Error) -> Bool {
