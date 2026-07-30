@@ -48,6 +48,70 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread() {
+    let callbackInput = makeAuthenticationPresentationFixture()
+    let callbackCompleted = expectation(description: "Presentation callbacks complete")
+
+    DispatchQueue.global().async {
+      XCTAssertFalse(Thread.isMainThread)
+      let authorizationController = ASAuthorizationController(
+        authorizationRequests: [ASAuthorizationAppleIDProvider().createRequest()]
+      )
+      let webAuthenticationSession = ASWebAuthenticationSession(
+        url: URL(string: "https://example.test")!,
+        callbackURLScheme: nil
+      ) { _, _ in }
+      let appleAnchor = callbackInput.appleProvider.presentationAnchor(
+        for: authorizationController
+      )
+      XCTAssertTrue(appleAnchor === callbackInput.authenticationWindow)
+      for provider in callbackInput.webProviders {
+        let webAnchor = provider.presentationAnchor(for: webAuthenticationSession)
+        XCTAssertTrue(webAnchor === callbackInput.authenticationWindow)
+      }
+      callbackCompleted.fulfill()
+    }
+
+    wait(for: [callbackCompleted], timeout: 1)
+  }
+
+  private func makeAuthenticationPresentationFixture() -> AuthenticationPresentationFixture {
+    let otherWindow = ASPresentationAnchor()
+    let authenticationWindow = ASPresentationAnchor()
+    let presentationAnchorStore = AuthenticationPresentationAnchorStore {
+      AuthenticationPresentationAnchor.preferredAnchor(
+        in: [
+          AuthenticationPresentationSceneSnapshot(
+            isForegroundActive: true,
+            windows: [.init(anchor: otherWindow, isKeyWindow: false)]
+          ),
+          AuthenticationPresentationSceneSnapshot(
+            isForegroundActive: true,
+            windows: [.init(anchor: authenticationWindow, isKeyWindow: true)]
+          ),
+        ]
+      )
+    }
+    XCTAssertTrue(presentationAnchorStore.captureCurrent())
+    return AuthenticationPresentationFixture(
+      appleProvider: SignInWithAppleService(
+        presentationAnchorStore: presentationAnchorStore
+      ),
+      authenticationWindow: authenticationWindow,
+      webProviders: [
+        GoogleGmailOAuthService(
+          clientIdentifier: nil,
+          presentationAnchorStore: presentationAnchorStore
+        ),
+        MicrosoftGraphOAuthService(
+          callbackScheme: nil,
+          clientIdentifier: nil,
+          presentationAnchorStore: presentationAnchorStore
+        ),
+      ]
+    )
+  }
+
   func testMailboxFreshnessViewModelIsSharedAcrossSessionViews() {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -1191,6 +1255,12 @@ private struct SuspendingDevicePushUnregisterer: DevicePushUnregistering {
   func unregister(session _: ProductAccountSessionSnapshot) async throws {
     await gate.waitForRelease()
   }
+}
+
+private struct AuthenticationPresentationFixture: @unchecked Sendable {
+  let appleProvider: ASAuthorizationControllerPresentationContextProviding
+  let authenticationWindow: ASPresentationAnchor
+  let webProviders: [ASWebAuthenticationPresentationContextProviding]
 }
 
 private struct SuspendingGmailProviderConnecting:

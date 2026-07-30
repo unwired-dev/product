@@ -48,7 +48,15 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
   }
 }
 
+enum AppearanceSettingsControl: String, Hashable {
+  case increasedContrast
+  case messageBody
+  case readingTextSize
+  case theme
+}
+
 enum SettingsRouteContext: Hashable {
+  case appearance(AppearanceSettingsControl)
   case authorization(String?)
   case defaultSendingConnection
   case mailboxConnection(String)
@@ -209,6 +217,17 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
           route: .provider(.imapSMTP)
         ),
       ]
+    case .appearance:
+      return [
+        SettingsSearchItem(title: "Theme", route: .appearance(.theme)),
+        SettingsSearchItem(title: "Reading Text Size", route: .appearance(.readingTextSize)),
+        SettingsSearchItem(
+          title: "Message Body",
+          keywords: ["Sender Formatting", "System Serif", "System Sans Serif"],
+          route: .appearance(.messageBody)
+        ),
+        SettingsSearchItem(title: "Increased Contrast", route: .appearance(.increasedContrast)),
+      ]
     default:
       return []
     }
@@ -254,6 +273,13 @@ struct SettingsRoute: Hashable {
     destination: .privacyAndData,
     context: .storage
   )
+
+  static func appearance(_ control: AppearanceSettingsControl) -> SettingsRoute {
+    SettingsRoute(
+      destination: .appearance,
+      context: .appearance(control)
+    )
+  }
 
   static func authorization(connectionId: MailboxConnectionId?) -> SettingsRoute {
     SettingsRoute(
@@ -478,7 +504,7 @@ extension View {
 }
 
 enum SettingsDestinationRegistry {
-  static let implementedDestinations: [SettingsDestination] = [.emailAccounts]
+  static let implementedDestinations: [SettingsDestination] = [.emailAccounts, .appearance]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
@@ -500,8 +526,7 @@ enum SettingsDestinationRegistry {
   }
 
   static func defaultDestination(isSignedIn: Bool) -> SettingsDestination? {
-    guard isSignedIn else { return nil }
-    return implementedDestinations.first
+    isSignedIn ? .emailAccounts : .appearance
   }
 
   static func resolveRoute(
@@ -521,13 +546,13 @@ enum SettingsDestinationRegistry {
     storedRawValue: String,
     isSignedIn: Bool
   ) -> SettingsDestination? {
-    guard isSignedIn else { return nil }
     if let stored = SettingsDestination(rawValue: storedRawValue),
-      implementedDestinations.contains(stored)
+      implementedDestinations.contains(stored),
+      isSignedIn || stored.isAvailableWhenSignedOut
     {
       return stored
     }
-    return defaultDestination(isSignedIn: true)
+    return defaultDestination(isSignedIn: isSignedIn)
   }
 
   static func search(
@@ -915,16 +940,31 @@ extension AdaptiveSettingsScene {
           ProgressView("Loading Settings…")
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         case .signedOut:
-          ContentUnavailableView(
-            "Sign in required",
-            systemImage: "person.crop.circle.badge.exclamationmark",
-            description: Text("Email Accounts is available after Product Account sign-in.")
+          AdaptiveSettingsScene(
+            isSignedIn: false,
+            showsDismissButton: false,
+            destinationContent: { destination, request in
+              if destination == .appearance {
+                AppearanceSettingsView(navigationRequest: request)
+              }
+            }
           )
         case .failed(let message):
-          ContentUnavailableView(
-            "Settings unavailable",
-            systemImage: "exclamationmark.triangle",
-            description: Text(message)
+          AdaptiveSettingsScene(
+            isSignedIn: false,
+            showsDismissButton: false,
+            attentions: [
+              SettingsAttention(
+                destination: .appearance,
+                kind: .recovery,
+                message: message
+              )
+            ],
+            destinationContent: { destination, request in
+              if destination == .appearance {
+                AppearanceSettingsView(navigationRequest: request)
+              }
+            }
           )
         case .signedIn(let snapshot):
           DevelopmentEmailAccountsSettingsHost(
@@ -1035,6 +1075,8 @@ extension AdaptiveSettingsScene {
               ),
               navigationRequest: request
             )
+          case .appearance:
+            AppearanceSettingsView(navigationRequest: request)
           default:
             EmptyView()
           }

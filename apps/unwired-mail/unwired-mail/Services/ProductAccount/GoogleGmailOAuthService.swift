@@ -139,6 +139,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
   private let clientIdentifier: String?
   private let session: URLSession
   private let tokenEndpoint: URL
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
   private var authenticationContinuation: CheckedContinuation<URL, Error>?
   private var webAuthenticationSession: ASWebAuthenticationSession?
 
@@ -148,11 +149,14 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
       ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
       ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
-    tokenEndpoint: URL = URL(string: "https://oauth2.googleapis.com/token")!
+    tokenEndpoint: URL = URL(string: "https://oauth2.googleapis.com/token")!,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
   ) {
     self.clientIdentifier = clientIdentifier
     self.session = session
     self.tokenEndpoint = tokenEndpoint
+    self.presentationAnchorStore = presentationAnchorStore
   }
 
   func authorize() async throws -> GmailProviderTokens {
@@ -219,13 +223,17 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    try await withTaskCancellationHandler {
+    return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
           return
         }
 
+        guard presentationAnchorStore.captureCurrent() else {
+          continuation.resume(throwing: GoogleGmailOAuthError.webAuthenticationUnavailable)
+          return
+        }
         authenticationContinuation = continuation
         let authenticationSession = ASWebAuthenticationSession(
           url: authorizationURL,
@@ -258,6 +266,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     authenticationContinuation = nil
     webAuthenticationSession?.cancel()
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
     continuation?.resume(throwing: CancellationError())
   }
 
@@ -265,6 +274,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     guard let continuation = authenticationContinuation else { return }
     authenticationContinuation = nil
     webAuthenticationSession = nil
+    presentationAnchorStore.clear()
 
     if let authenticationError = error as? ASWebAuthenticationSessionError,
       authenticationError.code == .canceledLogin
@@ -281,17 +291,10 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
 }
 
 extension GoogleGmailOAuthService: ASWebAuthenticationPresentationContextProviding {
-  func presentationAnchor(for session: ASWebAuthenticationSession) -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scenes = UIApplication.shared.connectedScenes
-      let windowScene = scenes.first { $0.activationState == .foregroundActive } as? UIWindowScene
-      let window = windowScene?.windows.first { $0.isKeyWindow }
-      return window ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  nonisolated func presentationAnchor(
+    for session: ASWebAuthenticationSession
+  ) -> ASPresentationAnchor {
+    presentationAnchorStore.current()
   }
 }
 
