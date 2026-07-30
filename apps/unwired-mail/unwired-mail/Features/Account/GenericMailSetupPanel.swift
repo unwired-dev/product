@@ -7,6 +7,64 @@ typealias GenericMailLocalDataClearing = (
   ProductAccountSessionSnapshot
 ) async throws -> Bool
 
+private struct GenericMailEditorState: Equatable {
+  let authorizationMethod: MailAuthorizationMethod
+  let credential: String
+  let emailAddress: String
+  let incomingHostname: String
+  let incomingPort: String
+  let incomingProtocol: GenericMailProtocol
+  let incomingSecurity: MailTransportSecurity
+  let outgoingHostname: String
+  let outgoingPort: String
+  let outgoingSecurity: MailTransportSecurity
+  let roleMappings: [CanonicalMailboxRole: String]
+  let username: String
+
+  static let empty = GenericMailEditorState(
+    authorizationMethod: .password,
+    credential: "",
+    emailAddress: "",
+    incomingHostname: "",
+    incomingPort: "993",
+    incomingProtocol: .imap,
+    incomingSecurity: .implicitTLS,
+    outgoingHostname: "",
+    outgoingPort: "465",
+    outgoingSecurity: .implicitTLS,
+    roleMappings: Dictionary(
+      uniqueKeysWithValues: CanonicalMailboxRole.allCases.map { ($0, "") }
+    ),
+    username: ""
+  )
+}
+
+private struct GenericMailEditorSession {
+  let connectedDefinition: GenericMailConnectionDefinition?
+  let discoveredIncomingEndpoints: [GenericMailEndpoint]
+  let discoverySource: String?
+  let editorState: GenericMailEditorState
+  let locallyLoadedConnectionId: MailboxConnectionId?
+  let removalObservation: MailboxConnectionRemovalObservation?
+  let roleMappingEmailAddress: String?
+  let roleMappingEndpoint: GenericMailEndpoint?
+  let rolesRequiringMapping: [CanonicalMailboxRole]
+  let selectedSyncedConnectionId: MailboxConnectionId?
+
+  static let empty = GenericMailEditorSession(
+    connectedDefinition: nil,
+    discoveredIncomingEndpoints: [],
+    discoverySource: nil,
+    editorState: .empty,
+    locallyLoadedConnectionId: nil,
+    removalObservation: nil,
+    roleMappingEmailAddress: nil,
+    roleMappingEndpoint: nil,
+    rolesRequiringMapping: [],
+    selectedSyncedConnectionId: nil
+  )
+}
+
 @MainActor
 @Observable
 // swiftlint:disable:next type_body_length
@@ -17,6 +75,7 @@ final class GenericMailSetupViewModel {
   var credential = ""
   var defaultSendingConnectionId: MailboxConnectionId?
   private var discoveredIncomingEndpoints: [GenericMailEndpoint] = []
+  private var editorBaseline = GenericMailEditorSession.empty
   var discoverySource: String?
   var emailAddress = ""
   var errorMessage: String?
@@ -66,6 +125,10 @@ final class GenericMailSetupViewModel {
 
   var isEditingDisabled: Bool {
     isConnecting || isLoadingSyncedDefinitions
+  }
+
+  var hasUnsavedChanges: Bool {
+    editorState != editorBaseline.editorState
   }
 
   private let productAccountId: ProductAccountId
@@ -161,6 +224,7 @@ final class GenericMailSetupViewModel {
       credential = ""
       discoverySource = "Loaded saved settings. Re-enter authorization to verify changes."
       errorMessage = nil
+      rememberEditorState()
     } catch {
       errorMessage = error.localizedDescription
     }
@@ -214,6 +278,7 @@ final class GenericMailSetupViewModel {
       rolesRequiringMapping = []
       errorMessage = nil
       await loadSyncedDefinitions()
+      rememberEditorState()
       return true
     } catch let GenericMailSetupError.missingRoleMappings(discovered, missing) {
       applyMissingRoleMappings(discovered, missing: missing, endpoint: incomingEndpoint)
@@ -228,6 +293,34 @@ final class GenericMailSetupViewModel {
 
   func invalidate() {
     isValid = false
+  }
+
+  func discardUnsavedChanges() {
+    apply(editorBaseline.editorState)
+    connectedDefinition = editorBaseline.connectedDefinition
+    discoveredIncomingEndpoints = editorBaseline.discoveredIncomingEndpoints
+    discoverySource = editorBaseline.discoverySource
+    locallyLoadedConnectionId = editorBaseline.locallyLoadedConnectionId
+    removalObservation = editorBaseline.removalObservation
+    roleMappingEmailAddress = editorBaseline.roleMappingEmailAddress
+    roleMappingEndpoint = editorBaseline.roleMappingEndpoint
+    rolesRequiringMapping = editorBaseline.rolesRequiringMapping
+    selectedSyncedConnectionId = editorBaseline.selectedSyncedConnectionId
+  }
+
+  private func apply(_ state: GenericMailEditorState) {
+    authorizationMethod = state.authorizationMethod
+    credential = state.credential
+    emailAddress = state.emailAddress
+    incomingHostname = state.incomingHostname
+    incomingPort = state.incomingPort
+    incomingProtocol = state.incomingProtocol
+    incomingSecurity = state.incomingSecurity
+    outgoingHostname = state.outgoingHostname
+    outgoingPort = state.outgoingPort
+    outgoingSecurity = state.outgoingSecurity
+    roleMappings = state.roleMappings
+    username = state.username
   }
 
   private func apply(_ definition: GenericMailConnectionDefinition) {
@@ -255,6 +348,23 @@ final class GenericMailSetupViewModel {
     !emailAddress.isEmpty || !incomingHostname.isEmpty || !outgoingHostname.isEmpty
   }
 
+  private var editorState: GenericMailEditorState {
+    GenericMailEditorState(
+      authorizationMethod: authorizationMethod,
+      credential: credential,
+      emailAddress: emailAddress,
+      incomingHostname: incomingHostname,
+      incomingPort: incomingPort,
+      incomingProtocol: incomingProtocol,
+      incomingSecurity: incomingSecurity,
+      outgoingHostname: outgoingHostname,
+      outgoingPort: outgoingPort,
+      outgoingSecurity: outgoingSecurity,
+      roleMappings: roleMappings,
+      username: username
+    )
+  }
+
   private func resetRoleMappingState() {
     roleMappingEmailAddress = nil
     roleMappingEndpoint = nil
@@ -280,6 +390,22 @@ final class GenericMailSetupViewModel {
     resetRoleMappingState()
     username = ""
     discoverySource = nil
+    rememberEditorState()
+  }
+
+  private func rememberEditorState() {
+    editorBaseline = GenericMailEditorSession(
+      connectedDefinition: connectedDefinition,
+      discoveredIncomingEndpoints: discoveredIncomingEndpoints,
+      discoverySource: discoverySource,
+      editorState: editorState,
+      locallyLoadedConnectionId: locallyLoadedConnectionId,
+      removalObservation: removalObservation,
+      roleMappingEmailAddress: roleMappingEmailAddress,
+      roleMappingEndpoint: roleMappingEndpoint,
+      rolesRequiringMapping: rolesRequiringMapping,
+      selectedSyncedConnectionId: selectedSyncedConnectionId
+    )
   }
 
   private func matchesSelectedSyncedConnection(_ draft: GenericMailSetupDraft) -> Bool {
@@ -508,6 +634,7 @@ extension GenericMailSetupViewModel {
       ? "Loaded device-authorized settings."
       : "Loaded encrypted synced settings. Authorize this mailbox on this device."
     errorMessage = nil
+    rememberEditorState()
   }
 }
 
@@ -518,6 +645,7 @@ struct GenericMailSetupPanel: View {
   var connectionsDidChange: () -> Void = {}
   var routedConnections: [MailboxConnection] = []
   @State private var connectTask: Task<Void, Never>?
+  @State private var pendingSelection: GenericMailConnectionDefinition?
 
   var body: some View {
     VStack(alignment: .leading, spacing: 16) {
@@ -536,7 +664,7 @@ struct GenericMailSetupPanel: View {
           ForEach(viewModel.syncedDefinitions, id: \.connectionId) { definition in
             HStack {
               Button {
-                viewModel.selectSyncedDefinition(definition)
+                requestSelection(definition)
               } label: {
                 VStack(alignment: .leading, spacing: 2) {
                   Text(definition.emailAddress)
@@ -561,7 +689,7 @@ struct GenericMailSetupPanel: View {
               Menu("Manage") {
                 if viewModel.isAuthorized(definition) {
                   Button("Reauthorize on This Device") {
-                    viewModel.selectSyncedDefinition(definition)
+                    requestSelection(definition)
                   }
                   if viewModel.canSetDefaultSendingConnection(
                     definition,
@@ -590,7 +718,7 @@ struct GenericMailSetupPanel: View {
                   }
                 } else {
                   Button("Authorize on This Device") {
-                    viewModel.selectSyncedDefinition(definition)
+                    requestSelection(definition)
                   }
                 }
                 Button("Remove Mailbox Connection Everywhere", role: .destructive) {
@@ -740,9 +868,25 @@ struct GenericMailSetupPanel: View {
     .onDisappear {
       connectTask?.cancel()
     }
+    .confirmDiscardSelection($pendingSelection) { definition in
+      viewModel.discardUnsavedChanges()
+      viewModel.selectSyncedDefinition(definition)
+    }
   }
 
-  private func endpointEditor(
+  static func performDestructiveAction(
+    cancelMailboxWork: () async -> Void,
+    action: () async -> Bool,
+    connectionsDidChange: () -> Void
+  ) async {
+    await cancelMailboxWork()
+    guard await action() else { return }
+    connectionsDidChange()
+  }
+}
+
+extension GenericMailSetupPanel {
+  fileprivate func endpointEditor(
     title: String,
     hostname: Binding<String>,
     port: Binding<String>,
@@ -766,15 +910,15 @@ struct GenericMailSetupPanel: View {
       .pickerStyle(.segmented)
     }
   }
+}
 
-  static func performDestructiveAction(
-    cancelMailboxWork: () async -> Void,
-    action: () async -> Bool,
-    connectionsDidChange: () -> Void
-  ) async {
-    await cancelMailboxWork()
-    guard await action() else { return }
-    connectionsDidChange()
+extension GenericMailSetupPanel {
+  fileprivate func requestSelection(_ definition: GenericMailConnectionDefinition) {
+    if viewModel.hasUnsavedChanges {
+      pendingSelection = definition
+    } else {
+      viewModel.selectSyncedDefinition(definition)
+    }
   }
 }
 

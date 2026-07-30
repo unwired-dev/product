@@ -25,6 +25,10 @@ enum SettingsEntryPointRegistry {
 
 enum SettingsGroup: String, CaseIterable, Identifiable {
   case accounts
+  case application
+  case automation
+  case composing
+  case mail
 
   var id: Self { self }
 
@@ -32,70 +36,449 @@ enum SettingsGroup: String, CaseIterable, Identifiable {
     switch self {
     case .accounts:
       return "Accounts"
+    case .application:
+      return "Application"
+    case .automation:
+      return "Automation"
+    case .composing:
+      return "Composing"
+    case .mail:
+      return "Mail"
     }
   }
 }
 
-enum SettingsRoute: Hashable {
-  case emailAccounts
+enum SettingsRouteContext: Hashable {
+  case authorization(String?)
+  case defaultSendingConnection
+  case mailboxConnection(String)
+  case mailboxConnections
+  case mailboxRoles(String?)
+  case missingSignature(String?)
+  case notificationPermission
+  case preferenceConflict(String)
+  case provider(String)
+  case readReceipt(String?)
+  case storage
+  case synchronization(String?)
 }
 
 enum SettingsDestination: String, CaseIterable, Identifiable {
+  case about
+  case accountAndDevices
+  case advanced
+  case appearance
+  case categories
+  case compose
   case emailAccounts
+  case inbox
+  case notifications
+  case privacyAndData
+  case reading
+  case signatures
+  case swipes
+  case templates
 
   var id: Self { self }
 
   var group: SettingsGroup {
     switch self {
-    case .emailAccounts:
+    case .accountAndDevices, .emailAccounts:
       return .accounts
+    case .appearance, .privacyAndData, .advanced, .about:
+      return .application
+    case .categories, .notifications:
+      return .automation
+    case .compose, .signatures, .templates:
+      return .composing
+    case .inbox, .reading, .swipes:
+      return .mail
     }
   }
 
   var title: String {
     switch self {
+    case .about:
+      return "About"
+    case .accountAndDevices:
+      return "Account & Devices"
+    case .advanced:
+      return "Advanced"
+    case .appearance:
+      return "Appearance"
+    case .categories:
+      return "Categories"
+    case .compose:
+      return "Compose"
     case .emailAccounts:
       return "Email Accounts"
+    case .inbox:
+      return "Inbox"
+    case .notifications:
+      return "Notifications"
+    case .privacyAndData:
+      return "Privacy & Data"
+    case .reading:
+      return "Reading"
+    case .signatures:
+      return "Signatures"
+    case .swipes:
+      return "Swipes"
+    case .templates:
+      return "Templates"
     }
   }
 
   var systemImage: String {
     switch self {
+    case .about:
+      return "info.circle"
+    case .accountAndDevices:
+      return "person.2"
+    case .advanced:
+      return "wrench.and.screwdriver"
+    case .appearance:
+      return "paintbrush"
+    case .categories:
+      return "tag"
+    case .compose:
+      return "square.and.pencil"
     case .emailAccounts:
       return "at"
+    case .inbox:
+      return "tray"
+    case .notifications:
+      return "bell"
+    case .privacyAndData:
+      return "hand.raised"
+    case .reading:
+      return "text.book.closed"
+    case .signatures:
+      return "signature"
+    case .swipes:
+      return "hand.draw"
+    case .templates:
+      return "doc.on.doc"
     }
   }
 
   var route: SettingsRoute {
+    SettingsRoute(destination: self)
+  }
+
+  var searchRoute: SettingsRoute {
     switch self {
     case .emailAccounts:
-      return .emailAccounts
+      return .mailboxConnections
+    default:
+      return route
     }
   }
 
-  var searchTerms: [String] {
+  var searchItems: [SettingsSearchItem] {
     switch self {
     case .emailAccounts:
       return [
-        "Mailbox Connections",
-        "Authorization",
-        "Default Sending Connection",
-        "Synchronize",
-        "Mailbox Roles",
+        SettingsSearchItem(title: "Mailbox Connections", route: .mailboxConnections),
+        SettingsSearchItem(
+          title: "Authorization",
+          keywords: ["Authorize", "Reauthorize", "Remove Device Authorization"],
+          route: .authorization(connectionId: nil)
+        ),
+        SettingsSearchItem(
+          title: "Default Sending Connection",
+          keywords: ["Default sender"],
+          route: .defaultSendingConnection
+        ),
+        SettingsSearchItem(
+          title: "Synchronize",
+          keywords: ["Sync health", "Historical Metadata Backfill"],
+          route: .synchronization(connectionId: nil)
+        ),
+        SettingsSearchItem(title: "Mailbox Roles", route: .mailboxRoles(connectionId: nil)),
+        SettingsSearchItem(title: "Gmail", route: .provider(.gmail)),
+        SettingsSearchItem(title: "Microsoft 365", route: .provider(.microsoftGraph)),
+        SettingsSearchItem(
+          title: "On-Premises Exchange",
+          keywords: ["EWS"],
+          route: .provider(.exchangeWebServices)
+        ),
+        SettingsSearchItem(
+          title: "Other Mail Server",
+          keywords: ["IMAP", "SMTP", "POP3"],
+          route: .provider(.imapSMTP)
+        ),
       ]
+    default:
+      return []
     }
   }
 
   var isAvailableWhenSignedOut: Bool {
     switch self {
-    case .emailAccounts:
+    case .about, .advanced, .appearance, .privacyAndData:
+      return true
+    case .accountAndDevices, .categories, .compose, .emailAccounts, .inbox, .notifications,
+      .reading, .signatures, .swipes, .templates:
       return false
     }
   }
 }
 
+struct SettingsRoute: Hashable {
+  let destination: SettingsDestination
+  let context: SettingsRouteContext?
+
+  init(
+    destination: SettingsDestination,
+    context: SettingsRouteContext? = nil
+  ) {
+    self.destination = destination
+    self.context = context
+  }
+
+  static let defaultSendingConnection = SettingsRoute(
+    destination: .emailAccounts,
+    context: .defaultSendingConnection
+  )
+  static let emailAccounts = SettingsRoute(destination: .emailAccounts)
+  static let mailboxConnections = SettingsRoute(
+    destination: .emailAccounts,
+    context: .mailboxConnections
+  )
+  static let notificationPermission = SettingsRoute(
+    destination: .notifications,
+    context: .notificationPermission
+  )
+  static let storage = SettingsRoute(
+    destination: .privacyAndData,
+    context: .storage
+  )
+
+  static func authorization(connectionId: MailboxConnectionId?) -> SettingsRoute {
+    SettingsRoute(
+      destination: .emailAccounts,
+      context: .authorization(connectionId?.rawValue)
+    )
+  }
+
+  static func mailboxConnection(_ connectionId: MailboxConnectionId) -> SettingsRoute {
+    SettingsRoute(
+      destination: .emailAccounts,
+      context: .mailboxConnection(connectionId.rawValue)
+    )
+  }
+
+  static func mailboxRoles(connectionId: MailboxConnectionId?) -> SettingsRoute {
+    SettingsRoute(
+      destination: .emailAccounts,
+      context: .mailboxRoles(connectionId?.rawValue)
+    )
+  }
+
+  static func missingSignature(connectionId: MailboxConnectionId?) -> SettingsRoute {
+    SettingsRoute(
+      destination: .signatures,
+      context: .missingSignature(connectionId?.rawValue)
+    )
+  }
+
+  static func preferenceConflict(
+    destination: SettingsDestination,
+    field: String
+  ) -> SettingsRoute {
+    SettingsRoute(
+      destination: destination,
+      context: .preferenceConflict(field)
+    )
+  }
+
+  static func provider(_ providerId: MailProviderId) -> SettingsRoute {
+    SettingsRoute(
+      destination: .emailAccounts,
+      context: .provider(providerId.rawValue)
+    )
+  }
+
+  static func readReceipt(connectionId: MailboxConnectionId?) -> SettingsRoute {
+    SettingsRoute(
+      destination: .reading,
+      context: .readReceipt(connectionId?.rawValue)
+    )
+  }
+
+  static func synchronization(connectionId: MailboxConnectionId?) -> SettingsRoute {
+    SettingsRoute(
+      destination: .emailAccounts,
+      context: .synchronization(connectionId?.rawValue)
+    )
+  }
+}
+
+struct SettingsSearchItem: Equatable {
+  let title: String
+  let keywords: [String]
+  let route: SettingsRoute
+
+  init(
+    title: String,
+    keywords: [String] = [],
+    route: SettingsRoute
+  ) {
+    self.title = title
+    self.keywords = keywords
+    self.route = route
+  }
+}
+
+struct SettingsSearchResult: Equatable, Identifiable {
+  struct Identity: Hashable {
+    let route: SettingsRoute
+    let subtitle: String
+    let title: String
+  }
+
+  let title: String
+  let subtitle: String
+  let route: SettingsRoute
+
+  var id: Identity {
+    Identity(route: route, subtitle: subtitle, title: title)
+  }
+}
+
+struct SettingsAttention: Equatable, Identifiable {
+  enum Kind: String {
+    case authorization
+    case conflict
+    case permission
+    case recovery
+    case sync
+  }
+
+  let destination: SettingsDestination
+  let kind: Kind
+  let message: String
+
+  var id: SettingsDestination { destination }
+
+  static func emailAccounts(
+    authorizationRequired: Bool,
+    syncFailureMessage: String?
+  ) -> SettingsAttention? {
+    if authorizationRequired {
+      return SettingsAttention(
+        destination: .emailAccounts,
+        kind: .authorization,
+        message: "One or more Mailbox Connections require authorization on this device."
+      )
+    }
+    if let syncFailureMessage {
+      return SettingsAttention(
+        destination: .emailAccounts,
+        kind: .sync,
+        message: "Mailbox synchronization failed: \(syncFailureMessage)"
+      )
+    }
+    return nil
+  }
+}
+
+enum SettingsNavigationDecision: Equatable {
+  case confirmDiscard(SettingsRoute)
+  case navigate(SettingsRoute)
+  case unavailable
+}
+
+enum SettingsNavigationPolicy {
+  static func canDiscardChanges(isSetupWorking: Bool) -> Bool {
+    !isSetupWorking
+  }
+
+  static func decision(
+    currentRoute: SettingsRoute?,
+    requestedRoute: SettingsRoute,
+    hasUnsavedChanges: Bool,
+    isSignedIn: Bool
+  ) -> SettingsNavigationDecision {
+    guard
+      let route = SettingsDestinationRegistry.resolveRoute(
+        requestedRoute,
+        isSignedIn: isSignedIn
+      )
+    else {
+      return .unavailable
+    }
+    guard hasUnsavedChanges, currentRoute != route else {
+      return .navigate(route)
+    }
+    return .confirmDiscard(route)
+  }
+}
+
+enum SettingsNavigationLayout: Equatable {
+  case compact
+  case split
+
+  static func resolve(_ horizontalSizeClass: UserInterfaceSizeClass?) -> Self {
+    horizontalSizeClass == .compact ? .compact : .split
+  }
+}
+
+struct SettingsRouteRequest: Equatable {
+  let id: UUID
+  let route: SettingsRoute?
+
+  init(
+    id: UUID = UUID(),
+    route: SettingsRoute?
+  ) {
+    self.id = id
+    self.route = route
+  }
+}
+
+@MainActor
+@Observable
+final class SettingsRouter {
+  private(set) var request: SettingsRouteRequest?
+
+  func open(_ route: SettingsRoute?) {
+    request = SettingsRouteRequest(route: route)
+  }
+}
+
+extension View {
+  func confirmDiscardSelection<Selection>(
+    _ selection: Binding<Selection?>,
+    discardAndSelect: @escaping (Selection) -> Void
+  ) -> some View {
+    confirmationDialog(
+      "Discard unsaved changes?",
+      isPresented: Binding(
+        get: { selection.wrappedValue != nil },
+        set: { isPresented in
+          if !isPresented {
+            selection.wrappedValue = nil
+          }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes", role: .destructive) {
+        guard let value = selection.wrappedValue else { return }
+        selection.wrappedValue = nil
+        discardAndSelect(value)
+      }
+      Button("Keep Editing", role: .cancel) {
+        selection.wrappedValue = nil
+      }
+    }
+  }
+}
+
 enum SettingsDestinationRegistry {
-  static let implementedDestinations = SettingsDestination.allCases
+  static let implementedDestinations: [SettingsDestination] = [.emailAccounts]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
@@ -121,6 +504,19 @@ enum SettingsDestinationRegistry {
     return implementedDestinations.first
   }
 
+  static func resolveRoute(
+    _ route: SettingsRoute,
+    isSignedIn: Bool
+  ) -> SettingsRoute? {
+    guard
+      implementedDestinations.contains(route.destination),
+      isSignedIn || route.destination.isAvailableWhenSignedOut
+    else {
+      return nil
+    }
+    return route
+  }
+
   static func resolveDestination(
     storedRawValue: String,
     isSignedIn: Bool
@@ -133,47 +529,138 @@ enum SettingsDestinationRegistry {
     }
     return defaultDestination(isSignedIn: true)
   }
+
+  static func search(
+    matching query: String,
+    isSignedIn: Bool
+  ) -> [SettingsSearchResult] {
+    let query = normalizedSearchText(query)
+    guard !query.isEmpty else { return [] }
+
+    return implementedDestinations.flatMap { destination -> [SettingsSearchResult] in
+      guard isSignedIn || destination.isAvailableWhenSignedOut else { return [] }
+      var results: [SettingsSearchResult] = []
+      if normalizedSearchText(
+        [destination.title, destination.group.title].joined(separator: " ")
+      ).contains(query) {
+        results.append(
+          SettingsSearchResult(
+            title: destination.title,
+            subtitle: destination.group.title,
+            route: destination.searchRoute
+          )
+        )
+      }
+      results += destination.searchItems.compactMap { item in
+        let searchableText = normalizedSearchText(
+          [item.title] + item.keywords
+        )
+        guard searchableText.contains(query) else { return nil }
+        return SettingsSearchResult(
+          title: item.title,
+          subtitle: destination.title,
+          route: item.route
+        )
+      }
+      return results
+    }
+  }
+
+  private static func normalizedSearchText(_ values: [String]) -> String {
+    normalizedSearchText(values.joined(separator: " "))
+  }
+
+  private static func normalizedSearchText(_ value: String) -> String {
+    value
+      .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: .current)
+      .components(separatedBy: CharacterSet.alphanumerics.inverted)
+      .filter { !$0.isEmpty }
+      .joined(separator: " ")
+  }
 }
 
 struct AdaptiveSettingsScene<DestinationContent: View>: View {
   let isSignedIn: Bool
   let showsDismissButton: Bool
-  private let destinationContent: (SettingsDestination) -> DestinationContent
+  let attentions: [SettingsAttention]
+  private let canDiscardChanges: () -> Bool
+  private let discardChanges: () -> Void
+  private let hasUnsavedChanges: () -> Bool
+  private let destinationContent: (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
 
   @AppStorage("settings.lastDestination") private var storedDestination = ""
   @Environment(\.dismiss) private var dismiss
+  @Environment(\.dismissSearch) private var dismissSearch
   @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+  @Environment(SettingsRouter.self) private var router
+  @State private var activeRequest: SettingsRouteRequest?
+  @State private var pendingAction: PendingAction?
+  @State private var searchQuery = ""
   @State private var selection: SettingsDestination?
+
+  private enum PendingAction {
+    case dismiss
+    case navigate(SettingsRouteRequest)
+    case showList
+  }
 
   init(
     isSignedIn: Bool,
     showsDismissButton: Bool,
-    @ViewBuilder destinationContent: @escaping (SettingsDestination) -> DestinationContent
+    attentions: [SettingsAttention] = [],
+    hasUnsavedChanges: @escaping () -> Bool = { false },
+    canDiscardChanges: @escaping () -> Bool = { true },
+    discardChanges: @escaping () -> Void = {},
+    @ViewBuilder destinationContent:
+      @escaping (SettingsDestination, SettingsRouteRequest?) -> DestinationContent
   ) {
     self.isSignedIn = isSignedIn
     self.showsDismissButton = showsDismissButton
+    self.attentions = attentions
+    self.hasUnsavedChanges = hasUnsavedChanges
+    self.canDiscardChanges = canDiscardChanges
+    self.discardChanges = discardChanges
     self.destinationContent = destinationContent
   }
 
   var body: some View {
     Group {
-      if horizontalSizeClass == .compact {
+      if SettingsNavigationLayout.resolve(horizontalSizeClass) == .compact {
         compactNavigation
       } else {
         splitNavigation
       }
     }
     .onAppear {
-      selection = SettingsDestinationRegistry.resolveDestination(
-        storedRawValue: storedDestination,
-        isSignedIn: isSignedIn
-      )
+      handleRouterRequest()
     }
-    .onChange(of: selection) { _, destination in
-      if let destination {
-        storedDestination = destination.rawValue
+    .onChange(of: router.request?.id) { _, _ in
+      handleRouterRequest()
+    }
+    .confirmationDialog(
+      "Discard unsaved changes?",
+      isPresented: Binding(
+        get: { pendingAction != nil },
+        set: { isPresented in
+          if !isPresented {
+            pendingAction = nil
+          }
+        }
+      ),
+      titleVisibility: .visible
+    ) {
+      Button("Discard Changes", role: .destructive) {
+        guard let action = pendingAction else { return }
+        pendingAction = nil
+        discardChanges()
+        perform(action)
+      }
+      .disabled(!canDiscardChanges())
+      Button("Keep Editing", role: .cancel) {
+        pendingAction = nil
       }
     }
+    .interactiveDismissDisabled(hasUnsavedChanges())
   }
 
   private var compactNavigation: some View {
@@ -194,23 +681,28 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
   private var compactPath: Binding<[SettingsDestination]> {
     Binding(
       get: { selection.map { [$0] } ?? [] },
-      set: { selection = $0.last }
+      set: { path in
+        if let destination = path.last {
+          requestNavigation(destination.route)
+        } else {
+          requestShowList()
+        }
+      }
     )
   }
 
   private var splitNavigation: some View {
     NavigationSplitView {
-      List(selection: $selection) {
-        ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
-          Section(group.title) {
-            ForEach(
-              SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
-            ) { destination in
-              destinationLabel(destination)
-                .tag(destination)
-            }
-          }
+      settingsList { destination in
+        Button {
+          requestNavigation(destination.route)
+        } label: {
+          destinationLabel(destination)
         }
+        .buttonStyle(.plain)
+        .listRowBackground(
+          selection == destination ? Color.accentColor.opacity(0.14) : Color.clear
+        )
       }
       .navigationTitle("Settings")
       .toolbar { dismissToolbar }
@@ -232,36 +724,185 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     @ViewBuilder row: @escaping (SettingsDestination) -> Row
   ) -> some View {
     List {
-      ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
-        Section(group.title) {
-          ForEach(
-            SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
-          ) { destination in
-            row(destination)
+      if searchQuery.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+        ForEach(SettingsDestinationRegistry.implementedGroups(isSignedIn: isSignedIn)) { group in
+          Section(group.title) {
+            ForEach(
+              SettingsDestinationRegistry.destinations(in: group, isSignedIn: isSignedIn)
+            ) { destination in
+              row(destination)
+            }
+          }
+        }
+      } else {
+        Section("Search Results") {
+          if searchResults.isEmpty {
+            Text("No Settings controls found")
+              .foregroundStyle(.secondary)
+          } else {
+            ForEach(searchResults) { result in
+              Button {
+                requestNavigation(result.route)
+              } label: {
+                HStack {
+                  VStack(alignment: .leading, spacing: 2) {
+                    Text(result.title)
+                    Text(result.subtitle)
+                      .font(.caption)
+                      .foregroundStyle(.secondary)
+                  }
+                  Spacer()
+                  Image(systemName: "chevron.right")
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+                }
+                .contentShape(Rectangle())
+              }
+              .buttonStyle(.plain)
+            }
           }
         }
       }
     }
+    .searchable(text: $searchQuery, prompt: "Search Settings")
   }
 
   private func destinationLabel(_ destination: SettingsDestination) -> some View {
-    Label(destination.title, systemImage: destination.systemImage)
+    HStack {
+      Label(destination.title, systemImage: destination.systemImage)
+      Spacer()
+      if attention(for: destination) != nil {
+        Image(systemName: "exclamationmark.circle.fill")
+          .foregroundStyle(.orange)
+          .accessibilityLabel("Action required")
+      }
+    }
+    .contentShape(Rectangle())
   }
 
   private func detail(_ destination: SettingsDestination) -> some View {
-    destinationContent(destination)
-      .navigationTitle(destination.title)
+    VStack(spacing: 0) {
+      if let attention = attention(for: destination) {
+        Label(attention.message, systemImage: "exclamationmark.circle.fill")
+          .font(.callout)
+          .foregroundStyle(.orange)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .padding()
+          .background(.orange.opacity(0.1))
+      }
+      destinationContent(
+        destination,
+        activeRequest?.route?.destination == destination ? activeRequest : nil
+      )
+    }
+    .navigationTitle(destination.title)
   }
 
   @ToolbarContentBuilder
   private var dismissToolbar: some ToolbarContent {
     if showsDismissButton {
       ToolbarItem(placement: .confirmationAction) {
-        Button("Done") { dismiss() }
+        Button("Done", action: requestDismiss)
       }
     }
   }
 }
+
+extension AdaptiveSettingsScene {
+  private var searchResults: [SettingsSearchResult] {
+    SettingsDestinationRegistry.search(
+      matching: searchQuery,
+      isSignedIn: isSignedIn
+    )
+  }
+
+  private func attention(for destination: SettingsDestination) -> SettingsAttention? {
+    attentions.first { $0.destination == destination }
+  }
+
+  private func handleRouterRequest() {
+    guard let request = router.request, request.route != nil else {
+      guard selection == nil else { return }
+      restoreSelection()
+      return
+    }
+    requestNavigation(request)
+  }
+
+  private func restoreSelection() {
+    guard
+      let destination = SettingsDestinationRegistry.resolveDestination(
+        storedRawValue: storedDestination,
+        isSignedIn: isSignedIn
+      )
+    else {
+      selection = nil
+      activeRequest = nil
+      return
+    }
+    apply(SettingsRouteRequest(route: destination.route))
+  }
+
+  private func requestNavigation(_ route: SettingsRoute) {
+    requestNavigation(SettingsRouteRequest(route: route))
+  }
+
+  private func requestNavigation(_ request: SettingsRouteRequest) {
+    guard let requestedRoute = request.route else { return }
+    switch SettingsNavigationPolicy.decision(
+      currentRoute: activeRequest?.route,
+      requestedRoute: requestedRoute,
+      hasUnsavedChanges: hasUnsavedChanges(),
+      isSignedIn: isSignedIn
+    ) {
+    case .confirmDiscard(let route):
+      pendingAction = .navigate(SettingsRouteRequest(id: request.id, route: route))
+    case .navigate(let route):
+      apply(SettingsRouteRequest(id: request.id, route: route))
+    case .unavailable:
+      break
+    }
+  }
+
+  private func requestShowList() {
+    guard selection != nil else { return }
+    if hasUnsavedChanges() {
+      pendingAction = .showList
+    } else {
+      perform(.showList)
+    }
+  }
+
+  private func requestDismiss() {
+    if hasUnsavedChanges() {
+      pendingAction = .dismiss
+    } else {
+      dismiss()
+    }
+  }
+
+  private func perform(_ action: PendingAction) {
+    switch action {
+    case .dismiss:
+      dismiss()
+    case .navigate(let route):
+      apply(route)
+    case .showList:
+      selection = nil
+      activeRequest = nil
+    }
+  }
+
+  private func apply(_ request: SettingsRouteRequest) {
+    guard let route = request.route else { return }
+    selection = route.destination
+    activeRequest = request
+    storedDestination = route.destination.rawValue
+    searchQuery = ""
+    dismissSearch()
+  }
+}
+
 #if DEBUG
   @MainActor
   struct DevelopmentSettingsRootView: View {
@@ -359,33 +1000,76 @@ struct AdaptiveSettingsScene<DestinationContent: View>: View {
     var body: some View {
       AdaptiveSettingsScene(
         isSignedIn: true,
-        showsDismissButton: false
-      ) { destination in
-        switch destination {
-        case .emailAccounts:
-          EmailAccountsSettingsView(
-            ewsViewModel: ewsViewModel,
-            genericMailViewModel: genericMailViewModel,
-            gmailViewModel: gmailViewModel,
-            microsoftGraphViewModel: microsoftGraphViewModel,
-            freshnessViewModel: freshnessViewModel,
-            cancelBodyPrefetch: {
-              await mailboxWorkCoordinator.cancelBodyPrefetch(
-                productAccountId: snapshot.productAccountId
-              )
-            },
-            connectionsDidChange: refreshConnectionAuthorityAndNotify,
-            gmailConnectionsDidChange: notifyConnectionsDidChange,
-            isMailboxBusy: mailboxWorkCoordinator.isBusy(
-              productAccountId: snapshot.productAccountId
-            )
+        showsDismissButton: false,
+        attentions: settingsAttentions,
+        hasUnsavedChanges: {
+          ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges
+        },
+        canDiscardChanges: {
+          SettingsNavigationPolicy.canDiscardChanges(
+            isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
           )
+        },
+        discardChanges: {
+          ewsViewModel.discardUnsavedChanges()
+          genericMailViewModel.discardUnsavedChanges()
+        },
+        destinationContent: { destination, request in
+          switch destination {
+          case .emailAccounts:
+            EmailAccountsSettingsView(
+              ewsViewModel: ewsViewModel,
+              genericMailViewModel: genericMailViewModel,
+              gmailViewModel: gmailViewModel,
+              microsoftGraphViewModel: microsoftGraphViewModel,
+              freshnessViewModel: freshnessViewModel,
+              cancelBodyPrefetch: {
+                await mailboxWorkCoordinator.cancelBodyPrefetch(
+                  productAccountId: snapshot.productAccountId
+                )
+              },
+              connectionsDidChange: refreshConnectionAuthorityAndNotify,
+              gmailConnectionsDidChange: notifyConnectionsDidChange,
+              isMailboxBusy: mailboxWorkCoordinator.isBusy(
+                productAccountId: snapshot.productAccountId
+              ),
+              navigationRequest: request
+            )
+          default:
+            EmptyView()
+          }
         }
-      }
+      )
       .onDisappear {
         ewsViewModel.invalidate()
         genericMailViewModel.invalidate()
       }
+    }
+
+    private var settingsAttentions: [SettingsAttention] {
+      let connections = EmailAccountsSettingsView.makeSummaryConnections(
+        routedConnections: gmailViewModel.connections,
+        genericDefinitions: genericMailViewModel.syncedDefinitions,
+        authorizedGenericConnectionIds: genericMailViewModel.authorizedSyncedConnectionIds,
+        session: snapshot
+      )
+      let syncFailure = connections.lazy.compactMap { connection -> String? in
+        guard case .failed(let message) = freshnessViewModel.status(for: connection).phase else {
+          return nil
+        }
+        return message
+      }.first
+      guard
+        let attention = SettingsAttention.emailAccounts(
+          authorizationRequired: connections.contains {
+            $0.authorizationState == .required
+          },
+          syncFailureMessage: syncFailure
+        )
+      else {
+        return []
+      }
+      return [attention]
     }
 
     private func refreshConnectionAuthorityAndNotify() {
