@@ -986,6 +986,42 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     XCTAssertEqual(body.inlineImages, [])
   }
 
+  func testReadRejectsAnimatedInlineImage() async throws {
+    let imageData = Data([
+      0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x01, 0x00, 0x01, 0x00, 0x80, 0x00, 0x00, 0x00,
+      0x00, 0x00, 0xFF, 0xFF, 0xFF, 0x21, 0xF9, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2C,
+      0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x44, 0x01, 0x00,
+      0x21, 0xF9, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x2C, 0x00, 0x00, 0x00, 0x00, 0x01,
+      0x00, 0x01, 0x00, 0x00, 0x02, 0x02, 0x4C, 0x01, 0x00, 0x3B,
+    ])
+    let html = #"<p>Receipt</p><img src="cid:animated@example.com">"#
+    let fixture = try makeFixture(
+      messageResponse: """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/related",
+            "parts": [
+              {
+                "mimeType": "text/html",
+                "body": {"data": "\(Data(html.utf8).base64EncodedString())"}
+              },
+              {
+                "mimeType": "image/gif",
+                "headers": [{"name": "Content-ID", "value": "<animated@example.com>"}],
+                "body": {"data": "\(imageData.base64EncodedString())", "size": \(imageData.count)}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.inlineImages, [])
+  }
+
   func testReadCountsAdmittedInlineImagesInsteadOfMissingReferences() async throws {
     let imageData = pngImageData()
     let missingImages = (0..<20).map {

@@ -2197,6 +2197,7 @@ private enum GmailInlineImagePolicy {
   static func pixelCountIfAllowed(_ data: Data) -> Int? {
     let options = [kCGImageSourceShouldCache: false] as CFDictionary
     guard let source = CGImageSourceCreateWithData(data as CFData, options),
+      CGImageSourceGetCount(source) == 1,
       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options)
         as? [CFString: Any],
       let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
