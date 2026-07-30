@@ -1725,7 +1725,7 @@ struct MailEngineQualificationContract {
     }
 
     let mapping = try await connection.session.move(
-      sourceUIDs: [9],
+      sourceUIDs: [9, 8],
       sourceUIDValidity: 44,
       from: inbox,
       to: archive
@@ -1760,7 +1760,7 @@ struct MailEngineQualificationContract {
       if hasMove {
         .moveReceived(
           connectionID: connectionID,
-          sourceUIDs: [9],
+          sourceUIDs: [9, 8],
           sourceUIDValidity: 44,
           sourceMailbox: inbox,
           destinationMailbox: archive
@@ -1768,7 +1768,7 @@ struct MailEngineQualificationContract {
       } else {
         .copyReceived(
           connectionID: connectionID,
-          sourceUIDs: [9],
+          sourceUIDs: [9, 8],
           sourceUIDValidity: 44,
           sourceMailbox: inbox,
           destinationMailbox: archive
@@ -1777,7 +1777,7 @@ struct MailEngineQualificationContract {
     var expectedEvents = [expectedMutation]
     if !hasMove {
       expectedEvents.append(
-        .moveRemovedSourceUIDs(connectionID: connectionID, uids: [9])
+        .moveRemovedSourceUIDs(connectionID: connectionID, uids: [9, 8])
       )
     }
     expectedEvents.append(
@@ -1833,7 +1833,13 @@ struct MailEngineQualificationContract {
     XCTAssertEqual(mapping.sourceUIDValidity, 44)
     XCTAssertEqual(mapping.destinationMailbox, archive)
     XCTAssertEqual(mapping.destinationUIDValidity, 92)
-    XCTAssertEqual(mapping.pairs, [.init(destinationUID: 209, sourceUID: 9)])
+    XCTAssertEqual(
+      Dictionary(uniqueKeysWithValues: mapping.pairs.map { ($0.sourceUID, $0.destinationUID) }),
+      [
+        9: 209,
+        8: 208,
+      ]
+    )
   }
 
   func verifyMetadataAndBodyParts() async throws {
@@ -2085,11 +2091,11 @@ struct MailEngineQualificationContract {
         recoveredEvents.withValue { $0.append(event) }
       }
     }
-    try await waitForIdleEvents(recoveredEvents, count: 1, timeout: .seconds(2))
-    XCTAssertEqual(recoveredEvents.value, [.changedUIDs([10])])
-    assertSuccessfulIDLERecoveryHandshake(
-      handshakeAtCallback.value,
-      connectionID: connectionID
+    try await assertSuccessfulRecoveredIDLE(
+      callbacks: recoveredEvents,
+      handshake: handshakeAtCallback,
+      connectionID: connectionID,
+      mailbox: inbox
     )
     await assertRecoveredIDLECancellation(
       recoveryTask,
@@ -2394,6 +2400,12 @@ struct MailEngineQualificationContract {
         )
       }
     }
+    try await verifyRejectedIDLERecovery(
+      transportMode: .startTLS,
+      fixture: .idleDisconnectThenRejectRecovery(error: .startTLSRejected),
+      expectedError: .startTLSRejected,
+      connectionID: "idle-reconnect-starttls-upgrade-rejected"
+    )
   }
 
   private func verifyIDLERecoveryServerIdentityValidation() async throws {
@@ -2445,11 +2457,11 @@ struct MailEngineQualificationContract {
         callbacks.withValue { $0.append(event) }
       }
     }
-    try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
-    XCTAssertEqual(callbacks.value, [.changedUIDs([10])])
-    assertSuccessfulIDLERecoveryHandshake(
-      handshakeAtCallback.value,
-      connectionID: connectionID
+    try await assertSuccessfulRecoveredIDLE(
+      callbacks: callbacks,
+      handshake: handshakeAtCallback,
+      connectionID: connectionID,
+      mailbox: inbox
     )
     await assertRecoveredIDLECancellation(
       recoveryTask,
@@ -2475,12 +2487,12 @@ struct MailEngineQualificationContract {
         connectionID: connectionID,
         imapTransportMode: transportMode
       ).session
-      do {
-        try await session.idle(mailbox: inbox) { _ in }
-        XCTFail("The first XOAUTH2 IDLE attempt should disconnect.")
-      } catch {
-        XCTAssertEqual(error as? MailEngineError, .connectionClosed)
-      }
+      await assertInitialIDLEDisconnect(
+        session,
+        connectionID: connectionID,
+        mailbox: inbox,
+        failureMessage: "The first XOAUTH2 IDLE attempt should disconnect."
+      )
       let eventCountBeforeRecovery = await factory.events().count
       let callbacks = LockedBox<[MailEngineIdleEvent]>([])
       let handshakeAtCallback = LockedBox<[MailEngineQualificationEvent]>([])
@@ -2495,11 +2507,11 @@ struct MailEngineQualificationContract {
           callbacks.withValue { $0.append(event) }
         }
       }
-      try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
-      XCTAssertEqual(callbacks.value, [.changedUIDs([10])])
-      assertSuccessfulIDLERecoveryHandshake(
-        handshakeAtCallback.value,
+      try await assertSuccessfulRecoveredIDLE(
+        callbacks: callbacks,
+        handshake: handshakeAtCallback,
         connectionID: connectionID,
+        mailbox: inbox,
         expectsXOAUTH2Challenge: true
       )
       await assertRecoveredIDLECancellation(recoveryTask, callbacks: callbacks)
@@ -2510,6 +2522,56 @@ struct MailEngineQualificationContract {
       )
       try await verifyRecoveredIDLEPreservesSMTP(session, connectionID: connectionID)
     }
+  }
+
+  private func assertInitialIDLEDisconnect(
+    _ session: any MailEngineSession,
+    connectionID: String,
+    mailbox: MailEngineMailboxIdentity,
+    failureMessage: String
+  ) async {
+    let closesBeforeDisconnect = countIMAPCloses(
+      await factory.events(),
+      connectionID: connectionID
+    )
+    do {
+      try await session.idle(mailbox: mailbox) { _ in }
+      XCTFail(failureMessage)
+    } catch {
+      XCTAssertEqual(error as? MailEngineError, .connectionClosed)
+    }
+    await assertIMAPCloseCount(connectionID, expected: closesBeforeDisconnect + 1)
+  }
+
+  private func assertSuccessfulRecoveredIDLE(
+    callbacks: LockedBox<[MailEngineIdleEvent]>,
+    handshake: LockedBox<[MailEngineQualificationEvent]>,
+    connectionID: String,
+    mailbox: MailEngineMailboxIdentity,
+    expectsXOAUTH2Challenge: Bool = false
+  ) async throws {
+    try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
+    XCTAssertEqual(callbacks.value, [.changedUIDs([10])])
+    await assertRecoveredIDLEMailbox(connectionID: connectionID, mailbox: mailbox)
+    assertSuccessfulIDLERecoveryHandshake(
+      handshake.value,
+      connectionID: connectionID,
+      expectsXOAUTH2Challenge: expectsXOAUTH2Challenge
+    )
+  }
+
+  private func assertRecoveredIDLEMailbox(
+    connectionID: String,
+    mailbox: MailEngineMailboxIdentity
+  ) async {
+    let idleStarts = await factory.events().filter {
+      $0 == .idleStarted(connectionID: connectionID, mailbox: mailbox)
+    }
+    XCTAssertEqual(
+      idleStarts.count,
+      2,
+      "Initial and recovered IDLE must each target the requested mailbox exactly once."
+    )
   }
 
   private func verifyRejectedIDLERecovery(
@@ -4010,13 +4072,9 @@ struct MailEngineQualificationContract {
     let idleTask = inFlightIdleTask(session, callbacks: callbacks)
     let bodyFetchTask = inFlightBodyFetchTask(session)
     let submissionTask = inFlightSubmissionTask(session)
-    let copyTask = inFlightCopyTask(session)
-    let moveTask = inFlightMoveTask(session)
-    let appendTask = inFlightSentAppendTask(session)
     try await factory.waitForIdleStarts(1, timeout: .seconds(2))
     try await factory.waitForBodyFetchStarts(1, timeout: .seconds(2))
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
-    try await waitForInFlightStateChangingOperations()
     try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
     let callbacksBeforeClose = callbacks.value
     let contentBeforeClose = await submissionContentAcceptedMessages(
@@ -4026,11 +4084,6 @@ struct MailEngineQualificationContract {
     await assertInFlightOperationClosed(idleTask)
     await assertInFlightOperationClosed(bodyFetchTask)
     await assertInFlightOperationClosed(submissionTask)
-    await assertInFlightStateChangingOperationsClosed(
-      copyTask: copyTask,
-      moveTask: moveTask,
-      appendTask: appendTask
-    )
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     await assertNoSubmissionContentAccepted(connectionID: "connection-a")
     try await verifyPreservedPeerSession(preservedSession)
@@ -4047,6 +4100,7 @@ struct MailEngineQualificationContract {
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
     assertServiceTeardownEvents(events)
     await preservedSession.close()
+    try await verifyInFlightStateChangingOperationClose()
   }
 
   private func verifyCloseAfterSMTPContentIsAmbiguous() async throws {
@@ -4261,30 +4315,80 @@ struct MailEngineQualificationContract {
     }
   }
 
-  private func waitForInFlightStateChangingOperations() async throws {
+  private func verifyInFlightStateChangingOperationClose() async throws {
+    try await verifyInFlightCopyClose()
+    try await verifyInFlightMoveClose()
+    try await verifyInFlightSentAppendClose()
+  }
+
+  private func verifyInFlightCopyClose() async throws {
+    let connectionID = "close-in-flight-copy"
+    let session = try await connect(
+      fixture: .inFlightOperationsUntilClosed,
+      connectionID: connectionID
+    ).session
+    let task = inFlightCopyTask(session)
+    try await waitForInFlightStateChangingOperation {
+      if case .copyReceived(let eventConnectionID, _, _, _, _) = $0 {
+        return eventConnectionID == connectionID
+      }
+      return false
+    }
+    await session.close()
+    await assertInFlightStateChangingOperationClosed(task, operation: "COPY")
+    await assertInFlightStateChangingOperationWasNotReplayed(
+      connectionID: connectionID
+    )
+  }
+
+  private func verifyInFlightMoveClose() async throws {
+    let connectionID = "close-in-flight-move"
+    let session = try await connect(
+      fixture: .inFlightOperationsUntilClosed,
+      connectionID: connectionID
+    ).session
+    let task = inFlightMoveTask(session)
+    try await waitForInFlightStateChangingOperation {
+      if case .moveReceived(let eventConnectionID, _, _, _, _) = $0 {
+        return eventConnectionID == connectionID
+      }
+      return false
+    }
+    await session.close()
+    await assertInFlightStateChangingOperationClosed(task, operation: "MOVE")
+    await assertInFlightStateChangingOperationWasNotReplayed(
+      connectionID: connectionID
+    )
+  }
+
+  private func verifyInFlightSentAppendClose() async throws {
+    let connectionID = "close-in-flight-sent-append"
+    let session = try await connect(
+      fixture: .inFlightOperationsUntilClosed,
+      connectionID: connectionID
+    ).session
+    let task = inFlightSentAppendTask(session)
+    try await waitForInFlightStateChangingOperation {
+      if case .sentAppendReceived(let eventConnectionID, _, _) = $0 {
+        return eventConnectionID == connectionID
+      }
+      return false
+    }
+    await session.close()
+    await assertInFlightStateChangingOperationClosed(task, operation: "Sent append")
+    await assertInFlightStateChangingOperationWasNotReplayed(
+      connectionID: connectionID
+    )
+  }
+
+  private func waitForInFlightStateChangingOperation(
+    matching predicate: (MailEngineQualificationEvent) -> Bool
+  ) async throws {
     let clock = ContinuousClock()
     let deadline = clock.now.advanced(by: .seconds(2))
     while clock.now < deadline {
       let events = await factory.events()
-      let copyCount = events.filter {
-        if case .copyReceived(let connectionID, _, _, _, _) = $0 {
-          return connectionID == "connection-a"
-        }
-        return false
-      }.count
-      let moveCount = events.filter {
-        if case .moveReceived(let connectionID, _, _, _, _) = $0 {
-          return connectionID == "connection-a"
-        }
-        return false
-      }.count
-      let appendCount = events.filter {
-        if case .sentAppendReceived(let connectionID, _, _) = $0 {
-          return connectionID == "connection-a"
-        }
-        return false
-      }.count
-      if copyCount == 1, moveCount == 1, appendCount == 1 {
+      if events.filter(predicate).count == 1 {
         return
       }
       try await Task.sleep(for: .milliseconds(10))
@@ -4292,34 +4396,26 @@ struct MailEngineQualificationContract {
     throw MailEngineQualificationHarnessError.operationStartTimedOut
   }
 
-  private func assertInFlightStateChangingOperationsWereNotReplayed() async {
+  private func assertInFlightStateChangingOperationWasNotReplayed(
+    connectionID: String
+  ) async {
     let events = await factory.events()
     let stateChangingEvents = events.filter {
       switch $0 {
-      case .copyReceived(let connectionID, _, _, _, _),
-        .moveReceived(let connectionID, _, _, _, _),
-        .sentAppendReceived(let connectionID, _, _):
-        connectionID == "connection-a"
+      case .copyReceived(let eventConnectionID, _, _, _, _),
+        .moveReceived(let eventConnectionID, _, _, _, _),
+        .sentAppendReceived(let eventConnectionID, _, _):
+        eventConnectionID == connectionID
       default:
         false
       }
     }
     XCTAssertEqual(
       stateChangingEvents.count,
-      3,
-      "Closing the session must not replay an in-flight UID mutation or Sent append."
+      1,
+      "Closing the session must not replay the transmitted state-changing command."
     )
-  }
-
-  private func assertInFlightStateChangingOperationsClosed(
-    copyTask: Task<MailEngineUIDMapping, Error>,
-    moveTask: Task<MailEngineUIDMapping, Error>,
-    appendTask: Task<MailEngineMessageIdentity, Error>
-  ) async {
-    await assertInFlightStateChangingOperationClosed(copyTask, operation: "COPY")
-    await assertInFlightStateChangingOperationClosed(moveTask, operation: "MOVE")
-    await assertInFlightStateChangingOperationClosed(appendTask, operation: "Sent append")
-    await assertInFlightStateChangingOperationsWereNotReplayed()
+    assertServiceTeardownEvents(events, connectionID: connectionID)
   }
 
   private func assertNoSubmissionContentAccepted(connectionID: String) async {
@@ -4454,12 +4550,15 @@ struct MailEngineQualificationContract {
     }
   }
 
-  private func assertServiceTeardownEvents(_ events: [MailEngineQualificationEvent]) {
+  private func assertServiceTeardownEvents(
+    _ events: [MailEngineQualificationEvent],
+    connectionID: String = "connection-a"
+  ) {
     XCTAssertTrue(
-      events.contains(.serviceClosed(connectionID: "connection-a", service: .imap))
+      events.contains(.serviceClosed(connectionID: connectionID, service: .imap))
     )
     XCTAssertTrue(
-      events.contains(.serviceClosed(connectionID: "connection-a", service: .smtp))
+      events.contains(.serviceClosed(connectionID: connectionID, service: .smtp))
     )
   }
 
