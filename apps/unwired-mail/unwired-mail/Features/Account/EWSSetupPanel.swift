@@ -1,5 +1,7 @@
 import SwiftUI
 
+// swiftlint:disable file_length
+
 @MainActor
 @Observable
 final class EWSSetupViewModel {
@@ -17,6 +19,7 @@ final class EWSSetupViewModel {
   private let authorizationStore: EWSAuthorizationPersisting
   private let definitionSyncService: MailboxConnectionDefinitionSyncing
   private var definitionsByConnectionId: [MailboxConnectionId: EWSConnectionDefinition] = [:]
+  private var editorBaseline = [MailAuthorizationMethod.password.rawValue, "", "", "", ""]
   private let isSessionCurrent: (ProductAccountSessionSnapshot) -> Bool
   private var isValid = true
   private var loadIsActive = false
@@ -28,6 +31,10 @@ final class EWSSetupViewModel {
   private let session: ProductAccountSessionSnapshot
 
   var isConfirmingRecreation: Bool { removalObservation != nil }
+
+  var hasUnsavedChanges: Bool {
+    editorState != editorBaseline
+  }
 
   init(
     adapter: EWSMailboxConnectionAdapter = EWSMailboxConnectionAdapter(),
@@ -108,6 +115,10 @@ final class EWSSetupViewModel {
       selectedConnectionId = connection.id
       credential = ""
       try await reloadAfterMutation()
+      if let definition = definitionsByConnectionId[connection.id] {
+        apply(definition)
+      }
+      rememberEditorState()
       errorMessage = nil
       return connection
     } catch is CancellationError {
@@ -137,6 +148,23 @@ final class EWSSetupViewModel {
     isValid = false
   }
 
+  func discardUnsavedChanges() {
+    if let selectedConnectionId,
+      let definition = definitionsByConnectionId[selectedConnectionId]
+    {
+      apply(definition)
+    } else {
+      authorizationMethod = .password
+      credential = ""
+      emailAddress = ""
+      endpoint = ""
+      username = ""
+      selectedConnectionId = nil
+    }
+    removalObservation = nil
+    rememberEditorState()
+  }
+
   func select(_ connection: MailboxConnection) async {
     credential = ""
     let authorization = try? authorizationStore.load(
@@ -145,12 +173,10 @@ final class EWSSetupViewModel {
     )
     guard let definition = definitionsByConnectionId[connection.id] ?? authorization?.definition
     else { return }
-    authorizationMethod = definition.authorizationMethod
-    emailAddress = definition.emailAddress
-    endpoint = definition.endpoint.absoluteString
+    apply(definition)
     removalObservation = nil
     selectedConnectionId = connection.id
-    username = definition.username
+    rememberEditorState()
   }
 
   func removeLocal(_ connection: MailboxConnection) async -> Bool {
@@ -212,6 +238,22 @@ final class EWSSetupViewModel {
     defaultSendingConnectionId = snapshot.defaultSendingConnectionId
     self.connections = connections
   }
+
+  private var editorState: [String] {
+    [authorizationMethod.rawValue, credential, emailAddress, endpoint, username]
+  }
+
+  private func apply(_ definition: EWSConnectionDefinition) {
+    authorizationMethod = definition.authorizationMethod
+    credential = ""
+    emailAddress = definition.emailAddress
+    endpoint = definition.endpoint.absoluteString
+    username = definition.username
+  }
+
+  private func rememberEditorState() {
+    editorBaseline = editorState
+  }
 }
 
 struct EWSSetupPanel: View {
@@ -220,6 +262,7 @@ struct EWSSetupPanel: View {
   var connectionDidConnect: (MailboxConnection) -> Void = { _ in }
   var connectionsDidChange: () -> Void = {}
   var isMailboxBusy = false
+  @State private var pendingSelection: MailboxConnection?
   @State private var task: Task<Void, Never>?
 
   var body: some View {
@@ -238,7 +281,7 @@ struct EWSSetupPanel: View {
       ForEach(viewModel.connections, id: \.id) { connection in
         HStack {
           Button {
-            Task { await viewModel.select(connection) }
+            requestSelection(connection)
           } label: {
             VStack(alignment: .leading, spacing: 2) {
               Text(connection.displayName)
@@ -257,7 +300,7 @@ struct EWSSetupPanel: View {
           Menu("Manage") {
             if connection.authorizationState == .authorized {
               Button("Reauthorize on This Device") {
-                Task { await viewModel.select(connection) }
+                requestSelection(connection)
               }
               Button("Set as Default Sending Connection") {
                 Task {
@@ -278,7 +321,7 @@ struct EWSSetupPanel: View {
               }
             } else {
               Button("Authorize on This Device") {
-                Task { await viewModel.select(connection) }
+                requestSelection(connection)
               }
             }
             Button("Remove Mailbox Connection Everywhere", role: .destructive) {
@@ -344,5 +387,22 @@ struct EWSSetupPanel: View {
     }
     .task { await viewModel.load() }
     .onDisappear { task?.cancel() }
+    .confirmDiscardSelection($pendingSelection) { connection in
+      viewModel.discardUnsavedChanges()
+      Task { await viewModel.select(connection) }
+    }
+  }
+}
+
+extension EWSSetupPanel {
+  fileprivate func requestSelection(_ connection: MailboxConnection) {
+    guard SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: viewModel.isWorking) else {
+      return
+    }
+    if viewModel.hasUnsavedChanges {
+      pendingSelection = connection
+    } else {
+      Task { await viewModel.select(connection) }
+    }
   }
 }

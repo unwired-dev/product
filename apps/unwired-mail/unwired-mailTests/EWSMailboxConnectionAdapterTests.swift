@@ -61,6 +61,24 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotEqual(standard, alternate)
   }
 
+  func testEWSSetupDiscardRestoresTheSavedEditorBaseline() {
+    let viewModel = EWSSetupViewModel(
+      isSessionCurrent: { $0 == self.session },
+      session: session
+    )
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    viewModel.emailAddress = "draft@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    XCTAssertTrue(viewModel.hasUnsavedChanges)
+
+    viewModel.discardUnsavedChanges()
+
+    XCTAssertFalse(viewModel.hasUnsavedChanges)
+    XCTAssertEqual(viewModel.emailAddress, "")
+    XCTAssertEqual(viewModel.endpoint, "")
+  }
+
   func testSetupUsesVerifiedMailboxIdentityAcrossAliases() async throws {
     let client = RecordingEWSClient()
     let service = EWSSetupService(
@@ -194,6 +212,54 @@ final class EWSMailboxConnectionAdapterTests: XCTestCase {
     _ = await viewModel.connect()
 
     XCTAssertEqual(definitions.recreateDefinitionCount, 2)
+  }
+
+  func testEWSSetupDiscardClearsPendingRecreation() async throws {
+    let definitions = RecordingEWSDefinitionSyncService()
+    let client = RecordingEWSClient()
+    let providerAccountIdentifier = try EWSConnectionDefinition.stableProviderAccountIdentifier(
+      endpoint: XCTUnwrap(URL(string: "https://mail.corp.example/EWS/Exchange.asmx")),
+      mailboxIdentifier: client.account.providerMailboxIdentifier
+    )
+    let removalObservation = MailboxConnectionRemovalObservation(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .exchangeWebServices,
+          value: providerAccountIdentifier
+        )
+      ),
+      removedAt: 1_781_200_000_500
+    )
+    definitions.recreateError = MailboxConnectionSyncError.connectionRemoved(removalObservation)
+    definitions.removedConnectionIds = [removalObservation.connectionId]
+    let authorizations = InMemoryEWSAuthorizationStore()
+    let viewModel = EWSSetupViewModel(
+      adapter: EWSMailboxConnectionAdapter(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions,
+        metadataStore: InMemoryEWSMetadataStore()
+      ),
+      authorizationStore: authorizations,
+      definitionSyncService: definitions,
+      isSessionCurrent: { $0 == self.session },
+      service: EWSSetupService(
+        authorizationStore: authorizations,
+        client: client,
+        definitionSyncService: definitions
+      ),
+      session: session
+    )
+    viewModel.credential = "password"
+    viewModel.emailAddress = "reader@corp.example"
+    viewModel.endpoint = "https://mail.corp.example/EWS/Exchange.asmx"
+    viewModel.username = #"CORP\reader"#
+    _ = await viewModel.connect()
+    XCTAssertTrue(viewModel.isConfirmingRecreation)
+
+    viewModel.discardUnsavedChanges()
+
+    XCTAssertFalse(viewModel.isConfirmingRecreation)
   }
 
   func testEWSSetupViewModelClearsStaleConfirmationAfterConcurrentRecreation() async throws {

@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct UnwiredMailApp: App {
   @State private var session: ProductAccountSession
+  @State private var settingsRouter = SettingsRouter()
 
   #if canImport(UIKit)
     @UIApplicationDelegateAdaptor(PushNotificationAppDelegate.self) private var appDelegate
@@ -24,18 +25,21 @@ struct UnwiredMailApp: App {
     #if DEBUG && targetEnvironment(macCatalyst)
       WindowGroup {
         RootView(session: session)
+          .environment(settingsRouter)
       }
       .commands {
-        DevelopmentSettingsCommands()
+        DevelopmentSettingsCommands(settingsRouter: settingsRouter)
       }
 
       WindowGroup("Settings", id: "development-settings") {
         DevelopmentSettingsRootView(session: session)
+          .environment(settingsRouter)
       }
       .defaultSize(width: 920, height: 720)
     #else
       WindowGroup {
         RootView(session: session)
+          .environment(settingsRouter)
       }
     #endif
   }
@@ -44,10 +48,12 @@ struct UnwiredMailApp: App {
 #if DEBUG && targetEnvironment(macCatalyst)
   private struct DevelopmentSettingsCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    let settingsRouter: SettingsRouter
 
     var body: some Commands {
       CommandGroup(replacing: .appSettings) {
         Button("Settings…") {
+          settingsRouter.open(nil)
           openWindow(id: "development-settings")
         }
         .keyboardShortcut(",", modifiers: .command)

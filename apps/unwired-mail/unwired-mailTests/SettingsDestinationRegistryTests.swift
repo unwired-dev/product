@@ -2,6 +2,7 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length type_body_length
 final class SettingsDestinationRegistryTests: XCTestCase {
   @MainActor
   func testManualProviderRefreshNotifiesMailShellAfterLoadCompletes() async {
@@ -148,9 +149,10 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   }
 
   @MainActor
-  func testEmailAccountsStartsRoutedAndGenericLoadsTogether() async {
+  func testEmailAccountsWaitsForRoutedGenericAndEWSLoads() async {
     let routedLoad = TestRendezvous()
     let genericLoad = TestRendezvous()
+    let ewsLoad = TestRendezvous()
     let loadTask = Task {
       await EmailAccountsSettingsView.loadInitialConnections(
         loadRoutedConnections: {
@@ -159,14 +161,19 @@ final class SettingsDestinationRegistryTests: XCTestCase {
         },
         loadGenericConnections: {
           await genericLoad.hold()
+        },
+        loadEWSConnections: {
+          await ewsLoad.hold()
         }
       )
     }
 
     await routedLoad.waitUntilHeld()
     await genericLoad.waitUntilHeld()
+    await ewsLoad.waitUntilHeld()
     await routedLoad.release()
     await genericLoad.release()
+    await ewsLoad.release()
 
     let connectionsAreAuthoritative = await loadTask.value
     XCTAssertTrue(connectionsAreAuthoritative)
@@ -201,15 +208,296 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(destination.route, .emailAccounts)
     XCTAssertFalse(destination.isAvailableWhenSignedOut)
     XCTAssertEqual(
-      destination.searchTerms,
+      destination.searchItems.map(\.title),
       [
         "Mailbox Connections",
         "Authorization",
         "Default Sending Connection",
         "Synchronize",
         "Mailbox Roles",
+        "Gmail",
+        "Microsoft 365",
+        "On-Premises Exchange",
+        "Other Mail Server",
       ]
     )
+  }
+
+  func testSearchMatchesDestinationGroupSectionAndControlLabels() {
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "email accounts", isSignedIn: true),
+      [
+        SettingsSearchResult(
+          title: "Email Accounts",
+          subtitle: "Accounts",
+          route: .mailboxConnections
+        )
+      ]
+    )
+    XCTAssertTrue(
+      SettingsDestinationRegistry.search(matching: "accounts", isSignedIn: true)
+        .contains { $0.route == .mailboxConnections }
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "mailbox connections", isSignedIn: true)
+        .map(\.route),
+      [.mailboxConnections]
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "AuThOrIzAtIoN", isSignedIn: true)
+        .map(\.route),
+      [.authorization(connectionId: nil)]
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "on premises", isSignedIn: true)
+        .map(\.route),
+      [.provider(.exchangeWebServices)]
+    )
+  }
+
+  func testSearchResultsHaveUniqueIdentitiesWhenRoutesOverlap() {
+    let results = SettingsDestinationRegistry.search(matching: "mail", isSignedIn: true)
+
+    XCTAssertEqual(Set(results.map(\.id)).count, results.count)
+  }
+
+  func testSearchUsesOnlyStaticMetadata() {
+    XCTAssertTrue(
+      SettingsDestinationRegistry.search(
+        matching: "private@example.com",
+        isSignedIn: true
+      ).isEmpty
+    )
+    XCTAssertTrue(
+      SettingsDestinationRegistry.search(
+        matching: "signature body",
+        isSignedIn: true
+      ).isEmpty
+    )
+    XCTAssertTrue(
+      SettingsDestinationRegistry.search(
+        matching: "diagnostic report contents",
+        isSignedIn: true
+      ).isEmpty
+    )
+    XCTAssertTrue(
+      SettingsDestinationRegistry.search(
+        matching: "Authorization",
+        isSignedIn: false
+      ).isEmpty
+    )
+  }
+
+  func testContextualRoutesMapToTheirFutureDestinationsWithoutMakingThemVisible() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+
+    XCTAssertEqual(
+      SettingsRoute.authorization(connectionId: connectionId).destination,
+      .emailAccounts
+    )
+    XCTAssertEqual(SettingsRoute.notificationPermission.destination, .notifications)
+    XCTAssertEqual(
+      SettingsRoute.missingSignature(connectionId: connectionId).destination,
+      .signatures
+    )
+    XCTAssertEqual(
+      SettingsRoute.readReceipt(connectionId: connectionId).destination,
+      .reading
+    )
+    XCTAssertEqual(SettingsRoute.storage.destination, .privacyAndData)
+    XCTAssertEqual(
+      SettingsRoute.preferenceConflict(destination: .inbox, field: "previewLength").destination,
+      .inbox
+    )
+    XCTAssertNil(
+      SettingsDestinationRegistry.resolveRoute(
+        .notificationPermission,
+        isSignedIn: true
+      )
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.resolveRoute(
+        .authorization(connectionId: connectionId),
+        isSignedIn: true
+      ),
+      .authorization(connectionId: connectionId)
+    )
+    XCTAssertEqual(SettingsDestinationRegistry.implementedDestinations, [.emailAccounts])
+  }
+
+  func testUnsavedChangesRequireConfirmationBeforeChangingContext() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+    let current = SettingsRoute.emailAccounts
+    let requested = SettingsRoute.authorization(connectionId: connectionId)
+
+    XCTAssertEqual(
+      SettingsNavigationPolicy.decision(
+        currentRoute: current,
+        requestedRoute: requested,
+        hasUnsavedChanges: true,
+        isSignedIn: true
+      ),
+      .confirmDiscard(requested)
+    )
+    XCTAssertEqual(
+      SettingsNavigationPolicy.decision(
+        currentRoute: current,
+        requestedRoute: requested,
+        hasUnsavedChanges: false,
+        isSignedIn: true
+      ),
+      .navigate(requested)
+    )
+    XCTAssertEqual(
+      SettingsNavigationPolicy.decision(
+        currentRoute: requested,
+        requestedRoute: requested,
+        hasUnsavedChanges: true,
+        isSignedIn: true
+      ),
+      .navigate(requested)
+    )
+  }
+
+  func testDiscardIsBlockedWhileSetupIsWorking() {
+    XCTAssertFalse(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: true))
+    XCTAssertTrue(SettingsNavigationPolicy.canDiscardChanges(isSetupWorking: false))
+  }
+
+  func testUnavailableDeepLinksDoNotReplaceTheCurrentDestination() {
+    XCTAssertEqual(
+      SettingsNavigationPolicy.decision(
+        currentRoute: .emailAccounts,
+        requestedRoute: .notificationPermission,
+        hasUnsavedChanges: false,
+        isSignedIn: true
+      ),
+      .unavailable
+    )
+  }
+
+  func testEmailAccountAttentionIncludesOnlyActionableFailures() {
+    XCTAssertEqual(
+      SettingsAttention.emailAccounts(
+        authorizationRequired: true,
+        syncFailureMessage: "Server rejected the request."
+      ),
+      SettingsAttention(
+        destination: .emailAccounts,
+        kind: .authorization,
+        message: "One or more Mailbox Connections require authorization on this device."
+      )
+    )
+    XCTAssertEqual(
+      SettingsAttention.emailAccounts(
+        authorizationRequired: false,
+        syncFailureMessage: "Server rejected the request."
+      ),
+      SettingsAttention(
+        destination: .emailAccounts,
+        kind: .sync,
+        message: "Mailbox synchronization failed: Server rejected the request."
+      )
+    )
+    XCTAssertNil(
+      SettingsAttention.emailAccounts(
+        authorizationRequired: false,
+        syncFailureMessage: nil
+      )
+    )
+  }
+
+  func testNavigationLayoutUsesCompactStackOnlyForCompactWidth() {
+    XCTAssertEqual(SettingsNavigationLayout.resolve(.compact), .compact)
+    XCTAssertEqual(SettingsNavigationLayout.resolve(.regular), .split)
+    XCTAssertEqual(SettingsNavigationLayout.resolve(nil), .split)
+  }
+
+  func testEmailAccountRoutesChooseFocusAndHighlightTargets() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .mailboxConnections),
+      .summary
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(
+        for: .authorization(connectionId: connectionId)
+      ),
+      .connection(connectionId.rawValue)
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .mailboxRoles(connectionId: nil)),
+      .genericMail
+    )
+    XCTAssertEqual(
+      EmailAccountsSettingsView.navigationFocus(for: .provider(.microsoftGraph)),
+      .provider(MailProviderId.microsoftGraph.rawValue)
+    )
+    XCTAssertNil(
+      EmailAccountsSettingsView.navigationFocus(for: .notificationPermission)
+    )
+  }
+
+  func testActionableMailboxStatusesLinkToTheAffectedConnection() {
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "account"
+      )
+    )
+
+    XCTAssertEqual(
+      MailboxStatusSettingsLink.route(
+        for: .authorizationRequired(lastSuccessfulSyncAt: nil),
+        connectionId: connectionId
+      ),
+      .authorization(connectionId: connectionId)
+    )
+    XCTAssertEqual(
+      MailboxStatusSettingsLink.route(
+        for: MailboxSyncStatus(
+          lastSuccessfulSyncAt: nil,
+          phase: .failed("Server rejected the request.")
+        ),
+        connectionId: connectionId
+      ),
+      .synchronization(connectionId: connectionId)
+    )
+    XCTAssertNil(
+      MailboxStatusSettingsLink.route(
+        for: MailboxSyncStatus(lastSuccessfulSyncAt: nil, phase: .offline),
+        connectionId: connectionId
+      )
+    )
+  }
+
+  @MainActor
+  func testRouterPublishesRepeatedRequestsForTheSameRoute() {
+    let router = SettingsRouter()
+
+    router.open(.emailAccounts)
+    let firstRequest = router.request
+    router.open(.emailAccounts)
+
+    XCTAssertEqual(firstRequest?.route, .emailAccounts)
+    XCTAssertEqual(router.request?.route, .emailAccounts)
+    XCTAssertNotEqual(firstRequest?.id, router.request?.id)
   }
 
   func testSignedInSettingsDefaultsToEmailAccounts() {

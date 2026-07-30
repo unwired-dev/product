@@ -2,6 +2,13 @@ import SwiftUI
 
 // swiftlint:disable file_length
 
+enum EmailAccountsNavigationFocus: Equatable {
+  case connection(String)
+  case genericMail
+  case provider(String)
+  case summary
+}
+
 // swiftlint:disable:next type_body_length
 struct EmailAccountsSettingsView: View {
   @Bindable var ewsViewModel: EWSSetupViewModel
@@ -14,15 +21,29 @@ struct EmailAccountsSettingsView: View {
   let connectionsDidChange: () -> Void
   let gmailConnectionsDidChange: () -> Void
   let isMailboxBusy: Bool
+  var navigationRequest: SettingsRouteRequest?
 
   @State private var connectionsAreAuthoritative = false
   @State private var detailTarget: MailProviderId?
+  @State private var highlightTask: Task<Void, Never>?
+  @State private var highlightedAnchor: NavigationAnchor?
+  @State private var pendingDetailsConnection: MailboxConnection?
+
+  private enum NavigationAnchor: Hashable {
+    case exchangeWebServices
+    case genericMail
+    case gmail
+    case microsoftGraph
+    case summary
+  }
 
   var body: some View {
     ScrollViewReader { proxy in
       ScrollView {
         VStack(alignment: .leading, spacing: 24) {
           connectionSummary
+            .id(NavigationAnchor.summary)
+            .settingsHighlight(highlightedAnchor == .summary)
 
           Divider()
 
@@ -34,7 +55,8 @@ struct EmailAccountsSettingsView: View {
             connectionsDidChange: gmailProviderConnectionsDidChange,
             manualRefreshDidComplete: gmailProviderConnectionsDidChange
           )
-          .id(MailProviderId.gmail)
+          .id(NavigationAnchor.gmail)
+          .settingsHighlight(highlightedAnchor == .gmail)
 
           MicrosoftGraphConnectionPanel(
             cancelBodyPrefetch: cancelBodyPrefetch,
@@ -48,7 +70,8 @@ struct EmailAccountsSettingsView: View {
             viewModel: microsoftGraphViewModel
           )
           .disabled(providerMutationsAreDisabled)
-          .id(MailProviderId.microsoftGraph)
+          .id(NavigationAnchor.microsoftGraph)
+          .settingsHighlight(highlightedAnchor == .microsoftGraph)
 
           EWSSetupPanel(
             viewModel: ewsViewModel,
@@ -57,7 +80,8 @@ struct EmailAccountsSettingsView: View {
             isMailboxBusy: isMailboxBusy
           )
           .disabled(providerMutationsAreDisabled)
-          .id(MailProviderId.exchangeWebServices)
+          .id(NavigationAnchor.exchangeWebServices)
+          .settingsHighlight(highlightedAnchor == .exchangeWebServices)
 
           GenericMailSetupPanel(
             viewModel: genericMailViewModel,
@@ -67,7 +91,8 @@ struct EmailAccountsSettingsView: View {
             routedConnections: gmailViewModel.connections
           )
           .disabled(providerMutationsAreDisabled)
-          .id(MailProviderId.imapSMTP)
+          .id(NavigationAnchor.genericMail)
+          .settingsHighlight(highlightedAnchor == .genericMail)
         }
         .padding(24)
         .frame(maxWidth: 760, alignment: .topLeading)
@@ -76,21 +101,26 @@ struct EmailAccountsSettingsView: View {
       .onChange(of: detailTarget) { _, providerId in
         guard let providerId else { return }
         withAnimation {
-          proxy.scrollTo(providerSectionId(for: providerId), anchor: .top)
+          proxy.scrollTo(navigationAnchor(for: providerId), anchor: .top)
         }
         detailTarget = nil
       }
-    }
-    .task {
-      connectionsAreAuthoritative = await Self.loadInitialConnections(
-        loadRoutedConnections: gmailViewModel.load,
-        loadGenericConnections: genericMailViewModel.loadSyncedDefinitions
-      )
-      Self.updateFreshnessConnections(
-        gmailViewModel.connections,
-        connectionsAreAuthoritative: connectionsAreAuthoritative,
-        freshnessViewModel: freshnessViewModel
-      )
+      .onChange(of: navigationRequest?.id, initial: true) { _, _ in
+        applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
+      .task {
+        connectionsAreAuthoritative = await Self.loadInitialConnections(
+          loadRoutedConnections: gmailViewModel.load,
+          loadGenericConnections: genericMailViewModel.loadSyncedDefinitions,
+          loadEWSConnections: ewsViewModel.load
+        )
+        Self.updateFreshnessConnections(
+          gmailViewModel.connections,
+          connectionsAreAuthoritative: connectionsAreAuthoritative,
+          freshnessViewModel: freshnessViewModel
+        )
+        applyNavigation(navigationRequest?.route, proxy: proxy)
+      }
     }
     .onChange(of: gmailViewModel.connections) { _, connections in
       connectionsAreAuthoritative = gmailViewModel.connectionsSnapshotIsAuthoritative
@@ -127,17 +157,27 @@ struct EmailAccountsSettingsView: View {
           notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
       )
     }
+    .onDisappear {
+      highlightTask?.cancel()
+    }
+    .confirmDiscardSelection($pendingDetailsConnection) { connection in
+      ewsViewModel.discardUnsavedChanges()
+      genericMailViewModel.discardUnsavedChanges()
+      showDetails(for: connection)
+    }
   }
 
   @MainActor
   static func loadInitialConnections(
     loadRoutedConnections: () async -> Bool,
-    loadGenericConnections: () async -> Void
+    loadGenericConnections: () async -> Void,
+    loadEWSConnections: () async -> Void
   ) async -> Bool {
     async let routedConnectionsAreAuthoritative = loadRoutedConnections()
     async let genericConnectionsLoad: Void = loadGenericConnections()
+    async let ewsConnectionsLoad: Void = loadEWSConnections()
     let connectionsAreAuthoritative = await routedConnectionsAreAuthoritative
-    await genericConnectionsLoad
+    _ = await (genericConnectionsLoad, ewsConnectionsLoad)
     return connectionsAreAuthoritative
   }
 
@@ -210,6 +250,31 @@ struct EmailAccountsSettingsView: View {
     )
   }
 
+  static func navigationFocus(for route: SettingsRoute?) -> EmailAccountsNavigationFocus? {
+    guard
+      let route,
+      route.destination == .emailAccounts,
+      let context = route.context
+    else {
+      return nil
+    }
+
+    switch context {
+    case .authorization(let connectionId), .synchronization(let connectionId):
+      return connectionId.map(EmailAccountsNavigationFocus.connection) ?? .summary
+    case .mailboxRoles(let connectionId):
+      return connectionId.map(EmailAccountsNavigationFocus.connection) ?? .genericMail
+    case .defaultSendingConnection, .mailboxConnections:
+      return .summary
+    case .mailboxConnection(let connectionId):
+      return .connection(connectionId)
+    case .provider(let providerId):
+      return .provider(providerId)
+    case .missingSignature, .notificationPermission, .preferenceConflict, .readReceipt, .storage:
+      return nil
+    }
+  }
+
   @ViewBuilder
   private var connectionSummary: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -239,7 +304,7 @@ struct EmailAccountsSettingsView: View {
               freshnessViewModel.isHistoricalBackfillActive(for: connection),
             isSynchronizationDisabled: synchronizationIsDisabled(for: connection),
             status: freshnessViewModel.status(for: connection),
-            showDetails: { showDetails(for: connection) },
+            showDetails: { requestDetails(for: connection) },
             synchronize: {
               await freshnessViewModel.synchronizeFully(
                 connection: connection,
@@ -304,13 +369,60 @@ struct EmailAccountsSettingsView: View {
     }
   }
 
-  private func providerSectionId(for providerId: MailProviderId) -> MailProviderId {
+  private func navigationAnchor(for providerId: MailProviderId) -> NavigationAnchor {
     switch providerId {
     case .imapSMTP, .pop3SMTP:
-      return .imapSMTP
+      return .genericMail
+    case .exchangeWebServices:
+      return .exchangeWebServices
+    case .gmail:
+      return .gmail
+    case .microsoftGraph:
+      return .microsoftGraph
     default:
-      return providerId
+      return .summary
     }
+  }
+
+  private func applyNavigation(
+    _ route: SettingsRoute?,
+    proxy: ScrollViewProxy
+  ) {
+    guard let focus = Self.navigationFocus(for: route) else { return }
+
+    let anchor: NavigationAnchor
+    switch focus {
+    case .connection(let connectionId):
+      if let connection = connection(matching: connectionId) {
+        requestDetails(for: connection)
+        anchor = navigationAnchor(for: connection.providerId)
+      } else {
+        anchor = .summary
+      }
+    case .genericMail:
+      anchor = .genericMail
+    case .provider(let providerId):
+      anchor = navigationAnchor(for: MailProviderId(rawValue: providerId))
+    case .summary:
+      anchor = .summary
+    }
+
+    withAnimation {
+      proxy.scrollTo(anchor, anchor: .top)
+      highlightedAnchor = anchor
+    }
+    highlightTask?.cancel()
+    highlightTask = Task {
+      try? await Task.sleep(for: .seconds(1.5))
+      guard !Task.isCancelled else { return }
+      withAnimation {
+        highlightedAnchor = nil
+      }
+    }
+  }
+
+  private func connection(matching rawValue: String) -> MailboxConnection? {
+    return summaryConnections.first { $0.id.rawValue == rawValue }
   }
 
   private func showDetails(for connection: MailboxConnection) {
@@ -336,6 +448,19 @@ struct EmailAccountsSettingsView: View {
       detailTarget = .imapSMTP
     default:
       break
+    }
+  }
+
+  private func requestDetails(for connection: MailboxConnection) {
+    guard
+      SettingsNavigationPolicy.canDiscardChanges(
+        isSetupWorking: ewsViewModel.isWorking || genericMailViewModel.isConnecting
+      )
+    else { return }
+    if ewsViewModel.hasUnsavedChanges || genericMailViewModel.hasUnsavedChanges {
+      pendingDetailsConnection = connection
+    } else {
+      showDetails(for: connection)
     }
   }
 
@@ -542,5 +667,15 @@ private struct SettingsMailboxConnectionRow: View {
       return "Historical metadata backfill pending"
     }
     return "No historical metadata backfill pending"
+  }
+}
+
+extension View {
+  fileprivate func settingsHighlight(_ isHighlighted: Bool) -> some View {
+    overlay {
+      RoundedRectangle(cornerRadius: 12)
+        .stroke(isHighlighted ? Color.accentColor : Color.clear, lineWidth: 2)
+    }
+    .animation(.easeOut(duration: 0.2), value: isHighlighted)
   }
 }
