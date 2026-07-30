@@ -673,6 +673,8 @@
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
+				INFOPLIST_PREPROCESS = YES;
+				"INFOPLIST_PREPROCESSOR_DEFINITIONS[sdk=macosx*]" = "DEVELOPMENT_MULTIPLE_SCENES=1";
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
@@ -708,6 +710,7 @@
 				MICROSOFT_GRAPH_CALLBACK_SCHEME = msauth.dev.unwired.mail;
 				MICROSOFT_GRAPH_CLIENT_ID = "";
 				INFOPLIST_FILE = "unwired-mail/Info.plist";
+				INFOPLIST_PREPROCESS = YES;
 				INFOPLIST_KEY_CFBundleDisplayName = "Unwired Mail";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";

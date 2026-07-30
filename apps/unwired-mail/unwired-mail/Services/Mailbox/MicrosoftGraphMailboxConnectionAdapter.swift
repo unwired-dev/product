@@ -3922,6 +3922,7 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
   private let callbackScheme: String?
   private let clientIdentifier: String?
   nonisolated private let now: @Sendable () -> Date
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
   private let session: URLSession
   private var authenticationContinuation: CheckedContinuation<URL, Error>?
   private var webAuthenticationSession: ASWebAuthenticationSession?
@@ -3936,11 +3937,14 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
       ?? DotEnvFile.value(for: "MICROSOFT_GRAPH_CLIENT_ID")
       ?? Bundle.main.object(forInfoDictionaryKey: "MicrosoftGraphClientId") as? String,
     now: @escaping @Sendable () -> Date = { Date() },
-    session: URLSession = .shared
+    session: URLSession = .shared,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
   ) {
     self.callbackScheme = callbackScheme?.nonEmpty
     self.clientIdentifier = clientIdentifier?.nonEmpty
     self.now = now
+    self.presentationAnchorStore = presentationAnchorStore
     self.session = session
   }
 
@@ -4034,7 +4038,10 @@ final class MicrosoftGraphOAuthService: NSObject, MicrosoftGraphAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    try await withTaskCancellationHandler {
+    guard presentationAnchorStore.captureCurrent() else {
+      throw MicrosoftGraphOAuthError.webAuthenticationUnavailable
+    }
+    return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
@@ -4094,7 +4101,7 @@ extension MicrosoftGraphOAuthService: ASWebAuthenticationPresentationContextProv
   nonisolated func presentationAnchor(
     for session: ASWebAuthenticationSession
   ) -> ASPresentationAnchor {
-    AuthenticationPresentationAnchor.current()
+    presentationAnchorStore.current()
   }
 }
 

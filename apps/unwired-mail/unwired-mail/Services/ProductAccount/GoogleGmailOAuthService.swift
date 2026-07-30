@@ -139,6 +139,7 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
   private let clientIdentifier: String?
   private let session: URLSession
   private let tokenEndpoint: URL
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
   private var authenticationContinuation: CheckedContinuation<URL, Error>?
   private var webAuthenticationSession: ASWebAuthenticationSession?
 
@@ -148,11 +149,14 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
       ?? DotEnvFile.value(for: "GMAIL_OAUTH_CLIENT_ID")
       ?? GmailOAuthClientIdConfiguration.bundledValue(),
     session: URLSession = .shared,
-    tokenEndpoint: URL = URL(string: "https://oauth2.googleapis.com/token")!
+    tokenEndpoint: URL = URL(string: "https://oauth2.googleapis.com/token")!,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
   ) {
     self.clientIdentifier = clientIdentifier
     self.session = session
     self.tokenEndpoint = tokenEndpoint
+    self.presentationAnchorStore = presentationAnchorStore
   }
 
   func authorize() async throws -> GmailProviderTokens {
@@ -219,7 +223,10 @@ final class GoogleGmailOAuthService: NSObject, GmailOAuthAuthorizing {
     authorizationURL: URL,
     callbackScheme: String
   ) async throws -> URL {
-    try await withTaskCancellationHandler {
+    guard presentationAnchorStore.captureCurrent() else {
+      throw GoogleGmailOAuthError.webAuthenticationUnavailable
+    }
+    return try await withTaskCancellationHandler {
       try await withCheckedThrowingContinuation { continuation in
         guard !Task.isCancelled else {
           continuation.resume(throwing: CancellationError())
@@ -284,7 +291,7 @@ extension GoogleGmailOAuthService: ASWebAuthenticationPresentationContextProvidi
   nonisolated func presentationAnchor(
     for session: ASWebAuthenticationSession
   ) -> ASPresentationAnchor {
-    AuthenticationPresentationAnchor.current()
+    presentationAnchorStore.current()
   }
 }
 

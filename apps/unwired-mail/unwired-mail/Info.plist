@@ -25,11 +25,13 @@
 	<string>$(MICROSOFT_GRAPH_CALLBACK_SCHEME)</string>
 	<key>MicrosoftGraphClientId</key>
 	<string>$(MICROSOFT_GRAPH_CLIENT_ID)</string>
+#if DEVELOPMENT_MULTIPLE_SCENES
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>
 		<true/>
 	</dict>
+#endif
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>fetch</string>

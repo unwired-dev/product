@@ -9,34 +9,46 @@ import Foundation
 #endif
 
 enum AuthenticationPresentationAnchor {
-  nonisolated static func current() -> ASPresentationAnchor {
-    if Thread.isMainThread {
-      return MainActor.assumeIsolated {
-        currentOnMainActor()
-      }
-    }
+  @MainActor
+  static func current() -> ASPresentationAnchor? {
+    #if canImport(UIKit)
+      UIApplication.shared.connectedScenes
+        .compactMap { $0 as? UIWindowScene }
+        .filter { $0.activationState == .foregroundActive }
+        .flatMap(\.windows)
+        .first(where: \.isKeyWindow)
+    #elseif canImport(AppKit)
+      NSApplication.shared.keyWindow
+    #else
+      nil
+    #endif
+  }
+}
 
-    return DispatchQueue.main.sync {
-      MainActor.assumeIsolated {
-        currentOnMainActor()
-      }
-    }
+final class AuthenticationPresentationAnchorStore: @unchecked Sendable {
+  private let lock = NSLock()
+  private var anchor: ASPresentationAnchor?
+
+  init(anchor: ASPresentationAnchor? = nil) {
+    self.anchor = anchor
   }
 
   @MainActor
-  private static func currentOnMainActor() -> ASPresentationAnchor {
-    #if canImport(UIKit)
-      let scenes = UIApplication.shared.connectedScenes
-      let windowScene =
-        scenes.first {
-          $0.activationState == .foregroundActive
-        } as? UIWindowScene
-      return windowScene?.windows.first { $0.isKeyWindow } ?? ASPresentationAnchor()
-    #elseif canImport(AppKit)
-      return NSApplication.shared.windows.first ?? ASPresentationAnchor()
-    #else
-      return ASPresentationAnchor()
-    #endif
+  func captureCurrent() -> Bool {
+    guard let anchor = AuthenticationPresentationAnchor.current() else {
+      return false
+    }
+    lock.withLock {
+      self.anchor = anchor
+    }
+    return true
+  }
+
+  nonisolated func current() -> ASPresentationAnchor {
+    guard let anchor = lock.withLock({ anchor }) else {
+      preconditionFailure("Authentication started without a presentation anchor")
+    }
+    return anchor
   }
 }
 
@@ -81,6 +93,7 @@ enum AppleSignInError: LocalizedError, Equatable {
   case notAuthorized
   case configurationMissing
   case authorizationInProgress
+  case presentationAnchorUnavailable
 
   var errorDescription: String? {
     switch self {
@@ -101,6 +114,8 @@ enum AppleSignInError: LocalizedError, Equatable {
         """
     case .authorizationInProgress:
       return "A Sign in with Apple request is already in progress."
+    case .presentationAnchorUnavailable:
+      return "Sign in with Apple could not open the authentication window."
     }
   }
 }
@@ -175,15 +190,19 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private var continuation: CheckedContinuation<AppleSignInCredential, Error>?
   private let authorizationStateChecker: ProductAccountAuthorizationStateChecking
   private let performAuthorizationRequest: @MainActor (ASAuthorizationController) -> Void
+  nonisolated private let presentationAnchorStore: AuthenticationPresentationAnchorStore
 
   init(
     authorizationStateChecker: ProductAccountAuthorizationStateChecking =
       AppleAuthorizationStateChecker(),
     performAuthorizationRequest: @escaping @MainActor (ASAuthorizationController) -> Void =
-      SignInWithAppleService.performAuthorizationRequest
+      SignInWithAppleService.performAuthorizationRequest,
+    presentationAnchorStore: AuthenticationPresentationAnchorStore =
+      AuthenticationPresentationAnchorStore()
   ) {
     self.authorizationStateChecker = authorizationStateChecker
     self.performAuthorizationRequest = performAuthorizationRequest
+    self.presentationAnchorStore = presentationAnchorStore
     super.init()
   }
 
@@ -214,6 +233,9 @@ final class SignInWithAppleService: NSObject, AppleSignInPerforming {
   private func performAuthorization() async throws -> AppleSignInCredential {
     guard authorizationController == nil, continuation == nil else {
       throw AppleSignInError.authorizationInProgress
+    }
+    guard presentationAnchorStore.captureCurrent() else {
+      throw AppleSignInError.presentationAnchorUnavailable
     }
     return try await withCheckedThrowingContinuation { continuation in
       self.continuation = continuation
@@ -317,7 +339,7 @@ extension SignInWithAppleService: ASAuthorizationControllerPresentationContextPr
   nonisolated func presentationAnchor(
     for controller: ASAuthorizationController
   ) -> ASPresentationAnchor {
-    AuthenticationPresentationAnchor.current()
+    presentationAnchorStore.current()
   }
 }
 

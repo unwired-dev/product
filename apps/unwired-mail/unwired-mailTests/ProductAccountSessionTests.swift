@@ -49,10 +49,24 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   func testAuthenticationPresentationAnchorsCanBeRequestedOffMainThread() {
+    let appleAnchor = ASPresentationAnchor()
+    let googleAnchor = ASPresentationAnchor()
+    let microsoftAnchor = ASPresentationAnchor()
     let appleProvider = UncheckedSendableValue<
       ASAuthorizationControllerPresentationContextProviding
     >(
-      value: SignInWithAppleService()
+      value: SignInWithAppleService(
+        presentationAnchorStore: AuthenticationPresentationAnchorStore(anchor: appleAnchor)
+      )
+    )
+    let googleProvider = GoogleGmailOAuthService(
+      clientIdentifier: nil,
+      presentationAnchorStore: AuthenticationPresentationAnchorStore(anchor: googleAnchor)
+    )
+    let microsoftProvider = MicrosoftGraphOAuthService(
+      callbackScheme: nil,
+      clientIdentifier: nil,
+      presentationAnchorStore: AuthenticationPresentationAnchorStore(anchor: microsoftAnchor)
     )
     let callbackCompleted = expectation(description: "Presentation callbacks complete")
 
@@ -65,15 +79,15 @@ final class ProductAccountSessionTests: XCTestCase {
         url: URL(string: "https://example.test")!,
         callbackURLScheme: nil
       ) { _, _ in }
-      let webProviders: [ASWebAuthenticationPresentationContextProviding] = [
-        GoogleGmailOAuthService(clientIdentifier: nil),
-        MicrosoftGraphOAuthService(callbackScheme: nil, clientIdentifier: nil),
-      ]
-
-      _ = appleProvider.value.presentationAnchor(for: authorizationController)
-      for provider in webProviders {
-        _ = provider.presentationAnchor(for: webAuthenticationSession)
-      }
+      XCTAssertTrue(
+        appleProvider.value.presentationAnchor(for: authorizationController) === appleAnchor
+      )
+      XCTAssertTrue(
+        googleProvider.presentationAnchor(for: webAuthenticationSession) === googleAnchor
+      )
+      XCTAssertTrue(
+        microsoftProvider.presentationAnchor(for: webAuthenticationSession) === microsoftAnchor
+      )
       callbackCompleted.fulfill()
     }
 
