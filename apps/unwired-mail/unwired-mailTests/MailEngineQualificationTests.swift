@@ -81,8 +81,9 @@ enum MailEngineQualificationFixture: Sendable {
   case invalidMetadataUID(uid: Int64)
   case malformedCopyUIDMapping
   case mismatchedUIDMappingCardinality
-  case malformedMoveUIDMapping
+  case repeatedDestinationUIDMapping
   case maximumTLS(service: MailEngineService, version: MailEngineTLSVersion)
+  case overlappingBodyResults
   case overlappingSMTP(serverMessageID: String)
   case overlappingUIDMutations
   case moveOutcomeUnknown
@@ -202,6 +203,7 @@ struct MailEngineQualificationContract {
   let factory: any MailEngineQualificationCandidateFactory
 
   func verifySetupTransportAuthenticationAndCapabilities() async throws {
+    verifyConfigurationTLSFloor()
     let implicitConnection = try await connect(
       fixture: .successful,
       connectionID: "implicit-success",
@@ -246,6 +248,22 @@ struct MailEngineQualificationContract {
     verifySuccessfulSnapshot(xoauth2SMTPConnection.snapshot)
     await verifySetupEvents()
     withExtendedLifetime(successfulSessions) {}
+  }
+
+  private func verifyConfigurationTLSFloor() {
+    let endpoint = MailEngineEndpoint(
+      hostname: "mail.example.com",
+      port: 993,
+      transportMode: .implicitTLS
+    )
+    let configuration = MailEngineConfiguration(
+      authorization: .password(username: "user@example.com", password: "password"),
+      connectionID: "tls-floor",
+      imapEndpoint: endpoint,
+      minimumTLSVersion: .tls10,
+      smtpEndpoint: endpoint
+    )
+    XCTAssertEqual(configuration.minimumTLSVersion, .tls12)
   }
 
   private func verifyXOAUTH2Challenge(
@@ -816,7 +834,21 @@ struct MailEngineQualificationContract {
       XCTAssertEqual(error as? MailEngineUIDMappingError, .mismatchedSourceUIDs)
     }
     await assertOnlyNewMutationEvent(malformedCopyEvent, after: malformedCopyEvents)
-    let malformedMoveSession = try await connect(fixture: .malformedMoveUIDMapping).session
+    let malformedMoveSession = try await connect(fixture: .repeatedDestinationUIDMapping).session
+    let malformedMoveCopyEvent = copyEvent(inbox: inbox, archive: archive)
+    let malformedMoveCopyEvents = await mutationEvents(connectionID: "connection-a")
+    do {
+      _ = try await malformedMoveSession.copy(
+        sourceUIDs: [4, 5],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("The candidate must reject a COPYUID response with repeated destination UIDs.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+    }
+    await assertOnlyNewMutationEvent(malformedMoveCopyEvent, after: malformedMoveCopyEvents)
     let malformedMoveEvent = moveEvent(inbox: inbox, archive: archive)
     let malformedMoveEvents = await mutationEvents(connectionID: "connection-a")
     do {
@@ -884,6 +916,20 @@ struct MailEngineQualificationContract {
     archive: MailEngineMailboxIdentity
   ) async throws {
     let session = try await connect(fixture: .repeatedSourceUIDMapping).session
+    let copyEvent = copyEvent(inbox: inbox, archive: archive)
+    let previousCopyEvents = await mutationEvents(connectionID: "connection-a")
+    do {
+      _ = try await session.copy(
+        sourceUIDs: [4, 5],
+        sourceUIDValidity: 44,
+        from: inbox,
+        to: archive
+      )
+      XCTFail("The candidate must reject a COPYUID response with repeated source UIDs.")
+    } catch {
+      XCTAssertEqual(error as? MailEngineUIDMappingError, .repeatedUID)
+    }
+    await assertOnlyNewMutationEvent(copyEvent, after: previousCopyEvents)
     let event = moveEvent(inbox: inbox, archive: archive)
     let previousEvents = await mutationEvents(connectionID: "connection-a")
     do {
@@ -1385,8 +1431,13 @@ struct MailEngineQualificationContract {
     }
     let events = await factory.events()
     XCTAssertFalse(
-      events.contains(.moveRemovedSourceUIDs(connectionID: connectionID, uids: [9])),
-      "Malformed COPYUID must not remove the source message."
+      events.contains {
+        if case .moveRemovedSourceUIDs(let eventConnectionID, _) = $0 {
+          return eventConnectionID == connectionID
+        }
+        return false
+      },
+      "Malformed COPYUID must not remove or expunge any source message."
     )
   }
 
@@ -1583,7 +1634,7 @@ struct MailEngineQualificationContract {
   private func verifyInvalidMetadataIdentifiers(
     mailbox: MailEngineMailboxIdentity
   ) async throws {
-    for invalidUID in [Int64(0), 4_294_967_296] {
+    for invalidUID in [Int64(-1), 0, 4_294_967_296] {
       let session = try await connect(fixture: .invalidMetadataUID(uid: invalidUID)).session
       do {
         _ = try await session.loadMetadataPage(mailbox: mailbox, beforeUID: nil, limit: 1)
@@ -1737,12 +1788,7 @@ struct MailEngineQualificationContract {
     } catch {
       XCTAssertEqual(error as? MailEngineError, .connectionClosed)
     }
-    let eventsAfterDisconnect = await factory.events()
-    XCTAssertEqual(
-      countIMAPCloses(eventsAfterDisconnect, connectionID: connectionID),
-      closesBeforeDisconnect + 1,
-      "A disconnected IDLE transport must be closed before recovery."
-    )
+    await assertIMAPCloseCount(connectionID, expected: closesBeforeDisconnect + 1)
     let eventCountBeforeRecovery = await factory.events().count
     let recoveredEvents = LockedBox<[MailEngineIdleEvent]>([])
     let handshakeAtCallback = LockedBox<[MailEngineQualificationEvent]>([])
@@ -1767,7 +1813,23 @@ struct MailEngineQualificationContract {
       recoveryTask,
       failureMessage: "Recovered IDLE must remain active until cancelled."
     )
+    try await verifyRecoveredIDLEPreservesSMTP(
+      recoveringSession,
+      connectionID: connectionID
+    )
     try await verifyIDLERecoveryTLSFloor()
+  }
+
+  private func verifyRecoveredIDLEPreservesSMTP(
+    _ session: any MailEngineSession,
+    connectionID: String
+  ) async throws {
+    try await assertSMTPSessionRemainsUsable(
+      session,
+      connectionID: connectionID,
+      preservationReason: "Recovering IMAP IDLE must preserve the account's SMTP transport.",
+      allowPriorIMAPClose: true
+    )
   }
 
   private func assertSuccessfulIDLERecoveryHandshake(
@@ -1879,6 +1941,15 @@ struct MailEngineQualificationContract {
     }.count
   }
 
+  private func assertIMAPCloseCount(_ connectionID: String, expected: Int) async {
+    let closes = countIMAPCloses(await factory.events(), connectionID: connectionID)
+    XCTAssertEqual(
+      closes,
+      expected,
+      "A disconnected IDLE transport must be closed before recovery."
+    )
+  }
+
   private func verifyOverlappingConnectionIsolation() async throws {
     let inbox = MailEngineMailboxIdentity("INBOX")
     let secondIdleMailbox = MailEngineMailboxIdentity("Team Updates")
@@ -1926,12 +1997,20 @@ struct MailEngineQualificationContract {
     )
     try await verifyOverlappingMetadataIsolation(first: first, second: second, inbox: inbox)
 
+    try await verifySecondIdleCancellationPreservesSession(secondTask, session: second)
+    try await verifyNonIdleCancellationIsolation(inbox: inbox)
+  }
+
+  private func verifySecondIdleCancellationPreservesSession(
+    _ task: Task<Void, Error>,
+    session: any MailEngineSession
+  ) async throws {
     await assertIdleCancellation(
-      secondTask,
+      task,
       failureMessage: "Cancelling the second IDLE must report cancellation."
     )
     await assertSecondIdleCancelled()
-    try await verifyNonIdleCancellationIsolation(inbox: inbox)
+    try await assertSessionRemainsUsable(session, connectionID: "connection-two")
   }
 
   private func assertSecondIdleCancelled() async {
@@ -1979,6 +2058,17 @@ struct MailEngineQualificationContract {
         }
         return false
       },
+      failureMessage
+    )
+  }
+
+  private func assertNoSMTPServiceClose(
+    connectionID: String,
+    failureMessage: String
+  ) async {
+    let events = await factory.events()
+    XCTAssertFalse(
+      events.contains(.serviceClosed(connectionID: connectionID, service: .smtp)),
       failureMessage
     )
   }
@@ -2154,6 +2244,7 @@ struct MailEngineQualificationContract {
       failureMessage: "Cancelling the second body fetch must report cancellation."
     )
     await assertSecondBodyFetchCancelled()
+    try await assertSessionRemainsUsable(second, connectionID: "body-fetch-two")
   }
 
   private func assertCancelledBodyFetchPreservesSessions(
@@ -2189,11 +2280,11 @@ struct MailEngineQualificationContract {
     inbox: MailEngineMailboxIdentity
   ) async throws {
     let first = try await connect(
-      fixture: .successful,
+      fixture: .overlappingBodyResults,
       connectionID: "body-result-one"
     ).session
     let second = try await connect(
-      fixture: .successful,
+      fixture: .overlappingBodyResults,
       connectionID: "body-result-two"
     ).session
     let firstSelector = MailEngineBodyPartSelector("1.TEXT")
@@ -2701,12 +2792,20 @@ struct MailEngineQualificationContract {
   private func assertSMTPSessionRemainsUsable(
     _ session: any MailEngineSession,
     connectionID: String,
-    preservationReason: String = "Cancelling an SMTP submission must preserve connected sessions."
+    preservationReason: String = "Cancelling an SMTP submission must preserve connected sessions.",
+    allowPriorIMAPClose: Bool = false
   ) async throws {
-    await assertNoServiceClose(
-      connectionID: connectionID,
-      failureMessage: preservationReason
-    )
+    if allowPriorIMAPClose {
+      await assertNoSMTPServiceClose(
+        connectionID: connectionID,
+        failureMessage: preservationReason
+      )
+    } else {
+      await assertNoServiceClose(
+        connectionID: connectionID,
+        failureMessage: preservationReason
+      )
+    }
     let envelope = MailEngineEnvelope(
       recipients: ["peer-recipient@example.com"],
       sender: "peer-sender@example.com"
@@ -3091,6 +3190,9 @@ struct MailEngineQualificationContract {
     try await factory.waitForSubmissionStarts(1, timeout: .seconds(2))
     try await waitForIdleEvents(callbacks, count: 1, timeout: .seconds(2))
     let callbacksBeforeClose = callbacks.value
+    let contentBeforeClose = await submissionContentAcceptedMessages(
+      connectionID: "connection-a"
+    )
     await session.close()
     await assertInFlightOperationClosed(idleTask)
     await assertInFlightOperationClosed(bodyFetchTask)
@@ -3102,15 +3204,33 @@ struct MailEngineQualificationContract {
     await assertClosedOperations(session)
     try? await Task.sleep(for: .milliseconds(50))
     let events = await factory.events()
-    XCTAssertEqual(
+    await assertClosedSessionRemainedQuiescent(
       events,
-      eventsBeforeClosedOperations,
-      "Closed-session operations must not reach the server fixture."
+      baselineEvents: eventsBeforeClosedOperations,
+      baselineContent: contentBeforeClose
     )
     assertNoIdleCallbacks(callbacks, after: callbacksBeforeClose)
     XCTAssertTrue(events.contains(.closed(connectionID: "connection-a")))
     assertServiceTeardownEvents(events)
     await preservedSession.close()
+  }
+
+  private func assertClosedSessionRemainedQuiescent(
+    _ events: [MailEngineQualificationEvent],
+    baselineEvents: [MailEngineQualificationEvent],
+    baselineContent: [Data]
+  ) async {
+    let content = await submissionContentAcceptedMessages(connectionID: "connection-a")
+    XCTAssertEqual(
+      events,
+      baselineEvents,
+      "Closed-session operations must not reach the server fixture."
+    )
+    XCTAssertEqual(
+      content,
+      baselineContent,
+      "Closing a session must prevent detached SMTP work from accepting content later."
+    )
   }
 
   private func verifyPreservedPeerSession(_ session: any MailEngineSession) async throws {
@@ -3512,6 +3632,15 @@ private actor ScriptedMailEngineState {
     }
   }
 
+  func waitForOverlappingBodyResultStarts(timeout: Duration) async throws {
+    try await waitForEvents(2, timeout: timeout) {
+      if case .bodyPartsRequested(let connectionID, _, _) = $0 {
+        return connectionID == "body-result-one" || connectionID == "body-result-two"
+      }
+      return false
+    }
+  }
+
   func waitForSubmissionContentStarts(
     _ count: Int,
     connectionID: String,
@@ -3840,6 +3969,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         sourceUIDs: [4]
       )
     }
+    if let mapping = repeatedCopyUIDMapping(sourceUIDs: sourceUIDs) {
+      return mapping
+    }
     if case .mismatchedUIDMappingCardinality = fixture {
       return MailEngineReportedUIDMapping(
         destinationUIDValidity: 91,
@@ -3875,6 +4007,26 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     )
   }
 
+  private func repeatedCopyUIDMapping(
+    sourceUIDs: [Int64]
+  ) -> MailEngineReportedUIDMapping? {
+    if case .repeatedDestinationUIDMapping = fixture {
+      return MailEngineReportedUIDMapping(
+        destinationUIDValidity: 91,
+        destinationUIDs: [104, 104],
+        sourceUIDs: sourceUIDs
+      )
+    }
+    if case .repeatedSourceUIDMapping = fixture {
+      return MailEngineReportedUIDMapping(
+        destinationUIDValidity: 91,
+        destinationUIDs: [104, 105],
+        sourceUIDs: [4, 4]
+      )
+    }
+    return nil
+  }
+
   func fetchBodyParts(
     _ selectors: Set<MailEngineBodyPartSelector>,
     for message: MailEngineMessageIdentity
@@ -3892,6 +4044,9 @@ private actor ScriptedMailEngineSession: MailEngineSession {
     )
     if case .bodyFetchUntilCancelled = fixture {
       try await waitForBodyFetchTermination()
+    }
+    if case .overlappingBodyResults = fixture {
+      try await state.waitForOverlappingBodyResultStarts(timeout: .seconds(2))
     }
     if case .inFlightOperationsUntilClosed = fixture {
       try await waitForBodyFetchTermination()
@@ -4177,7 +4332,7 @@ private actor ScriptedMailEngineSession: MailEngineSession {
         sourceUIDs: []
       )
     }
-    if case .malformedMoveUIDMapping = fixture {
+    if case .repeatedDestinationUIDMapping = fixture {
       return MailEngineReportedUIDMapping(
         destinationUIDValidity: 92,
         destinationUIDs: [204, 204],

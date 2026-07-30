@@ -66,7 +66,7 @@ struct MailEngineConfiguration: Equatable, Sendable {
     self.authorization = authorization
     self.connectionID = connectionID
     self.imapEndpoint = imapEndpoint
-    self.minimumTLSVersion = minimumTLSVersion
+    self.minimumTLSVersion = max(minimumTLSVersion, .tls12)
     self.smtpEndpoint = smtpEndpoint
   }
 }
