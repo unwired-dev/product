@@ -1,6 +1,14 @@
 import Foundation
 import Observation
 
+struct RemoteMessageContentLoadResult: Equatable, Sendable {
+  let failedImageCount: Int
+  let html: SanitizedMessageHTML
+  var loadedByteCount = 0
+  let loadedImageCount: Int
+  var loadedPixelCount = 0
+}
+
 enum RemoteMessageContentState: Equatable {
   case blocked
   case failed(Int)

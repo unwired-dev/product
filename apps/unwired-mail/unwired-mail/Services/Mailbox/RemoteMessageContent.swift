@@ -123,11 +123,9 @@ enum RemoteMessageImageResolver {
 
 enum RemoteMessageContentPolicy {
   static func requestEquivalentURL(_ url: URL) -> URL {
-    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
-      return url
-    }
-    components.fragment = nil
-    return components.url ?? url
+    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    components?.fragment = nil
+    return components?.url ?? url
   }
 
   static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
@@ -225,12 +223,6 @@ enum RemoteMessageContentSession {
   }
 }
 
-struct RemoteMessageContentLoadResult: Equatable, Sendable {
-  let failedImageCount: Int
-  let html: SanitizedMessageHTML
-  let loadedImageCount: Int
-}
-
 private struct RemoteMessageContentAdmission {
   let image: RemoteMessageImage
   let pixelCount: Int
@@ -240,13 +232,17 @@ struct RemoteMessageContentLoader {
   typealias Fetch = (URLRequest, Int) async throws -> (Data, URLResponse)
 
   private let fetch: Fetch?
+  private let maximumTotalByteCount: Int
+  private let maximumTotalPixelCount: Int
 
-  init() {
-    fetch = nil
-  }
-
-  init(fetch: @escaping Fetch) {
+  init(
+    maximumTotalByteCount: Int = MailboxMessageImagePolicy.maximumTotalByteCount,
+    maximumTotalPixelCount: Int = MailboxMessageImagePolicy.maximumTotalPixelCount,
+    fetch: Fetch? = nil
+  ) {
     self.fetch = fetch
+    self.maximumTotalByteCount = maximumTotalByteCount
+    self.maximumTotalPixelCount = maximumTotalPixelCount
   }
 
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
@@ -275,10 +271,8 @@ struct RemoteMessageContentLoader {
       guard
         let admission = try await admission(
           for: reference,
-          remainingByteCount: (MailboxMessageImagePolicy.maximumTotalByteCount - loadedByteCount)
-            / occurrenceCount,
-          remainingPixelCount: (MailboxMessageImagePolicy.maximumTotalPixelCount - loadedPixelCount)
-            / occurrenceCount,
+          remainingByteCount: (maximumTotalByteCount - loadedByteCount) / occurrenceCount,
+          remainingPixelCount: (maximumTotalPixelCount - loadedPixelCount) / occurrenceCount,
           session: session
         )
       else {
@@ -291,7 +285,9 @@ struct RemoteMessageContentLoader {
     return RemoteMessageContentLoadResult(
       failedImageCount: html.remoteImageReferences.count - images.count,
       html: RemoteMessageImageResolver.resolve(html, images: images),
-      loadedImageCount: images.count
+      loadedByteCount: loadedByteCount,
+      loadedImageCount: images.count,
+      loadedPixelCount: loadedPixelCount
     )
   }
 

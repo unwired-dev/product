@@ -434,7 +434,7 @@ extension MessageHTMLPresentationTests {
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
       )
     )
-    let loader = RemoteMessageContentLoader { request, maximumByteCount in
+    let loader = RemoteMessageContentLoader(fetch: { request, maximumByteCount in
       XCTAssertEqual(request.url?.scheme, "https")
       XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
       XCTAssertEqual(request.httpShouldHandleCookies, false)
@@ -457,7 +457,7 @@ extension MessageHTMLPresentationTests {
           )
         )
       )
-    }
+    })
 
     let result = try await loader.load(presentation)
 
@@ -484,9 +484,9 @@ extension MessageHTMLPresentationTests {
     guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
       return XCTFail("Expected sanitized HTML")
     }
-    let loader = RemoteMessageContentLoader { _, _ in
+    let loader = RemoteMessageContentLoader(fetch: { _, _ in
       throw CancellationError()
-    }
+    })
 
     do {
       _ = try await loader.load(presentation)
@@ -519,7 +519,7 @@ extension MessageHTMLPresentationTests {
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
       )
     )
-    let loader = RemoteMessageContentLoader { request, _ in
+    let loader = RemoteMessageContentLoader(fetch: { request, _ in
       XCTAssertEqual(request.url, validReference.url)
       return (
         png,
@@ -532,7 +532,7 @@ extension MessageHTMLPresentationTests {
           )
         )
       )
-    }
+    })
 
     let result = try await loader.load(presentation)
 
@@ -560,7 +560,7 @@ extension MessageHTMLPresentationTests {
           "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
       )
     )
-    let loader = RemoteMessageContentLoader { _, maximumByteCount in
+    let loader = RemoteMessageContentLoader(fetch: { _, maximumByteCount in
       XCTAssertEqual(
         maximumByteCount,
         MailboxMessageImagePolicy.maximumTotalByteCount / 5
@@ -576,7 +576,7 @@ extension MessageHTMLPresentationTests {
           )
         )
       )
-    }
+    })
 
     let result = try await loader.load(presentation)
 
