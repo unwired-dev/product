@@ -163,7 +163,7 @@ enum RemoteMessageContentPolicy {
 }
 
 enum RemoteMessageContentError: Error {
-  case responseTooLarge
+  case responseTooLarge(receivedByteCount: Int)
 }
 
 enum RemoteMessageContentRedirectPolicy {
@@ -336,6 +336,8 @@ struct RemoteMessageContentLoader {
         ),
         data.count
       )
+    } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount) {
+      return (nil, receivedByteCount)
     } catch is CancellationError {
       throw CancellationError()
     } catch {

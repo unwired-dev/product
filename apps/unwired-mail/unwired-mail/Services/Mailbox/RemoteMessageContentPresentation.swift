@@ -108,7 +108,9 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
         || response.expectedContentLength == NSURLSessionTransferSizeUnknown
     else {
       completionHandler(.cancel)
-      finish(.failure(RemoteMessageContentError.responseTooLarge))
+      finish(
+        .failure(RemoteMessageContentError.responseTooLarge(receivedByteCount: 0))
+      )
       return
     }
     lock.withLock { self.response = response }
@@ -125,7 +127,13 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
     }
     if action.exceedsLimit {
       action.task?.cancel()
-      finish(.failure(RemoteMessageContentError.responseTooLarge))
+      finish(
+        .failure(
+          RemoteMessageContentError.responseTooLarge(
+            receivedByteCount: maximumByteCount
+          )
+        )
+      )
     }
   }
 
