@@ -37,6 +37,22 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     XCTAssertNil(try store.load())
   }
 
+  func testUnacknowledgedRecoveryKeysAreScopedToTheProductAccount() throws {
+    try store.saveUnacknowledgedRecoveryKey(
+      "first-account-key",
+      productAccountId: "first-product-account"
+    )
+
+    XCTAssertNil(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: "second-product-account")
+    )
+    try store.clearUnacknowledgedRecoveryKey(productAccountId: "second-product-account")
+    XCTAssertEqual(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: "first-product-account"),
+      "first-account-key"
+    )
+  }
+
   func testIdentityTokenStateUsesVerifiedExpiration() {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",

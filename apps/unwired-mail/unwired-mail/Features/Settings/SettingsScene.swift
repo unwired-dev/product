@@ -1034,8 +1034,8 @@ final class AccountAndDevicesViewModel {
           )
         }
       recoveryKeyStatus = .current
-      try recoveryKeyPublished(recoveryKey.rawValue)
       revealedRecoveryKey = recoveryKey.rawValue
+      try recoveryKeyPublished(recoveryKey.rawValue)
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -1277,7 +1277,7 @@ struct AccountAndDevicesSettingsView: View {
         set: { isPresented in
           if !isPresented {
             viewModel.hideRecoveryKey()
-            session.acknowledgeRecoveryKey()
+            session.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
           }
         }
       )

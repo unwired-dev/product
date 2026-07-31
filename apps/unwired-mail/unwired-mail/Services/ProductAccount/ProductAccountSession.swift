@@ -49,6 +49,7 @@ final class ProductAccountSession {
   @ObservationIgnored private var pendingProductSyncRecovery: PendingProductSyncRecovery?
   @ObservationIgnored private var signOutTask: Task<Void, Never>?
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var unacknowledgedRecoveryAccountId: String?
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -73,7 +74,6 @@ final class ProductAccountSession {
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
-    unacknowledgedRecoveryKey = try? sessionStore.loadUnacknowledgedRecoveryKey()
   }
 
   func bootstrap() async {
@@ -420,9 +420,15 @@ extension ProductAccountSession {
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
     if let recoveryKey = try
-      (unacknowledgedRecoveryKey ?? sessionStore.loadUnacknowledgedRecoveryKey())
+      (unacknowledgedRecoveryAccountId == snapshot.productAccountId
+      ? unacknowledgedRecoveryKey
+      : nil)
+      ?? sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: snapshot.productAccountId
+      )
     {
       unacknowledgedRecoveryKey = recoveryKey
+      unacknowledgedRecoveryAccountId = snapshot.productAccountId
       throw ProductAccountSessionError.recoveryNotBackedUp
     }
     let identityToken = try await identityTokenForRecoveryCheck(snapshot)
@@ -520,6 +526,7 @@ extension ProductAccountSession {
       from: previousSnapshot,
       to: snapshot
     )
+    loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     state = .signedIn(snapshot)
   }
 
@@ -541,6 +548,7 @@ extension ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  // swiftlint:disable:next function_body_length
   private func performBootstrap() async {
     guard prepareForBootstrap() else { return }
     guard let snapshot = try? sessionStore.load() else {
@@ -576,6 +584,7 @@ extension ProductAccountSession {
         snapshot,
         with: refreshedSnapshot
       )
+      loadUnacknowledgedRecoveryKey(productAccountId: refreshedSnapshot.productAccountId)
       state = .signedIn(refreshedSnapshot)
     } catch let error as AppleSignInError {
       switch error {
@@ -583,6 +592,8 @@ extension ProductAccountSession {
         try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
           try await clearRevokedSession(snapshot)
+          unacknowledgedRecoveryKey = nil
+          unacknowledgedRecoveryAccountId = nil
           state = .signedOut
         } catch {
           state = .failed(error.localizedDescription)
@@ -652,17 +663,40 @@ extension ProductAccountSession {
   }
 
   func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
-    try sessionStore.saveUnacknowledgedRecoveryKey(recoveryKey)
+    guard
+      let productAccountId =
+        currentSignedInSnapshot()?.productAccountId
+        ?? (try? sessionStore.load())?.productAccountId
+    else {
+      throw CancellationError()
+    }
     unacknowledgedRecoveryKey = recoveryKey
+    unacknowledgedRecoveryAccountId = productAccountId
+    try sessionStore.saveUnacknowledgedRecoveryKey(
+      recoveryKey,
+      productAccountId: productAccountId
+    )
   }
 
-  func acknowledgeRecoveryKey() {
+  func acknowledgeRecoveryKey(productAccountId: String) {
+    guard currentSignedInSnapshot()?.productAccountId == productAccountId else { return }
     do {
-      try sessionStore.clearUnacknowledgedRecoveryKey()
-      unacknowledgedRecoveryKey = nil
+      try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+      if unacknowledgedRecoveryAccountId == productAccountId {
+        unacknowledgedRecoveryKey = nil
+        unacknowledgedRecoveryAccountId = nil
+      }
     } catch {
       signOutErrorMessage = error.localizedDescription
     }
+  }
+
+  private func loadUnacknowledgedRecoveryKey(productAccountId: String) {
+    unacknowledgedRecoveryKey = try? sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: productAccountId
+    )
+    unacknowledgedRecoveryAccountId =
+      unacknowledgedRecoveryKey == nil ? nil : productAccountId
   }
 
   func sharedMailboxFreshnessViewModel(

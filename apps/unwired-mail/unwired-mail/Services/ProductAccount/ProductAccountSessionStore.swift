@@ -38,9 +38,9 @@ protocol ProductAccountSessionPersisting {
   func load() throws -> ProductAccountSessionSnapshot?
   func save(_ snapshot: ProductAccountSessionSnapshot) throws
   func clear() throws
-  func loadUnacknowledgedRecoveryKey() throws -> String?
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws
-  func clearUnacknowledgedRecoveryKey() throws
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String?
+  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws
+  func clearUnacknowledgedRecoveryKey(productAccountId: String) throws
   func loadPendingSignOutProductAccountId() throws -> String?
   func savePendingSignOutProductAccountId(_ productAccountId: String) throws
   func clearPendingSignOutProductAccountId() throws
@@ -71,6 +71,10 @@ enum ProductAccountSessionStore {
 
 struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
   private let service = ProductAccountSessionStore.serviceName
+
+  private func unacknowledgedRecoveryKeyAccount(productAccountId: String) -> String {
+    "unacknowledged-recovery-key-\(productAccountId)"
+  }
 
   func load() throws -> ProductAccountSessionSnapshot? {
     guard
@@ -104,25 +108,25 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     try KeychainStore.delete(service: service, account: "session")
   }
 
-  func loadUnacknowledgedRecoveryKey() throws -> String? {
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
     try KeychainStore.readString(
       service: service,
-      account: "unacknowledged-recovery-key"
+      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
     )
   }
 
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
+  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
     try KeychainStore.writeString(
       recoveryKey,
       service: service,
-      account: "unacknowledged-recovery-key"
+      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
     )
   }
 
-  func clearUnacknowledgedRecoveryKey() throws {
+  func clearUnacknowledgedRecoveryKey(productAccountId: String) throws {
     try KeychainStore.delete(
       service: service,
-      account: "unacknowledged-recovery-key"
+      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
     )
   }
 
@@ -153,7 +157,7 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingSignOutProductAccountId: String?
     private var snapshot: ProductAccountSessionSnapshot?
-    private var unacknowledgedRecoveryKey: String?
+    private var unacknowledgedRecoveryKeys: [String: String] = [:]
 
     func load() throws -> ProductAccountSessionSnapshot? {
       snapshot
@@ -167,16 +171,16 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       snapshot = nil
     }
 
-    func loadUnacknowledgedRecoveryKey() throws -> String? {
-      unacknowledgedRecoveryKey
+    func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
+      unacknowledgedRecoveryKeys[productAccountId]
     }
 
-    func saveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
-      unacknowledgedRecoveryKey = recoveryKey
+    func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
+      unacknowledgedRecoveryKeys[productAccountId] = recoveryKey
     }
 
-    func clearUnacknowledgedRecoveryKey() throws {
-      unacknowledgedRecoveryKey = nil
+    func clearUnacknowledgedRecoveryKey(productAccountId: String) throws {
+      unacknowledgedRecoveryKeys[productAccountId] = nil
     }
 
     func loadPendingSignOutProductAccountId() throws -> String? {

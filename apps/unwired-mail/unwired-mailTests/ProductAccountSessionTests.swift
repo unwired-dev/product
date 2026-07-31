@@ -596,6 +596,38 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
   }
 
+  func testSignOutRemainsBlockedWhenRecoveryKeyPersistenceFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    let failingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: failingStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    guard case .signedIn(let activeSnapshot) = session.state else {
+      return XCTFail("Expected bootstrap to restore the Product Account")
+    }
+    failingStore.unacknowledgedRecoveryKeySaveError =
+      ProductAccountSessionTestError.sessionSaveFailed
+
+    XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("published-key"))
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "published-key")
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+  }
+
   func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -614,9 +646,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let relaunchedSession = ProductAccountSession(
       appleSignInService: appleSignInService,
+      productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
     )
+    await relaunchedSession.bootstrap()
     XCTAssertEqual(relaunchedSession.unacknowledgedRecoveryKey, "unacknowledged-key")
 
     await relaunchedSession.signOut()
@@ -627,13 +661,10 @@ final class ProductAccountSessionTests: XCTestCase {
       ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
 
-    relaunchedSession.acknowledgeRecoveryKey()
-    let acknowledgedSession = ProductAccountSession(
-      appleSignInService: appleSignInService,
-      sessionStore: store,
-      productSyncKeyMaterialStore: keyMaterialStore
+    relaunchedSession.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+    XCTAssertNil(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
-    XCTAssertNil(acknowledgedSession.unacknowledgedRecoveryKey)
   }
 
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
@@ -1876,10 +1907,11 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   var loadError: Error?
   var saveError: Error?
   var clearError: Error?
+  var unacknowledgedRecoveryKeySaveError: Error?
 
   private var pendingSignOutProductAccountId: String?
   private var snapshot: ProductAccountSessionSnapshot?
-  private var unacknowledgedRecoveryKey: String?
+  private var unacknowledgedRecoveryKeys: [String: String] = [:]
 
   init(snapshot: ProductAccountSessionSnapshot? = nil) {
     self.snapshot = snapshot
@@ -1910,16 +1942,19 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
     snapshot = nil
   }
 
-  func loadUnacknowledgedRecoveryKey() throws -> String? {
-    unacknowledgedRecoveryKey
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
+    unacknowledgedRecoveryKeys[productAccountId]
   }
 
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
-    unacknowledgedRecoveryKey = recoveryKey
+  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
+    if let unacknowledgedRecoveryKeySaveError {
+      throw unacknowledgedRecoveryKeySaveError
+    }
+    unacknowledgedRecoveryKeys[productAccountId] = recoveryKey
   }
 
-  func clearUnacknowledgedRecoveryKey() throws {
-    unacknowledgedRecoveryKey = nil
+  func clearUnacknowledgedRecoveryKey(productAccountId: String) throws {
+    unacknowledgedRecoveryKeys[productAccountId] = nil
   }
 
   func loadPendingSignOutProductAccountId() throws -> String? {

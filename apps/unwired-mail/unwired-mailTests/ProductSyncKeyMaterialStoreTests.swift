@@ -400,6 +400,35 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNotEqual(viewModel.revealedRecoveryKey, material.recoveryKey.rawValue)
   }
 
+  func testPublishedRecoveryKeyRemainsRevealedWhenAcknowledgementPersistenceFails() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.presentRecoveryKey(
+      session: session,
+      recentIdentityToken: { "replacement-token" },
+      isSessionCurrent: { true },
+      recoveryKeyPublished: { _ in throw CocoaError(.fileWriteUnknown) },
+      replacingCurrent: true
+    )
+
+    XCTAssertNotNil(viewModel.revealedRecoveryKey)
+    XCTAssertNotNil(viewModel.errorMessage)
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
+    XCTAssertNotNil(transport.recoveryWritePayload)
+  }
+
   func testConcurrentRecoveryReplacementDoesNotOverwriteLocalMaterial() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.simulatesConcurrentRecoveryWrite = true
