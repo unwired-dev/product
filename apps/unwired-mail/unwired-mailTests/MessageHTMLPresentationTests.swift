@@ -432,6 +432,27 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("<img src="))
   }
 
+  func testSanitizerBlocksDeclaredOneByOneRemoteTrackingPixels() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/pixel.gif" width="1" height="1px">
+        <img src="https://images.example.com/logo.png" width="120" height="40">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/logo.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+  }
+
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
     let presentation = try remoteContentTestPresentation()
     let png = try XCTUnwrap(
@@ -629,7 +650,7 @@ extension MessageHTMLPresentationTests {
   }
 
   @MainActor
-  func testRemoteContentPresentationRequiresConsentAndRetriesFromOriginalHTML() async throws {
+  func testRemoteContentPresentationRequiresConsentAndRetriesUnresolvedImages() async throws {
     let originalHTML = try remoteContentTestPresentation()
     let presentation = RemoteMessageContentPresentation()
     var receivedHTML: [SanitizedMessageHTML] = []
@@ -663,11 +684,11 @@ extension MessageHTMLPresentationTests {
     presentation.requestLoad()
     XCTAssertEqual(
       presentation.displayedHTML(originalHTML: originalHTML),
-      originalHTML
+      partiallyLoadedHTML
     )
     await presentation.load(originalHTML: originalHTML, using: loader)
 
-    XCTAssertEqual(receivedHTML, [originalHTML, originalHTML])
+    XCTAssertEqual(receivedHTML, [originalHTML, partiallyLoadedHTML])
     XCTAssertEqual(
       presentation.displayedHTML(originalHTML: originalHTML),
       partiallyLoadedHTML

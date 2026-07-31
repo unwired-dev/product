@@ -28,7 +28,10 @@ enum RemoteMessageContentMarkup {
       }
       let requestURL = RemoteMessageContentPolicy.requestEquivalentURL(url)
       try element.removeAttr("src")
-      guard !MessageHTMLSanitizer.hasZeroDimension(element) else {
+      guard
+        !MessageHTMLSanitizer.hasZeroDimension(element),
+        !hasDeclaredTrackingPixel(element)
+      else {
         continue
       }
       let reference: RemoteMessageImageReference
@@ -45,6 +48,17 @@ enum RemoteMessageContentMarkup {
       try element.attr(attribute, reference.identifier)
     }
     return references
+  }
+
+  private static func hasDeclaredTrackingPixel(_ element: Element) -> Bool {
+    let onePixelPattern = #"^0*1(?:\.0*)?(?:px)?$"#
+    return ["width", "height"].allSatisfy { attribute in
+      guard let value = try? element.attr(attribute) else { return false }
+      return value.trimmingCharacters(in: .whitespacesAndNewlines).range(
+        of: onePixelPattern,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    }
   }
 
   static func retainedReferences(

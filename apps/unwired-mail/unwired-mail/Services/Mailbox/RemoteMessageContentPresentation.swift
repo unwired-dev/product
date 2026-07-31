@@ -165,7 +165,6 @@ final class RemoteMessageContentPresentation {
   }
 
   func requestLoad() {
-    loadedHTML = nil
     state = .loading
     loadRequest = UUID()
   }
@@ -175,8 +174,9 @@ final class RemoteMessageContentPresentation {
     using loader: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   ) async {
     guard loadRequest != nil, state == .loading else { return }
+    let requestedHTML = loadedHTML ?? originalHTML
     do {
-      let result = try await loader(originalHTML)
+      let result = try await loader(requestedHTML)
       try Task.checkCancellation()
       loadedHTML = result.html
       state =
@@ -185,7 +185,7 @@ final class RemoteMessageContentPresentation {
         : .failed(result.failedImageCount)
     } catch is CancellationError {
     } catch {
-      state = .failed(originalHTML.remoteImageReferences.count)
+      state = .failed(requestedHTML.remoteImageReferences.count)
     }
   }
 
