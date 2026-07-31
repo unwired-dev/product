@@ -76,25 +76,18 @@ final class MessageHTMLPresentationTests: XCTestCase {
 
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
-      [
-        "https://images.example.com/hero.png",
-        "http://legacy.example.com/chart.jpg",
-      ]
+      ["https://images.example.com/hero.png"]
     )
     XCTAssertEqual(
       result.remoteImageReferences.map(\.identifier),
-      ["remote-image-0", "remote-image-1"]
+      ["remote-image-0"]
     )
     XCTAssertTrue(
       result.documentHTML.contains(
         "data-unwired-remote-image=\"remote-image-0\""
       )
     )
-    XCTAssertTrue(
-      result.documentHTML.contains(
-        "data-unwired-remote-image=\"remote-image-1\""
-      )
-    )
+    XCTAssertFalse(result.documentHTML.contains("remote-image-1"))
     XCTAssertFalse(result.documentHTML.contains("images.example.com"))
     XCTAssertFalse(result.documentHTML.contains("legacy.example.com"))
     XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
@@ -331,6 +324,28 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDeduplicatesEmptyAndSlashRemoteImagePaths() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="https://images.example.com" alt="Empty path">
+        <img src="https://images.example.com/" alt="Slash path">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/"]
+    )
+    XCTAssertEqual(
+      result.documentHTML.components(
+        separatedBy: #"data-unwired-remote-image="remote-image-0""#
+      ).count - 1,
+      2
+    )
+  }
+
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(
@@ -444,6 +459,8 @@ extension MessageHTMLPresentationTests {
              style="height: 1.0px !important; width: 01PX">
         <img src="https://tracker.example/max-width.gif"
              height="1" style="max-width: 1px">
+        <img src="https://tracker.example/max-height.gif"
+             width="1" style="max-height: 1px">
         <img src="https://images.example.com/logo.png"
              style="height: 40px; width: 120px">
         """
@@ -459,6 +476,7 @@ extension MessageHTMLPresentationTests {
     )
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
   }
 
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
@@ -497,13 +515,10 @@ extension MessageHTMLPresentationTests {
     let result = try await loader.load(presentation)
 
     XCTAssertEqual(result.loadedImageCount, 1)
-    XCTAssertEqual(result.failedImageCount, 2)
+    XCTAssertEqual(result.failedImageCount, 1)
     XCTAssertEqual(
       Set(result.html.remoteImageReferences.map(\.url.absoluteString)),
-      [
-        "https://images.example.com/not-an-image",
-        "http://legacy.example.com/chart.jpg",
-      ]
+      ["https://images.example.com/not-an-image"]
     )
     XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
     XCTAssertFalse(result.html.documentHTML.contains("<script"))

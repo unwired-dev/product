@@ -19,7 +19,7 @@ enum RemoteMessageContentMarkup {
       let source = try element.attr("src").trimmingCharacters(in: .whitespacesAndNewlines)
       guard let url = URL(string: source),
         let scheme = url.scheme?.lowercased(),
-        ["http", "https"].contains(scheme),
+        scheme == "https",
         url.host != nil,
         url.user == nil,
         url.password == nil
@@ -56,7 +56,8 @@ enum RemoteMessageContentMarkup {
     return ["width", "height"].allSatisfy { dimension in
       let value = ((try? element.attr(dimension)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-      let styleDimension = dimension == "width" ? #"(?:width|max-width)"# : dimension
+      let styleDimension =
+        dimension == "width" ? #"(?:width|max-width)"# : #"(?:height|max-height)"#
       return
         value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil
         || style.range(
@@ -148,6 +149,7 @@ enum RemoteMessageContentPolicy {
     components?.scheme = url.scheme?.lowercased()
     let normalizedHost = components?.host?.lowercased()
     components?.host = normalizedHost
+    if components?.path.isEmpty == true { components?.path = "/" }
     if (components?.scheme?.lowercased() == "https" && components?.port == 443)
       || (components?.scheme?.lowercased() == "http" && components?.port == 80)
     {

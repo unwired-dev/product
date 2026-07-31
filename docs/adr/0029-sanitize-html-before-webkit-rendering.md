@@ -4,6 +4,8 @@ status: accepted
 
 # Sanitize message HTML before isolated WebKit rendering
 
+Remote-image normalization treats an empty URL path as `/` before deduplication, CSS `height` and `max-height` symmetrically identify declared tracking pixels, and permanently unloadable non-HTTPS image sources are not retained as consent or retry references.
+
 Image-only remote messages retain their consent control when sibling preheader text is removed by
 the sanitizer's hidden, visibility, opacity, zero-size, or off-canvas rules.
 
