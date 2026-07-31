@@ -249,6 +249,7 @@ struct RemoteMessageContentLoader {
     self.now = now
   }
 
+  // swiftlint:disable:next function_body_length
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
     let deadline = now().addingTimeInterval(maximumLoadDuration)
     let sessionConfiguration = RemoteMessageContentSession.makeConfiguration()
@@ -263,23 +264,26 @@ struct RemoteMessageContentLoader {
         continue
       }
       let remainingLoadDuration = deadline.timeIntervalSince(now())
-      guard remainingLoadDuration > 0 else { break }
-      guard progress.attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
+      guard remainingLoadDuration > 0,
+        progress.attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount
+      else {
         break
       }
-      progress.attemptedImageCount += 1
-      progress.attemptedIdentifiers.insert(reference.identifier)
       let maximumResponseByteCount = min(
         (maximumTotalByteCount - progress.loadedByteCount) / occurrenceCount,
         maximumTotalByteCount - progress.receivedByteCount
       )
+      let remainingPixelCount =
+        (maximumTotalPixelCount - progress.loadedPixelCount) / occurrenceCount
+      guard maximumResponseByteCount > 0, remainingPixelCount > 0 else { break }
+      progress.attemptedImageCount += 1
+      progress.attemptedIdentifiers.insert(reference.identifier)
       guard
         let attempt = try await admission(
           for: reference,
           remainingLoadDuration: remainingLoadDuration,
           maximumByteCount: maximumResponseByteCount,
-          remainingPixelCount: (maximumTotalPixelCount - progress.loadedPixelCount)
-            / occurrenceCount,
+          remainingPixelCount: remainingPixelCount,
           sessionConfiguration: sessionConfiguration
         )
       else {

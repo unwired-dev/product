@@ -227,13 +227,16 @@ final class MessageHTMLPresentationTests: XCTestCase {
     }
   }
 
-  func testSanitizerBlocksRemoteImagesInsideZeroWidthWrappers() throws {
+  func testSanitizerBlocksRemoteImagesInsideZeroMaximumDimensionWrappers() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
         <div style="max-width: 0">
-          <img src="https://tracker.example/pixel.gif">
+          <img src="https://tracker.example/width-pixel.gif">
+        </div>
+        <div style="max-height: 0">
+          <img src="https://tracker.example/height-pixel.gif">
         </div>
         <img src="https://images.example.com/hero.png">
         """
@@ -503,6 +506,8 @@ extension MessageHTMLPresentationTests {
              height="1" style="max-width: 1px">
         <img src="https://tracker.example/max-height.gif"
              width="1" style="max-height: 1px">
+        <img src="https://tracker.example/signed-zero.gif"
+             style="width: +0px; height: 1px">
         <img src="https://images.example.com/logo.png"
              style="height: 40px; width: 120px">
         """
@@ -519,6 +524,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
   }
 
   func testSanitizerHonorsCSSDimensionsOverTrackingPixelAttributes() throws {
@@ -648,6 +654,10 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(result.loadedByteCount, 0)
     XCTAssertEqual(result.loadedImageCount, 0)
     XCTAssertEqual(result.failedImageCount, 4)
+    XCTAssertEqual(
+      result.html.remoteImageReferences.first?.url.absoluteString,
+      "https://images.example.com/image-3"
+    )
   }
 
   func testRemoteContentLoaderRejectsTruncatedImageAfterReadingDimensions() async throws {

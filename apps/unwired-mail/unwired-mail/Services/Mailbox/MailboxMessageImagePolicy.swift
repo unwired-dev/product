@@ -46,7 +46,8 @@ enum InlineImageDimensionPolicy {
       return true
     }
     return normalized.range(
-      of: #"^(?:(?:0+(?:\.0*)?|\.0+)|(?:\d+(?:\.\d+)?|\.\d+)"#
+      of: #"^(?:[+-]?(?:0+(?:\.0*)?|\.0+)(?:ch|cm|em|ex|in|mm|pc|pt|px|q|"#
+        + #"rem|vh|vmax|vmin|vw|%)?|\+?(?:\d+(?:\.\d*)?|\.\d+)"#
         + #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%))$"#,
       options: .regularExpression
     ) != nil

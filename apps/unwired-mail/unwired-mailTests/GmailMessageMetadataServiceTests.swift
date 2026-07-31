@@ -3618,6 +3618,83 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelSerializesConcurrentRemoteImageBudgetAdmission() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let reference = RemoteMessageImageReference(
+      identifier: "remote-image-0",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+    )
+    let originalHTML = SanitizedMessageHTML(
+      documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+      remoteImageReferences: [reference]
+    )
+    let resolvedHTML = SanitizedMessageHTML(
+      documentHTML: #"<img src="data:image/png;base64,AA==">"#
+    )
+    let probe = ConcurrentRemoteMessageContentLoadProbe()
+
+    let firstLoad = Task { @MainActor in
+      try await viewModel.loadRemoteMessageContent(
+        originalHTML,
+        for: firstMessage.id
+      ) { _, maximumByteCount, _ in
+        await probe.load(
+          maximumByteCount: maximumByteCount,
+          loadedByteCount: 12 * 1_024 * 1_024,
+          resolvedHTML: resolvedHTML
+        )
+      }
+    }
+    await probe.waitUntilFirstLoadStarts()
+    let secondLoad = Task { @MainActor in
+      try await viewModel.loadRemoteMessageContent(
+        originalHTML,
+        for: secondMessage.id
+      ) { _, maximumByteCount, _ in
+        await probe.load(
+          maximumByteCount: maximumByteCount,
+          loadedByteCount: 8 * 1_024 * 1_024,
+          resolvedHTML: resolvedHTML
+        )
+      }
+    }
+    for _ in 0..<100 {
+      await Task.yield()
+    }
+    let requestCountWhileFirstLoadIsSuspended = await probe.requestCount
+    XCTAssertEqual(requestCountWhileFirstLoadIsSuspended, 1)
+
+    await probe.releaseFirstLoad()
+    let firstResult = try await firstLoad.value
+    let secondResult = try await secondLoad.value
+    let requestedMaximumByteCounts = await probe.requestedMaximumByteCounts
+
+    XCTAssertEqual(requestedMaximumByteCounts, [20 * 1_024 * 1_024, 8 * 1_024 * 1_024])
+    XCTAssertEqual(firstResult.html, resolvedHTML)
+    XCTAssertEqual(secondResult.html, resolvedHTML)
+  }
+
+  @MainActor
   func testInboxViewModelPreservesRemoteImageReservationsAcrossRetries() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
@@ -7027,6 +7104,55 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
 
   func releaseLoad() async {
     await loadGate.release()
+  }
+}
+
+private actor ConcurrentRemoteMessageContentLoadProbe {
+  private var firstLoadReleaseContinuation: CheckedContinuation<Void, Never>?
+  private var firstLoadStartContinuations: [CheckedContinuation<Void, Never>] = []
+  private var hasStartedFirstLoad = false
+  private(set) var requestedMaximumByteCounts: [Int] = []
+
+  var requestCount: Int {
+    requestedMaximumByteCounts.count
+  }
+
+  func load(
+    maximumByteCount: Int,
+    loadedByteCount: Int,
+    resolvedHTML: SanitizedMessageHTML
+  ) async -> RemoteMessageContentLoadResult {
+    requestedMaximumByteCounts.append(maximumByteCount)
+    if requestedMaximumByteCounts.count == 1 {
+      hasStartedFirstLoad = true
+      let continuations = firstLoadStartContinuations
+      firstLoadStartContinuations.removeAll()
+      for continuation in continuations {
+        continuation.resume()
+      }
+      await withCheckedContinuation { continuation in
+        firstLoadReleaseContinuation = continuation
+      }
+    }
+    return RemoteMessageContentLoadResult(
+      failedImageCount: 0,
+      html: resolvedHTML,
+      loadedByteCount: loadedByteCount,
+      loadedImageCount: 1,
+      loadedPixelCount: 1
+    )
+  }
+
+  func waitUntilFirstLoadStarts() async {
+    guard !hasStartedFirstLoad else { return }
+    await withCheckedContinuation { continuation in
+      firstLoadStartContinuations.append(continuation)
+    }
+  }
+
+  func releaseFirstLoad() {
+    firstLoadReleaseContinuation?.resume()
+    firstLoadReleaseContinuation = nil
   }
 }
 

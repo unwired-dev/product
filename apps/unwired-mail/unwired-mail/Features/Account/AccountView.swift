@@ -22,6 +22,29 @@ enum MailboxSyncNotificationUserInfoKey {
   static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
 }
 
+private actor RemoteMessageContentLoadGate {
+  private var isAcquired = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func acquire() async {
+    guard isAcquired else {
+      isAcquired = true
+      return
+    }
+    await withCheckedContinuation { continuation in
+      waiters.append(continuation)
+    }
+  }
+
+  func release() {
+    guard !waiters.isEmpty else {
+      isAcquired = false
+      return
+    }
+    waiters.removeFirst().resume()
+  }
+}
+
 @MainActor
 @Observable
 final class MailboxWorkCoordinator {
@@ -5536,6 +5559,7 @@ final class GmailInboxViewModel {
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
   private var loadedRemoteImagePixelCount = 0
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
+  private let remoteMessageContentLoadGate = RemoteMessageContentLoadGate()
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
   private var loadedMessageBodyTextByteCount = 0
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
@@ -5669,34 +5693,45 @@ final class GmailInboxViewModel {
         ).load(html)
       }
   ) async throws -> RemoteMessageContentLoadResult {
-    let requestedMaximumByteCount =
-      Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
-      - loadedRemoteImageByteCount
-    let requestedMaximumPixelCount =
-      Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
-      - loadedRemoteImagePixelCount
-    let result = try await loader(html, requestedMaximumByteCount, requestedMaximumPixelCount)
-    try Task.checkCancellation()
-    let remainingByteCount =
-      Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
-      - loadedRemoteImageByteCount
-    let remainingPixelCount =
-      Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
-      - loadedRemoteImagePixelCount
-    guard result.loadedByteCount <= remainingByteCount,
-      result.loadedPixelCount <= remainingPixelCount
-    else {
-      return RemoteMessageContentLoadResult(
-        failedImageCount: html.remoteImageReferences.count,
-        html: html,
-        loadedImageCount: 0
-      )
+    await remoteMessageContentLoadGate.acquire()
+    do {
+      try Task.checkCancellation()
+      let requestedMaximumByteCount =
+        Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
+        - loadedRemoteImageByteCount
+      let requestedMaximumPixelCount =
+        Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
+        - loadedRemoteImagePixelCount
+      let result = try await loader(html, requestedMaximumByteCount, requestedMaximumPixelCount)
+      try Task.checkCancellation()
+      let remainingByteCount =
+        Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
+        - loadedRemoteImageByteCount
+      let remainingPixelCount =
+        Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
+        - loadedRemoteImagePixelCount
+      let retainedResult: RemoteMessageContentLoadResult
+      if result.loadedByteCount <= remainingByteCount,
+        result.loadedPixelCount <= remainingPixelCount
+      {
+        loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
+        loadedRemoteImageByteCount += result.loadedByteCount
+        loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
+        loadedRemoteImagePixelCount += result.loadedPixelCount
+        retainedResult = result
+      } else {
+        retainedResult = RemoteMessageContentLoadResult(
+          failedImageCount: html.remoteImageReferences.count,
+          html: html,
+          loadedImageCount: 0
+        )
+      }
+      await remoteMessageContentLoadGate.release()
+      return retainedResult
+    } catch {
+      await remoteMessageContentLoadGate.release()
+      throw error
     }
-    loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
-    loadedRemoteImageByteCount += result.loadedByteCount
-    loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
-    loadedRemoteImagePixelCount += result.loadedPixelCount
-    return result
   }
 
   func isLoadedMessageBodyTextUnavailable(

@@ -172,7 +172,7 @@ extension MessageHTMLSanitizer {
 
   static func hasZeroDimension(_ element: Element) -> Bool {
     let zeroDimensionPattern =
-      #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+      #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {
       if let styleValue = InlineImageDimensionPolicy.value(attribute, in: element) {
         if styleValue.range(
@@ -193,7 +193,8 @@ extension MessageHTMLSanitizer {
     }
     if let style = try? element.attr("style"),
       style.range(
-        of: #"(?:^|;)\s*max-width\s*:\s*(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?"#
+        of: #"(?:^|;)\s*max-(?:width|height)\s*:\s*[+-]?(?:0+(?:\.0*)?|\.0+)"#
+          + #"(?:[a-z%]+)?"#
           + #"(?:\s*!important)?\s*(?:;|$)"#,
         options: [.regularExpression, .caseInsensitive]
       ) != nil
@@ -248,8 +249,9 @@ extension MessageHTMLSanitizer {
         "border-spacing", "border-style", "border-top", "border-top-color",
         "border-top-style", "border-top-width", "border-width", "display", "font-family",
         "font-size", "font-style", "font-weight", "height", "letter-spacing", "line-height",
-        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-width",
-        "min-width", "padding", "padding-bottom", "padding-left", "padding-right", "padding-top",
+        "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-height",
+        "max-width", "min-width", "padding", "padding-bottom", "padding-left", "padding-right",
+        "padding-top",
         "text-align", "text-decoration", "text-indent", "text-transform", "vertical-align",
         "white-space", "width", "word-break", "word-wrap"
       )
