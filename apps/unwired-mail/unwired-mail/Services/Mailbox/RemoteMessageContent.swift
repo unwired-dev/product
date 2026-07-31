@@ -125,6 +125,13 @@ enum RemoteMessageContentPolicy {
   static func requestEquivalentURL(_ url: URL) -> URL {
     var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
     components?.fragment = nil
+    let normalizedHost = components?.host?.lowercased()
+    components?.host = normalizedHost
+    if (components?.scheme?.lowercased() == "https" && components?.port == 443)
+      || (components?.scheme?.lowercased() == "http" && components?.port == 80)
+    {
+      components?.port = nil
+    }
     return components?.url ?? url
   }
 
@@ -136,7 +143,7 @@ enum RemoteMessageContentPolicy {
   }
 }
 
-private enum RemoteMessageContentError: Error {
+enum RemoteMessageContentError: Error {
   case responseTooLarge
 }
 
@@ -158,7 +165,7 @@ enum RemoteMessageContentRedirectPolicy {
   }
 }
 
-private final class RemoteMessageContentRedirectDelegate: NSObject, URLSessionTaskDelegate {
+class RemoteMessageContentRedirectDelegate: NSObject, URLSessionTaskDelegate {
   func urlSession(
     _: URLSession,
     task _: URLSessionTask,
@@ -198,28 +205,12 @@ enum RemoteMessageContentSession {
   static func data(
     for request: URLRequest,
     maximumByteCount: Int,
-    session: URLSession
+    configuration: URLSessionConfiguration
   ) async throws -> (Data, URLResponse) {
-    let delegate = RemoteMessageContentRedirectDelegate()
-    let (bytes, response) = try await session.bytes(for: request, delegate: delegate)
-    guard
-      response.expectedContentLength <= Int64(maximumByteCount)
-        || response.expectedContentLength == NSURLSessionTransferSizeUnknown
-    else {
-      throw RemoteMessageContentError.responseTooLarge
-    }
-    var data = Data()
-    if response.expectedContentLength > 0 {
-      data.reserveCapacity(Int(response.expectedContentLength))
-    }
-    for try await byte in bytes {
-      guard data.count < maximumByteCount else {
-        throw RemoteMessageContentError.responseTooLarge
-      }
-      data.append(byte)
-    }
-    try Task.checkCancellation()
-    return (data, response)
+    try await RemoteMessageContentDataDelegate(maximumByteCount: maximumByteCount).load(
+      request,
+      configuration: configuration
+    )
   }
 }
 
@@ -246,11 +237,7 @@ struct RemoteMessageContentLoader {
   }
 
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
-    let session =
-      fetch == nil
-      ? URLSession(configuration: RemoteMessageContentSession.makeConfiguration())
-      : nil
-    defer { session?.finishTasksAndInvalidate() }
+    let sessionConfiguration = fetch == nil ? RemoteMessageContentSession.makeConfiguration() : nil
     var images: [RemoteMessageImage] = []
     var attemptedImageCount = 0
     var loadedByteCount = 0
@@ -273,7 +260,7 @@ struct RemoteMessageContentLoader {
           for: reference,
           remainingByteCount: (maximumTotalByteCount - loadedByteCount) / occurrenceCount,
           remainingPixelCount: (maximumTotalPixelCount - loadedPixelCount) / occurrenceCount,
-          session: session
+          sessionConfiguration: sessionConfiguration
         )
       else {
         continue
@@ -295,7 +282,7 @@ struct RemoteMessageContentLoader {
     for reference: RemoteMessageImageReference,
     remainingByteCount: Int,
     remainingPixelCount: Int,
-    session: URLSession?
+    sessionConfiguration: URLSessionConfiguration?
   ) async throws -> RemoteMessageContentAdmission? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
       return nil
@@ -304,12 +291,12 @@ struct RemoteMessageContentLoader {
       MailboxMessageImagePolicy.maximumImageByteCount,
       remainingByteCount
     )
-    guard maximumByteCount > 0 else { return nil }
+    guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
     do {
       let (data, response) = try await response(
         for: request(url: reference.url),
         maximumByteCount: maximumByteCount,
-        session: session
+        sessionConfiguration: sessionConfiguration
       )
       return admittedImage(
         reference: reference,
@@ -331,18 +318,18 @@ struct RemoteMessageContentLoader {
   private func response(
     for request: URLRequest,
     maximumByteCount: Int,
-    session: URLSession?
+    sessionConfiguration: URLSessionConfiguration?
   ) async throws -> (Data, URLResponse) {
     if let fetch {
       return try await fetch(request, maximumByteCount)
     }
-    guard let session else {
+    guard let sessionConfiguration else {
       throw CancellationError()
     }
     return try await RemoteMessageContentSession.data(
       for: request,
       maximumByteCount: maximumByteCount,
-      session: session
+      configuration: sessionConfiguration
     )
   }
 

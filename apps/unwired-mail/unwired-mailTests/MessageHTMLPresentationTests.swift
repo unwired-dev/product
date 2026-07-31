@@ -325,13 +325,14 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains(#"alt="Tracker" src="#))
   }
 
-  func testSanitizerDeduplicatesFragmentVariantsOfRemoteImageURLs() throws {
+  func testSanitizerDeduplicatesRequestEquivalentRemoteImageURLs() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
-        <img src="https://images.example.com/hero.png#one" alt="Hero">
+        <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
         <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
+        <img src="https://images.example.com:443/hero.png" alt="Default port hero">
         """
       )
     )
@@ -344,7 +345,7 @@ extension MessageHTMLPresentationTests {
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
       ).count - 1,
-      2
+      3
     )
   }
 
@@ -937,6 +938,30 @@ extension MessageHTMLPresentationTests {
       XCTAssertTrue(error is CancellationError)
     }
     XCTAssertEqual(cancellationChecks, 1)
+  }
+}
+
+extension MessageHTMLPresentationTests {
+  func testRemoteContentLoaderSkipsRequestsWhenPixelBudgetIsExhausted() async throws {
+    let reference = RemoteMessageImageReference(
+      identifier: "remote-image-0",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+    )
+    let presentation = SanitizedMessageHTML(
+      documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+      remoteImageReferences: [reference]
+    )
+    let loader = RemoteMessageContentLoader(
+      maximumTotalPixelCount: 0,
+      fetch: { _, _ in
+        XCTFail("Pixel-exhausted content must not make a request")
+        throw TestError.sanitizationFailed
+      })
+
+    let result = try await loader.load(presentation)
+
+    XCTAssertEqual(result.loadedImageCount, 0)
+    XCTAssertEqual(result.failedImageCount, 1)
   }
 }
 
