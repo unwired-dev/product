@@ -223,50 +223,52 @@ async function upsertProductAccount(
   };
 }
 
-async function upsertTrustedDevice(
+async function registerTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   productAccountId: Id<'productAccounts'>,
   registration: TrustedDeviceRegistration,
 ): Promise<{
-  deviceRegistered: boolean;
+  deviceRegistered: true;
   trustedDeviceId: Id<'trustedDevices'>;
 }> {
   const displayName =
     registration.deviceName === undefined
       ? undefined
       : normalizedTrustedDeviceName(registration.deviceName);
-  const existingDevice = await ctx.db
+  const devices = await ctx.db
     .query('trustedDevices')
-    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('deviceIdentifier', registration.deviceIdentifier),
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
     )
-    .unique();
-
-  if (existingDevice === null) {
-    const devices = await ctx.db
-      .query('trustedDevices')
-      .withIndex('by_productAccountId', (q) =>
-        q.eq('productAccountId', productAccountId),
-      )
-      .take(trustedDeviceLimitPerProductAccount);
-    if (devices.length >= trustedDeviceLimitPerProductAccount) {
-      throw new Error('Trusted Device limit exceeded');
-    }
-    return {
-      deviceRegistered: true,
-      trustedDeviceId: await ctx.db.insert('trustedDevices', {
-        deviceIdentifier: registration.deviceIdentifier,
-        ...(displayName === undefined ? {} : { displayName }),
-        lastSeenAt: registration.now,
-        platform: registration.platform,
-        productAccountId,
-        registeredAt: registration.now,
-      }),
-    };
+    .take(trustedDeviceLimitPerProductAccount);
+  if (devices.length >= trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
   }
+  return {
+    deviceRegistered: true,
+    trustedDeviceId: await ctx.db.insert('trustedDevices', {
+      deviceIdentifier: registration.deviceIdentifier,
+      ...(displayName === undefined ? {} : { displayName }),
+      lastSeenAt: registration.now,
+      platform: registration.platform,
+      productAccountId,
+      registeredAt: registration.now,
+    }),
+  };
+}
 
+async function updateTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  existingDevice: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  registration: TrustedDeviceRegistration,
+): Promise<{
+  deviceRegistered: false;
+  trustedDeviceId: Id<'trustedDevices'>;
+}> {
+  const displayName =
+    registration.deviceName === undefined
+      ? undefined
+      : normalizedTrustedDeviceName(registration.deviceName);
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const trustedDeviceId = existingDevice._id;
   await ctx.db.patch(trustedDeviceId, {
@@ -280,6 +282,46 @@ async function upsertTrustedDevice(
     deviceRegistered: false,
     trustedDeviceId,
   };
+}
+
+async function upsertTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  registration: TrustedDeviceRegistration,
+): Promise<{
+  deviceRegistered: boolean;
+  trustedDeviceId: Id<'trustedDevices'>;
+}> {
+  const existingDevice = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('deviceIdentifier', registration.deviceIdentifier),
+    )
+    .unique();
+
+  if (existingDevice === null) {
+    return registerTrustedDevice(ctx, productAccountId, registration);
+  }
+
+  return updateTrustedDevice(ctx, existingDevice, registration);
+}
+
+async function deleteTrustedDeviceHeartbeat(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const heartbeat = await ctx.db
+    .query('devicePushRouteHeartbeats')
+    .withIndex('by_trustedDeviceId', (q) =>
+      q.eq('trustedDeviceId', trustedDeviceId),
+    )
+    .unique();
+  if (heartbeat !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(heartbeat._id);
+  }
 }
 
 export const connect = mutation({
@@ -391,16 +433,7 @@ export const unregisterTrustedDevice = mutation({
     if (device.deviceIdentifier !== args.deviceIdentifier) {
       throw new Error('Current trusted device required');
     }
-    const heartbeat = await ctx.db
-      .query('devicePushRouteHeartbeats')
-      .withIndex('by_trustedDeviceId', (q) =>
-        q.eq('trustedDeviceId', args.trustedDeviceId),
-      )
-      .unique();
-    if (heartbeat !== null) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(heartbeat._id);
-    }
+    await deleteTrustedDeviceHeartbeat(ctx, args.trustedDeviceId);
     await ctx.db.delete(args.trustedDeviceId);
     return { registered: false };
   },

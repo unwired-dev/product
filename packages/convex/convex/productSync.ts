@@ -21,6 +21,11 @@ import {
 const encryptedProductSyncPayloadPageSize = 100;
 const recentAuthenticationMaximumAgeSeconds = 5 * 60;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
+const encryptedPayloadMutationArgs = {
+  encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+  payloadIdentifier: v.string(),
+  trustedDeviceId: v.id('trustedDevices'),
+};
 
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
@@ -28,18 +33,24 @@ function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   }
 }
 
+function authenticationIssuedAt(issuedAt: unknown): number {
+  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
+    // oxlint-disable-next-line unicorn/prefer-type-error -- Authentication failures intentionally share one public API error type.
+    throw new Error('Recent authentication required');
+  }
+  return issuedAt;
+}
+
 async function requireRecentAuthentication(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
 ): Promise<void> {
   const identity = await ctx.auth.getUserIdentity();
-  const issuedAt = identity?.iat;
+  const issuedAt = authenticationIssuedAt(identity?.iat);
   const now = Math.floor(Date.now() / 1000);
-  if (
-    typeof issuedAt !== 'number' ||
-    !Number.isFinite(issuedAt) ||
-    issuedAt > now ||
-    now - issuedAt > recentAuthenticationMaximumAgeSeconds
-  ) {
+  if (issuedAt > now) {
+    throw new Error('Recent authentication required');
+  }
+  if (now - issuedAt > recentAuthenticationMaximumAgeSeconds) {
     throw new Error('Recent authentication required');
   }
 }
@@ -120,42 +131,46 @@ async function writePayload(
   return serializePayload(await insertPayload(ctx, args, productAccountId));
 }
 
-export const putEncryptedPayload = mutation({
+async function updatePayload(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  existingPayload: Doc<'encryptedProductSyncPayloads'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
   args: {
-    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
-    payloadIdentifier: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   },
+): Promise<EncryptedProductSyncPayload> {
+  const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(existingPayload._id, {
+    encryptedPayload: args.encryptedPayload,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: now,
+    writtenAt: now,
+  });
+
+  return serializePayload({
+    ...existingPayload,
+    encryptedPayload: args.encryptedPayload,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: now,
+    writtenAt: now,
+  });
+}
+
+export const putEncryptedPayload = mutation({
+  args: encryptedPayloadMutationArgs,
   handler: (ctx, args) => {
     requireUnreservedPayloadIdentifier(args.payloadIdentifier);
-    return writePayload(ctx, args, async (existingPayload) => {
-      const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.patch(existingPayload._id, {
-        encryptedPayload: args.encryptedPayload,
-        trustedDeviceId: args.trustedDeviceId,
-        updatedAt: now,
-        writtenAt: now,
-      });
-
-      return serializePayload({
-        ...existingPayload,
-        encryptedPayload: args.encryptedPayload,
-        trustedDeviceId: args.trustedDeviceId,
-        updatedAt: now,
-        writtenAt: now,
-      });
-    });
+    return writePayload(ctx, args, (existingPayload) =>
+      updatePayload(ctx, existingPayload, args),
+    );
   },
   returns: encryptedProductSyncPayloadValidator,
 });
 
 export const putEncryptedPayloadIfAbsent = mutation({
-  args: {
-    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
-    payloadIdentifier: v.string(),
-    trustedDeviceId: v.id('trustedDevices'),
-  },
+  args: encryptedPayloadMutationArgs,
   handler: (ctx, args) => {
     requireUnreservedPayloadIdentifier(args.payloadIdentifier);
     return writePayload(ctx, args, async (existingPayload) =>
@@ -224,21 +239,7 @@ async function writeEncryptedPayloadIfUnchanged(
     return serializePayload(existingPayload);
   }
 
-  const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  await ctx.db.patch(existingPayload._id, {
-    encryptedPayload: args.encryptedPayload,
-    trustedDeviceId: args.trustedDeviceId,
-    updatedAt: now,
-    writtenAt: now,
-  });
-  return serializePayload({
-    ...existingPayload,
-    encryptedPayload: args.encryptedPayload,
-    trustedDeviceId: args.trustedDeviceId,
-    updatedAt: now,
-    writtenAt: now,
-  });
+  return updatePayload(ctx, existingPayload, args);
 }
 
 export const listEncryptedPayloads = query({
