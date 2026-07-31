@@ -501,6 +501,26 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
   }
 
+  func testSanitizerHonorsCSSDimensionsOverTrackingPixelAttributes() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/hero.png" width="1" height="1"
+             style="width: 600px; height: 300px">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
     let presentation = try remoteContentTestPresentation()
     let png = try XCTUnwrap(

@@ -58,13 +58,21 @@ enum RemoteMessageContentMarkup {
         .trimmingCharacters(in: .whitespacesAndNewlines)
       let styleDimension =
         dimension == "width" ? #"(?:width|max-width)"# : #"(?:height|max-height)"#
-      return
-        value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil
-        || style.range(
-          of: #"(?:^|;)\s*"# + styleDimension
-            + #"\s*:\s*0*1(?:\.0*)?(?:px)?(?:\s*!important)?\s*(?:;|$)"#,
+      if style.range(
+        of: #"(?:^|;)\s*"# + styleDimension
+          + #"\s*:\s*0*1(?:\.0*)?(?:px)?(?:\s*!important)?\s*(?:;|$)"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil {
+        return true
+      }
+      let hasStyleOverride =
+        style.range(
+          of: #"(?:^|;)\s*"# + dimension + #"\s*:"#,
           options: [.regularExpression, .caseInsensitive]
         ) != nil
+      return
+        !hasStyleOverride
+        && value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil
     }
   }
 
