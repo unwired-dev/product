@@ -19,6 +19,30 @@ import {
 } from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
+const recentAuthenticationMaximumAgeSeconds = 5 * 60;
+const recoveryPayloadIdentifier = 'product-account-recovery-v1';
+
+function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
+  if (payloadIdentifier === recoveryPayloadIdentifier) {
+    throw new Error('Recovery material requires recent authentication');
+  }
+}
+
+async function requireRecentAuthentication(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+): Promise<void> {
+  const identity = await ctx.auth.getUserIdentity();
+  const issuedAt = identity?.iat;
+  const now = Math.floor(Date.now() / 1000);
+  if (
+    typeof issuedAt !== 'number' ||
+    !Number.isFinite(issuedAt) ||
+    issuedAt > now ||
+    now - issuedAt > recentAuthenticationMaximumAgeSeconds
+  ) {
+    throw new Error('Recent authentication required');
+  }
+}
 
 function serializePayload(
   payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
@@ -102,8 +126,9 @@ export const putEncryptedPayload = mutation({
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: (ctx, args) =>
-    writePayload(ctx, args, async (existingPayload) => {
+  handler: (ctx, args) => {
+    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
+    return writePayload(ctx, args, async (existingPayload) => {
       const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
       // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
       await ctx.db.patch(existingPayload._id, {
@@ -120,7 +145,8 @@ export const putEncryptedPayload = mutation({
         updatedAt: now,
         writtenAt: now,
       });
-    }),
+    });
+  },
   returns: encryptedProductSyncPayloadValidator,
 });
 
@@ -130,10 +156,12 @@ export const putEncryptedPayloadIfAbsent = mutation({
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
-  handler: (ctx, args) =>
-    writePayload(ctx, args, async (existingPayload) =>
+  handler: (ctx, args) => {
+    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
+    return writePayload(ctx, args, async (existingPayload) =>
       serializePayload(existingPayload),
-    ),
+    );
+  },
   returns: encryptedProductSyncPayloadValidator,
 });
 
@@ -145,41 +173,73 @@ export const putEncryptedPayloadIfUnchanged = mutation({
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
-    const { productAccountId } = await requireProductAccount(ctx);
-    await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-    const existingPayload = await findPayload(
-      ctx,
-      productAccountId,
-      args.payloadIdentifier,
-    );
-    if (existingPayload === null) {
-      if (args.expectedUpdatedAt !== undefined) {
-        throw new Error('Encrypted Product Sync payload changed');
-      }
-      return serializePayload(await insertPayload(ctx, args, productAccountId));
-    }
-    if (existingPayload.updatedAt !== args.expectedUpdatedAt) {
-      return serializePayload(existingPayload);
-    }
+    requireUnreservedPayloadIdentifier(args.payloadIdentifier);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
+    return writeEncryptedPayloadIfUnchanged(ctx, args);
+  },
+  returns: encryptedProductSyncPayloadValidator,
+});
 
-    const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.patch(existingPayload._id, {
-      encryptedPayload: args.encryptedPayload,
-      trustedDeviceId: args.trustedDeviceId,
-      updatedAt: now,
-      writtenAt: now,
-    });
-    return serializePayload({
-      ...existingPayload,
-      encryptedPayload: args.encryptedPayload,
-      trustedDeviceId: args.trustedDeviceId,
-      updatedAt: now,
-      writtenAt: now,
+export const replaceRecoveryMaterialIfUnchanged = mutation({
+  args: {
+    encryptedPayload: encryptedProductSyncPayloadBodyValidator,
+    expectedUpdatedAt: v.optional(v.number()),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    await requireRecentAuthentication(ctx);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
+    return writeEncryptedPayloadIfUnchanged(ctx, {
+      ...args,
+      payloadIdentifier: recoveryPayloadIdentifier,
     });
   },
   returns: encryptedProductSyncPayloadValidator,
 });
+
+async function writeEncryptedPayloadIfUnchanged(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: Readonly<{
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    expectedUpdatedAt?: number;
+    payloadIdentifier: string;
+    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
+  }>,
+): Promise<EncryptedProductSyncPayload> {
+  const { productAccountId } = await requireProductAccount(ctx);
+  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+  const existingPayload = await findPayload(
+    ctx,
+    productAccountId,
+    args.payloadIdentifier,
+  );
+  if (existingPayload === null) {
+    if (args.expectedUpdatedAt !== undefined) {
+      throw new Error('Encrypted Product Sync payload changed');
+    }
+    return serializePayload(await insertPayload(ctx, args, productAccountId));
+  }
+  if (existingPayload.updatedAt !== args.expectedUpdatedAt) {
+    return serializePayload(existingPayload);
+  }
+
+  const now = Math.max(Date.now(), existingPayload.updatedAt + 1);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  await ctx.db.patch(existingPayload._id, {
+    encryptedPayload: args.encryptedPayload,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: now,
+    writtenAt: now,
+  });
+  return serializePayload({
+    ...existingPayload,
+    encryptedPayload: args.encryptedPayload,
+    trustedDeviceId: args.trustedDeviceId,
+    updatedAt: now,
+    writtenAt: now,
+  });
+}
 
 export const listEncryptedPayloads = query({
   args: {

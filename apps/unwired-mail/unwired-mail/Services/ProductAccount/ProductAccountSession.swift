@@ -65,62 +65,11 @@ final class ProductAccountSession {
     await task.value
   }
 
-  private func performBootstrap() async {
-    guard let snapshot = try? sessionStore.load() else {
-      state = .signedOut
-      return
-    }
-
-    do {
-      let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
-      let response = try await productAccountService.connect(
-        identityToken: credential.identityToken
-      )
-      _ = try productSyncKeyMaterialStore.ensureMaterial(
-        productAccountId: response.productAccountId,
-        allowCreation: response.accountCreated
-      )
-      _ = try await productAccountService.markProductSyncMaterialInitialized(
-        identityToken: credential.identityToken,
-        trustedDeviceId: response.trustedDeviceId
-      )
-      let refreshedSnapshot = ProductAccountSessionSnapshot(
-        appleUserIdentifier: credential.appleUserIdentifier,
-        identityToken: credential.identityToken,
-        identityTokenExpiresAt: AppleIdentityToken.expirationDate(
-          from: credential.identityToken
-        ),
-        productAccountId: response.productAccountId,
-        trustedDeviceId: response.trustedDeviceId
-      )
-      try await replaceSessionAfterBootstrap(
-        snapshot,
-        with: refreshedSnapshot
-      )
-      state = .signedIn(refreshedSnapshot)
-    } catch let error as AppleSignInError {
-      switch error {
-      case .notAuthorized:
-        try? await devicePushUnregistrationService.unregister(session: snapshot)
-        do {
-          try await mailboxConnectionService.clearLocalConnection(session: snapshot)
-          try sessionStore.clear()
-          state = .signedOut
-        } catch {
-          state = .failed(error.localizedDescription)
-        }
-      default:
-        state = .failed(error.localizedDescription)
-      }
-    } catch {
-      state = .failed(error.localizedDescription)
-    }
-  }
-
   func signInWithApple() async {
     state = .loading
 
     do {
+      try resumePendingSignOut()
       let credential = try await appleSignInService.signIn()
       let response = try await productAccountService.connect(
         identityToken: credential.identityToken
@@ -195,7 +144,14 @@ final class ProductAccountSession {
         return
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
-      try sessionStore.clear()
+      if let snapshot {
+        try sessionStore.savePendingSignOutProductAccountId(
+          snapshot.productAccountId
+        )
+        try resumePendingSignOut()
+      } else {
+        try sessionStore.clear()
+      }
       guard
         currentSignedInSnapshot() == nil || currentSignedInSnapshot() == snapshot,
         (try? sessionStore.load()) == nil
@@ -287,6 +243,83 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  private func performBootstrap() async {
+    guard prepareForBootstrap() else { return }
+    guard let snapshot = try? sessionStore.load() else {
+      state = .signedOut
+      return
+    }
+
+    do {
+      let credential = try await appleSignInService.restoreSession(snapshot: snapshot)
+      let response = try await productAccountService.connect(
+        identityToken: credential.identityToken
+      )
+      _ = try productSyncKeyMaterialStore.ensureMaterial(
+        productAccountId: response.productAccountId,
+        allowCreation: response.accountCreated
+      )
+      _ = try await productAccountService.markProductSyncMaterialInitialized(
+        identityToken: credential.identityToken,
+        trustedDeviceId: response.trustedDeviceId
+      )
+      let refreshedSnapshot = ProductAccountSessionSnapshot(
+        appleUserIdentifier: credential.appleUserIdentifier,
+        identityToken: credential.identityToken,
+        identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+          from: credential.identityToken
+        ),
+        productAccountId: response.productAccountId,
+        trustedDeviceId: response.trustedDeviceId
+      )
+      try await replaceSessionAfterBootstrap(
+        snapshot,
+        with: refreshedSnapshot
+      )
+      state = .signedIn(refreshedSnapshot)
+    } catch let error as AppleSignInError {
+      switch error {
+      case .notAuthorized:
+        try? await devicePushUnregistrationService.unregister(session: snapshot)
+        do {
+          try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+          try sessionStore.clear()
+          state = .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
+      default:
+        state = .failed(error.localizedDescription)
+      }
+    } catch {
+      state = .failed(error.localizedDescription)
+    }
+  }
+
+  private func prepareForBootstrap() -> Bool {
+    do {
+      try resumePendingSignOut()
+      return true
+    } catch {
+      state = .failed(error.localizedDescription)
+      return false
+    }
+  }
+
+  private func resumePendingSignOut() throws {
+    guard
+      let productAccountId =
+        try sessionStore.loadPendingSignOutProductAccountId()
+    else {
+      return
+    }
+    try sessionStore.clear()
+    try productSyncKeyMaterialStore.clear(
+      productAccountId: productAccountId
+    )
+    try sessionStore.clearPendingSignOutProductAccountId()
+  }
+
   func recentIdentityToken(
     for snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {

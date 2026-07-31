@@ -113,6 +113,7 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
 #if DEBUG || TESTING
   final class InMemoryProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     private var materials: [String: ProductSyncKeyMaterial] = [:]
+    var clearError: Error?
     private(set) var saveCount = 0
 
     func load(productAccountId: String) throws -> ProductSyncKeyMaterial? {
@@ -155,6 +156,9 @@ struct KeychainProductSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting {
     }
 
     func clear(productAccountId: String) throws {
+      if let clearError {
+        throw clearError
+      }
       materials[productAccountId] = nil
     }
   }

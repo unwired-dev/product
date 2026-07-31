@@ -318,6 +318,23 @@ final class ConvexClient {
     )
   }
 
+  func replaceRecoveryMaterialIfUnchanged(
+    identityToken: String,
+    encryptedPayload: ProductSyncEncryptedPayload,
+    trustedDeviceId: String,
+    expectedUpdatedAt: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    try await performMutation(
+      path: "productSync:replaceRecoveryMaterialIfUnchanged",
+      args: ReplaceRecoveryMaterialIfUnchangedArgs(
+        encryptedPayload: encryptedPayload,
+        expectedUpdatedAt: expectedUpdatedAt,
+        trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
   func getEncryptedProductSyncPayload(
     identityToken: String,
     payloadIdentifier: String
@@ -609,6 +626,12 @@ private struct PutEncryptedPayloadIfUnchangedArgs: Encodable {
   let encryptedPayload: ProductSyncEncryptedPayload
   let expectedUpdatedAt: Int64?
   let payloadIdentifier: String
+  let trustedDeviceId: String
+}
+
+private struct ReplaceRecoveryMaterialIfUnchangedArgs: Encodable {
+  let encryptedPayload: ProductSyncEncryptedPayload
+  let expectedUpdatedAt: Int64?
   let trustedDeviceId: String
 }
 

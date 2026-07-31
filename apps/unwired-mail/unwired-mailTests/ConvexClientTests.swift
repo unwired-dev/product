@@ -486,6 +486,65 @@ final class ConvexClientProductSyncTests: XCTestCase {
     XCTAssertEqual(response.payloadIdentifier, "payload-001")
   }
 
+  func testReplaceRecoveryMaterialUsesDedicatedRecentAuthenticationMutation()
+    async throws
+  {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "encryptedPayload": {
+            "algorithm": "AES-GCM-256",
+            "ciphertextBase64": "Y2lwaGVydGV4dA",
+            "keyVersion": 1,
+            "nonceBase64": "bm9uY2U",
+            "schemaVersion": 1,
+            "tagBase64": "dGFn"
+          },
+          "payloadIdentifier": "product-account-recovery-v1",
+          "updatedAt": 1781200000000
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request))
+            as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productSync:replaceRecoveryMaterialIfUnchanged"
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertNil(args["payloadIdentifier"])
+        XCTAssertEqual(
+          args["trustedDeviceId"] as? String,
+          "trustedDeviceFixtureId"
+        )
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.replaceRecoveryMaterialIfUnchanged(
+      identityToken: "fresh-apple-token",
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: "AES-GCM-256",
+        ciphertextBase64: "Y2lwaGVydGV4dA",
+        keyVersion: 1,
+        nonceBase64: "bm9uY2U",
+        schemaVersion: 1,
+        tagBase64: "dGFn"
+      ),
+      trustedDeviceId: "trustedDeviceFixtureId",
+      expectedUpdatedAt: nil
+    )
+
+    XCTAssertEqual(response.payloadIdentifier, "product-account-recovery-v1")
+  }
+
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {

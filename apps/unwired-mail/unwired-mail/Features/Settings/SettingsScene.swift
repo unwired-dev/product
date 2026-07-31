@@ -994,7 +994,7 @@ final class AccountAndDevicesViewModel {
     }
   }
 
-  func replaceRecoveryKey(
+  func presentRecoveryKey(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: () async throws -> String
   ) async {
@@ -1002,10 +1002,18 @@ final class AccountAndDevicesViewModel {
     defer { isWorking = false }
     do {
       let identityToken = try await recentIdentityToken()
-      let recoveryKey = try await service.replaceRecoveryKey(
-        session: session,
-        recentIdentityToken: identityToken
-      )
+      let recoveryKey =
+        if recoveryKeyStatus == .current {
+          try await service.revealCurrentRecoveryKey(
+            session: session,
+            recentIdentityToken: identityToken
+          )
+        } else {
+          try await service.replaceRecoveryKey(
+            session: session,
+            recentIdentityToken: identityToken
+          )
+        }
       recoveryKeyStatus = .current
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
@@ -1021,6 +1029,14 @@ final class AccountAndDevicesViewModel {
 
   func hideRecoveryKey() {
     revealedRecoveryKey = nil
+  }
+}
+
+enum AccountAndDevicesAccessibility {
+  static let currentDevice = "Current Trusted Device"
+
+  static func renameDevice(_ displayName: String) -> String {
+    "Rename \(displayName)"
   }
 }
 
@@ -1153,7 +1169,7 @@ struct AccountAndDevicesSettingsView: View {
     ) {
       Button(recoveryActionTitle) {
         Task {
-          await viewModel.replaceRecoveryKey(
+          await viewModel.presentRecoveryKey(
             session: snapshot,
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
@@ -1163,11 +1179,7 @@ struct AccountAndDevicesSettingsView: View {
       }
       Button("Cancel", role: .cancel) {}
     } message: {
-      Text(
-        "Sign in with Apple will confirm your identity. Replacing the Recovery Key "
-          + "invalidates the previous key, but never sends the new key or decrypted "
-          + "Product Sync data to the backend."
-      )
+      Text(recoveryConfirmationMessage)
     }
     .confirmationDialog(
       "Sign out on this device?",
@@ -1195,9 +1207,11 @@ struct AccountAndDevicesSettingsView: View {
       )
     }
   }
+}
 
+extension AccountAndDevicesSettingsView {
   @ViewBuilder
-  private func trustedDeviceRow(_ device: TrustedDeviceSummary) -> some View {
+  fileprivate func trustedDeviceRow(_ device: TrustedDeviceSummary) -> some View {
     HStack(alignment: .top, spacing: 12) {
       Image(systemName: device.platform == "macos" ? "desktopcomputer" : "iphone")
         .font(.title3)
@@ -1210,7 +1224,7 @@ struct AccountAndDevicesSettingsView: View {
             Text("Current Device")
               .font(.caption.bold())
               .foregroundStyle(.secondary)
-              .accessibilityLabel("Current Trusted Device")
+              .accessibilityLabel(AccountAndDevicesAccessibility.currentDevice)
           }
         }
         Text(
@@ -1227,15 +1241,24 @@ struct AccountAndDevicesSettingsView: View {
         deviceToRename = device
       }
       .disabled(viewModel.isWorking)
+      .accessibilityLabel(
+        AccountAndDevicesAccessibility.renameDevice(device.displayName)
+      )
     }
   }
 
-  private var recoveryActionTitle: String {
-    viewModel.recoveryKeyStatus == .notBackedUp
-      ? "Generate Recovery Key" : "Replace Recovery Key"
+  fileprivate var recoveryActionTitle: String {
+    switch viewModel.recoveryKeyStatus {
+    case .current:
+      return "View Recovery Key"
+    case .notBackedUp:
+      return "Generate Recovery Key"
+    case .replacedOnAnotherDevice, .unavailable:
+      return "Replace Recovery Key"
+    }
   }
 
-  private var recoveryStatusTitle: String {
+  fileprivate var recoveryStatusTitle: String {
     switch viewModel.recoveryKeyStatus {
     case .current:
       return "Recovery Key available"
@@ -1248,7 +1271,18 @@ struct AccountAndDevicesSettingsView: View {
     }
   }
 
-  private var recoveryStatusImage: String {
+  fileprivate var recoveryConfirmationMessage: String {
+    if viewModel.recoveryKeyStatus == .current {
+      return
+        "Sign in with Apple will confirm your identity before the Recovery Key is shown."
+    }
+    return
+      "Sign in with Apple will confirm your identity. Replacing the Recovery Key "
+      + "invalidates the previous key, but never sends the new key or decrypted "
+      + "Product Sync data to the backend."
+  }
+
+  fileprivate var recoveryStatusImage: String {
     switch viewModel.recoveryKeyStatus {
     case .current:
       return "checkmark.shield"
@@ -1259,7 +1293,7 @@ struct AccountAndDevicesSettingsView: View {
     }
   }
 
-  private var recoveryStatusDescription: String {
+  fileprivate var recoveryStatusDescription: String {
     switch viewModel.recoveryKeyStatus {
     case .current:
       return

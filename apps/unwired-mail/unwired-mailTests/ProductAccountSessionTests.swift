@@ -48,6 +48,39 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testSignInCompletesInterruptedSignOutBeforeSavingSession() async throws {
+    let oldSnapshot = Self.restorableSnapshot
+    try store.save(oldSnapshot)
+    try store.savePendingSignOutProductAccountId(oldSnapshot.productAccountId)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: oldSnapshot.productAccountId,
+      allowCreation: true
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-002",
+          identityToken: "token-002"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertEqual(snapshot.appleUserIdentifier, "apple-user-002")
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
+    XCTAssertNil(
+      try keyMaterialStore.load(productAccountId: oldSnapshot.productAccountId)
+    )
+  }
+
   func testRecentAuthenticationReturnsFreshTokenForTheCurrentProductAccount() async throws {
     let response = ProductAccountConnectResponse(
       accountCreated: true,
@@ -339,6 +372,11 @@ final class ProductAccountSessionTests: XCTestCase {
       pushUnregisterer.sessions.first?.productAccountId,
       ProductAccountConnectResponse.preview.productAccountId
     )
+    XCTAssertNil(
+      try keyMaterialStore.load(
+        productAccountId: ProductAccountConnectResponse.preview.productAccountId
+      )
+    )
   }
 
   func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
@@ -505,6 +543,111 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
+  }
+
+  func testSignOutLeavesPendingCleanupWhenProductSyncKeyCleanupFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    keyMaterialStore.clearError = ProductAccountSessionTestError.keyCleanupFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.keyCleanupFailed.localizedDescription)
+    )
+    XCTAssertNil(try store.load())
+    XCTAssertNotNil(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertEqual(
+      try store.loadPendingSignOutProductAccountId(),
+      snapshot.productAccountId
+    )
+  }
+
+  func testSignOutLeavesPendingCleanupWhenSessionCleanupFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    sessionStore.clearError = ProductAccountSessionTestError.sessionClearFailed
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.sessionClearFailed.localizedDescription)
+    )
+    XCTAssertEqual(try sessionStore.load(), snapshot)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
+      material
+    )
+    XCTAssertEqual(
+      try sessionStore.loadPendingSignOutProductAccountId(),
+      snapshot.productAccountId
+    )
+  }
+
+  func testBootstrapCompletesInterruptedSignOut() async throws {
+    let snapshot = Self.restorableSnapshot
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try sessionStore.load())
+    XCTAssertNil(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
   }
 
   func testSignOutPreservesStoredSessionWhenBodyCacheCleanupFails() async throws {
@@ -1136,7 +1279,9 @@ private struct SuspendingAppleSignInService: AppleSignInPerforming {
 
 private enum ProductAccountSessionTestError: Error {
   case gmailCleanupFailed
+  case keyCleanupFailed
   case pushUnregistrationFailed
+  case sessionClearFailed
   case sessionLoadFailed
   case sessionSaveFailed
 }
@@ -1146,7 +1291,9 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   var loadCount = 0
   var loadError: Error?
   var saveError: Error?
+  var clearError: Error?
 
+  private var pendingSignOutProductAccountId: String?
   private var snapshot: ProductAccountSessionSnapshot?
 
   init(snapshot: ProductAccountSessionSnapshot? = nil) {
@@ -1171,8 +1318,23 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   }
 
   func clear() throws {
+    if let clearError {
+      throw clearError
+    }
     didClear = true
     snapshot = nil
+  }
+
+  func loadPendingSignOutProductAccountId() throws -> String? {
+    pendingSignOutProductAccountId
+  }
+
+  func savePendingSignOutProductAccountId(_ productAccountId: String) throws {
+    pendingSignOutProductAccountId = productAccountId
+  }
+
+  func clearPendingSignOutProductAccountId() throws {
+    pendingSignOutProductAccountId = nil
   }
 }
 

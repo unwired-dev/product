@@ -244,6 +244,15 @@ async function upsertTrustedDevice(
     .unique();
 
   if (existingDevice === null) {
+    const devices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', productAccountId),
+      )
+      .take(trustedDeviceLimitPerProductAccount);
+    if (devices.length >= trustedDeviceLimitPerProductAccount) {
+      throw new Error('Trusted Device limit exceeded');
+    }
     return {
       deviceRegistered: true,
       trustedDeviceId: await ctx.db.insert('trustedDevices', {

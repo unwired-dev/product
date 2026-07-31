@@ -38,6 +38,9 @@ protocol ProductAccountSessionPersisting {
   func load() throws -> ProductAccountSessionSnapshot?
   func save(_ snapshot: ProductAccountSessionSnapshot) throws
   func clear() throws
+  func loadPendingSignOutProductAccountId() throws -> String?
+  func savePendingSignOutProductAccountId(_ productAccountId: String) throws
+  func clearPendingSignOutProductAccountId() throws
 }
 
 enum ProductAccountSessionStore {
@@ -97,10 +100,33 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
   func clear() throws {
     try KeychainStore.delete(service: service, account: "session")
   }
+
+  func loadPendingSignOutProductAccountId() throws -> String? {
+    try KeychainStore.readString(
+      service: service,
+      account: "pending-sign-out-product-account"
+    )
+  }
+
+  func savePendingSignOutProductAccountId(_ productAccountId: String) throws {
+    try KeychainStore.writeString(
+      productAccountId,
+      service: service,
+      account: "pending-sign-out-product-account"
+    )
+  }
+
+  func clearPendingSignOutProductAccountId() throws {
+    try KeychainStore.delete(
+      service: service,
+      account: "pending-sign-out-product-account"
+    )
+  }
 }
 
 #if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
+    private var pendingSignOutProductAccountId: String?
     private var snapshot: ProductAccountSessionSnapshot?
 
     func load() throws -> ProductAccountSessionSnapshot? {
@@ -113,6 +139,18 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 
     func clear() throws {
       snapshot = nil
+    }
+
+    func loadPendingSignOutProductAccountId() throws -> String? {
+      pendingSignOutProductAccountId
+    }
+
+    func savePendingSignOutProductAccountId(_ productAccountId: String) throws {
+      pendingSignOutProductAccountId = productAccountId
+    }
+
+    func clearPendingSignOutProductAccountId() throws {
+      pendingSignOutProductAccountId = nil
     }
   }
 #endif

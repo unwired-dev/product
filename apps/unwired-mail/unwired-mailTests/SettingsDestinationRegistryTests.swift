@@ -226,6 +226,21 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
   }
 
+  func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
+    XCTAssertEqual(
+      AccountAndDevicesAccessibility.currentDevice,
+      "Current Trusted Device"
+    )
+    XCTAssertEqual(
+      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
+      "Rename Desk Mac"
+    )
+    XCTAssertNotEqual(
+      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
+      AccountAndDevicesAccessibility.renameDevice("Travel iPhone")
+    )
+  }
+
   func testEmailAccountsMetadataDrivesNavigationAndSearch() {
     let destination = SettingsDestination.emailAccounts
 

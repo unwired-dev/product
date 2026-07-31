@@ -226,6 +226,26 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('rejects registration beyond the Trusted Device list limit', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    for (let index = 0; index < 100; index += 1) {
+      await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: `device-${index}`,
+        platform: 'ios',
+      });
+    }
+
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-over-limit',
+        platform: 'ios',
+      }),
+    ).rejects.toThrow('Trusted Device limit exceeded');
+  });
+
   it('marks Product Sync material initialized for the trusted device', async () => {
     expect.assertions(2);
 

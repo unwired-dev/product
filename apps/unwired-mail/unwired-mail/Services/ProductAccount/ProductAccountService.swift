@@ -231,13 +231,48 @@ final class AccountAndDevicesService {
         throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
     } catch {
-      try? keyMaterialStore.save(
-        material,
-        productAccountId: session.productAccountId
-      )
+      do {
+        let authoritative = try await recoveryTransport.getRecoveryMaterial(
+          identityToken: recentIdentityToken,
+          payloadIdentifier: Self.recoveryPayloadIdentifier
+        )
+        if authoritative?.encryptedPayload
+          == replacement.recoveryWrappedAccountKey
+        {
+          return replacement.recoveryKey
+        }
+        try? keyMaterialStore.save(
+          material,
+          productAccountId: session.productAccountId
+        )
+      } catch {
+        // Keep the replacement locally until connectivity can resolve whether
+        // the compare-and-set committed.
+      }
       throw error
     }
     return replacement.recoveryKey
+  }
+
+  func revealCurrentRecoveryKey(
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: String
+  ) async throws -> ProductSyncRecoveryKey {
+    guard
+      let material = try keyMaterialStore.load(
+        productAccountId: session.productAccountId
+      )
+    else {
+      throw AccountAndDevicesServiceError.missingProductSyncKeyMaterial
+    }
+    let remote = try await recoveryTransport.getRecoveryMaterial(
+      identityToken: recentIdentityToken,
+      payloadIdentifier: Self.recoveryPayloadIdentifier
+    )
+    guard remote?.encryptedPayload == material.recoveryWrappedAccountKey else {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
+    }
+    return material.recoveryKey
   }
 
   private func recoveryKeyStatus(
@@ -272,9 +307,8 @@ extension ConvexClient: RecoveryMaterialTransporting {
     trustedDeviceId: String,
     expectedUpdatedAt: Int64?
   ) async throws -> EncryptedProductSyncPayload {
-    try await putEncryptedProductSyncPayloadIfUnchanged(
+    try await replaceRecoveryMaterialIfUnchanged(
       identityToken: identityToken,
-      payloadIdentifier: payloadIdentifier,
       encryptedPayload: encryptedPayload,
       trustedDeviceId: trustedDeviceId,
       expectedUpdatedAt: expectedUpdatedAt

@@ -174,6 +174,32 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.recoveryKeyStatus, .current)
   }
 
+  func testCurrentRecoveryKeyCanBeRevealedAfterRecentAuthentication() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let recoveryKey = try await service.revealCurrentRecoveryKey(
+      session: session,
+      recentIdentityToken: "fresh-apple-token"
+    )
+
+    XCTAssertEqual(recoveryKey, material.recoveryKey)
+  }
+
   func testConcurrentRecoveryReplacementDoesNotOverwriteLocalMaterial() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.simulatesConcurrentRecoveryWrite = true
@@ -203,6 +229,82 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       original
     )
   }
+
+  func testOfflineRecoveryReplacementRestoresMaterialWhenBackendDidNotCommit()
+    async throws
+  {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token"
+      )
+      XCTFail("Expected offline replacement to fail")
+    } catch {
+      XCTAssertTrue(error is AccountAndDevicesTransportError)
+    }
+
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
+  func testResponseLostAfterRecoveryCommitStillReturnsCommittedKey() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.commitsRecoveryBeforeThrowing = true
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let recoveryKey = try await service.replaceRecoveryKey(
+      session: session,
+      recentIdentityToken: "fresh-apple-token"
+    )
+
+    let saved = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+    XCTAssertEqual(saved.recoveryKey, recoveryKey)
+    XCTAssertEqual(
+      transport.remoteRecoveryMaterial?.encryptedPayload,
+      saved.recoveryWrappedAccountKey
+    )
+  }
+}
+
+private enum AccountAndDevicesTransportError: Error {
+  case offline
 }
 
 private final class RecordingAccountAndDevicesTransport:
@@ -213,6 +315,8 @@ private final class RecordingAccountAndDevicesTransport:
   var remoteRecoveryMaterial: EncryptedProductSyncPayload?
   var recoveryWriteIdentityToken: String?
   var recoveryWritePayload: ProductSyncEncryptedPayload?
+  var recoveryWriteError: Error?
+  var commitsRecoveryBeforeThrowing = false
   var simulatesConcurrentRecoveryWrite = false
 
   func listTrustedDevices(
@@ -254,6 +358,16 @@ private final class RecordingAccountAndDevicesTransport:
   ) async throws -> EncryptedProductSyncPayload {
     recoveryWriteIdentityToken = identityToken
     recoveryWritePayload = encryptedPayload
+    if commitsRecoveryBeforeThrowing {
+      remoteRecoveryMaterial = EncryptedProductSyncPayload(
+        encryptedPayload: encryptedPayload,
+        payloadIdentifier: payloadIdentifier,
+        updatedAt: 2
+      )
+    }
+    if let recoveryWriteError {
+      throw recoveryWriteError
+    }
     let storedPayload =
       simulatesConcurrentRecoveryWrite
       ? ProductSyncEncryptedPayload(
