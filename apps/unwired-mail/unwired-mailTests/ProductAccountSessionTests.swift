@@ -493,6 +493,44 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
   }
 
+  func testConcurrentSignOutRequestsShareOneCleanupOperation() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let cleanupGate = SignOutUnregistrationGate()
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: SuspendingDevicePushUnregisterer(gate: cleanupGate),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    let firstSignOut = Task { await session.signOut() }
+    await cleanupGate.waitUntilStarted()
+    let secondSignOut = Task {
+      await session.signOut {
+        XCTFail("A concurrent sign-out must not run separate preparation.")
+      }
+    }
+    await Task.yield()
+    await cleanupGate.release()
+    await firstSignOut.value
+    await secondSignOut.value
+
+    XCTAssertEqual(productAccountService.recoveryCheckCount, 1)
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
   func testBeginSignOutImmediatelyExitsSignedInState() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1445,6 +1483,7 @@ private enum ProductAccountSessionTestError: Error {
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryBackedUp = true
+  var recoveryCheckCount = 0
   var recoveryMaterial: EncryptedProductSyncPayload?
   let response: ProductAccountConnectResponse
   var unregisterError: Error?
@@ -1468,7 +1507,8 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   }
 
   func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
-    recoveryBackedUp
+    recoveryCheckCount += 1
+    return recoveryBackedUp
   }
 
   func productSyncRecoveryMaterial(

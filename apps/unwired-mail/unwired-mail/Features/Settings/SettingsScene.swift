@@ -1007,14 +1007,15 @@ final class AccountAndDevicesViewModel {
   func presentRecoveryKey(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: () async throws -> String,
-    isSessionCurrent: () -> Bool
+    isSessionCurrent: () -> Bool,
+    replacingCurrent: Bool = false
   ) async {
     isWorking = true
     defer { isWorking = false }
     do {
       let identityToken = try await recentIdentityToken()
       let recoveryKey =
-        if recoveryKeyStatus == .current {
+        if recoveryKeyStatus == .current, !replacingCurrent {
           try await service.revealCurrentRecoveryKey(
             session: session,
             recentIdentityToken: identityToken
@@ -1059,6 +1060,7 @@ struct AccountAndDevicesSettingsView: View {
   let signOut: @MainActor () -> Void
 
   @State private var confirmsRecoveryReplacement = false
+  @State private var confirmsCurrentRecoveryReplacement = false
   @State private var confirmsSignOut = false
   @State private var deviceToRename: TrustedDeviceSummary?
   @State private var renameDraft = ""
@@ -1113,6 +1115,12 @@ struct AccountAndDevicesSettingsView: View {
         .disabled(
           viewModel.isWorking || viewModel.recoveryKeyStatus == .unavailable
         )
+        if viewModel.recoveryKeyStatus == .current {
+          Button("Replace Recovery Key", role: .destructive) {
+            confirmsCurrentRecoveryReplacement = true
+          }
+          .disabled(viewModel.isWorking)
+        }
       }
 
       Section {
@@ -1221,6 +1229,30 @@ struct AccountAndDevicesSettingsView: View {
       Button("Cancel", role: .cancel) {}
     } message: {
       Text("Your Product Account and provider mail remain available on other devices.")
+    }
+    .confirmationDialog(
+      "Replace Recovery Key?",
+      isPresented: $confirmsCurrentRecoveryReplacement,
+      titleVisibility: .visible
+    ) {
+      Button("Replace Recovery Key", role: .destructive) {
+        Task {
+          await viewModel.presentRecoveryKey(
+            session: snapshot,
+            recentIdentityToken: {
+              try await session.recentIdentityToken(for: snapshot)
+            },
+            isSessionCurrent: { session.isCurrent(snapshot) },
+            replacingCurrent: true
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Sign in with Apple will confirm your identity. The current Recovery Key "
+          + "will stop working after the replacement is saved."
+      )
     }
     .sheet(
       isPresented: Binding(
@@ -1587,15 +1619,16 @@ private struct RecoveryKeyPresentation: View {
       session.beginSignOut()
       ewsViewModel.invalidate()
       genericMailViewModel.invalidate()
-      freshnessViewModel.cancelAll()
-      freshnessViewModel.clearPersistedState()
       Task {
-        await mailActionViewModel.prepareForSignOut()
-        await mailboxWorkCoordinator.cancelBodyPrefetch(
-          productAccountId: snapshot.productAccountId
-        )
-        await inboxViewModel.prepareForSignOut()
-        await session.signOut()
+        await session.signOut {
+          await mailActionViewModel.prepareForSignOut()
+          freshnessViewModel.cancelAll()
+          freshnessViewModel.clearPersistedState()
+          await mailboxWorkCoordinator.cancelBodyPrefetch(
+            productAccountId: snapshot.productAccountId
+          )
+          await inboxViewModel.prepareForSignOut()
+        }
       }
     }
 

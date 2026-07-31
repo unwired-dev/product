@@ -43,6 +43,7 @@ final class ProductAccountSession {
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   @ObservationIgnored private var pendingProductSyncRecovery: PendingProductSyncRecovery?
+  @ObservationIgnored private var signOutTask: Task<Void, Never>?
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
@@ -129,9 +130,24 @@ final class ProductAccountSession {
   }
 
   func signOut(
-    afterRecoveryCheck preparation: () async -> Void = {}
+    afterRecoveryCheck preparation: @escaping () async -> Void = {}
   ) async {
+    if let signOutTask {
+      await signOutTask.value
+      return
+    }
     beginSignOut()
+    let task = Task {
+      await performSignOut(afterRecoveryCheck: preparation)
+    }
+    signOutTask = task
+    await task.value
+    signOutTask = nil
+  }
+
+  private func performSignOut(
+    afterRecoveryCheck preparation: () async -> Void
+  ) async {
     defer {
       isSigningOut = false
       signOutSnapshot = nil
