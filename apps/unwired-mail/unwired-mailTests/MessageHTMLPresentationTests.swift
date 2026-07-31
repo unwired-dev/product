@@ -330,6 +330,7 @@ extension MessageHTMLPresentationTests {
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
+        <img src="HTTPS://images.example.com/hero.png" alt="Uppercase scheme hero">
         <img src="https://IMAGES.EXAMPLE.COM/hero.png#one" alt="Hero">
         <img src="https://images.example.com/hero.png#two" alt="Repeated hero">
         <img src="https://images.example.com:443/hero.png" alt="Default port hero">
@@ -345,7 +346,7 @@ extension MessageHTMLPresentationTests {
       result.documentHTML.components(
         separatedBy: #"data-unwired-remote-image="remote-image-0""#
       ).count - 1,
-      3
+      4
     )
   }
 

@@ -144,6 +144,7 @@ enum RemoteMessageContentPolicy {
   static func requestEquivalentURL(_ url: URL) -> URL {
     var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
     components?.fragment = nil
+    components?.scheme = url.scheme?.lowercased()
     let normalizedHost = components?.host?.lowercased()
     components?.host = normalizedHost
     if (components?.scheme?.lowercased() == "https" && components?.port == 443)
@@ -153,7 +154,6 @@ enum RemoteMessageContentPolicy {
     }
     return components?.url ?? url
   }
-
   static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
     url?.scheme?.lowercased() == "https"
       && url?.host != nil
