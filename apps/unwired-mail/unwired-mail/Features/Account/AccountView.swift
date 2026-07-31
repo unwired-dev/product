@@ -3058,7 +3058,13 @@ struct MailShellThreadList: View {
           } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
-          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+          .disabled(
+            Self.isUnifiedInboxRefreshDisabled(
+              viewModel: viewModel,
+              connections: connections,
+              isConnectionBusy: isConnectionBusy
+            )
+          )
           .accessibilityIdentifier("unified-inbox-refresh")
         }
       }
@@ -3134,6 +3140,15 @@ struct MailShellThreadList: View {
     return connections.contains {
       $0.authorizationState == .authorized && $0.capabilities.canSynchronizeMetadata
     }
+  }
+
+  static func isUnifiedInboxRefreshDisabled(
+    viewModel: GmailInboxViewModel,
+    connections: [MailboxConnection],
+    isConnectionBusy: Bool
+  ) -> Bool {
+    isConnectionBusy || viewModel.isRefreshDisabled
+      || viewModel.isHistoricalBackfillRunning(for: connections)
   }
 
   @ViewBuilder

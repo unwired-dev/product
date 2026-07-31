@@ -3189,6 +3189,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await service.waitUntilHistoricalBackfillStarts()
 
     XCTAssertTrue(viewModel.isHistoricalBackfillRunning(for: [mailboxConnection]))
+    XCTAssertTrue(
+      MailShellThreadList.isUnifiedInboxRefreshDisabled(
+        viewModel: viewModel,
+        connections: [mailboxConnection],
+        isConnectionBusy: false
+      )
+    )
     XCTAssertFalse(
       viewModel.areProviderActionsDisabledDuringHistoricalBackfill(for: [mailboxConnection])
     )
