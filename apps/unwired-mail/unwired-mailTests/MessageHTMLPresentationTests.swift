@@ -441,6 +441,31 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(webView.allowsLinkPreview)
   }
 
+  @MainActor
+  func testInitialWebViewSizeObservationDefersHeightChange() async {
+    let heightChanged = expectation(description: "Height change delivered")
+    var height: CGFloat?
+    let coordinator = MessageHTMLWebView.Coordinator(
+      onHeightChange: {
+        height = $0
+        heightChanged.fulfill()
+      },
+      onOpenURL: { _ in },
+      onRenderingFailure: {}
+    )
+    let webView = WKWebView(
+      frame: .zero,
+      configuration: MessageHTMLWebViewConfiguration.make()
+    )
+
+    coordinator.observeContentSize(of: webView)
+
+    XCTAssertNil(height, "Initial observation must not mutate SwiftUI state synchronously")
+    await fulfillment(of: [heightChanged], timeout: 1)
+    XCTAssertEqual(height, 1)
+    coordinator.stopObservingContentSize()
+  }
+
   func testLayoutUsesContentSizeAndViewportWithAVisibleMinimum() {
     let viewportSize = CGSize(width: 500, height: 800)
 
