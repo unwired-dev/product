@@ -508,6 +508,48 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.html.documentHTML.contains("legacy.example.com"))
   }
 
+  func testRemoteContentLoaderChargesRejectedResponsesAgainstTransferBudget() async throws {
+    let references = try (0..<4).map {
+      RemoteMessageImageReference(
+        identifier: "remote-image-\($0)",
+        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
+      )
+    }
+    let markers = references.map {
+      #"<img data-unwired-remote-image="\#($0.identifier)">"#
+    }.joined()
+    var requestedMaximumByteCounts: [Int] = []
+    let loader = RemoteMessageContentLoader(
+      maximumTotalByteCount: 10,
+      fetch: { request, maximumByteCount in
+        requestedMaximumByteCounts.append(maximumByteCount)
+        return (
+          Data(repeating: 1, count: min(maximumByteCount, 4)),
+          try XCTUnwrap(
+            HTTPURLResponse(
+              url: try XCTUnwrap(request.url),
+              statusCode: 200,
+              httpVersion: nil,
+              headerFields: ["Content-Type": "text/plain"]
+            )
+          )
+        )
+      }
+    )
+
+    let result = try await loader.load(
+      SanitizedMessageHTML(
+        documentHTML: "<html><body>\(markers)</body></html>",
+        remoteImageReferences: references
+      )
+    )
+
+    XCTAssertEqual(requestedMaximumByteCounts, [10, 6, 2])
+    XCTAssertEqual(result.loadedByteCount, 0)
+    XCTAssertEqual(result.loadedImageCount, 0)
+    XCTAssertEqual(result.failedImageCount, 4)
+  }
+
   func testRemoteContentLoaderPropagatesCancellation() async throws {
     let body = MailboxMessageBody(
       text: "Newsletter",

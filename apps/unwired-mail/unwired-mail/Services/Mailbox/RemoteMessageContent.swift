@@ -233,11 +233,6 @@ enum RemoteMessageContentSession {
   }
 }
 
-private struct RemoteMessageContentAdmission {
-  let image: RemoteMessageImage
-  let pixelCount: Int
-}
-
 struct RemoteMessageContentLoader {
   typealias Fetch = (URLRequest, Int) async throws -> (Data, URLResponse)
 
@@ -263,12 +258,8 @@ struct RemoteMessageContentLoader {
 
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
     let deadline = now().addingTimeInterval(maximumLoadDuration)
-    let sessionConfiguration = fetch == nil ? RemoteMessageContentSession.makeConfiguration() : nil
-    var images: [RemoteMessageImage] = []
-    var attemptedIdentifiers = Set<String>()
-    var attemptedImageCount = 0
-    var loadedByteCount = 0
-    var loadedPixelCount = 0
+    let sessionConfiguration = RemoteMessageContentSession.makeConfiguration()
+    var progress = RemoteMessageContentLoadProgress()
     let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
     for reference in html.remoteImageReferences {
       try Task.checkCancellation()
@@ -280,50 +271,54 @@ struct RemoteMessageContentLoader {
       }
       let remainingLoadDuration = deadline.timeIntervalSince(now())
       guard remainingLoadDuration > 0 else { break }
-      guard attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
+      guard progress.attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
         break
       }
-      attemptedImageCount += 1
-      attemptedIdentifiers.insert(reference.identifier)
+      progress.attemptedImageCount += 1
+      progress.attemptedIdentifiers.insert(reference.identifier)
+      let maximumResponseByteCount = min(
+        (maximumTotalByteCount - progress.loadedByteCount) / occurrenceCount,
+        maximumTotalByteCount - progress.receivedByteCount
+      )
       guard
-        let admission = try await admission(
+        let attempt = try await admission(
           for: reference,
           remainingLoadDuration: remainingLoadDuration,
-          remainingByteCount: (maximumTotalByteCount - loadedByteCount) / occurrenceCount,
-          remainingPixelCount: (maximumTotalPixelCount - loadedPixelCount) / occurrenceCount,
+          maximumByteCount: maximumResponseByteCount,
+          remainingPixelCount: (maximumTotalPixelCount - progress.loadedPixelCount)
+            / occurrenceCount,
           sessionConfiguration: sessionConfiguration
         )
       else {
         continue
       }
-      images.append(admission.image)
-      loadedByteCount += admission.image.data.count * occurrenceCount
-      loadedPixelCount += admission.pixelCount * occurrenceCount
+      progress.receivedByteCount += attempt.receivedByteCount
+      guard let admission = attempt.admission else { continue }
+      progress.images.append(admission.image)
+      progress.loadedByteCount += admission.image.data.count * occurrenceCount
+      progress.loadedPixelCount += admission.pixelCount * occurrenceCount
     }
     return RemoteMessageContentLoadResult(
-      failedImageCount: html.remoteImageReferences.count - images.count,
-      html: RemoteMessageImageResolver.resolve(html, images: images)
-        .prioritizingUnattemptedRemoteImages(attemptedIdentifiers),
-      loadedByteCount: loadedByteCount,
-      loadedImageCount: images.count,
-      loadedPixelCount: loadedPixelCount
+      failedImageCount: html.remoteImageReferences.count - progress.images.count,
+      html: RemoteMessageImageResolver.resolve(html, images: progress.images)
+        .prioritizingUnattemptedRemoteImages(progress.attemptedIdentifiers),
+      loadedByteCount: progress.loadedByteCount,
+      loadedImageCount: progress.images.count,
+      loadedPixelCount: progress.loadedPixelCount
     )
   }
 
   private func admission(
     for reference: RemoteMessageImageReference,
     remainingLoadDuration: TimeInterval,
-    remainingByteCount: Int,
+    maximumByteCount: Int,
     remainingPixelCount: Int,
-    sessionConfiguration: URLSessionConfiguration?
-  ) async throws -> RemoteMessageContentAdmission? {
+    sessionConfiguration: URLSessionConfiguration
+  ) async throws -> (admission: RemoteMessageContentAdmission?, receivedByteCount: Int)? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
       return nil
     }
-    let maximumByteCount = min(
-      MailboxMessageImagePolicy.maximumImageByteCount,
-      remainingByteCount
-    )
+    let maximumByteCount = min(MailboxMessageImagePolicy.maximumImageByteCount, maximumByteCount)
     guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
     do {
       let (data, response) = try await response(
@@ -331,12 +326,15 @@ struct RemoteMessageContentLoader {
         maximumByteCount: maximumByteCount,
         sessionConfiguration: sessionConfiguration
       )
-      return admittedImage(
-        reference: reference,
-        data: data,
-        response: response,
-        remainingByteCount: remainingByteCount,
-        remainingPixelCount: remainingPixelCount
+      return (
+        admittedImage(
+          reference: reference,
+          data: data,
+          response: response,
+          remainingByteCount: maximumByteCount,
+          remainingPixelCount: remainingPixelCount
+        ),
+        data.count
       )
     } catch is CancellationError {
       throw CancellationError()
@@ -344,19 +342,18 @@ struct RemoteMessageContentLoader {
       if Task.isCancelled {
         throw CancellationError()
       }
-      return nil
+      return (nil, 0)
     }
   }
 
   private func response(
     for request: URLRequest,
     maximumByteCount: Int,
-    sessionConfiguration: URLSessionConfiguration?
+    sessionConfiguration: URLSessionConfiguration
   ) async throws -> (Data, URLResponse) {
     if let fetch {
       return try await fetch(request, maximumByteCount)
     }
-    guard let sessionConfiguration else { throw CancellationError() }
     sessionConfiguration.timeoutIntervalForResource = request.timeoutInterval
     return try await RemoteMessageContentSession.data(
       for: request,

@@ -2,6 +2,20 @@ import CoreFoundation
 import Foundation
 import ImageIO
 
+struct RemoteMessageContentAdmission {
+  let image: RemoteMessageImage
+  let pixelCount: Int
+}
+
+struct RemoteMessageContentLoadProgress {
+  var attemptedIdentifiers = Set<String>()
+  var attemptedImageCount = 0
+  var images: [RemoteMessageImage] = []
+  var loadedByteCount = 0
+  var loadedPixelCount = 0
+  var receivedByteCount = 0
+}
+
 enum MailboxMessageImagePolicy {
   static let maximumImageAttemptCount = 20
   static let maximumImageByteCount = 5 * 1_024 * 1_024

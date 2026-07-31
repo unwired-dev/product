@@ -16,6 +16,12 @@ enum MessageHTMLHiddenStylePatterns {
     + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
     + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
     + #"(?:\s*!important)?\s*(?:;|$)"#
+
+  static let presentation =
+    #"(?:^|;)\s*(?:display\s*:\s*none|"#
+    + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+    + #"(?:[a-z%]+)?)"#
+    + #"(?:\s*!important)?\s*(?:;|$)"#
 }
 
 extension MessageHTMLSanitizer {

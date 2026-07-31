@@ -34,13 +34,11 @@ enum MessageHTMLSanitizer {
     let presentationDocument = documents.presentation
     let readableDocument = documents.readable
     try removeHiddenElements(from: [presentationDocument, readableDocument])
-    let presentationHiddenStylePattern =
-      #"(?:^|;)\s*(?:display\s*:\s*none|"#
-      + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
     try removeElements(matching: MessageHTMLHiddenStylePatterns.readable, from: readableDocument)
-    try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)
+    try removeElements(
+      matching: MessageHTMLHiddenStylePatterns.presentation,
+      from: presentationDocument
+    )
     remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
       remoteImageReferences,
       in: presentationDocument

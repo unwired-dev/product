@@ -3657,12 +3657,13 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       remoteImageReferences: [retryReference]
     )
     let resolvedHTML = SanitizedMessageHTML(documentHTML: "<html><body></body></html>")
+    var requestedMaximumByteCounts: [Int] = []
 
-    _ = try await viewModel.loadRemoteMessageContent(
+    let firstResult = try await viewModel.loadRemoteMessageContent(
       originalHTML,
       for: firstMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 20 * 1_024 * 1_024)
+      requestedMaximumByteCounts.append(maximumByteCount)
       return RemoteMessageContentLoadResult(
         failedImageCount: 1,
         html: partialHTML,
@@ -3671,11 +3672,11 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         loadedPixelCount: 12
       )
     }
-    _ = try await viewModel.loadRemoteMessageContent(
+    let retryResult = try await viewModel.loadRemoteMessageContent(
       partialHTML,
       for: firstMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 8 * 1_024 * 1_024)
+      requestedMaximumByteCounts.append(maximumByteCount)
       return RemoteMessageContentLoadResult(
         failedImageCount: 0,
         html: resolvedHTML,
@@ -3685,17 +3686,25 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
-    _ = try await viewModel.loadRemoteMessageContent(
+    let releasedResult = try await viewModel.loadRemoteMessageContent(
       originalHTML,
       for: secondMessage.id
     ) { _, maximumByteCount, _ in
-      XCTAssertEqual(maximumByteCount, 20 * 1_024 * 1_024)
+      requestedMaximumByteCounts.append(maximumByteCount)
       return RemoteMessageContentLoadResult(
         failedImageCount: 2,
         html: originalHTML,
         loadedImageCount: 0
       )
     }
+
+    XCTAssertEqual(
+      requestedMaximumByteCounts,
+      [20 * 1_024 * 1_024, 8 * 1_024 * 1_024, 20 * 1_024 * 1_024]
+    )
+    XCTAssertEqual(firstResult.html, partialHTML)
+    XCTAssertEqual(retryResult.html, resolvedHTML)
+    XCTAssertEqual(releasedResult.loadedImageCount, 0)
   }
 
   @MainActor
