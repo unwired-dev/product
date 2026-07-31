@@ -2,26 +2,31 @@ import Foundation
 import SwiftSoup
 
 extension MessageHTMLHiddenStylePatterns {
-  static func isReadableHidden(_ style: String) -> Bool {
-    if effectiveValue("display", in: style, where: isDisplayValue) == "none" { return true }
-    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+  static func isReadableHidden(_ declarations: [StyleDeclaration]) -> Bool {
+    if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
+      return true
+    }
     if ["font-size", "height", "width", "line-height"].contains(where: { property in
-      effectiveValue(property, in: style, where: isLengthValue)?.range(
-        of: zeroDimensionPattern,
-        options: .regularExpression
-      ) != nil
+      effectiveValue(property, in: declarations) { value in
+        isLengthValue(value, for: property)
+      }.map(isZeroLengthValue) == true
     }) {
       return true
     }
     let negativeValuePattern = #"^-(?:[1-9]\d*(?:\.\d+)?|0*\.\d*[1-9]\d*)(?:[a-z%]+)?$"#
-    if effectiveValue("text-indent", in: style, where: isLengthValue)?.range(
-      of: negativeValuePattern,
-      options: .regularExpression
-    ) != nil {
+    if effectiveValue(
+      "text-indent", in: declarations,
+      where: {
+        isLengthValue($0, for: "text-indent")
+      })?.range(
+        of: negativeValuePattern,
+        options: .regularExpression
+      ) != nil
+    {
       return true
     }
     return (0..<4).contains { side in
-      effectiveMarginValue(side, in: style)?.range(
+      effectiveMarginValue(side, in: declarations)?.range(
         of: negativeValuePattern,
         options: .regularExpression
       ) != nil
@@ -30,11 +35,11 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func effectiveValue(
     _ targetProperty: String,
-    in style: String,
+    in declarations: [StyleDeclaration],
     where isValidValue: (String) -> Bool
   ) -> String? {
     var effectiveDeclaration: (value: String, isImportant: Bool)?
-    for declaration in declarations(in: style) where declaration.property == targetProperty {
+    for declaration in declarations where declaration.property == targetProperty {
       guard isValidValue(declaration.value) else { continue }
       if effectiveDeclaration?.isImportant == true, !declaration.isImportant { continue }
       effectiveDeclaration = (declaration.value, declaration.isImportant)
@@ -50,7 +55,7 @@ extension MessageHTMLHiddenStylePatterns {
     value.range(
       of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%)?$"#,
       options: .regularExpression
-    ) != nil || isCSSWideKeyword(value)
+    ) != nil || simpleCalculatedOpacity(value) != nil || isCSSWideKeyword(value)
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
@@ -67,26 +72,57 @@ extension MessageHTMLHiddenStylePatterns {
       }
   }
 
-  static func isLengthValue(_ value: String) -> Bool {
-    value.range(
+  static func isLengthValue(_ value: String, for property: String) -> Bool {
+    if value.range(
       of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[a-z%]+)?$"#,
       options: .regularExpression
-    ) != nil
-      || ["auto", "fit-content", "max-content", "min-content", "normal"].contains(value)
+    ) != nil {
+      let isUnitlessNonzero =
+        value.range(
+          of: #"^[+-]?(?:(?:[1-9]\d*)(?:\.\d*)?|0*\.\d*[1-9]\d*)$"#,
+          options: .regularExpression
+        ) != nil
+      return property == "line-height" || !isUnitlessNonzero
+    }
+    if value == "normal" { return property == "line-height" }
+    return ["auto", "fit-content", "max-content", "min-content", "none"].contains(value)
       || isCSSWideKeyword(value)
+      || isCSSFunctionValue(value)
+  }
+
+  static func isZeroLengthValue(_ value: String) -> Bool {
+    value.range(
+      of: #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#,
+      options: .regularExpression
+    ) != nil
       || value.range(
-        of: #"^(?:calc|clamp|env|fit-content|max|min|var)\(.+\)$"#,
+        of: #"^calc\(\s*[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?\s*\)$"#,
         options: .regularExpression
       ) != nil
   }
 
-  private static func effectiveMarginValue(_ side: Int, in style: String) -> String? {
+  static func simpleCalculatedOpacity(_ value: String) -> Double? {
+    guard value.hasPrefix("calc("), value.hasSuffix(")") else { return nil }
+    return Double(value.dropFirst(5).dropLast().trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+
+  private static func isCSSFunctionValue(_ value: String) -> Bool {
+    value.range(
+      of: #"^(?:calc|clamp|env|fit-content|max|min|var)\(.+\)$"#,
+      options: .regularExpression
+    ) != nil
+  }
+
+  private static func effectiveMarginValue(
+    _ side: Int,
+    in declarations: [StyleDeclaration]
+  ) -> String? {
     let sideProperty = ["margin-top", "margin-right", "margin-bottom", "margin-left"][side]
     var effectiveDeclaration: (value: String, isImportant: Bool)?
-    for declaration in declarations(in: style) {
+    for declaration in declarations {
       let value: String?
       if declaration.property == sideProperty {
-        value = isLengthValue(declaration.value) ? declaration.value : nil
+        value = isLengthValue(declaration.value, for: sideProperty) ? declaration.value : nil
       } else if declaration.property == "margin" {
         value = marginValues(declaration.value)?[side]
       } else {
@@ -111,37 +147,35 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func isMarginValue(_ value: String) -> Bool {
-    value == "auto" || isLengthValue(value)
+    value == "auto" || isLengthValue(value, for: "margin")
   }
 
   private static func isCSSWideKeyword(_ value: String) -> Bool {
     ["inherit", "initial", "revert", "revert-layer", "unset"].contains(value)
   }
 
-  private static func declarations(in style: String) -> [StyleDeclaration] {
+  static func declarations(in style: String) -> [StyleDeclaration] {
     style.split(separator: ";").compactMap { declaration in
       let components = declaration.split(separator: ":", maxSplits: 1)
       guard components.count == 2 else { return nil }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-      let importantRange = value.range(
-        of: #"\s*!important\s*$"#,
-        options: [.regularExpression, .caseInsensitive]
-      )
-      if let importantRange {
-        value.removeSubrange(importantRange)
+      let importantSuffix = "!important"
+      let isImportant = value.lowercased().hasSuffix(importantSuffix)
+      if isImportant {
+        value.removeLast(importantSuffix.count)
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
       return StyleDeclaration(
         property: property,
         value: value.lowercased(),
-        isImportant: importantRange != nil
+        isImportant: isImportant
       )
     }
   }
 
-  private struct StyleDeclaration {
+  struct StyleDeclaration {
     let property: String
     let value: String
     let isImportant: Bool
@@ -150,8 +184,11 @@ extension MessageHTMLHiddenStylePatterns {
 
 extension MessageHTMLSanitizer {
   static func removePreCleanHiddenElements(from document: Document) throws {
-    for element in try document.select("[style]")
-    where MessageHTMLHiddenStylePatterns.isPreCleanHidden(try element.attr("style")) {
+    for element in try document.select("[style]") {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations) else { continue }
       try element.remove()
     }
   }
@@ -203,11 +240,12 @@ private final class SourceContentVisitor: NodeVisitor {
         hiddenByDepth.removeSubrange(depth...)
       }
       let style = try element.attr("style")
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(in: style)
       let isHidden =
         parentIsHidden
         || element.hasAttr("hidden")
-        || MessageHTMLHiddenStylePatterns.isPreCleanHidden(style)
-        || MessageHTMLHiddenStylePatterns.isReadableHidden(style)
+        || MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations)
+        || MessageHTMLHiddenStylePatterns.isReadableHidden(declarations)
       hiddenByDepth.append(isHidden)
     } else if let textNode = node as? TextNode,
       MessageHTMLSanitizer.hasReadableText(textNode.getWholeText())

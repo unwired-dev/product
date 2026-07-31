@@ -75,7 +75,10 @@ extension MessageHTMLSanitizer {
 
   private static func removeReadableHiddenElements(from document: Document) throws {
     for element in try document.select("[style]") {
-      guard MessageHTMLHiddenStylePatterns.isReadableHidden(try element.attr("style")) else {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isReadableHidden(declarations) else {
         continue
       }
       try element.remove()
@@ -84,7 +87,10 @@ extension MessageHTMLSanitizer {
 
   private static func removePresentationHiddenElements(from document: Document) throws {
     for element in try document.select("[style]") {
-      guard MessageHTMLHiddenStylePatterns.isPresentationHidden(try element.attr("style")) else {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isPresentationHidden(declarations) else {
         continue
       }
       try element.remove()

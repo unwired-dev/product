@@ -1394,6 +1394,24 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerHonorsCalculatedOpacityOverride() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="opacity: 0; opacity: calc(1)">
+          <img src="https://images.example.com/visible.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
     for style in [
       "display: none; display: block",
@@ -1408,6 +1426,55 @@ extension MessageHTMLPresentationTests {
 
       XCTAssertTrue(result.documentHTML.contains("Visible text"), style)
     }
+  }
+
+  func testSanitizerIgnoresInvalidReadableLengthOverrides() throws {
+    for style in [
+      "font-size: 0; font-size: bogus",
+      "margin-left: -9999px; margin-left: bogus",
+    ] {
+      XCTAssertNil(
+        try MessageHTMLSanitizer.sanitize(
+          #"<div style="\#(style)">Hidden text</div>"#
+        ),
+        style
+      )
+    }
+  }
+
+  func testSanitizerIgnoresInvalidMaximumDimensionOverrides() throws {
+    for style in [
+      "max-height: 0; max-height: normal",
+      "height: 0; height: 5",
+    ] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="\(style)">
+            <img src="https://tracker.example/hidden.png">
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, style)
+    }
+  }
+
+  func testSanitizerRemovesCalculatedZeroDimensionImages() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="max-width: calc(0px)">
+          <img src="https://tracker.example/hidden.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
   func testSanitizerHonorsOverridingMaximumDimensionDeclarations() throws {

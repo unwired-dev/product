@@ -3,26 +3,30 @@ import Observation
 import SwiftSoup
 
 enum MessageHTMLHiddenStylePatterns {
-  static func isPreCleanHidden(_ style: String) -> Bool {
+  static func isPreCleanHidden(_ declarations: [StyleDeclaration]) -> Bool {
     if ["hidden", "collapse"].contains(
-      effectiveValue("visibility", in: style, where: isVisibilityValue)
+      effectiveValue("visibility", in: declarations, where: isVisibilityValue)
     ) {
       return true
     }
-    return effectiveValue("opacity", in: style, where: isOpacityValue)?.range(
+    guard let opacity = effectiveValue("opacity", in: declarations, where: isOpacityValue) else {
+      return false
+    }
+    if let calculatedOpacity = simpleCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }
+    return opacity.range(
       of: #"^(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?$"#,
       options: .regularExpression
     ) != nil
   }
 
-  static func isPresentationHidden(_ style: String) -> Bool {
-    if effectiveValue("display", in: style, where: isDisplayValue) == "none" { return true }
-    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+  static func isPresentationHidden(_ declarations: [StyleDeclaration]) -> Bool {
+    if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
+      return true
+    }
     return ["height", "width", "max-width", "max-height"].contains { property in
-      effectiveValue(property, in: style, where: isLengthValue)?.range(
-        of: zeroDimensionPattern,
-        options: .regularExpression
-      ) != nil
+      effectiveValue(property, in: declarations) { value in
+        isLengthValue(value, for: property)
+      }.map(isZeroLengthValue) == true
     }
   }
 }
