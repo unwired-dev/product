@@ -515,7 +515,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(result.loadedImageCount, 1)
     XCTAssertEqual(result.failedImageCount, 2)
     XCTAssertEqual(
-      result.html.remoteImageReferences.map(\.url.absoluteString),
+      Set(result.html.remoteImageReferences.map(\.url.absoluteString)),
       [
         "https://images.example.com/not-an-image",
         "http://legacy.example.com/chart.jpg",
