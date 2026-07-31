@@ -429,6 +429,34 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNotNil(transport.recoveryWritePayload)
   }
 
+  func testPreservedRecoveryKeyIsNotPresentedAfterRemoteReplacement() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let replacement = try ProductSyncKeyMaterial.create()
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: replacement.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    viewModel.presentPreservedRecoveryKey("obsolete-key")
+
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .replacedOnAnotherDevice)
+    XCTAssertNil(viewModel.revealedRecoveryKey)
+  }
+
   func testRecoveryKeyAcknowledgementFailureUsesAccountAndDevicesError() {
     let viewModel = AccountAndDevicesViewModel()
 

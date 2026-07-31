@@ -1071,7 +1071,7 @@ final class AccountAndDevicesViewModel {
   }
 
   func presentPreservedRecoveryKey(_ recoveryKey: String?) {
-    revealedRecoveryKey = recoveryKey
+    revealedRecoveryKey = recoveryKeyStatus == .current ? recoveryKey : nil
   }
 }
 
@@ -1295,9 +1295,15 @@ struct AccountAndDevicesSettingsView: View {
         get: { viewModel.revealedRecoveryKey != nil },
         set: { isPresented in
           if !isPresented {
+            let recoveryKey = viewModel.revealedRecoveryKey
             viewModel.hideRecoveryKey()
-            viewModel.acknowledgeRecoveryKey {
-              try session.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+            if let recoveryKey {
+              viewModel.acknowledgeRecoveryKey {
+                try session.acknowledgeRecoveryKey(
+                  recoveryKey,
+                  productAccountId: snapshot.productAccountId
+                )
+              }
             }
           }
         }

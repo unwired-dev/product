@@ -661,9 +661,42 @@ final class ProductAccountSessionTests: XCTestCase {
       ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
 
-    try relaunchedSession.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+    try relaunchedSession.acknowledgeRecoveryKey(
+      "unacknowledged-key",
+      productAccountId: snapshot.productAccountId
+    )
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
+  }
+
+  func testAcknowledgingOlderRecoveryKeyDoesNotClearNewerKey() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    try session.preserveUnacknowledgedRecoveryKey("older-key")
+    try session.preserveUnacknowledgedRecoveryKey("newer-key")
+
+    try session.acknowledgeRecoveryKey(
+      "older-key",
+      productAccountId: snapshot.productAccountId
+    )
+
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "newer-key")
+    XCTAssertEqual(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId),
+      "newer-key"
     )
   }
 
@@ -1264,6 +1297,10 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
     try store.save(snapshot)
+    try store.saveUnacknowledgedRecoveryKey(
+      "unacknowledged-key",
+      productAccountId: snapshot.productAccountId
+    )
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
       allowCreation: true
@@ -1286,6 +1323,9 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
     )
     XCTAssertNil(try store.loadPendingSignOutProductAccountId())
+    XCTAssertNil(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }

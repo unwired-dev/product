@@ -637,6 +637,9 @@ extension ProductAccountSession {
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
     )
+    try sessionStore.clearUnacknowledgedRecoveryKey(
+      productAccountId: productAccountId
+    )
     try sessionStore.clearPendingSignOutProductAccountId()
   }
 
@@ -678,10 +681,20 @@ extension ProductAccountSession {
     )
   }
 
-  func acknowledgeRecoveryKey(productAccountId: String) throws {
+  func acknowledgeRecoveryKey(
+    _ recoveryKey: String,
+    productAccountId: String
+  ) throws {
     guard currentSignedInSnapshot()?.productAccountId == productAccountId else { return }
+    guard
+      try sessionStore.loadUnacknowledgedRecoveryKey(
+        productAccountId: productAccountId
+      ) == recoveryKey
+    else { return }
     try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
-    if unacknowledgedRecoveryAccountId == productAccountId {
+    if unacknowledgedRecoveryAccountId == productAccountId,
+      unacknowledgedRecoveryKey == recoveryKey
+    {
       unacknowledgedRecoveryKey = nil
       unacknowledgedRecoveryAccountId = nil
     }
