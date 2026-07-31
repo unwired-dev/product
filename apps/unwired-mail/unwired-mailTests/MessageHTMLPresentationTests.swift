@@ -280,6 +280,32 @@ final class MessageHTMLPresentationTests: XCTestCase {
 }
 
 extension MessageHTMLPresentationTests {
+  func testSanitizerExcludesInvisibleRemoteImagesAndDeduplicatesURLs() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/pixel.gif" width="0" alt="Tracker">
+        <img src="https://images.example.com/hero.png" alt="Hero">
+        <img src="https://images.example.com/hero.png" alt="Repeated hero">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+    XCTAssertEqual(
+      result.documentHTML.components(
+        separatedBy: #"data-unwired-remote-image="remote-image-0""#
+      ).count - 1,
+      2
+    )
+    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
+    XCTAssertFalse(result.documentHTML.contains(#"alt="Tracker" src="#))
+  }
+
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(
@@ -432,6 +458,50 @@ extension MessageHTMLPresentationTests {
     } catch {
       XCTFail("Expected cancellation, got \(error)")
     }
+  }
+
+  func testRemoteContentLoaderAppliesAttemptCapAfterFilteringUnloadableURLs() async throws {
+    let invalidReferences = try (0..<MailboxMessageImagePolicy.maximumImageAttemptCount).map {
+      RemoteMessageImageReference(
+        identifier: "remote-image-\($0)",
+        url: try XCTUnwrap(URL(string: "http://legacy.example.com/image-\($0).png"))
+      )
+    }
+    let validReference = RemoteMessageImageReference(
+      identifier: "remote-image-valid",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+    )
+    let presentation = SanitizedMessageHTML(
+      documentHTML:
+        #"<html><body><img data-unwired-remote-image="remote-image-valid"></body></html>"#,
+      remoteImageReferences: invalidReferences + [validReference]
+    )
+    let png = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    let loader = RemoteMessageContentLoader { request, _ in
+      XCTAssertEqual(request.url, validReference.url)
+      return (
+        png,
+        try XCTUnwrap(
+          HTTPURLResponse(
+            url: validReference.url,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+          )
+        )
+      )
+    }
+
+    let result = try await loader.load(presentation)
+
+    XCTAssertEqual(result.loadedImageCount, 1)
+    XCTAssertEqual(result.failedImageCount, invalidReferences.count)
+    XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
   }
 
   func testRemoteContentSessionUsesEphemeralCookieFreeStorage() {

@@ -188,7 +188,7 @@ extension MessageHTMLSanitizer {
     ) != nil
   }
 
-  private static func hasZeroDimension(_ element: Element) -> Bool {
+  static func hasZeroDimension(_ element: Element) -> Bool {
     let zeroDimensionPattern =
       #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {

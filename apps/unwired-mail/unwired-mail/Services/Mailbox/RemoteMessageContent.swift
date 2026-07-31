@@ -14,6 +14,7 @@ enum RemoteMessageContentMarkup {
       try element.removeAttr(attribute)
     }
     var references: [RemoteMessageImageReference] = []
+    var referencesByURL: [URL: RemoteMessageImageReference] = [:]
     for element in try document.select("img[src]") {
       let source = try element.attr("src").trimmingCharacters(in: .whitespacesAndNewlines)
       guard let url = URL(string: source),
@@ -25,10 +26,22 @@ enum RemoteMessageContentMarkup {
       else {
         continue
       }
-      let identifier = "remote-image-\(references.count)"
       try element.removeAttr("src")
-      try element.attr(attribute, identifier)
-      references.append(RemoteMessageImageReference(identifier: identifier, url: url))
+      guard !MessageHTMLSanitizer.hasZeroDimension(element) else {
+        continue
+      }
+      let reference: RemoteMessageImageReference
+      if let existingReference = referencesByURL[url] {
+        reference = existingReference
+      } else {
+        reference = RemoteMessageImageReference(
+          identifier: "remote-image-\(references.count)",
+          url: url
+        )
+        references.append(reference)
+        referencesByURL[url] = reference
+      }
+      try element.attr(attribute, reference.identifier)
     }
     return references
   }
@@ -221,12 +234,18 @@ struct RemoteMessageContentLoader {
       : nil
     defer { session?.finishTasksAndInvalidate() }
     var images: [RemoteMessageImage] = []
+    var attemptedImageCount = 0
     var loadedByteCount = 0
     var loadedPixelCount = 0
-    for reference in html.remoteImageReferences.prefix(
-      MailboxMessageImagePolicy.maximumImageAttemptCount
-    ) {
+    for reference in html.remoteImageReferences {
       try Task.checkCancellation()
+      guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
+        continue
+      }
+      guard attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
+        break
+      }
+      attemptedImageCount += 1
       guard
         let admission = try await admission(
           for: reference,
