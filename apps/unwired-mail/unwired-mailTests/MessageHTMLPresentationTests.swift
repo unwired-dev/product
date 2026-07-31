@@ -1376,6 +1376,40 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerIgnoresInvalidVisibilityAndOpacityOverrides() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="visibility: hidden; visibility: bogus">
+          <img src="https://tracker.example/visibility.png">
+        </div>
+        <div style="opacity: 0; opacity: bogus">
+          <img src="https://tracker.example/opacity.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
+    for style in [
+      "display: none; display: block",
+      "font-size: 0; font-size: 14px",
+      "line-height: 0 !important; line-height: 1.5 !important",
+      "margin: -9999px; margin: 0",
+      "margin-left: -9999px; margin-left: 0 !important",
+    ] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(#"<div style="\#(style)">Visible text</div>"#)
+      )
+
+      XCTAssertTrue(result.documentHTML.contains("Visible text"), style)
+    }
+  }
+
   func testSanitizerHonorsOverridingMaximumDimensionDeclarations() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

@@ -3,57 +3,27 @@ import Observation
 import SwiftSoup
 
 enum MessageHTMLHiddenStylePatterns {
-  static let readable =
-    #"(?:^|;)\s*(?:display\s*:\s*none|"#
-    + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-    + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
-    + #"(?:[1-9]\d*(?:\.\d+)?|0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
-    + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
-    + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
-    + #"(?:\s*!important)?\s*(?:;|$)"#
-
   static func isPreCleanHidden(_ style: String) -> Bool {
-    if ["hidden", "collapse"].contains(effectiveValue("visibility", in: style)) {
+    if ["hidden", "collapse"].contains(
+      effectiveValue("visibility", in: style, where: isVisibilityValue)
+    ) {
       return true
     }
-    return effectiveValue("opacity", in: style)?.range(
+    return effectiveValue("opacity", in: style, where: isOpacityValue)?.range(
       of: #"^(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?$"#,
       options: .regularExpression
     ) != nil
   }
 
   static func isPresentationHidden(_ style: String) -> Bool {
-    if effectiveValue("display", in: style) == "none" { return true }
+    if effectiveValue("display", in: style, where: isDisplayValue) == "none" { return true }
     let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     return ["height", "width", "max-width", "max-height"].contains { property in
-      effectiveValue(property, in: style)?.range(
+      effectiveValue(property, in: style, where: isLengthValue)?.range(
         of: zeroDimensionPattern,
         options: .regularExpression
       ) != nil
     }
-  }
-
-  private static func effectiveValue(_ targetProperty: String, in style: String) -> String? {
-    var effectiveDeclaration: (value: String, isImportant: Bool)?
-    for declaration in style.split(separator: ";") {
-      let components = declaration.split(separator: ":", maxSplits: 1)
-      guard components.count == 2 else { continue }
-      let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-      guard property == targetProperty else { continue }
-      var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-      let importantRange = value.range(
-        of: #"\s*!important\s*$"#,
-        options: [.regularExpression, .caseInsensitive]
-      )
-      let isImportant = importantRange != nil
-      if let importantRange {
-        value.removeSubrange(importantRange)
-        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
-      }
-      if effectiveDeclaration?.isImportant == true, !isImportant { continue }
-      effectiveDeclaration = (value.lowercased(), isImportant)
-    }
-    return effectiveDeclaration?.value
   }
 }
 

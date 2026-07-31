@@ -37,7 +37,7 @@ enum MessageHTMLSanitizer {
     let presentationDocument = documents.presentation
     let readableDocument = documents.readable
     try removeHiddenElements(from: [presentationDocument, readableDocument])
-    try removeElements(matching: MessageHTMLHiddenStylePatterns.readable, from: readableDocument)
+    try removeReadableHiddenElements(from: readableDocument)
     try removePresentationHiddenElements(from: presentationDocument)
     remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
       remoteImageReferences,
@@ -73,15 +73,12 @@ extension MessageHTMLSanitizer {
     return (presentationDocument, readableDocument)
   }
 
-  private static func removeElements(matching pattern: String, from document: Document) throws {
+  private static func removeReadableHiddenElements(from document: Document) throws {
     for element in try document.select("[style]") {
-      let style = try element.attr("style")
-      if style.range(
-        of: pattern,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil {
-        try element.remove()
+      guard MessageHTMLHiddenStylePatterns.isReadableHidden(try element.attr("style")) else {
+        continue
       }
+      try element.remove()
     }
   }
 
