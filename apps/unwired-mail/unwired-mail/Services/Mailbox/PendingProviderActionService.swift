@@ -579,6 +579,10 @@ actor PendingProviderActionService {
     )
   }
 
+  func releaseSelection(_ selection: MailboxProviderActionSelection) {
+    activeSelectionActionIds.subtract(selection.pendingActionIds)
+  }
+
   // swiftlint:disable:next function_body_length
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],

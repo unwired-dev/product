@@ -230,6 +230,54 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
   }
 
+  func testReleasedSelectionDoesNotBypassEvidenceLimit() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let releasedMessage = pendingActionMessage(
+      providerMessageId: "released-selection",
+      providerStateIds: ["INBOX"]
+    )
+    let releasedSelection = try await service.enqueue(
+      .archive,
+      messages: [releasedMessage],
+      connection: connection,
+      session: session
+    )
+    await service.releaseSelection(releasedSelection)
+    let activeMessages = (0..<1_000).map {
+      pendingActionMessage(providerMessageId: "active-\($0)", providerStateIds: ["INBOX"])
+    }
+    _ = try await service.enqueue(
+      .archive,
+      messages: activeMessages,
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    for index in actions.indices {
+      actions[index].state = .providerConfirmed
+    }
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: [releasedMessage] + activeMessages,
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in true }
+    )
+
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: releasedSelection.pendingActionIds,
+      messageIds: [releasedMessage.providerMessageId],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertFalse(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details, [])
+    XCTAssertEqual(lookup.matchedPendingActionIds, [])
+  }
+
   func testFailureLookupReportsContradictedSelectedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)

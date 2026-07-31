@@ -6240,6 +6240,69 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [errorsSurfaced], timeout: 1)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testMailActionViewModelRetainsReconciledDeferredFailureAcrossBatchCompletions() async {
+    let failedConnection = mailShellConnection(
+      emailAddress: "failed@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let successfulConnection = mailShellConnection(
+      emailAddress: "successful@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let resumesCompleted = expectation(description: "deferred resumes completed")
+    resumesCompleted.expectedFulfillmentCount = 2
+    let successfulResumeGate = AdapterLifecycleOperationGate()
+    let failedMessageId = StableProviderMessageIdentity(
+      connectionId: failedConnection.id,
+      providerMessageId: "message-failed"
+    )
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeGate: successfulResumeGate,
+      gatedResumeConnectionId: successfulConnection.id,
+      selectedFailureDetails: [
+        MailboxProviderActionFailureDetail(
+          description: "The provider did not confirm this action.",
+          messageIds: [failedMessageId]
+        )
+      ],
+      selectedFailureDetailsConnectionId: failedConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: failedConnection, suffix: "failed", receivedAt: 200),
+        mailShellBulkActionBatch(
+          connection: successfulConnection,
+          suffix: "successful",
+          receivedAt: 100
+        ),
+      ],
+      deferredPendingActionConnectionIds: [failedConnection.id, successfulConnection.id],
+      onDeferredCompletion: { _ in resumesCompleted.fulfill() }
+    )
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    let failureSurfaced = expectation(description: "reconciled failure surfaced")
+    Task { @MainActor in
+      while viewModel.errorMessage?.contains("failed@example.com") != true {
+        await Task.yield()
+      }
+      failureSurfaced.fulfill()
+    }
+    await fulfillment(of: [failureSurfaced], timeout: 1)
+
+    await successfulResumeGate.release()
+    await fulfillment(of: [resumesCompleted], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+  }
+
   func testMailActionViewModelDoesNotResurfaceDismissedDeferredFailureAfterSuccess() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -8565,6 +8628,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   private let resumeErrorConnectionId: MailboxConnectionId?
   private let resumeStarted: XCTestExpectation
   private let selectedFailureDetails: [MailboxProviderActionFailureDetail]?
+  private let selectedFailureDetailsConnectionId: MailboxConnectionId?
   private let trackedSelection = MailboxProviderActionSelection(pendingActionIds: [UUID()])
   private var recordedResumeWasCancelled = false
   private let suspendsResumeUntilCancelled: Bool
@@ -8580,6 +8644,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     resumeGate: AdapterLifecycleOperationGate? = nil,
     gatedResumeConnectionId: MailboxConnectionId? = nil,
     selectedFailureDetails: [MailboxProviderActionFailureDetail]? = nil,
+    selectedFailureDetailsConnectionId: MailboxConnectionId? = nil,
     suspendsResumeUntilCancelled: Bool = false
   ) {
     self.blockedConnectionIds = blockedConnectionIds
@@ -8594,6 +8659,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     self.resumeErrorConnectionId = resumeErrorConnectionId
     self.resumeStarted = resumeStarted
     self.selectedFailureDetails = selectedFailureDetails
+    self.selectedFailureDetailsConnectionId = selectedFailureDetailsConnectionId
     self.suspendsResumeUntilCancelled = suspendsResumeUntilCancelled
   }
 
@@ -8663,10 +8729,13 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     _: ProviderMailAction,
     selection: MailboxProviderActionSelection?,
     messages _: [MailboxMessageMetadata],
-    connection _: MailboxConnection,
+    connection: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async -> MailboxProviderActionFailureLookup? {
-    guard selection == trackedSelection, let selectedFailureDetails else { return nil }
+    guard selection == trackedSelection, let selectedFailureDetails,
+      selectedFailureDetailsConnectionId == nil
+        || selectedFailureDetailsConnectionId == connection.id
+    else { return nil }
     return MailboxProviderActionFailureLookup(
       coversSelectedMessageIds: true,
       details: selectedFailureDetails,

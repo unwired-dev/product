@@ -2847,7 +2847,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await performTracked(
+    let selection = try await performTracked(
       action,
       sourceProviderMailboxId: sourceProviderMailboxId,
       targetProviderMailboxId: targetProviderMailboxId,
@@ -2856,6 +2856,9 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: connection,
       session: session
     )
+    if let selection {
+      await pendingActionService.releaseSelection(selection)
+    }
   }
 
   // swiftlint:disable:next function_parameter_count

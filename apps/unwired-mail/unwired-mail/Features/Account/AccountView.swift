@@ -5397,9 +5397,10 @@ extension GmailMailActionViewModel {
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     await refreshFailureConnections(knownConnections)
+    let operationFailures = deferredBulkFailures[taskId] ?? []
     pruneDeferredBulkFailures()
     let failures =
-      (deferredBulkFailures[taskId] ?? [])
+      operationFailures
       + nonPersistedImmediateFailures
       + bulkActionResult([outcome]).failures
     deferredBulkFailures[taskId] = failures.reduce(into: []) {

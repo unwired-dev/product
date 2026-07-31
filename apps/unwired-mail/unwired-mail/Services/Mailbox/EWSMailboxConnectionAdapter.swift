@@ -2262,7 +2262,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
-    _ = try await performTracked(
+    let selection = try await performTracked(
       action,
       sourceProviderMailboxId: nil,
       targetProviderMailboxId: targetProviderMailboxId,
@@ -2271,6 +2271,9 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       connection: connection,
       session: session
     )
+    if let selection {
+      await pendingActionService.releaseSelection(selection)
+    }
   }
 
   // swiftlint:disable:next function_parameter_count
