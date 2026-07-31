@@ -961,6 +961,173 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
+  func testRefreshingProviderCacheUsesAtomicReplacement() throws {
+    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    try keyMaterialStore.save(
+      ProductSyncKeyMaterial.create(
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+        recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    let codec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: keyMaterialStore
+    )
+    let remotePayload = EncryptedProductSyncPayload(
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: ProductSyncEncryptedPayload.algorithmName,
+        ciphertextBase64: "unused",
+        keyVersion: 1,
+        nonceBase64: "unused",
+        schemaVersion: 1,
+        tagBase64: "unused"
+      ),
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+      updatedAt: 42
+    )
+
+    try codec.refreshCache(
+      .empty,
+      remotePayload: remotePayload,
+      cachedPayloadBeforeLoad: nil,
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(cacheStore.clearCallCount, 0)
+    XCTAssertEqual(cacheStore.replaceCallCount, 1)
+    XCTAssertEqual(cacheStore.payload?.updatedAt, remotePayload.updatedAt)
+  }
+
+  func testRefreshingProviderCacheDoesNotReplaceNewerPayload() throws {
+    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    try keyMaterialStore.save(
+      ProductSyncKeyMaterial.create(
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+        recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    let codec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: keyMaterialStore
+    )
+
+    for updatedAt in [42, 41] {
+      try codec.refreshCache(
+        .empty,
+        remotePayload: EncryptedProductSyncPayload(
+          encryptedPayload: ProductSyncEncryptedPayload(
+            algorithm: ProductSyncEncryptedPayload.algorithmName,
+            ciphertextBase64: "unused",
+            keyVersion: 1,
+            nonceBase64: "unused",
+            schemaVersion: 1,
+            tagBase64: "unused"
+          ),
+          payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+          updatedAt: Int64(updatedAt)
+        ),
+        cachedPayloadBeforeLoad: nil,
+        session: firstDeviceSession
+      )
+    }
+
+    XCTAssertEqual(cacheStore.replaceCallCount, 2)
+    XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
+  }
+
+  func testEmptyLoadDoesNotClearCacheWrittenAfterLoadStarted() throws {
+    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
+    let codec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    try cacheStore.replaceIfNotOlder(
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "unused",
+          keyVersion: 1,
+          nonceBase64: "unused",
+          schemaVersion: 1,
+          tagBase64: "unused"
+        ),
+        payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+        updatedAt: 42
+      ),
+      productAccountId: firstDeviceSession.productAccountId
+    )
+
+    try codec.refreshCache(
+      .empty,
+      remotePayload: nil,
+      cachedPayloadBeforeLoad: nil,
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
+  }
+
+  func testProviderAccessSerializesProductSyncLoadsPerAccount() async throws {
+    let transport = ProviderAccessConcurrencyTransport()
+    let firstService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+    let secondService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+
+    async let first = firstService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    async let second = secondService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    _ = try await (first, second)
+
+    let maximumConcurrentLoadCount = await transport.maximumConcurrentLoadCount
+    XCTAssertEqual(maximumConcurrentLoadCount, 1)
+  }
+
+  func testCancelledProviderAccessWaiterDoesNotEnterTransport() async throws {
+    let transport = ProviderAccessConcurrencyTransport(blocksLoads: true)
+    let firstService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+    let secondService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+    let first = Task {
+      try await firstService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    }
+    while await transport.loadCallCount == 0 {
+      await Task.yield()
+    }
+    let cancelled = Task {
+      try await secondService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    }
+    while await MailboxConnectionSyncService.providerAccessWaiterCountForTesting(
+      productAccountId: firstDeviceSession.productAccountId
+    ) == 0 {
+      await Task.yield()
+    }
+    cancelled.cancel()
+
+    do {
+      _ = try await cancelled.value
+      XCTFail("Expected the queued provider-access load to be cancelled")
+    } catch is CancellationError {
+      // Expected.
+    }
+    let loadCallCount = await transport.loadCallCount
+    XCTAssertEqual(loadCallCount, 1)
+    await transport.releaseBlockedLoads()
+    _ = try await first.value
+  }
+
   private func observedRemoval(
     using service: MailboxConnectionSyncService
   ) async throws -> MailboxConnectionRemovalObservation {
@@ -1229,4 +1396,123 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 private enum MailboxConnectionSyncTestError: Error {
   case expectedRemoval
   case unavailable
+}
+
+private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
+  private(set) var loadCallCount = 0
+  private(set) var maximumConcurrentLoadCount = 0
+  private let blocksLoads: Bool
+  private var blockedLoadContinuations: [CheckedContinuation<Void, Never>] = []
+  private var concurrentLoadCount = 0
+
+  init(blocksLoads: Bool = false) {
+    self.blocksLoads = blocksLoads
+  }
+
+  func releaseBlockedLoads() {
+    let continuations = blockedLoadContinuations
+    blockedLoadContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
+
+  func listEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifierPrefix _: String?
+  ) async throws -> [EncryptedProductSyncPayload] {
+    []
+  }
+
+  func getEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier _: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    nil
+  }
+
+  func getEncryptedProductSyncPayloads(
+    identityToken _: String,
+    payloadIdentifiers _: [String]
+  ) async throws -> [EncryptedProductSyncPayload] {
+    loadCallCount += 1
+    concurrentLoadCount += 1
+    maximumConcurrentLoadCount = max(maximumConcurrentLoadCount, concurrentLoadCount)
+    if blocksLoads {
+      await withCheckedContinuation { continuation in
+        blockedLoadContinuations.append(continuation)
+      }
+    } else {
+      try await Task.sleep(nanoseconds: 50_000_000)
+    }
+    concurrentLoadCount -= 1
+    return []
+  }
+
+  func putEncryptedProductSyncPayload(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    throw MailboxConnectionSyncTestError.unavailable
+  }
+
+  func putEncryptedProductSyncPayloadIfAbsent(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String
+  ) async throws -> EncryptedProductSyncPayload {
+    throw MailboxConnectionSyncTestError.unavailable
+  }
+
+  func putEncryptedProductSyncPayloadIfUnchanged(
+    identityToken _: String,
+    payloadIdentifier _: String,
+    encryptedPayload _: ProductSyncEncryptedPayload,
+    trustedDeviceId _: String,
+    expectedUpdatedAt _: Int64?
+  ) async throws -> EncryptedProductSyncPayload {
+    throw MailboxConnectionSyncTestError.unavailable
+  }
+}
+
+private final class RecordingMailboxConnectionSyncCacheStore:
+  MailboxConnectionSyncCachePersisting
+{
+  private(set) var clearCallCount = 0
+  private(set) var payload: EncryptedProductSyncPayload?
+  private(set) var replaceCallCount = 0
+
+  func clear(productAccountId _: String) throws {
+    clearCallCount += 1
+    payload = nil
+  }
+
+  func clearIfUnchanged(
+    _ expectedPayload: EncryptedProductSyncPayload?,
+    productAccountId _: String
+  ) throws {
+    clearCallCount += 1
+    guard payload == expectedPayload else { return }
+    payload = nil
+  }
+
+  func load(productAccountId _: String) throws -> EncryptedProductSyncPayload? {
+    payload
+  }
+
+  func replaceIfNotOlder(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId _: String
+  ) throws {
+    replaceCallCount += 1
+    guard (self.payload?.updatedAt ?? .min) <= payload.updatedAt else { return }
+    self.payload = payload
+  }
+
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId _: String) throws {
+    self.payload = payload
+  }
 }

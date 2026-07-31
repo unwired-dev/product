@@ -1,9 +1,72 @@
 import Foundation
 
+private actor MailboxConnectionProviderAccessGate {
+  private typealias WaiterContinuation = CheckedContinuation<Void, Error>
+
+  private struct Waiter {
+    let continuation: WaiterContinuation
+    let id: UUID
+  }
+
+  private var lockedAccounts: Set<String> = []
+  private var waiters: [String: [Waiter]] = [:]
+
+  func acquire(productAccountId: String) async throws {
+    try Task.checkCancellation()
+    guard lockedAccounts.contains(productAccountId) else {
+      lockedAccounts.insert(productAccountId)
+      return
+    }
+    let waiterId = UUID()
+    try await withTaskCancellationHandler {
+      try await withCheckedThrowingContinuation { (continuation: WaiterContinuation) in
+        guard !Task.isCancelled else {
+          continuation.resume(throwing: CancellationError())
+          return
+        }
+        waiters[productAccountId, default: []].append(
+          Waiter(continuation: continuation, id: waiterId)
+        )
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId, productAccountId: productAccountId) }
+    }
+  }
+
+  private func cancelWaiter(_ waiterId: UUID, productAccountId: String) {
+    guard var accountWaiters = waiters[productAccountId],
+      let index = accountWaiters.firstIndex(where: { $0.id == waiterId })
+    else { return }
+    let waiter = accountWaiters.remove(at: index)
+    waiters[productAccountId] = accountWaiters.isEmpty ? nil : accountWaiters
+    waiter.continuation.resume(throwing: CancellationError())
+  }
+
+  func waiterCount(productAccountId: String) -> Int {
+    waiters[productAccountId]?.count ?? 0
+  }
+
+  func release(productAccountId: String) {
+    guard var accountWaiters = waiters[productAccountId], !accountWaiters.isEmpty else {
+      lockedAccounts.remove(productAccountId)
+      waiters[productAccountId] = nil
+      return
+    }
+    let next = accountWaiters.removeFirst()
+    waiters[productAccountId] = accountWaiters.isEmpty ? nil : accountWaiters
+    next.continuation.resume()
+  }
+}
+
 // swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
+  private static let providerAccessGate = MailboxConnectionProviderAccessGate()
+
+  static func providerAccessWaiterCountForTesting(productAccountId: String) async -> Int {
+    await providerAccessGate.waiterCount(productAccountId: productAccountId)
+  }
 
   private let cacheStore: MailboxConnectionSyncCachePersisting
   private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
@@ -61,6 +124,9 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   func loadSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    let cachedPayloadBeforeLoad = try? cacheStore.load(
+      productAccountId: session.productAccountId
+    )
     let (remotePayload, generationPayload) = try await payloadCodec.loadPayloads(
       session: session,
       transport: transport
@@ -75,13 +141,36 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       try? cacheStore.clear(productAccountId: session.productAccountId)
       throw error
     }
-    try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+    try? payloadCodec.refreshCache(
+      payload,
+      remotePayload: remotePayload,
+      cachedPayloadBeforeLoad: cachedPayloadBeforeLoad,
+      session: session
+    )
     return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
   func loadSnapshotForProviderAccess(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
+    try await Self.providerAccessGate.acquire(productAccountId: session.productAccountId)
+    do {
+      try Task.checkCancellation()
+      let snapshot = try await loadSnapshotForProviderAccessWithoutGate(session: session)
+      await Self.providerAccessGate.release(productAccountId: session.productAccountId)
+      return snapshot
+    } catch {
+      await Self.providerAccessGate.release(productAccountId: session.productAccountId)
+      throw error
+    }
+  }
+
+  private func loadSnapshotForProviderAccessWithoutGate(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    let cachedPayloadBeforeLoad = try? cacheStore.load(
+      productAccountId: session.productAccountId
+    )
     let remotePayload: EncryptedProductSyncPayload?
     let generationPayload: EncryptedProductSyncPayload?
     do {
@@ -103,7 +192,12 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
       .applyingGenerationFloors(
         try decryptGenerationLedger(generationPayload, session: session)
       )
-    try? payloadCodec.refreshCache(payload, remotePayload: remotePayload, session: session)
+    try? payloadCodec.refreshCache(
+      payload,
+      remotePayload: remotePayload,
+      cachedPayloadBeforeLoad: cachedPayloadBeforeLoad,
+      session: session
+    )
     return payloadCodec.snapshot(payload, updatedAt: remotePayload?.updatedAt)
   }
 
