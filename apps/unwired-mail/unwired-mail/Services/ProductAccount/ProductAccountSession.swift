@@ -164,6 +164,8 @@ final class ProductAccountSession {
         preparation: preparation
       )
       if let cleanupSnapshot {
+        // Trusted Device unregistration below removes backend routing even if
+        // this best-effort provider-specific push cleanup fails.
         try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
       }

@@ -205,6 +205,12 @@ actor ProductAccountRecoveryOperationGate {
     waiters[productAccountId] = productAccountWaiters.isEmpty ? nil : productAccountWaiters
     next.resume()
   }
+
+  #if DEBUG
+    func pendingWaiterCount(productAccountId: String) -> Int {
+      waiters[productAccountId]?.count ?? 0
+    }
+  #endif
 }
 
 let productAccountRecoveryOperationGate = ProductAccountRecoveryOperationGate()

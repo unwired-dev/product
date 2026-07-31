@@ -966,7 +966,12 @@ final class AccountAndDevicesViewModel {
     isLoading = true
     defer { isLoading = false }
     do {
-      let identityToken = try await recentIdentityToken()
+      let identityToken =
+        if session.identityTokenState() == .active {
+          session.identityToken
+        } else {
+          try await recentIdentityToken()
+        }
       let snapshot = try await service.load(
         session: session,
         identityToken: identityToken

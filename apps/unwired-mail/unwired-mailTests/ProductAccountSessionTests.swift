@@ -121,6 +121,11 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertEqual(displayName.count, 40)
     XCTAssertEqual(displayName.utf16.count, 80)
+    let oversizedFirstCharacter = "a" + String(repeating: "\u{0301}", count: 80)
+    XCTAssertEqual(
+      TrustedDeviceIdentity.normalizedDisplayName(oversizedFirstCharacter, platform: "ios"),
+      "This Apple Device"
+    )
   }
 
   func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread() {
@@ -584,12 +589,14 @@ final class ProductAccountSessionTests: XCTestCase {
 
     let firstSignOut = Task { await session.signOut() }
     await cleanupGate.waitUntilStarted()
+    let secondRequested = expectation(description: "second sign-out requested")
     let secondSignOut = Task {
+      secondRequested.fulfill()
       await session.signOut {
         XCTFail("A concurrent sign-out must not run separate preparation.")
       }
     }
-    await Task.yield()
+    await fulfillment(of: [secondRequested], timeout: 1)
     await cleanupGate.release()
     await firstSignOut.value
     await secondSignOut.value

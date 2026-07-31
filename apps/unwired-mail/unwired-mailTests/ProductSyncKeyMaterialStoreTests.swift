@@ -84,6 +84,23 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     trustedDeviceId: "device-current"
   )
 
+  private func waitForRecoveryOperationWaiter(productAccountId: String) async {
+    let queued = expectation(description: "recovery operation queued")
+    let observer = Task {
+      for _ in 0..<1_000 {
+        if await productAccountRecoveryOperationGate.pendingWaiterCount(
+          productAccountId: productAccountId
+        ) > 0 {
+          queued.fulfill()
+          return
+        }
+        await Task.yield()
+      }
+    }
+    await fulfillment(of: [queued], timeout: 1)
+    observer.cancel()
+  }
+
   func testLoadListsCurrentDeviceFirstAndReportsMissingRecoveryBackup() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.devices = [
@@ -125,6 +142,70 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
   }
 
+  func testLoadReusesActiveStoredAuthentication() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+    let activeSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      identityTokenExpiresAt: .distantFuture,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    var didRefresh = false
+
+    await viewModel.load(session: activeSession) {
+      didRefresh = true
+      return "fresh-token"
+    }
+
+    XCTAssertFalse(didRefresh)
+    XCTAssertEqual(transport.listIdentityToken, "stored-token")
+  }
+
+  func testLoadRefreshesExpiredAuthentication() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+    let expiredSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+
+    await viewModel.load(session: expiredSession) { "fresh-token" }
+
+    XCTAssertEqual(transport.listIdentityToken, "fresh-token")
+  }
+
+  func testLoadRefreshesUnverifiableAuthentication() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.load(session: session) { "fresh-token" }
+
+    XCTAssertEqual(transport.listIdentityToken, "fresh-token")
+  }
+
   func testRenameRefreshesAuthenticationWhenTheMutationIsSubmitted() async {
     let transport = RecordingAccountAndDevicesTransport()
     let service = AccountAndDevicesService(
@@ -140,6 +221,9 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       platform: "macos",
       registeredAt: 100
     )
+    transport.devices = [device]
+
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
     await viewModel.rename(
       device,
@@ -148,7 +232,9 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recentIdentityToken: { "fresh-rename-token" }
     )
 
+    XCTAssertNil(viewModel.errorMessage)
     XCTAssertEqual(transport.renameIdentityToken, "fresh-rename-token")
+    XCTAssertEqual(viewModel.devices.first?.displayName, "Travel Mac")
   }
 
   func testReplacingRecoveryKeyPublishesOnlyWrappedMaterialAfterRecentAuthentication()
@@ -262,6 +348,9 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
 
     XCTAssertEqual(transport.recoveryWriteIdentityToken, "replacement-token")
+    XCTAssertNil(viewModel.errorMessage)
+    XCTAssertNotNil(viewModel.revealedRecoveryKey)
+    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
     XCTAssertNotEqual(viewModel.revealedRecoveryKey, material.recoveryKey.rawValue)
   }
 
@@ -333,6 +422,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     }
 
     await fulfillment(of: [secondStarted], timeout: 1)
+    await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
     XCTAssertEqual(transport.recoveryReadCount, 1)
 
     await writeGate.releaseFirstWrite()

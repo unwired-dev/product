@@ -2,6 +2,7 @@ import SwiftUI
 
 struct SignInView: View {
   let session: ProductAccountSession
+  @State private var isRestoringRecovery = false
   @State private var recoveryKey = ""
 
   #if DEBUG && !targetEnvironment(macCatalyst)
@@ -49,11 +50,14 @@ struct SignInView: View {
             .frame(maxWidth: 420)
           Button("Restore with Recovery Key") {
             Task {
+              guard !isRestoringRecovery else { return }
+              isRestoringRecovery = true
+              defer { isRestoringRecovery = false }
               await session.restoreProductSyncMaterial(recoveryKey: recoveryKey)
             }
           }
           .buttonStyle(.borderedProminent)
-          .disabled(recoveryKey.isEmpty)
+          .disabled(recoveryKey.isEmpty || isRestoringRecovery)
         }
       }
 
