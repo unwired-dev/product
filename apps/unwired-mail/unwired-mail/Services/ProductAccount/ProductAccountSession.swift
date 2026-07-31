@@ -33,14 +33,15 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
 @Observable
 final class ProductAccountSession {
   private struct PendingProductSyncRecovery {
+    let id = UUID()
     let credential: AppleSignInCredential
-    let recoveryMaterial: EncryptedProductSyncPayload
     let response: ProductAccountConnectResponse
   }
 
   private(set) var state: ProductAccountSessionState = .loading
   private(set) var signOutErrorMessage: String?
   private(set) var requiresProductSyncRecovery = false
+  private(set) var unacknowledgedRecoveryKey: String?
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
@@ -86,56 +87,30 @@ final class ProductAccountSession {
   }
 
   func signInWithApple() async {
-    state = .loading
-    clearPendingProductSyncRecovery()
-
-    do {
-      try resumePendingSignOut()
-      let credential = try await appleSignInService.signIn()
-      let response = try await productAccountService.connect(
-        identityToken: credential.identityToken
-      )
-      guard
-        try await prepareProductSyncMaterial(
-          credential: credential,
-          response: response,
-          allowCreation: shouldCreateProductSyncMaterialAfterSignIn(response: response)
-        )
-      else { return }
-      try await completeSignIn(credential: credential, response: response)
-    } catch {
-      state = .failed(error.localizedDescription)
-    }
-  }
-
-  func restoreProductSyncMaterial(recoveryKey rawValue: String) async {
-    guard let pendingProductSyncRecovery else {
-      state = .failed(ProductAccountSessionError.recoveryNotPending.localizedDescription)
-      return
-    }
-    state = .loading
-
-    do {
-      let credential = try await appleSignInService.signIn()
-      guard
-        credential.appleUserIdentifier
-          == pendingProductSyncRecovery.credential.appleUserIdentifier
-      else {
-        throw ProductAccountSessionError.differentAppleAccount
-      }
-      _ = try productSyncKeyMaterialStore.restore(
-        productAccountId: pendingProductSyncRecovery.response.productAccountId,
-        recoveryKey: ProductSyncRecoveryKey(rawValue: rawValue),
-        recoveryWrappedAccountKey:
-          pendingProductSyncRecovery.recoveryMaterial.encryptedPayload
-      )
-      try await completeSignIn(
-        credential: credential,
-        response: pendingProductSyncRecovery.response
-      )
+    let coordinatedProductAccountId =
+      currentSignedInSnapshot()?.productAccountId
+      ?? (try? sessionStore.load())?.productAccountId
+    await withProductAccountOperation(productAccountId: coordinatedProductAccountId) {
+      state = .loading
       clearPendingProductSyncRecovery()
-    } catch {
-      state = .failed(error.localizedDescription)
+
+      do {
+        try resumePendingSignOut()
+        let credential = try await appleSignInService.signIn()
+        let response = try await productAccountService.connect(
+          identityToken: credential.identityToken
+        )
+        guard
+          try await prepareProductSyncMaterial(
+            credential: credential,
+            response: response,
+            allowCreation: shouldCreateProductSyncMaterialAfterSignIn(response: response)
+          )
+        else { return }
+        try await completeSignIn(credential: credential, response: response)
+      } catch {
+        state = .failed(error.localizedDescription)
+      }
     }
   }
 
@@ -149,6 +124,7 @@ final class ProductAccountSession {
     let productAccountId =
       currentSignedInSnapshot()?.productAccountId
       ?? (try? sessionStore.load())?.productAccountId
+      ?? pendingProductSyncRecovery?.response.productAccountId
     let task = Task {
       await performCoordinatedSignOut(
         productAccountId: productAccountId,
@@ -300,6 +276,77 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  func restoreProductSyncMaterial(recoveryKey rawValue: String) async {
+    guard let pendingProductSyncRecovery else {
+      state = .failed(ProductAccountSessionError.recoveryNotPending.localizedDescription)
+      return
+    }
+    let productAccountId = pendingProductSyncRecovery.response.productAccountId
+    await withProductAccountOperation(productAccountId: productAccountId) {
+      guard
+        self.pendingProductSyncRecovery?.id == pendingProductSyncRecovery.id,
+        !isSigningOut
+      else { return }
+      state = .loading
+
+      do {
+        let credential = try await appleSignInService.signIn()
+        guard
+          credential.appleUserIdentifier
+            == pendingProductSyncRecovery.credential.appleUserIdentifier
+        else {
+          throw ProductAccountSessionError.differentAppleAccount
+        }
+        guard
+          self.pendingProductSyncRecovery?.id == pendingProductSyncRecovery.id,
+          !isSigningOut
+        else { throw CancellationError() }
+        guard
+          let currentRecoveryMaterial =
+            try await productAccountService.productSyncRecoveryMaterial(
+              identityToken: credential.identityToken
+            )
+        else {
+          throw ProductSyncKeyMaterialStoreError.recoveryRequired
+        }
+        guard
+          self.pendingProductSyncRecovery?.id == pendingProductSyncRecovery.id,
+          !isSigningOut
+        else { throw CancellationError() }
+        _ = try productSyncKeyMaterialStore.restore(
+          productAccountId: productAccountId,
+          recoveryKey: ProductSyncRecoveryKey(rawValue: rawValue),
+          recoveryWrappedAccountKey: currentRecoveryMaterial.encryptedPayload
+        )
+        try await completeSignIn(
+          credential: credential,
+          response: pendingProductSyncRecovery.response
+        )
+        clearPendingProductSyncRecovery()
+      } catch is CancellationError {
+      } catch {
+        state = .failed(error.localizedDescription)
+      }
+    }
+  }
+
+  private func withProductAccountOperation(
+    productAccountId: String?,
+    operation: () async -> Void
+  ) async {
+    if let productAccountId {
+      await productAccountRecoveryOperationGate.acquire(
+        productAccountId: productAccountId
+      )
+    }
+    await operation()
+    if let productAccountId {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: productAccountId
+      )
+    }
+  }
+
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
     !isSigningOut && currentSignedInSnapshot() == snapshot
   }
@@ -371,6 +418,9 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
+    guard unacknowledgedRecoveryKey == nil else {
+      throw ProductAccountSessionError.recoveryNotBackedUp
+    }
     let identityToken = try await identityTokenForRecoveryCheck(snapshot)
     let material = try productSyncKeyMaterialStore.load(
       productAccountId: snapshot.productAccountId
@@ -416,15 +466,14 @@ extension ProductAccountSession {
       return true
     } catch ProductSyncKeyMaterialStoreError.recoveryRequired {
       guard
-        let recoveryMaterial = try await productAccountService.productSyncRecoveryMaterial(
+        try await productAccountService.productSyncRecoveryMaterial(
           identityToken: credential.identityToken
-        )
+        ) != nil
       else {
         throw ProductSyncKeyMaterialStoreError.recoveryRequired
       }
       pendingProductSyncRecovery = PendingProductSyncRecovery(
         credential: credential,
-        recoveryMaterial: recoveryMaterial,
         response: response
       )
       requiresProductSyncRecovery = true
@@ -594,7 +643,16 @@ extension ProductAccountSession {
     signOutSnapshot = currentSignedInSnapshot()
     isSigningOut = true
     state = .loading
+    clearPendingProductSyncRecovery()
     clearMailboxFreshnessViewModel()
+  }
+
+  func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) {
+    unacknowledgedRecoveryKey = recoveryKey
+  }
+
+  func acknowledgeRecoveryKey() {
+    unacknowledgedRecoveryKey = nil
   }
 
   func sharedMailboxFreshnessViewModel(

@@ -1013,6 +1013,7 @@ final class AccountAndDevicesViewModel {
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: () async throws -> String,
     isSessionCurrent: () -> Bool,
+    recoveryKeyPublished: (String) -> Void = { _ in },
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1033,6 +1034,7 @@ final class AccountAndDevicesViewModel {
           )
         }
       recoveryKeyStatus = .current
+      recoveryKeyPublished(recoveryKey.rawValue)
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
     } catch is CancellationError {
@@ -1047,6 +1049,10 @@ final class AccountAndDevicesViewModel {
 
   func hideRecoveryKey() {
     revealedRecoveryKey = nil
+  }
+
+  func presentPreservedRecoveryKey(_ recoveryKey: String?) {
+    revealedRecoveryKey = recoveryKey
   }
 }
 
@@ -1151,6 +1157,7 @@ struct AccountAndDevicesSettingsView: View {
           try await session.recentIdentityToken(for: snapshot)
         }
       )
+      viewModel.presentPreservedRecoveryKey(session.unacknowledgedRecoveryKey)
     }
     .onDisappear {
       viewModel.hideRecoveryKey()
@@ -1218,7 +1225,8 @@ struct AccountAndDevicesSettingsView: View {
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
             },
-            isSessionCurrent: { session.isCurrent(snapshot) }
+            isSessionCurrent: { session.isCurrent(snapshot) },
+            recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey
           )
         }
       }
@@ -1251,6 +1259,7 @@ struct AccountAndDevicesSettingsView: View {
               try await session.recentIdentityToken(for: snapshot)
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
+            recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
             replacingCurrent: true
           )
         }
@@ -1266,7 +1275,10 @@ struct AccountAndDevicesSettingsView: View {
       isPresented: Binding(
         get: { viewModel.revealedRecoveryKey != nil },
         set: { isPresented in
-          if !isPresented { viewModel.hideRecoveryKey() }
+          if !isPresented {
+            viewModel.hideRecoveryKey()
+            session.acknowledgeRecoveryKey()
+          }
         }
       )
     ) {

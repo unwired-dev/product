@@ -566,6 +566,33 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
   }
 
+  func testSignOutRefusesToDiscardAnUnacknowledgedRecoveryKey() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
+  }
+
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -715,16 +742,18 @@ final class ProductAccountSessionTests: XCTestCase {
       await session.signOut()
     }
     await unregistrationGate.waitUntilStarted()
-    await session.signInWithApple()
+    let signInTask = Task { await session.signInWithApple() }
+    await waitForRecoveryOperationWaiter(productAccountId: oldSnapshot.productAccountId)
+    await unregistrationGate.release()
+    await signOutTask.value
+    await signInTask.value
     guard case .signedIn(let newSnapshot) = session.state else {
       return XCTFail("Expected concurrent sign-in to complete")
     }
-    await unregistrationGate.release()
-    await signOutTask.value
 
     XCTAssertEqual(session.state, .signedIn(newSnapshot))
     XCTAssertEqual(try store.load(), newSnapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [newSnapshot])
   }
 
   func testSignOutPreservesSessionSavedDuringGmailCleanup() async throws {
@@ -1413,6 +1442,67 @@ final class ProductAccountSessionTests: XCTestCase {
       original.accountKeyData
     )
     XCTAssertEqual(productAccountService.materialInitializationIdentityTokens, ["fresh-token"])
+    XCTAssertEqual(
+      productAccountService.recoveryMaterialIdentityTokens, ["stale-token", "fresh-token"])
+  }
+
+  // swiftlint:disable:next function_body_length
+  func testSignOutWaitsForInFlightRecoveryRestoration() async throws {
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 31, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 32, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let productAccountService = RecordingProductAccountService(response: .resumed)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let restoreGate = BootstrapRestoreGate()
+    let appleSignInService = SequencedSuspendingAppleSignInService(
+      credentials: [
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "initial-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "restore-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "sign-out-token"
+        ),
+      ],
+      suspendedCallIndex: 1,
+      gate: restoreGate
+    )
+    let session = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: RecordingGmailProviderConnecting(),
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.signInWithApple()
+
+    let restore = Task {
+      await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
+    }
+    await restoreGate.waitUntilStarted()
+    let signOut = Task { await session.signOut() }
+    await waitForRecoveryOperationWaiter(
+      productAccountId: ProductAccountConnectResponse.resumed.productAccountId
+    )
+
+    await restoreGate.release()
+    await restore.value
+    await signOut.value
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+    XCTAssertNil(try store.load())
   }
 
   func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
@@ -1630,6 +1720,38 @@ private actor SequencedAppleSignInService: AppleSignInPerforming {
   }
 }
 
+private actor SequencedSuspendingAppleSignInService: AppleSignInPerforming {
+  private var callIndex = 0
+  private var credentials: [AppleSignInCredential]
+  private let gate: BootstrapRestoreGate
+  private let suspendedCallIndex: Int
+
+  init(
+    credentials: [AppleSignInCredential],
+    suspendedCallIndex: Int,
+    gate: BootstrapRestoreGate
+  ) {
+    self.credentials = credentials
+    self.suspendedCallIndex = suspendedCallIndex
+    self.gate = gate
+  }
+
+  func signIn() async throws -> AppleSignInCredential {
+    let credential = credentials.removeFirst()
+    defer { callIndex += 1 }
+    if callIndex == suspendedCallIndex {
+      await gate.waitForRelease()
+    }
+    return credential
+  }
+
+  func restoreSession(
+    snapshot _: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    try await signIn()
+  }
+}
+
 private enum ProductAccountSessionTestError: Error {
   case gmailCleanupFailed
   case keyCleanupFailed
@@ -1647,6 +1769,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryCheckExpectedWrappedAccountKeys: [ProductSyncEncryptedPayload?] = []
   var recoveryCheckIdentityTokens: [String] = []
   var recoveryMaterial: EncryptedProductSyncPayload?
+  var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
   var unregisterError: Error?
   var unregistrationIdentityTokens: [String] = []
@@ -1681,9 +1804,10 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   }
 
   func productSyncRecoveryMaterial(
-    identityToken _: String
+    identityToken: String
   ) async throws -> EncryptedProductSyncPayload? {
-    recoveryMaterial
+    recoveryMaterialIdentityTokens.append(identityToken)
+    return recoveryMaterial
   }
 
   func unregisterTrustedDevice(

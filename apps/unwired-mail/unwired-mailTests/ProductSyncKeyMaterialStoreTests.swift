@@ -383,16 +383,19 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
+    var publishedRecoveryKey: String?
     await viewModel.presentRecoveryKey(
       session: session,
       recentIdentityToken: { "replacement-token" },
       isSessionCurrent: { true },
+      recoveryKeyPublished: { publishedRecoveryKey = $0 },
       replacingCurrent: true
     )
 
     XCTAssertEqual(transport.recoveryWriteIdentityToken, "replacement-token")
     XCTAssertNil(viewModel.errorMessage)
     XCTAssertNotNil(viewModel.revealedRecoveryKey)
+    XCTAssertEqual(publishedRecoveryKey, viewModel.revealedRecoveryKey)
     XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
     XCTAssertNotEqual(viewModel.revealedRecoveryKey, material.recoveryKey.rawValue)
   }
