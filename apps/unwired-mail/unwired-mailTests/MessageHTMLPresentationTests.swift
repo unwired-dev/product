@@ -227,6 +227,26 @@ final class MessageHTMLPresentationTests: XCTestCase {
     }
   }
 
+  func testSanitizerBlocksRemoteImagesInsideZeroWidthWrappers() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="max-width: 0">
+          <img src="https://tracker.example/pixel.gif">
+        </div>
+        <img src="https://images.example.com/hero.png">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
+  }
+
   func testSanitizerPreservesContentWithSmallNegativeLayoutOffsets() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -957,6 +977,43 @@ extension MessageHTMLPresentationTests {
         URLRequest(url: try XCTUnwrap(URL(string: "http://cdn.example.com/image.png")))
       )
     )
+  }
+
+  func testRemoteContentRedirectsStopAfterThreeHops() throws {
+    let delegate = RemoteMessageContentRedirectDelegate()
+    let session = URLSession(configuration: .ephemeral)
+    let task = session.dataTask(
+      with: try XCTUnwrap(URL(string: "https://images.example.com/start.png"))
+    )
+    let response = try XCTUnwrap(
+      HTTPURLResponse(
+        url: try XCTUnwrap(URL(string: "https://images.example.com/start.png")),
+        statusCode: 302,
+        httpVersion: nil,
+        headerFields: nil
+      )
+    )
+
+    for hop in 1...4 {
+      var redirectedRequest: URLRequest?
+      delegate.urlSession(
+        session,
+        task: task,
+        willPerformHTTPRedirection: response,
+        newRequest: URLRequest(
+          url: try XCTUnwrap(URL(string: "https://images.example.com/hop-\(hop).png"))
+        )
+      ) { request in
+        redirectedRequest = request
+      }
+      if hop <= 3 {
+        XCTAssertNotNil(redirectedRequest)
+      } else {
+        XCTAssertNil(redirectedRequest)
+      }
+    }
+
+    session.invalidateAndCancel()
   }
 
   @MainActor

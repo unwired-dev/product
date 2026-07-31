@@ -165,6 +165,10 @@ enum RemoteMessageContentRedirectPolicy {
 }
 
 class RemoteMessageContentRedirectDelegate: NSObject, URLSessionTaskDelegate {
+  private static let maximumRedirectCount = 3
+  private let redirectLock = NSLock()
+  private var redirectCount = 0
+
   func urlSession(
     _: URLSession,
     task _: URLSessionTask,
@@ -172,7 +176,16 @@ class RemoteMessageContentRedirectDelegate: NSObject, URLSessionTaskDelegate {
     newRequest request: URLRequest,
     completionHandler: @escaping (URLRequest?) -> Void
   ) {
-    completionHandler(RemoteMessageContentRedirectPolicy.redirectedRequest(request))
+    let permitsRedirect = redirectLock.withLock {
+      guard redirectCount < Self.maximumRedirectCount else { return false }
+      redirectCount += 1
+      return true
+    }
+    completionHandler(
+      permitsRedirect
+        ? RemoteMessageContentRedirectPolicy.redirectedRequest(request)
+        : nil
+    )
   }
 
   func urlSession(

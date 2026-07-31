@@ -19,7 +19,7 @@ enum MessageHTMLHiddenStylePatterns {
 
   static let presentation =
     #"(?:^|;)\s*(?:display\s*:\s*none|"#
-    + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+    + #"(?:height|width|max-width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
     + #"(?:[a-z%]+)?)"#
     + #"(?:\s*!important)?\s*(?:;|$)"#
 }
