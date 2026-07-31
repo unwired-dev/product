@@ -2230,6 +2230,32 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessDirectBackfillCancellationRestoresPriorStatus() async {
+    let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+
+    backfill.cancel()
+
+    do {
+      _ = try await backfill.value
+      XCTFail("Expected the historical backfill to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
   func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
     let connection = fixture.connections[0]

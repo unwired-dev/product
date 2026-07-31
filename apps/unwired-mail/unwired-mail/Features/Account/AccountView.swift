@@ -841,8 +841,7 @@ final class MailboxFreshnessViewModel {
       }
     case .failure(let error):
       if Task.isCancelled || Self.isCancellation(error) {
-        if !Task.isCancelled,
-          externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id),
+        if externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id),
           externalStatusIsCurrent(externalStatusRevision, for: connection.id)
         {
           statuses[connection.id] = priorStatus
