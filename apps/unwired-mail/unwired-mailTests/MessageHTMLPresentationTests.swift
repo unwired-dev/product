@@ -1341,6 +1341,27 @@ extension MessageHTMLPresentationTests {
 }
 
 extension MessageHTMLPresentationTests {
+  func testSanitizerHonorsOverridingMaximumDimensionDeclarations() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="max-width: 0; max-width: 600px">
+          <img src="https://images.example.com/width.png">
+        </div>
+        <div style="max-height: 0; max-height: 600px !important">
+          <img src="https://images.example.com/height.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/width.png", "https://images.example.com/height.png"]
+    )
+  }
+
   func testSanitizerRetainsRemoteImageWithNonRenderingUnicodePreheader() throws {
     for text in ["&zwnj;", "&#847;"] {
       let result = try XCTUnwrap(

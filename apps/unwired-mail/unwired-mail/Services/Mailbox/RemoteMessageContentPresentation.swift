@@ -17,11 +17,35 @@ enum MessageHTMLHiddenStylePatterns {
     + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
     + #"(?:\s*!important)?\s*(?:;|$)"#
 
-  static let presentation =
-    #"(?:^|;)\s*(?:display\s*:\s*none|"#
-    + #"(?:height|width|max-width|max-height)\s*:\s*[+-]?(?:0+(?:\.0*)?|\.0+)"#
-    + #"(?:[a-z%]+)?)"#
-    + #"(?:\s*!important)?\s*(?:;|$)"#
+  static func isPresentationHidden(_ style: String) -> Bool {
+    var effectiveDeclarations: [String: (value: String, isImportant: Bool)] = [:]
+    for declaration in style.split(separator: ";") {
+      let components = declaration.split(separator: ":", maxSplits: 1)
+      guard components.count == 2 else { continue }
+      let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+      let importantRange = value.range(
+        of: #"\s*!important\s*$"#,
+        options: [.regularExpression, .caseInsensitive]
+      )
+      let isImportant = importantRange != nil
+      if let importantRange {
+        value.removeSubrange(importantRange)
+        value = value.trimmingCharacters(in: .whitespacesAndNewlines)
+      }
+      if effectiveDeclarations[property]?.isImportant == true, !isImportant { continue }
+      effectiveDeclarations[property] = (value.lowercased(), isImportant)
+    }
+
+    if effectiveDeclarations["display"]?.value == "none" { return true }
+    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+    return ["height", "width", "max-width", "max-height"].contains { property in
+      effectiveDeclarations[property]?.value.range(
+        of: zeroDimensionPattern,
+        options: .regularExpression
+      ) != nil
+    }
+  }
 }
 
 enum RemoteMessageContentPolicy {

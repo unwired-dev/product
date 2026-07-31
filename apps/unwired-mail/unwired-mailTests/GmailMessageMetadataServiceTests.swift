@@ -3846,6 +3846,139 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelRemoteLoadCancellationReleasesGate() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let reference = RemoteMessageImageReference(
+      identifier: "remote-image-0",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+    )
+    let originalHTML = SanitizedMessageHTML(
+      documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+      remoteImageReferences: [reference]
+    )
+    let probe = ConcurrentRemoteMessageContentLoadProbe()
+
+    let firstLoad = Task { @MainActor in
+      try await viewModel.loadRemoteMessageContent(
+        originalHTML,
+        for: firstMessage.id
+      ) { _, maximumByteCount, _ in
+        await probe.load(
+          maximumByteCount: maximumByteCount,
+          loadedByteCount: 0,
+          resolvedHTML: originalHTML
+        )
+      }
+    }
+    await probe.waitUntilFirstLoadStarts()
+    firstLoad.cancel()
+    await probe.releaseFirstLoad()
+
+    do {
+      _ = try await firstLoad.value
+      XCTFail("Cancelled remote load should throw")
+    } catch is CancellationError {
+    }
+
+    let secondResult = try await viewModel.loadRemoteMessageContent(
+      originalHTML,
+      for: secondMessage.id
+    ) { html, _, _ in
+      RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: html,
+        loadedImageCount: 1
+      )
+    }
+
+    XCTAssertEqual(secondResult.loadedImageCount, 1)
+  }
+
+  @MainActor
+  func testInboxViewModelLoadsBodyWithoutInlineImagesWhileRemoteGateIsAcquired() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let remoteMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let plainMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: remoteMessage.connectionId)
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [plainMessage.id: MailboxMessageBody(text: "Plain")]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let reference = RemoteMessageImageReference(
+      identifier: "remote-image-0",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+    )
+    let originalHTML = SanitizedMessageHTML(
+      documentHTML: #"<img data-unwired-remote-image="remote-image-0">"#,
+      remoteImageReferences: [reference]
+    )
+    let probe = ConcurrentRemoteMessageContentLoadProbe()
+    let bodyLoaded = expectation(description: "Body without inline images loaded")
+
+    let remoteLoad = Task { @MainActor in
+      try await viewModel.loadRemoteMessageContent(
+        originalHTML,
+        for: remoteMessage.id
+      ) { _, maximumByteCount, _ in
+        await probe.load(
+          maximumByteCount: maximumByteCount,
+          loadedByteCount: 0,
+          resolvedHTML: originalHTML
+        )
+      }
+    }
+    await probe.waitUntilFirstLoadStarts()
+    let plainLoad = Task { @MainActor in
+      let body = try await viewModel.loadMessageBody(plainMessage, using: reader)
+      bodyLoaded.fulfill()
+      return body
+    }
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+
+    await probe.releaseFirstLoad()
+    _ = try await remoteLoad.value
+    let plainBody = try await plainLoad.value
+
+    XCTAssertEqual(plainBody.text, "Plain")
+  }
+
+  @MainActor
   func testInboxViewModelPreservesRemoteImageReservationsAcrossRetries() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(

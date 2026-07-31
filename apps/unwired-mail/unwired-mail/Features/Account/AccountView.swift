@@ -48,6 +48,10 @@ private actor RemoteMessageContentLoadGate {
     let waiterId = UUID()
     return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
+        guard !Task.isCancelled else {
+          continuation.resume(returning: false)
+          return
+        }
         waiters.append(Waiter(continuation: continuation, id: waiterId))
         guard let maximumWaitDuration else { return }
         Task {
@@ -5693,10 +5697,15 @@ final class GmailInboxViewModel {
     defer { loadingMessageBodyCount -= 1 }
     let loadedBody = try await reader.loadMessageBody(message: message, session: session)
     try Task.checkCancellation()
-    let body = try await withRemoteImageAdmissionGate {
-      try Task.checkCancellation()
-      return try retainLoadedInlineImages(loadedBody, for: message.id)
-    }
+    let body =
+      if loadedBody.inlineImages.isEmpty {
+        loadedBody
+      } else {
+        try await withRemoteImageAdmissionGate {
+          try Task.checkCancellation()
+          return try retainLoadedInlineImages(loadedBody, for: message.id)
+        }
+      }
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
   }
