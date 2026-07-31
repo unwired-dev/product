@@ -3046,6 +3046,28 @@ struct MailShellThreadList: View {
           EditButton()
         }
       }
+      if Self.showsUnifiedInboxRefreshButton(
+        mailboxSelection: mailboxSelection,
+        connections: connections
+      ) {
+        ToolbarItem(placement: .primaryAction) {
+          Button {
+            Task {
+              await viewModel.loadUnifiedInbox(connections: connections)
+            }
+          } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          .disabled(
+            Self.isUnifiedInboxRefreshDisabled(
+              viewModel: viewModel,
+              connections: connections,
+              isConnectionBusy: isConnectionBusy
+            )
+          )
+          .accessibilityIdentifier("unified-inbox-refresh")
+        }
+      }
       if let connection, connection.authorizationState == .authorized,
         connection.capabilities.canSynchronizeMetadata
       {
@@ -3108,6 +3130,25 @@ struct MailShellThreadList: View {
         viewModel: viewModel
       )
     }
+  }
+
+  static func showsUnifiedInboxRefreshButton(
+    mailboxSelection: MailShellMailboxSelection?,
+    connections: [MailboxConnection]
+  ) -> Bool {
+    guard mailboxSelection == .unified(.inbox) else { return false }
+    return connections.contains {
+      $0.authorizationState == .authorized && $0.capabilities.canSynchronizeMetadata
+    }
+  }
+
+  static func isUnifiedInboxRefreshDisabled(
+    viewModel: GmailInboxViewModel,
+    connections: [MailboxConnection],
+    isConnectionBusy: Bool
+  ) -> Bool {
+    isConnectionBusy || viewModel.isRefreshDisabled
+      || viewModel.isHistoricalBackfillRunning(for: connections)
   }
 
   @ViewBuilder
