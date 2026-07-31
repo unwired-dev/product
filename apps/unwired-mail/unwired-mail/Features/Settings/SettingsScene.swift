@@ -1051,6 +1051,15 @@ final class AccountAndDevicesViewModel {
     revealedRecoveryKey = nil
   }
 
+  func acknowledgeRecoveryKey(using acknowledgement: () throws -> Void) {
+    do {
+      try acknowledgement()
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
   func presentPreservedRecoveryKey(_ recoveryKey: String?) {
     revealedRecoveryKey = recoveryKey
   }
@@ -1277,7 +1286,9 @@ struct AccountAndDevicesSettingsView: View {
         set: { isPresented in
           if !isPresented {
             viewModel.hideRecoveryKey()
-            session.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+            viewModel.acknowledgeRecoveryKey {
+              try session.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+            }
           }
         }
       )

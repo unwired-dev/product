@@ -429,6 +429,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNotNil(transport.recoveryWritePayload)
   }
 
+  func testRecoveryKeyAcknowledgementFailureUsesAccountAndDevicesError() {
+    let viewModel = AccountAndDevicesViewModel()
+
+    viewModel.acknowledgeRecoveryKey {
+      throw CocoaError(.fileWriteUnknown)
+    }
+
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   func testConcurrentRecoveryReplacementDoesNotOverwriteLocalMaterial() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     transport.simulatesConcurrentRecoveryWrite = true

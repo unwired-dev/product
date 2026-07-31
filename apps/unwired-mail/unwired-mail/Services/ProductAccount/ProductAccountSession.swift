@@ -678,16 +678,12 @@ extension ProductAccountSession {
     )
   }
 
-  func acknowledgeRecoveryKey(productAccountId: String) {
+  func acknowledgeRecoveryKey(productAccountId: String) throws {
     guard currentSignedInSnapshot()?.productAccountId == productAccountId else { return }
-    do {
-      try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
-      if unacknowledgedRecoveryAccountId == productAccountId {
-        unacknowledgedRecoveryKey = nil
-        unacknowledgedRecoveryAccountId = nil
-      }
-    } catch {
-      signOutErrorMessage = error.localizedDescription
+    try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+    if unacknowledgedRecoveryAccountId == productAccountId {
+      unacknowledgedRecoveryKey = nil
+      unacknowledgedRecoveryAccountId = nil
     }
   }
 

@@ -661,7 +661,7 @@ final class ProductAccountSessionTests: XCTestCase {
       ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
 
-    relaunchedSession.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
+    try relaunchedSession.acknowledgeRecoveryKey(productAccountId: snapshot.productAccountId)
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
