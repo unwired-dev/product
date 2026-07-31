@@ -1974,6 +1974,24 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.viewModel.synchronize(connections: [connection])
     await fixture.service.waitUntilHistoricalBackfillStarts()
+    let reloadPublished = expectation(description: "failed backfill reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
     fixture.viewModel.recordExternalSync(
       connectionIdRawValue: connection.id.rawValue,
       phase: .syncing,
@@ -1982,6 +2000,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     )
 
     await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [reloadPublished], timeout: 1)
     for _ in 0..<100
     where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
       await Task.yield()

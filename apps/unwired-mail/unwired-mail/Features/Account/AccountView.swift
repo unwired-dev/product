@@ -846,9 +846,12 @@ final class MailboxFreshnessViewModel {
         break
       }
       guard
-        externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id)
-      else { return }
-      guard externalStatusIsCurrent(externalStatusRevision, for: connection.id) else { return }
+        externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id),
+        externalStatusIsCurrent(externalStatusRevision, for: connection.id)
+      else {
+        supersedesHistoricalBackfill = false
+        break
+      }
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,
         phase: .failure(for: error)
