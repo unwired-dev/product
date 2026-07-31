@@ -20,6 +20,10 @@ struct TrustedDeviceSummary: Decodable, Equatable, Identifiable {
   let registeredAt: Int64
 }
 
+struct TrustedDeviceUnregistrationResponse: Decodable, Equatable {
+  let registered: Bool
+}
+
 enum RecoveryKeyStatus: Equatable {
   case current
   case notBackedUp
@@ -50,6 +54,10 @@ protocol ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> ProductSyncMaterialInitializedResponse
+  func unregisterTrustedDevice(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse
 }
 
 protocol TrustedDeviceManaging {
@@ -113,6 +121,16 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     trustedDeviceId: String
   ) async throws -> ProductSyncMaterialInitializedResponse {
     try await client.markProductSyncMaterialInitialized(
+      identityToken: identityToken,
+      trustedDeviceId: trustedDeviceId
+    )
+  }
+
+  func unregisterTrustedDevice(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    try await client.unregisterTrustedDevice(
       identityToken: identityToken,
       trustedDeviceId: trustedDeviceId
     )
@@ -333,6 +351,15 @@ struct PreviewProductAccountService: ProductAccountConnecting {
     return ProductSyncMaterialInitializedResponse(
       productSyncMaterialInitialized: true
     )
+  }
+
+  func unregisterTrustedDevice(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    _ = identityToken
+    _ = trustedDeviceId
+    return TrustedDeviceUnregistrationResponse(registered: false)
   }
 }
 

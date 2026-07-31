@@ -2,6 +2,7 @@ import {
   gmailProviderConnectionStatusValidator,
   productAccountConnectResponseValidator,
   productSyncMaterialInitializedResponseValidator,
+  trustedDeviceUnregistrationResponseValidator,
   trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
@@ -371,6 +372,35 @@ export const renameTrustedDevice = mutation({
     return trustedDeviceSummary({ ...device, displayName });
   },
   returns: trustedDeviceSummaryValidator,
+});
+
+export const unregisterTrustedDevice = mutation({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device === null) {
+      return { registered: false };
+    }
+    if (device.productAccountId !== account.productAccountId) {
+      throw new Error('Trusted device required');
+    }
+    const heartbeat = await ctx.db
+      .query('devicePushRouteHeartbeats')
+      .withIndex('by_trustedDeviceId', (q) =>
+        q.eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .unique();
+    if (heartbeat !== null) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(heartbeat._id);
+    }
+    await ctx.db.delete(args.trustedDeviceId);
+    return { registered: false };
+  },
+  returns: trustedDeviceUnregistrationResponseValidator,
 });
 
 export const markProductSyncMaterialInitialized = mutation({

@@ -24,6 +24,14 @@ export const trustedDeviceSummaryValidator = v.object({
 
 export type TrustedDeviceSummary = Infer<typeof trustedDeviceSummaryValidator>;
 
+export const trustedDeviceUnregistrationResponseValidator = v.object({
+  registered: v.boolean(),
+});
+
+export type TrustedDeviceUnregistrationResponse = Infer<
+  typeof trustedDeviceUnregistrationResponseValidator
+>;
+
 export const productAccountConnectResponseFixture: ProductAccountConnectResponse =
   {
     accountCreated: true,

@@ -343,6 +343,7 @@ final class ProductAccountSessionTests: XCTestCase {
 
   func testSignOutClearsStoredSession() async {
     let gmailConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -351,7 +352,7 @@ final class ProductAccountSessionTests: XCTestCase {
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
-      productAccountService: PreviewProductAccountService(response: .preview),
+      productAccountService: productAccountService,
       sessionStore: store,
       mailboxConnectionService: GmailMailboxConnectionAdapter(
         connectionService: gmailConnectionService
@@ -372,11 +373,49 @@ final class ProductAccountSessionTests: XCTestCase {
       pushUnregisterer.sessions.first?.productAccountId,
       ProductAccountConnectResponse.preview.productAccountId
     )
+    XCTAssertEqual(
+      productAccountService.unregisteredTrustedDeviceIds,
+      [ProductAccountConnectResponse.preview.trustedDeviceId]
+    )
     XCTAssertNil(
       try keyMaterialStore.load(
         productAccountId: ProductAccountConnectResponse.preview.productAccountId
       )
     )
+  }
+
+  func testSignOutPreservesStoredSessionWhenTrustedDeviceUnregistrationFails() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    productAccountService.unregisterError =
+      ProductAccountSessionTestError.trustedDeviceUnregistrationFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(
+        ProductAccountSessionTestError.trustedDeviceUnregistrationFailed
+          .localizedDescription
+      )
+    )
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
   }
 
   func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
@@ -1216,6 +1255,15 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
   }
+
+  func unregisterTrustedDevice(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    _ = identityToken
+    _ = trustedDeviceId
+    throw ConvexClientError.missingConvexURL
+  }
 }
 
 private struct RevokedAppleSignInService: AppleSignInPerforming {
@@ -1284,6 +1332,41 @@ private enum ProductAccountSessionTestError: Error {
   case sessionClearFailed
   case sessionLoadFailed
   case sessionSaveFailed
+  case trustedDeviceUnregistrationFailed
+}
+
+private final class RecordingProductAccountService: ProductAccountConnecting {
+  let response: ProductAccountConnectResponse
+  var unregisterError: Error?
+  var unregisteredTrustedDeviceIds: [String] = []
+
+  init(response: ProductAccountConnectResponse) {
+    self.response = response
+  }
+
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    response
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    ProductSyncMaterialInitializedResponse(
+      productSyncMaterialInitialized: true
+    )
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    unregisteredTrustedDeviceIds.append(trustedDeviceId)
+    if let unregisterError {
+      throw unregisterError
+    }
+    return TrustedDeviceUnregistrationResponse(registered: false)
+  }
 }
 
 private final class ControllableProductAccountSessionStore: ProductAccountSessionPersisting {

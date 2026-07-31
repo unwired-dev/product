@@ -101,6 +101,17 @@ final class ConvexClient {
     )
   }
 
+  func unregisterTrustedDevice(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    try await performMutation(
+      path: "productAccount:unregisterTrustedDevice",
+      args: UnregisterTrustedDeviceArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
   func registerGmailConnection(
     gmailIdentityToken: String,
     identityToken: String,
@@ -543,6 +554,10 @@ private struct RenameTrustedDeviceArgs: Encodable {
   let displayName: String
   let trustedDeviceId: String
   let trustedDeviceToRenameId: String
+}
+
+private struct UnregisterTrustedDeviceArgs: Encodable {
+  let trustedDeviceId: String
 }
 
 private struct RegisterGmailConnectionArgs: Encodable {

@@ -226,6 +226,72 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('unregisters only the current Trusted Device', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await expect(
+      asUser.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({ id: otherDevice.trustedDeviceId }),
+    ]);
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayload, {
+        encryptedPayload,
+        payloadIdentifier: 'payload-after-unregistration',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
+  it('rejects unregistering another Product Account trusted device', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
   it('rejects registration beyond the Trusted Device list limit', async () => {
     expect.assertions(1);
 

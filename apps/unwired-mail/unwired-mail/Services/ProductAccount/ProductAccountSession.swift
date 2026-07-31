@@ -126,6 +126,7 @@ final class ProductAccountSession {
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
     }
     do {
+      guard try await unregisterTrustedDeviceForSignOut(snapshot) else { return }
       var mailboxCleanupError: Error?
       if let snapshot {
         do {
@@ -176,6 +177,17 @@ final class ProductAccountSession {
       return storedSnapshot != snapshot
     }
     return false
+  }
+
+  private func unregisterTrustedDeviceForSignOut(
+    _ snapshot: ProductAccountSessionSnapshot?
+  ) async throws -> Bool {
+    guard let snapshot else { return true }
+    _ = try await productAccountService.unregisterTrustedDevice(
+      identityToken: snapshot.identityToken,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
+    return !signOutSnapshotWasReplaced(snapshot)
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(

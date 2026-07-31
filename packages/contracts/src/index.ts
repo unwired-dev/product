@@ -8,8 +8,10 @@ export {
   gmailProviderConnectionStatusValidator,
   productAccountConnectResponseFixture,
   productAccountConnectResponseValidator,
+  trustedDeviceUnregistrationResponseValidator,
   type GmailProviderConnectionStatus,
   type ProductAccountConnectResponse,
+  type TrustedDeviceUnregistrationResponse,
 } from './productAccount.ts';
 export {
   encryptedProductSyncPayloadBodyValidator,

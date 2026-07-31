@@ -1802,6 +1802,15 @@ extension AccountView {
               .foregroundStyle(.secondary)
           }
 
+          NavigationLink {
+            AccountAndDevicesSettingsView(
+              session: session,
+              snapshot: snapshot
+            )
+          } label: {
+            Label("Account & Devices", systemImage: "person.2")
+          }
+
           CustomCategoryPanel(viewModel: categoryViewModel)
 
           NotificationRulePanel(
