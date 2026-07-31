@@ -1432,8 +1432,8 @@ struct IMAPMailboxConnectionAdapter: MailboxConnectionAdapter {
     keyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore(),
     metadataStore: IMAPMessageMetadataPersisting = SwiftDataIMAPMessageMetadataStore(),
-    outboxService: OutboxDeliveryService = OutboxDeliveryService(),
-    pendingActionService: PendingProviderActionService = PendingProviderActionService(),
+    outboxService: OutboxDeliveryService = .shared,
+    pendingActionService: PendingProviderActionService = .shared,
     syncGate: MailboxConnectionSyncGate = .shared
   ) {
     self.authorizationStore = authorizationStore

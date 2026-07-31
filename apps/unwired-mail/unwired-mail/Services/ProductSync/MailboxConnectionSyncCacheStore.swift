@@ -4,6 +4,7 @@ import Security
 protocol MailboxConnectionSyncCachePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
+  func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
 }
 
@@ -70,23 +71,43 @@ struct KeychainMailboxCleanupReceiptStore:
 }
 
 struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersisting {
+  private static let lock = NSLock()
   private let service = "dev.unwired.mail.mailbox-connection-sync-cache"
 
   func clear(productAccountId: String) throws {
-    try KeychainStore.delete(service: service, account: productAccountId)
+    try Self.lock.withLock {
+      try KeychainStore.delete(service: service, account: productAccountId)
+    }
   }
 
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
-    guard
-      let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
-      let data = rawValue.data(using: .utf8)
-    else {
-      return nil
+    try Self.lock.withLock {
+      guard
+        let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8)
+      else {
+        return nil
+      }
+      return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
     }
-    return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
+  }
+
+  func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    try Self.lock.withLock {
+      try saveUnlocked(payload, productAccountId: productAccountId)
+    }
   }
 
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    try Self.lock.withLock {
+      try saveUnlocked(payload, productAccountId: productAccountId)
+    }
+  }
+
+  private func saveUnlocked(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) throws {
     let data = try JSONEncoder().encode(payload)
     guard let rawValue = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
@@ -139,6 +160,10 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
 
     func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
       payloads[productAccountId]
+    }
+
+    func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+      payloads[productAccountId] = payload
     }
 
     func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {

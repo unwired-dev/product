@@ -961,6 +961,44 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     XCTAssertEqual(snapshot.connections, [Self.connection.definition])
   }
 
+  func testRefreshingProviderCacheUsesAtomicReplacement() throws {
+    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    try keyMaterialStore.save(
+      ProductSyncKeyMaterial.create(
+        accountKeyData: Data(repeating: 7, count: ProductSyncKeyMaterial.keyByteCount),
+        recoveryKeyData: Data(repeating: 8, count: ProductSyncKeyMaterial.keyByteCount)
+      ),
+      productAccountId: firstDeviceSession.productAccountId
+    )
+    let codec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: keyMaterialStore
+    )
+    let remotePayload = EncryptedProductSyncPayload(
+      encryptedPayload: ProductSyncEncryptedPayload(
+        algorithm: ProductSyncEncryptedPayload.algorithmName,
+        ciphertextBase64: "unused",
+        keyVersion: 1,
+        nonceBase64: "unused",
+        schemaVersion: 1,
+        tagBase64: "unused"
+      ),
+      payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+      updatedAt: 42
+    )
+
+    try codec.refreshCache(
+      .empty,
+      remotePayload: remotePayload,
+      session: firstDeviceSession
+    )
+
+    XCTAssertEqual(cacheStore.clearCallCount, 0)
+    XCTAssertEqual(cacheStore.replaceCallCount, 1)
+    XCTAssertEqual(cacheStore.payload?.updatedAt, remotePayload.updatedAt)
+  }
+
   private func observedRemoval(
     using service: MailboxConnectionSyncService
   ) async throws -> MailboxConnectionRemovalObservation {
@@ -1229,4 +1267,30 @@ private final class RecordingMailboxConnectionSyncTransport: ProductSyncPayloadT
 private enum MailboxConnectionSyncTestError: Error {
   case expectedRemoval
   case unavailable
+}
+
+private final class RecordingMailboxConnectionSyncCacheStore:
+  MailboxConnectionSyncCachePersisting
+{
+  private(set) var clearCallCount = 0
+  private(set) var payload: EncryptedProductSyncPayload?
+  private(set) var replaceCallCount = 0
+
+  func clear(productAccountId _: String) throws {
+    clearCallCount += 1
+    payload = nil
+  }
+
+  func load(productAccountId _: String) throws -> EncryptedProductSyncPayload? {
+    payload
+  }
+
+  func replace(_ payload: EncryptedProductSyncPayload, productAccountId _: String) throws {
+    replaceCallCount += 1
+    self.payload = payload
+  }
+
+  func save(_ payload: EncryptedProductSyncPayload, productAccountId _: String) throws {
+    self.payload = payload
+  }
 }
