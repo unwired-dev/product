@@ -185,6 +185,17 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
 
   var searchItems: [SettingsSearchItem] {
     switch self {
+    case .accountAndDevices:
+      return [
+        SettingsSearchItem(
+          title: "Product Account",
+          keywords: ["Sign in with Apple"],
+          route: route
+        ),
+        SettingsSearchItem(title: "Trusted Devices", keywords: ["Rename device"], route: route),
+        SettingsSearchItem(title: "Recovery Key", keywords: ["Encryption"], route: route),
+        SettingsSearchItem(title: "Sign Out", route: route),
+      ]
     case .emailAccounts:
       return [
         SettingsSearchItem(title: "Mailbox Connections", route: .mailboxConnections),
@@ -504,7 +515,11 @@ extension View {
 }
 
 enum SettingsDestinationRegistry {
-  static let implementedDestinations: [SettingsDestination] = [.emailAccounts, .appearance]
+  static let implementedDestinations: [SettingsDestination] = [
+    .emailAccounts,
+    .accountAndDevices,
+    .appearance,
+  ]
 
   static var implementedGroups: [SettingsGroup] {
     implementedGroups(isSignedIn: true)
@@ -928,6 +943,371 @@ extension AdaptiveSettingsScene {
   }
 }
 
+@MainActor
+@Observable
+final class AccountAndDevicesViewModel {
+  private(set) var devices: [TrustedDeviceSummary] = []
+  private(set) var errorMessage: String?
+  private(set) var isLoading = false
+  private(set) var isWorking = false
+  private(set) var recoveryKeyStatus = RecoveryKeyStatus.unavailable
+  private(set) var revealedRecoveryKey: String?
+
+  private let service: AccountAndDevicesService
+
+  init(service: AccountAndDevicesService = AccountAndDevicesService()) {
+    self.service = service
+  }
+
+  func load(session: ProductAccountSessionSnapshot) async {
+    isLoading = true
+    defer { isLoading = false }
+    do {
+      let snapshot = try await service.load(session: session)
+      devices = snapshot.devices
+      recoveryKeyStatus = snapshot.recoveryKeyStatus
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func rename(
+    _ device: TrustedDeviceSummary,
+    displayName: String,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      let renamed = try await service.renameDevice(
+        device,
+        displayName: displayName,
+        session: session
+      )
+      if let index = devices.firstIndex(where: { $0.id == renamed.id }) {
+        devices[index] = renamed
+      }
+      errorMessage = nil
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func replaceRecoveryKey(
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: () async throws -> String
+  ) async {
+    isWorking = true
+    defer { isWorking = false }
+    do {
+      let identityToken = try await recentIdentityToken()
+      let recoveryKey = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: identityToken
+      )
+      recoveryKeyStatus = .current
+      revealedRecoveryKey = recoveryKey.rawValue
+      errorMessage = nil
+    } catch is CancellationError {
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  func clearError() {
+    errorMessage = nil
+  }
+
+  func hideRecoveryKey() {
+    revealedRecoveryKey = nil
+  }
+}
+
+@MainActor
+struct AccountAndDevicesSettingsView: View {
+  let session: ProductAccountSession
+  let snapshot: ProductAccountSessionSnapshot
+
+  @State private var confirmsRecoveryReplacement = false
+  @State private var confirmsSignOut = false
+  @State private var deviceToRename: TrustedDeviceSummary?
+  @State private var renameDraft = ""
+  @State private var viewModel: AccountAndDevicesViewModel
+
+  init(
+    session: ProductAccountSession,
+    snapshot: ProductAccountSessionSnapshot,
+    service: AccountAndDevicesService = AccountAndDevicesService()
+  ) {
+    self.session = session
+    self.snapshot = snapshot
+    _viewModel = State(
+      initialValue: AccountAndDevicesViewModel(service: service)
+    )
+  }
+
+  var body: some View {
+    Form {
+      Section("Product Account") {
+        Label("Signed in with Apple", systemImage: "person.crop.circle.badge.checkmark")
+        LabeledContent("Product Account") {
+          Text(snapshot.productAccountId)
+            .font(.caption.monospaced())
+            .textSelection(.enabled)
+        }
+        Text("Mailbox Connections are managed separately in Email Accounts.")
+          .font(.caption)
+          .foregroundStyle(.secondary)
+      }
+
+      Section("Trusted Devices") {
+        if viewModel.isLoading, viewModel.devices.isEmpty {
+          ProgressView("Loading Trusted Devices…")
+        } else {
+          ForEach(viewModel.devices) { device in
+            trustedDeviceRow(device)
+          }
+        }
+      }
+
+      Section("Recovery Key") {
+        Label(recoveryStatusTitle, systemImage: recoveryStatusImage)
+        Text(recoveryStatusDescription)
+          .font(.caption)
+          .foregroundStyle(.secondary)
+        Button(recoveryActionTitle) {
+          confirmsRecoveryReplacement = true
+        }
+        .disabled(
+          viewModel.isWorking || viewModel.recoveryKeyStatus == .unavailable
+        )
+      }
+
+      Section {
+        Button("Sign Out on This Device", role: .destructive) {
+          confirmsSignOut = true
+        }
+        .disabled(viewModel.isWorking)
+      } footer: {
+        Text(
+          "Signing out unregisters this device's push routing and clears its local "
+            + "mailbox credentials and cached mail. It does not remove provider mail."
+        )
+      }
+    }
+    .navigationTitle("Account & Devices")
+    .task(id: snapshot.trustedDeviceId) {
+      await viewModel.load(session: snapshot)
+    }
+    .onDisappear {
+      viewModel.hideRecoveryKey()
+    }
+    .refreshable {
+      await viewModel.load(session: snapshot)
+    }
+    .alert(
+      "Account & Devices unavailable",
+      isPresented: Binding(
+        get: { viewModel.errorMessage != nil },
+        set: { isPresented in
+          if !isPresented { viewModel.clearError() }
+        }
+      )
+    ) {
+      Button("OK") { viewModel.clearError() }
+    } message: {
+      Text(viewModel.errorMessage ?? "")
+    }
+    .alert(
+      "Rename Trusted Device",
+      isPresented: Binding(
+        get: { deviceToRename != nil },
+        set: { isPresented in
+          if !isPresented { deviceToRename = nil }
+        }
+      )
+    ) {
+      TextField("Device name", text: $renameDraft)
+      Button("Save") {
+        guard let device = deviceToRename else { return }
+        deviceToRename = nil
+        Task {
+          await viewModel.rename(
+            device,
+            displayName: renameDraft,
+            session: snapshot
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) {
+        deviceToRename = nil
+      }
+    } message: {
+      Text("Use a name that helps you recognize this Trusted Device.")
+    }
+    .confirmationDialog(
+      recoveryActionTitle,
+      isPresented: $confirmsRecoveryReplacement,
+      titleVisibility: .visible
+    ) {
+      Button(recoveryActionTitle) {
+        Task {
+          await viewModel.replaceRecoveryKey(
+            session: snapshot,
+            recentIdentityToken: {
+              try await session.recentIdentityToken(for: snapshot)
+            }
+          )
+        }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text(
+        "Sign in with Apple will confirm your identity. Replacing the Recovery Key "
+          + "invalidates the previous key, but never sends the new key or decrypted "
+          + "Product Sync data to the backend."
+      )
+    }
+    .confirmationDialog(
+      "Sign out on this device?",
+      isPresented: $confirmsSignOut,
+      titleVisibility: .visible
+    ) {
+      Button("Sign Out", role: .destructive) {
+        session.beginSignOut()
+        Task { await session.signOut() }
+      }
+      Button("Cancel", role: .cancel) {}
+    } message: {
+      Text("Your Product Account and provider mail remain available on other devices.")
+    }
+    .sheet(
+      isPresented: Binding(
+        get: { viewModel.revealedRecoveryKey != nil },
+        set: { isPresented in
+          if !isPresented { viewModel.hideRecoveryKey() }
+        }
+      )
+    ) {
+      RecoveryKeyPresentation(
+        recoveryKey: viewModel.revealedRecoveryKey ?? ""
+      )
+    }
+  }
+
+  @ViewBuilder
+  private func trustedDeviceRow(_ device: TrustedDeviceSummary) -> some View {
+    HStack(alignment: .top, spacing: 12) {
+      Image(systemName: device.platform == "macos" ? "desktopcomputer" : "iphone")
+        .font(.title3)
+        .accessibilityHidden(true)
+      VStack(alignment: .leading, spacing: 4) {
+        HStack {
+          Text(device.displayName)
+            .font(.headline)
+          if device.id == snapshot.trustedDeviceId {
+            Text("Current Device")
+              .font(.caption.bold())
+              .foregroundStyle(.secondary)
+              .accessibilityLabel("Current Trusted Device")
+          }
+        }
+        Text(
+          "Last active "
+            + Date(timeIntervalSince1970: Double(device.lastSeenAt) / 1_000)
+            .formatted(date: .abbreviated, time: .shortened)
+        )
+        .font(.caption)
+        .foregroundStyle(.secondary)
+      }
+      Spacer()
+      Button("Rename") {
+        renameDraft = device.displayName
+        deviceToRename = device
+      }
+      .disabled(viewModel.isWorking)
+    }
+  }
+
+  private var recoveryActionTitle: String {
+    viewModel.recoveryKeyStatus == .notBackedUp
+      ? "Generate Recovery Key" : "Replace Recovery Key"
+  }
+
+  private var recoveryStatusTitle: String {
+    switch viewModel.recoveryKeyStatus {
+    case .current:
+      return "Recovery Key available"
+    case .notBackedUp:
+      return "Recovery Key setup required"
+    case .replacedOnAnotherDevice:
+      return "Recovery Key replaced elsewhere"
+    case .unavailable:
+      return "Recovery Key unavailable"
+    }
+  }
+
+  private var recoveryStatusImage: String {
+    switch viewModel.recoveryKeyStatus {
+    case .current:
+      return "checkmark.shield"
+    case .notBackedUp, .replacedOnAnotherDevice:
+      return "exclamationmark.shield"
+    case .unavailable:
+      return "xmark.shield"
+    }
+  }
+
+  private var recoveryStatusDescription: String {
+    switch viewModel.recoveryKeyStatus {
+    case .current:
+      return
+        "The backend stores only an encrypted account-key wrapper. Keep the user-held "
+        + "Recovery Key somewhere safe."
+    case .notBackedUp:
+      return
+        "Generate a user-held Recovery Key so Product Sync can be recovered without "
+        + "making plaintext available to the backend."
+    case .replacedOnAnotherDevice:
+      return
+        "This device holds an older Recovery Key. Replace it here to make a new key current."
+    case .unavailable:
+      return "Restore Product Sync key material before managing recovery."
+    }
+  }
+}
+
+private struct RecoveryKeyPresentation: View {
+  let recoveryKey: String
+  @Environment(\.dismiss) private var dismiss
+
+  var body: some View {
+    NavigationStack {
+      Form {
+        Section("New Recovery Key") {
+          Text(recoveryKey)
+            .font(.body.monospaced())
+            .textSelection(.enabled)
+            .accessibilityLabel("New Recovery Key")
+        }
+        Section {
+          Text(
+            "Save this key somewhere secure. The product backend and support cannot "
+              + "recover it for you."
+          )
+        }
+      }
+      .navigationTitle("Recovery Key")
+      .toolbar {
+        ToolbarItem(placement: .confirmationAction) {
+          Button("Done") { dismiss() }
+        }
+      }
+    }
+  }
+}
+
 #if DEBUG
   @MainActor
   struct DevelopmentSettingsRootView: View {
@@ -1056,6 +1436,11 @@ extension AdaptiveSettingsScene {
         },
         destinationContent: { destination, request in
           switch destination {
+          case .accountAndDevices:
+            AccountAndDevicesSettingsView(
+              session: session,
+              snapshot: snapshot
+            )
           case .emailAccounts:
             EmailAccountsSettingsView(
               ewsViewModel: ewsViewModel,

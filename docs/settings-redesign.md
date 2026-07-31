@@ -121,6 +121,8 @@ disabled while the provider snapshot is partial because freshness state is not a
 - Sign out on the current device.
 - Delete the Product Account after recent authentication and explicit confirmation.
 
+The current Account & Devices implementation slice includes Product Account identity, Trusted Device listing and rename, Recovery Key generation or replacement after recent authentication, and current-device sign-out. Device revocation and Product Account deletion remain separate security-sensitive slices tracked by issues #129 and #130.
+
 Device Revocation immediately blocks Product Account APIs and push routing, then rotates Product Sync key material for remaining Trusted Devices. It remains incomplete until the new key epoch is durably committed and every remaining Trusted Device has fenced on it; future ciphertext cannot use the old key. When the revoked app reconnects, it must purge local product data, credentials, and provider credentials stored in the Keychain. Settings must explain that revocation cannot erase data already copied from an offline or compromised device and that provider authorization may need separate revocation.
 
 Delete Product Account is immediate and irreversible. It deletes backend operational account data, encrypted Product Sync payloads, and push routes and asks reachable devices to purge local product data, credentials, and provider credentials stored in the Keychain. Offline or compromised devices may retain local copies until they reconnect and process the purge or account-rejection rule. It never deletes provider mail or promises to revoke provider-issued authorization.

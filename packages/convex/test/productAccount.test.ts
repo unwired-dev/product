@@ -137,6 +137,95 @@ describe('productAccount.connect', () => {
     expect(resumedConnect.deviceRegistered).toBe(true);
   });
 
+  it('lists every trusted device with its user-facing name', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      deviceName: 'Jans iPhone',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      deviceName: 'Desk Mac',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({
+        displayName: 'Jans iPhone',
+        id: currentDevice.trustedDeviceId,
+        platform: 'ios',
+      }),
+      expect.objectContaining({
+        displayName: 'Desk Mac',
+        id: otherDevice.trustedDeviceId,
+        platform: 'macos',
+      }),
+    ]);
+  });
+
+  it('renames a trusted device without changing its registration identity', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.renameTrustedDevice, {
+        displayName: '  Work Mac  ',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({
+      displayName: 'Work Mac',
+      id: otherDevice.trustedDeviceId,
+      platform: 'macos',
+    });
+  });
+
+  it('rejects renaming a trusted device owned by another Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.renameTrustedDevice, {
+        displayName: 'Not Mine',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
   it('marks Product Sync material initialized for the trusted device', async () => {
     expect.assertions(2);
 

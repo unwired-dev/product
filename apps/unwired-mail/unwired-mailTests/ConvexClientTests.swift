@@ -139,10 +139,83 @@ final class ConvexClientTests: XCTestCase {
     let response = try await client.connectProductAccount(
       identityToken: "apple-token",
       deviceIdentifier: "device-001",
+      deviceName: "Jans iPhone",
       platform: "ios"
     )
 
     XCTAssertEqual(response, ProductAccountConnectResponse.preview)
+  }
+
+  func testListTrustedDevicesSendsAuthenticatedQuery() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": [{
+          "displayName": "Jans iPhone",
+          "id": "trustedDeviceFixtureId",
+          "lastSeenAt": 1781200000000,
+          "platform": "ios",
+          "registeredAt": 1781100000000
+        }]
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/query")
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Authorization"),
+          "Bearer apple-token"
+        )
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let devices = try await client.listTrustedDevices(
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(devices.map(\.displayName), ["Jans iPhone"])
+  }
+
+  func testRenameTrustedDeviceSendsAuthenticatedMutation() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": {
+          "displayName": "Desk Mac",
+          "id": "trustedDeviceFixtureId",
+          "lastSeenAt": 1781200000000,
+          "platform": "macos",
+          "registeredAt": 1781100000000
+        }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.httpMethod, "POST")
+        XCTAssertEqual(request.url?.path, "/api/mutation")
+        XCTAssertEqual(
+          request.value(forHTTPHeaderField: "Authorization"),
+          "Bearer apple-token"
+        )
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let device = try await client.renameTrustedDevice(
+      displayName: "Desk Mac",
+      identityToken: "apple-token",
+      trustedDeviceId: "currentDeviceFixtureId",
+      trustedDeviceToRenameId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertEqual(device.displayName, "Desk Mac")
   }
 
   func testRegisterGmailConnectionSendsOnlyOpaqueOperationalData() async throws {
@@ -636,6 +709,7 @@ final class ConvexClientProductSyncTests: XCTestCase {
       _ = try await client.connectProductAccount(
         identityToken: "apple-token",
         deviceIdentifier: "device-001",
+        deviceName: "Jans iPhone",
         platform: "ios"
       )
       XCTFail("Expected Convex error envelope")

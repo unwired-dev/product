@@ -46,12 +46,14 @@ final class ConvexClient {
   func connectProductAccount(
     identityToken: String,
     deviceIdentifier: String,
+    deviceName: String,
     platform: String
   ) async throws -> ProductAccountConnectResponse {
     try await performMutation(
       path: "productAccount:connect",
       args: ConnectProductAccountArgs(
         deviceIdentifier: deviceIdentifier,
+        deviceName: deviceName,
         platform: platform
       ),
       identityToken: identityToken
@@ -66,6 +68,34 @@ final class ConvexClient {
       path: "productAccount:markProductSyncMaterialInitialized",
       args: MarkProductSyncMaterialInitializedArgs(
         trustedDeviceId: trustedDeviceId
+      ),
+      identityToken: identityToken
+    )
+  }
+
+  func listTrustedDevices(
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> [TrustedDeviceSummary] {
+    try await performQuery(
+      path: "productAccount:listTrustedDevices",
+      args: ListTrustedDevicesArgs(trustedDeviceId: trustedDeviceId),
+      identityToken: identityToken
+    )
+  }
+
+  func renameTrustedDevice(
+    displayName: String,
+    identityToken: String,
+    trustedDeviceId: String,
+    trustedDeviceToRenameId: String
+  ) async throws -> TrustedDeviceSummary {
+    try await performMutation(
+      path: "productAccount:renameTrustedDevice",
+      args: RenameTrustedDeviceArgs(
+        displayName: displayName,
+        trustedDeviceId: trustedDeviceId,
+        trustedDeviceToRenameId: trustedDeviceToRenameId
       ),
       identityToken: identityToken
     )
@@ -484,7 +514,18 @@ private struct EmptyConvexArgs: Encodable {}
 
 private struct ConnectProductAccountArgs: Encodable {
   let deviceIdentifier: String
+  let deviceName: String
   let platform: String
+}
+
+private struct ListTrustedDevicesArgs: Encodable {
+  let trustedDeviceId: String
+}
+
+private struct RenameTrustedDeviceArgs: Encodable {
+  let displayName: String
+  let trustedDeviceId: String
+  let trustedDeviceToRenameId: String
 }
 
 private struct RegisterGmailConnectionArgs: Encodable {

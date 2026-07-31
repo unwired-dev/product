@@ -2,6 +2,7 @@ import {
   gmailProviderConnectionStatusValidator,
   productAccountConnectResponseValidator,
   productSyncMaterialInitializedResponseValidator,
+  trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
 
@@ -16,9 +17,12 @@ import {
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
+const trustedDeviceLimitPerProductAccount = 100;
+const trustedDeviceNameMaximumLength = 80;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
+  deviceName: string | undefined;
   now: number;
   platform: string;
 }>;
@@ -31,6 +35,54 @@ type GmailConnectionDetails = Readonly<{
   trustedDeviceId: Id<'trustedDevices'>;
   updatedAt: number;
 }>;
+
+function normalizedTrustedDeviceName(displayName: string): string {
+  const normalized = displayName.trim();
+  if (
+    normalized.length === 0 ||
+    normalized.length > trustedDeviceNameMaximumLength
+  ) {
+    throw new Error(
+      `Trusted Device name must be between 1 and ${trustedDeviceNameMaximumLength} characters`,
+    );
+  }
+  return normalized;
+}
+
+function defaultTrustedDeviceName(platform: string): string {
+  switch (platform) {
+    case 'ios': {
+      return 'Apple mobile device';
+    }
+    case 'macos': {
+      return 'Mac';
+    }
+    default: {
+      return 'Apple device';
+    }
+  }
+}
+
+function trustedDeviceSummary(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable query results.
+  device: Readonly<Doc<'trustedDevices'>>,
+): {
+  displayName: string;
+  id: string;
+  lastSeenAt: number;
+  platform: string;
+  registeredAt: number;
+} {
+  return {
+    displayName:
+      device.displayName ?? defaultTrustedDeviceName(device.platform),
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    id: device._id,
+    lastSeenAt: device.lastSeenAt,
+    platform: device.platform,
+    registeredAt: device.registeredAt,
+  };
+}
 
 function gmailConnectionDetails(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -178,6 +230,10 @@ async function upsertTrustedDevice(
   deviceRegistered: boolean;
   trustedDeviceId: Id<'trustedDevices'>;
 }> {
+  const displayName =
+    registration.deviceName === undefined
+      ? undefined
+      : normalizedTrustedDeviceName(registration.deviceName);
   const existingDevice = await ctx.db
     .query('trustedDevices')
     .withIndex('by_productAccountId_and_deviceIdentifier', (q) =>
@@ -192,6 +248,7 @@ async function upsertTrustedDevice(
       deviceRegistered: true,
       trustedDeviceId: await ctx.db.insert('trustedDevices', {
         deviceIdentifier: registration.deviceIdentifier,
+        ...(displayName === undefined ? {} : { displayName }),
         lastSeenAt: registration.now,
         platform: registration.platform,
         productAccountId,
@@ -202,7 +259,12 @@ async function upsertTrustedDevice(
 
   // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
   const trustedDeviceId = existingDevice._id;
-  await ctx.db.patch(trustedDeviceId, { lastSeenAt: registration.now });
+  await ctx.db.patch(trustedDeviceId, {
+    ...(existingDevice.displayName === undefined && displayName !== undefined
+      ? { displayName }
+      : {}),
+    lastSeenAt: registration.now,
+  });
 
   return {
     deviceRegistered: false,
@@ -213,6 +275,7 @@ async function upsertTrustedDevice(
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
+    deviceName: v.optional(v.string()),
     platform: v.string(),
   },
   handler: async (ctx, args) => {
@@ -232,6 +295,7 @@ export const connect = mutation({
       productAccountId,
       {
         deviceIdentifier: args.deviceIdentifier,
+        deviceName: args.deviceName,
         now,
         platform: args.platform,
       },
@@ -248,6 +312,56 @@ export const connect = mutation({
     };
   },
   returns: productAccountConnectResponseValidator,
+});
+
+export const listTrustedDevices = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const devices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', account.productAccountId),
+      )
+      .take(trustedDeviceLimitPerProductAccount + 1);
+    if (devices.length > trustedDeviceLimitPerProductAccount) {
+      throw new Error('Trusted Device limit exceeded');
+    }
+    return devices.map(trustedDeviceSummary);
+  },
+  returns: v.array(trustedDeviceSummaryValidator),
+});
+
+export const renameTrustedDevice = mutation({
+  args: {
+    displayName: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceToRenameId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceToRenameId,
+    );
+    const device = await ctx.db.get(args.trustedDeviceToRenameId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
+    const displayName = normalizedTrustedDeviceName(args.displayName);
+    await ctx.db.patch(args.trustedDeviceToRenameId, { displayName });
+    return trustedDeviceSummary({ ...device, displayName });
+  },
+  returns: trustedDeviceSummaryValidator,
 });
 
 export const markProductSyncMaterialInitialized = mutation({

@@ -1331,6 +1331,11 @@ struct AccountView: View {
           },
           destinationContent: { destination, request in
             switch destination {
+            case .accountAndDevices:
+              AccountAndDevicesSettingsView(
+                session: session,
+                snapshot: snapshot
+              )
             case .emailAccounts:
               EmailAccountsSettingsView(
                 ewsViewModel: ewsSetupViewModel,

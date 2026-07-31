@@ -8,6 +8,17 @@ enum ProductAccountSessionState: Equatable {
   case failed(String)
 }
 
+enum ProductAccountSessionError: LocalizedError, Equatable {
+  case differentAppleAccount
+
+  var errorDescription: String? {
+    switch self {
+    case .differentAppleAccount:
+      return "Recent authentication must use the current Product Account."
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class ProductAccountSession {
@@ -276,6 +287,18 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  func recentIdentityToken(
+    for snapshot: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    guard isCurrent(snapshot) else { throw CancellationError() }
+    let credential = try await appleSignInService.signIn()
+    guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
+      throw ProductAccountSessionError.differentAppleAccount
+    }
+    guard isCurrent(snapshot) else { throw CancellationError() }
+    return credential.identityToken
+  }
+
   func beginSignOut() {
     guard !isSigningOut else { return }
     signOutSnapshot = currentSignedInSnapshot()

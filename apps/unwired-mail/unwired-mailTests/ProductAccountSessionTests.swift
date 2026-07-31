@@ -48,6 +48,38 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNotNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
   }
 
+  func testRecentAuthenticationReturnsFreshTokenForTheCurrentProductAccount() async throws {
+    let response = ProductAccountConnectResponse(
+      accountCreated: true,
+      deviceRegistered: false,
+      productSyncMaterialInitialized: false,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    try store.save(Self.restorableSnapshot)
+    await session.bootstrap()
+    guard case .signedIn(let currentSnapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+
+    let token = try await session.recentIdentityToken(
+      for: currentSnapshot
+    )
+
+    XCTAssertEqual(token, "fresh-token")
+  }
+
   func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread() {
     let callbackInput = makeAuthenticationPresentationFixture()
     let callbackCompleted = expectation(description: "Presentation callbacks complete")
