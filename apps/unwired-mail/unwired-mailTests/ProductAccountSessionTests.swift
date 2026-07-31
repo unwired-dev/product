@@ -394,6 +394,46 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testSignOutPreservesSessionAndKeysUntilRecoveryIsBackedUp() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let gmailConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    productAccountService.recoveryBackedUp = false
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+    )
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId),
+      material
+    )
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+    XCTAssertEqual(pushUnregisterer.sessions, [])
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+  }
+
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1149,6 +1189,52 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testExistingProductAccountRestoresProductSyncMaterialWithRecoveryKey() async throws {
+    let original = try ProductSyncKeyMaterial.create(
+      accountKeyData: Data(repeating: 21, count: ProductSyncKeyMaterial.keyByteCount),
+      recoveryKeyData: Data(repeating: 22, count: ProductSyncKeyMaterial.keyByteCount)
+    )
+    let productAccountService = RecordingProductAccountService(response: .resumed)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "token-001"
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signInWithApple()
+
+    XCTAssertTrue(session.requiresProductSyncRecovery)
+    guard case .failed = session.state else {
+      return XCTFail("Expected Recovery Key prompt state")
+    }
+
+    await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected signed-in state")
+    }
+    XCTAssertFalse(session.requiresProductSyncRecovery)
+    XCTAssertEqual(
+      snapshot.productAccountId,
+      ProductAccountConnectResponse.resumed.productAccountId
+    )
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)?.accountKeyData,
+      original.accountKeyData
+    )
+  }
+
   func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
     let response = ProductAccountConnectResponse(
       accountCreated: false,
@@ -1270,6 +1356,10 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     throw ConvexClientError.missingConvexURL
   }
 
+  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+    throw ConvexClientError.missingConvexURL
+  }
+
   func unregisterTrustedDevice(
     identityToken: String,
     trustedDeviceId: String
@@ -1350,6 +1440,8 @@ private enum ProductAccountSessionTestError: Error {
 }
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
+  var recoveryBackedUp = true
+  var recoveryMaterial: EncryptedProductSyncPayload?
   let response: ProductAccountConnectResponse
   var unregisterError: Error?
   var unregisteredTrustedDeviceIds: [String] = []
@@ -1369,6 +1461,16 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     ProductSyncMaterialInitializedResponse(
       productSyncMaterialInitialized: true
     )
+  }
+
+  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+    recoveryBackedUp
+  }
+
+  func productSyncRecoveryMaterial(
+    identityToken _: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    recoveryMaterial
   }
 
   func unregisterTrustedDevice(

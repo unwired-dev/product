@@ -52,6 +52,10 @@ struct EncryptedProductSyncPayloadPage: Decodable, Equatable {
 
 protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
+  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool
+  func productSyncRecoveryMaterial(
+    identityToken: String
+  ) async throws -> EncryptedProductSyncPayload?
   func markProductSyncMaterialInitialized(
     identityToken: String,
     trustedDeviceId: String
@@ -60,6 +64,14 @@ protocol ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse
+}
+
+extension ProductAccountConnecting {
+  func productSyncRecoveryMaterial(
+    identityToken _: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    nil
+  }
 }
 
 protocol TrustedDeviceManaging {
@@ -125,6 +137,19 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     try await client.markProductSyncMaterialInitialized(
       identityToken: identityToken,
       trustedDeviceId: trustedDeviceId
+    )
+  }
+
+  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool {
+    try await productSyncRecoveryMaterial(identityToken: identityToken) != nil
+  }
+
+  func productSyncRecoveryMaterial(
+    identityToken: String
+  ) async throws -> EncryptedProductSyncPayload? {
+    try await client.getEncryptedProductSyncPayload(
+      identityToken: identityToken,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier
     )
   }
 
@@ -379,6 +404,10 @@ struct PreviewProductAccountService: ProductAccountConnecting {
     return ProductSyncMaterialInitializedResponse(
       productSyncMaterialInitialized: true
     )
+  }
+
+  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+    true
   }
 
   func unregisterTrustedDevice(

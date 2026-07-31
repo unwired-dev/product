@@ -3,7 +3,7 @@ import XCTest
 
 @testable import unwired_mail
 
-// swiftlint:disable file_length
+// swiftlint:disable file_length type_body_length
 
 final class ProductSyncKeyMaterialStoreTests: XCTestCase {
   private var store = InMemoryProductSyncKeyMaterialStore()
@@ -123,6 +123,32 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.listTrustedDeviceId, session.trustedDeviceId)
     XCTAssertEqual(transport.listIdentityToken, "fresh-apple-token")
     XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
+  }
+
+  func testRenameRefreshesAuthenticationWhenTheMutationIsSubmitted() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+      recoveryTransport: transport
+    )
+    let viewModel = AccountAndDevicesViewModel(service: service)
+    let device = TrustedDeviceSummary(
+      displayName: "Desk Mac",
+      id: "device-current",
+      lastSeenAt: 200,
+      platform: "macos",
+      registeredAt: 100
+    )
+
+    await viewModel.rename(
+      device,
+      displayName: "Travel Mac",
+      session: session,
+      recentIdentityToken: { "fresh-rename-token" }
+    )
+
+    XCTAssertEqual(transport.renameIdentityToken, "fresh-rename-token")
   }
 
   func testReplacingRecoveryKeyPublishesOnlyWrappedMaterialAfterRecentAuthentication()
@@ -363,6 +389,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteError: Error?
   var recoveryReadCount = 0
   var recoveryReadIdentityToken: String?
+  var renameIdentityToken: String?
   var commitsRecoveryBeforeThrowing = false
   var simulatesConcurrentRecoveryWrite = false
 
@@ -377,11 +404,12 @@ private final class RecordingAccountAndDevicesTransport:
 
   func renameTrustedDevice(
     displayName: String,
-    identityToken _: String,
+    identityToken: String,
     trustedDeviceId _: String,
     trustedDeviceToRenameId: String
   ) async throws -> TrustedDeviceSummary {
-    TrustedDeviceSummary(
+    renameIdentityToken = identityToken
+    return TrustedDeviceSummary(
       displayName: displayName,
       id: trustedDeviceToRenameId,
       lastSeenAt: 200,

@@ -953,7 +953,6 @@ final class AccountAndDevicesViewModel {
   private(set) var recoveryKeyStatus = RecoveryKeyStatus.unavailable
   private(set) var revealedRecoveryKey: String?
 
-  private var authenticatedIdentityToken: String?
   private let service: AccountAndDevicesService
 
   init(service: AccountAndDevicesService = AccountAndDevicesService()) {
@@ -972,7 +971,6 @@ final class AccountAndDevicesViewModel {
         session: session,
         identityToken: identityToken
       )
-      authenticatedIdentityToken = identityToken
       devices = snapshot.devices
       recoveryKeyStatus = snapshot.recoveryKeyStatus
       errorMessage = nil
@@ -984,16 +982,18 @@ final class AccountAndDevicesViewModel {
   func rename(
     _ device: TrustedDeviceSummary,
     displayName: String,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: () async throws -> String
   ) async {
     isWorking = true
     defer { isWorking = false }
     do {
+      let identityToken = try await recentIdentityToken()
       let renamed = try await service.renameDevice(
         device,
         displayName: displayName,
         session: session,
-        identityToken: authenticatedIdentityToken
+        identityToken: identityToken
       )
       if let index = devices.firstIndex(where: { $0.id == renamed.id }) {
         devices[index] = renamed
@@ -1177,7 +1177,10 @@ struct AccountAndDevicesSettingsView: View {
           await viewModel.rename(
             device,
             displayName: renameDraft,
-            session: snapshot
+            session: snapshot,
+            recentIdentityToken: {
+              try await session.recentIdentityToken(for: snapshot)
+            }
           )
         }
       }
