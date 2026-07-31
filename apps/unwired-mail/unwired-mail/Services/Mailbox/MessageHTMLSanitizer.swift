@@ -174,6 +174,15 @@ extension MessageHTMLSanitizer {
     let zeroDimensionPattern =
       #"^(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {
+      if let styleValue = InlineImageDimensionPolicy.value(attribute, in: element) {
+        if styleValue.range(
+          of: zeroDimensionPattern,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil {
+          return true
+        }
+        continue
+      }
       guard let value = try? element.attr(attribute), !value.isEmpty else { continue }
       if value.trimmingCharacters(in: .whitespacesAndNewlines).range(
         of: zeroDimensionPattern,

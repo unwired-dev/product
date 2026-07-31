@@ -52,24 +52,20 @@ enum RemoteMessageContentMarkup {
 
   private static func hasDeclaredTrackingPixel(_ element: Element) -> Bool {
     let onePixelPattern = #"^0*1(?:\.0*)?(?:px)?$"#
-    let style = (try? element.attr("style")) ?? ""
     return ["width", "height"].allSatisfy { dimension in
       let value = ((try? element.attr(dimension)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-      let styleDimension =
-        dimension == "width" ? #"(?:width|max-width)"# : #"(?:height|max-height)"#
-      if style.range(
-        of: #"(?:^|;)\s*"# + styleDimension
-          + #"\s*:\s*0*1(?:\.0*)?(?:px)?(?:\s*!important)?\s*(?:;|$)"#,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil {
+      let onePixelStylePattern = #"^0*1(?:\.0*)?px$"#
+      if [dimension, "max-\(dimension)"].contains(where: { property in
+        InlineImageDimensionPolicy.value(property, in: element)?.range(
+          of: onePixelStylePattern,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
+      }) {
         return true
       }
       let hasStyleOverride =
-        style.range(
-          of: #"(?:^|;)\s*"# + dimension + #"\s*:"#,
-          options: [.regularExpression, .caseInsensitive]
-        ) != nil
+        InlineImageDimensionPolicy.value(dimension, in: element) != nil
       return
         !hasStyleOverride
         && value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil

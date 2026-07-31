@@ -521,6 +521,44 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRequiresValidCSSToOverrideTrackingPixelAttributes() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/pixel.gif" width="1" height="1"
+             style="width: bogus">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertTrue(presentation.remoteImageReferences.isEmpty)
+    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+  }
+
+  func testSanitizerHonorsCSSDimensionsOverZeroAttributes() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/hero.png" width="0" height="0"
+             style="width: 600px; height: 300px">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
     let presentation = try remoteContentTestPresentation()
     let png = try XCTUnwrap(
@@ -590,6 +628,36 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(result.loadedByteCount, 0)
     XCTAssertEqual(result.loadedImageCount, 0)
     XCTAssertEqual(result.failedImageCount, 4)
+  }
+
+  func testRemoteContentLoaderRejectsTruncatedImageAfterReadingDimensions() async throws {
+    let presentation = try remoteContentTestPresentation()
+    let png = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    let loader = RemoteMessageContentLoader(fetch: { request, _ in
+      (
+        Data(png.prefix(33)),
+        try XCTUnwrap(
+          HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+          )
+        )
+      )
+    })
+
+    let result = try await loader.load(presentation)
+
+    XCTAssertEqual(result.loadedImageCount, 0)
+    XCTAssertEqual(result.failedImageCount, presentation.remoteImageReferences.count)
+    XCTAssertEqual(result.html.remoteImageReferences, presentation.remoteImageReferences)
+    XCTAssertFalse(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
   }
 
   func testRemoteContentLoaderChargesOversizedFailuresAgainstTransferBudget() async throws {

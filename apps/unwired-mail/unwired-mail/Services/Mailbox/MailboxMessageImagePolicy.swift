@@ -1,6 +1,57 @@
 import CoreFoundation
 import Foundation
 import ImageIO
+import SwiftSoup
+
+enum InlineImageDimensionPolicy {
+  static func value(_ property: String, in element: Element) -> String? {
+    guard let style = try? element.attr("style") else { return nil }
+    var normalValue: String?
+    var importantValue: String?
+    for declaration in style.split(separator: ";") {
+      let parts = declaration.split(separator: ":", maxSplits: 1)
+      guard parts.count == 2,
+        parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
+          .caseInsensitiveCompare(property) == .orderedSame
+      else {
+        continue
+      }
+      let rawValue = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
+      let isImportant =
+        rawValue.range(
+          of: #"\s*!important\s*$"#,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
+      let value = rawValue.replacingOccurrences(
+        of: #"\s*!important\s*$"#,
+        with: "",
+        options: [.regularExpression, .caseInsensitive]
+      )
+      guard isValidValue(value) else { continue }
+      if isImportant {
+        importantValue = value
+      } else {
+        normalValue = value
+      }
+    }
+    return importantValue ?? normalValue
+  }
+
+  private static func isValidValue(_ value: String) -> Bool {
+    let normalized = value.lowercased()
+    if [
+      "auto", "fit-content", "inherit", "initial", "max-content", "min-content",
+      "revert", "revert-layer", "stretch", "unset",
+    ].contains(normalized) {
+      return true
+    }
+    return normalized.range(
+      of: #"^(?:(?:0+(?:\.0*)?|\.0+)|(?:\d+(?:\.\d+)?|\.\d+)"#
+        + #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%))$"#,
+      options: .regularExpression
+    ) != nil
+  }
+}
 
 struct RemoteMessageContentAdmission {
   let image: RemoteMessageImage
@@ -47,6 +98,7 @@ enum MailboxMessageImagePolicy {
     let options = [kCGImageSourceShouldCache: false] as CFDictionary
     guard let source = CGImageSourceCreateWithData(data as CFData, options),
       CGImageSourceGetCount(source) == 1,
+      CGImageSourceGetStatus(source) == .statusComplete,
       let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, options)
         as? [CFString: Any],
       let width = (properties[kCGImagePropertyPixelWidth] as? NSNumber)?.intValue,
