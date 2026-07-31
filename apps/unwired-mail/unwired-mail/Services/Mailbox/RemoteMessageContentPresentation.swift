@@ -29,10 +29,9 @@ extension MessageHTMLSanitizer {
     hasText: Bool,
     hasExplicitlyHiddenText: Bool
   ) {
-    let hasText = try !document.text().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hasText = try hasReadableText(document.text())
     let hasExplicitlyHiddenText = try document.select("[hidden], [style]").contains { element in
-      let elementHasText = try !element.text().trimmingCharacters(in: .whitespacesAndNewlines)
-        .isEmpty
+      let elementHasText = try hasReadableText(element.text())
       let style = try element.attr("style")
       return elementHasText
         && (element.hasAttr("hidden")
@@ -46,6 +45,17 @@ extension MessageHTMLSanitizer {
           ) != nil)
     }
     return (hasText, hasExplicitlyHiddenText)
+  }
+
+  static func hasReadableText(_ text: String) -> Bool {
+    let ignoredReadableScalars =
+      CharacterSet.whitespacesAndNewlines
+      .union(.controlCharacters)
+      .union(.nonBaseCharacters)
+    return text.unicodeScalars.contains { scalar in
+      !ignoredReadableScalars.contains(scalar)
+        && scalar.properties.generalCategory != .format
+    }
   }
 }
 

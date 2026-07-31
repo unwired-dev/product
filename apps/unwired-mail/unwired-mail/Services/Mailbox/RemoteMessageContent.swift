@@ -332,9 +332,9 @@ struct RemoteMessageContentLoader {
         ),
         data.count
       )
-    } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount) {
-      return (nil, receivedByteCount)
-    } catch RemoteMessageContentError.transferFailed(let receivedByteCount) {
+    } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount),
+      RemoteMessageContentError.transferFailed(let receivedByteCount)
+    {
       return (nil, receivedByteCount)
     } catch is CancellationError {
       throw CancellationError()

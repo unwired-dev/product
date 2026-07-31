@@ -509,20 +509,9 @@ extension MessageHTMLPresentationTests {
   }
 
   func testRemoteContentLoaderChargesRejectedResponsesAgainstTransferBudget() async throws {
-    let references = try (0..<4).map {
-      RemoteMessageImageReference(
-        identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
-      )
-    }
-    let markers = references.map {
-      #"<img data-unwired-remote-image="\#($0.identifier)">"#
-    }.joined()
-    var requestedMaximumByteCounts: [Int] = []
-    let loader = RemoteMessageContentLoader(
-      maximumTotalByteCount: 10,
+    let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
+      referenceCount: 4,
       fetch: { request, maximumByteCount in
-        requestedMaximumByteCounts.append(maximumByteCount)
         return (
           Data(repeating: 1, count: min(maximumByteCount, 4)),
           try XCTUnwrap(
@@ -537,13 +526,6 @@ extension MessageHTMLPresentationTests {
       }
     )
 
-    let result = try await loader.load(
-      SanitizedMessageHTML(
-        documentHTML: "<html><body>\(markers)</body></html>",
-        remoteImageReferences: references
-      )
-    )
-
     XCTAssertEqual(requestedMaximumByteCounts, [10, 6, 2])
     XCTAssertEqual(result.loadedByteCount, 0)
     XCTAssertEqual(result.loadedImageCount, 0)
@@ -551,31 +533,13 @@ extension MessageHTMLPresentationTests {
   }
 
   func testRemoteContentLoaderChargesOversizedFailuresAgainstTransferBudget() async throws {
-    let references = try (0..<2).map {
-      RemoteMessageImageReference(
-        identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
-      )
-    }
-    let markers = references.map {
-      #"<img data-unwired-remote-image="\#($0.identifier)">"#
-    }.joined()
-    var requestedMaximumByteCounts: [Int] = []
-    let loader = RemoteMessageContentLoader(
-      maximumTotalByteCount: 10,
+    let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
+      referenceCount: 2,
       fetch: { _, maximumByteCount in
-        requestedMaximumByteCounts.append(maximumByteCount)
         throw RemoteMessageContentError.responseTooLarge(
           receivedByteCount: maximumByteCount
         )
       }
-    )
-
-    let result = try await loader.load(
-      SanitizedMessageHTML(
-        documentHTML: "<html><body>\(markers)</body></html>",
-        remoteImageReferences: references
-      )
     )
 
     XCTAssertEqual(requestedMaximumByteCounts, [10])
@@ -585,37 +549,62 @@ extension MessageHTMLPresentationTests {
   }
 
   func testRemoteContentLoaderChargesPartialTransferFailuresAgainstTransferBudget() async throws {
-    let references = try (0..<4).map {
-      RemoteMessageImageReference(
-        identifier: "remote-image-\($0)",
-        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
-      )
-    }
-    let markers = references.map {
-      #"<img data-unwired-remote-image="\#($0.identifier)">"#
-    }.joined()
-    var requestedMaximumByteCounts: [Int] = []
-    let loader = RemoteMessageContentLoader(
-      maximumTotalByteCount: 10,
+    let (result, requestedMaximumByteCounts) = try await remoteContentTransferBudgetResult(
+      referenceCount: 4,
       fetch: { _, maximumByteCount in
-        requestedMaximumByteCounts.append(maximumByteCount)
         throw RemoteMessageContentError.transferFailed(
           receivedByteCount: min(maximumByteCount, 4)
         )
       }
     )
 
-    let result = try await loader.load(
-      SanitizedMessageHTML(
-        documentHTML: "<html><body>\(markers)</body></html>",
-        remoteImageReferences: references
-      )
-    )
-
     XCTAssertEqual(requestedMaximumByteCounts, [10, 6, 2])
     XCTAssertEqual(result.loadedByteCount, 0)
     XCTAssertEqual(result.loadedImageCount, 0)
     XCTAssertEqual(result.failedImageCount, 4)
+  }
+
+  func testRemoteContentDataDelegateReportsBytesReceivedBeforeTransferFailure() async throws {
+    PartialFailureURLProtocol.startSignal.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [PartialFailureURLProtocol.self]
+    let delegate = RemoteMessageContentDataDelegate(maximumByteCount: 10)
+    let request = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://images.example.com/partial.png"))
+    )
+    let load = Task {
+      try await delegate.load(request, configuration: configuration)
+    }
+    await PartialFailureURLProtocol.startSignal.waitUntilStarted()
+    let session = URLSession(configuration: .ephemeral)
+    let dataTask = session.dataTask(with: request)
+    let response = try XCTUnwrap(
+      HTTPURLResponse(
+        url: try XCTUnwrap(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "image/png"]
+      )
+    )
+    delegate.urlSession(session, dataTask: dataTask, didReceive: response) { disposition in
+      XCTAssertEqual(disposition, .allow)
+    }
+    delegate.urlSession(session, dataTask: dataTask, didReceive: PartialFailureURLProtocol.data)
+    delegate.urlSession(
+      session,
+      task: dataTask,
+      didCompleteWithError: URLError(.networkConnectionLost)
+    )
+    session.invalidateAndCancel()
+
+    do {
+      _ = try await load.value
+      XCTFail("Expected the partial transfer to fail")
+    } catch RemoteMessageContentError.transferFailed(let receivedByteCount) {
+      XCTAssertEqual(receivedByteCount, PartialFailureURLProtocol.data.count)
+    } catch {
+      XCTFail("Expected a counted transfer failure, got \(error)")
+    }
   }
 
   func testRemoteContentLoaderPropagatesCancellation() async throws {
@@ -1135,17 +1124,18 @@ extension MessageHTMLPresentationTests {
 }
 
 extension MessageHTMLPresentationTests {
-  func testSanitizerRejectsContentOnlyReadableThroughNonRenderingUnicode() throws {
+  func testSanitizerRetainsRemoteImageWithNonRenderingUnicodePreheader() throws {
     for text in ["&zwnj;", "&#847;"] {
-      XCTAssertNil(
-        try MessageHTMLSanitizer.sanitize(
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
           """
           <div>\(text)</div>
           <img src="https://tracker.test/hero.png">
           """
-        ),
-        "Expected \(text) content to be unreadable"
+        )
       )
+
+      XCTAssertEqual(result.remoteImageReferences.count, 1)
     }
   }
 
@@ -1221,8 +1211,93 @@ private func remoteContentTestPresentation() throws -> SanitizedMessageHTML {
   return presentation
 }
 
+private func remoteContentTransferBudgetResult(
+  referenceCount: Int,
+  fetch: @escaping RemoteMessageContentLoader.Fetch
+) async throws -> (result: RemoteMessageContentLoadResult, requestedMaximumByteCounts: [Int]) {
+  let references = try (0..<referenceCount).map {
+    RemoteMessageImageReference(
+      identifier: "remote-image-\($0)",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0)"))
+    )
+  }
+  let markers = references.map {
+    #"<img data-unwired-remote-image="\#($0.identifier)">"#
+  }.joined()
+  var requestedMaximumByteCounts: [Int] = []
+  let loader = RemoteMessageContentLoader(
+    maximumTotalByteCount: 10,
+    fetch: { request, maximumByteCount in
+      requestedMaximumByteCounts.append(maximumByteCount)
+      return try await fetch(request, maximumByteCount)
+    }
+  )
+  let result = try await loader.load(
+    SanitizedMessageHTML(
+      documentHTML: "<html><body>\(markers)</body></html>",
+      remoteImageReferences: references
+    )
+  )
+  return (result, requestedMaximumByteCounts)
+}
+
 private enum TestError: Error {
   case sanitizationFailed
+}
+
+private final class PartialFailureURLProtocol: URLProtocol, @unchecked Sendable {
+  static let data = Data([1, 2, 3])
+  static let startSignal = URLProtocolStartSignal()
+
+  // swiftlint:disable:next static_over_final_class
+  override class func canInit(with _: URLRequest) -> Bool { true }
+
+  // swiftlint:disable:next static_over_final_class
+  override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+  override func startLoading() {
+    Self.startSignal.signal()
+  }
+
+  override func stopLoading() {}
+}
+
+private final class URLProtocolStartSignal: @unchecked Sendable {
+  private let lock = NSLock()
+  private var started = false
+  private var waiters: [CheckedContinuation<Void, Never>] = []
+
+  func reset() {
+    lock.withLock {
+      started = false
+      precondition(waiters.isEmpty)
+    }
+  }
+
+  func waitUntilStarted() async {
+    await withCheckedContinuation { continuation in
+      let shouldResume = lock.withLock {
+        if started { return true }
+        waiters.append(continuation)
+        return false
+      }
+      if shouldResume {
+        continuation.resume()
+      }
+    }
+  }
+
+  func signal() {
+    let pendingWaiters = lock.withLock {
+      started = true
+      let pendingWaiters = waiters
+      waiters.removeAll()
+      return pendingWaiters
+    }
+    for waiter in pendingWaiters {
+      waiter.resume()
+    }
+  }
 }
 
 @MainActor

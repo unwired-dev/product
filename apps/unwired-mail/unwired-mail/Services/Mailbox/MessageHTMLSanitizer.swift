@@ -98,17 +98,10 @@ extension MessageHTMLSanitizer {
     readableDocument: Document,
     hasRemoteImageOnlyContent: Bool
   ) throws -> Bool {
-    let ignoredReadableScalars =
-      CharacterSet.whitespacesAndNewlines
-      .union(.controlCharacters)
-      .union(.nonBaseCharacters)
-    let hasReadableText = try readableDocument.text().unicodeScalars.contains { scalar in
-      !ignoredReadableScalars.contains(scalar)
-        && scalar.properties.generalCategory != .format
-    }
     let hasInlineImage =
       !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
-    return hasReadableText || hasInlineImage || hasRemoteImageOnlyContent
+    return try hasReadableText(readableDocument.text()) || hasInlineImage
+      || hasRemoteImageOnlyContent
   }
 
   static func normalizedContentID(_ value: String, decodesPercentEscapes: Bool = false) -> String? {
