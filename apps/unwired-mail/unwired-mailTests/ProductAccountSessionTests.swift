@@ -1372,13 +1372,20 @@ final class ProductAccountSessionTests: XCTestCase {
       payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
       updatedAt: 1
     )
-    let session = ProductAccountSession(
-      appleSignInService: PreviewAppleSignInService(
-        credential: AppleSignInCredential(
+    let appleSignInService = SequencedAppleSignInService(
+      credentials: [
+        AppleSignInCredential(
           appleUserIdentifier: "apple-user-001",
-          identityToken: "token-001"
-        )
-      ),
+          identityToken: "stale-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "fresh-token"
+        ),
+      ]
+    )
+    let session = ProductAccountSession(
+      appleSignInService: appleSignInService,
       productAccountService: productAccountService,
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -1405,6 +1412,7 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)?.accountKeyData,
       original.accountKeyData
     )
+    XCTAssertEqual(productAccountService.materialInitializationIdentityTokens, ["fresh-token"])
   }
 
   func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
@@ -1604,6 +1612,24 @@ private struct SuspendingAppleSignInService: AppleSignInPerforming {
   }
 }
 
+private actor SequencedAppleSignInService: AppleSignInPerforming {
+  private var credentials: [AppleSignInCredential]
+
+  init(credentials: [AppleSignInCredential]) {
+    self.credentials = credentials
+  }
+
+  func signIn() async throws -> AppleSignInCredential {
+    credentials.removeFirst()
+  }
+
+  func restoreSession(
+    snapshot _: ProductAccountSessionSnapshot
+  ) async throws -> AppleSignInCredential {
+    credentials.removeFirst()
+  }
+}
+
 private enum ProductAccountSessionTestError: Error {
   case gmailCleanupFailed
   case keyCleanupFailed
@@ -1615,6 +1641,7 @@ private enum ProductAccountSessionTestError: Error {
 }
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
+  var materialInitializationIdentityTokens: [String] = []
   var recoveryBackedUp = true
   var recoveryCheckCount = 0
   var recoveryCheckExpectedWrappedAccountKeys: [ProductSyncEncryptedPayload?] = []
@@ -1634,10 +1661,11 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   }
 
   func markProductSyncMaterialInitialized(
-    identityToken _: String,
+    identityToken: String,
     trustedDeviceId _: String
   ) async throws -> ProductSyncMaterialInitializedResponse {
-    ProductSyncMaterialInitializedResponse(
+    materialInitializationIdentityTokens.append(identityToken)
+    return ProductSyncMaterialInitializedResponse(
       productSyncMaterialInitialized: true
     )
   }

@@ -22,6 +22,16 @@ enum MailboxSyncNotificationUserInfoKey {
   static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
 }
 
+struct SignOutErrorBanner: View {
+  let message: String
+
+  var body: some View {
+    Text(message)
+      .font(.caption)
+      .foregroundStyle(.red)
+  }
+}
+
 @MainActor
 @Observable
 final class MailboxWorkCoordinator {
@@ -1858,9 +1868,7 @@ extension AccountView {
           SmokeView(service: ConvexBackendHealthService())
 
           if let signOutErrorMessage = session.signOutErrorMessage {
-            Text(signOutErrorMessage)
-              .font(.caption)
-              .foregroundStyle(.red)
+            SignOutErrorBanner(message: signOutErrorMessage)
           }
 
           Button("Sign Out", role: .destructive) {
@@ -1881,7 +1889,6 @@ extension AccountView {
   }
 
   private func signOut() {
-    session.beginSignOut()
     ewsSetupViewModel.invalidate()
     genericMailSetupViewModel.invalidate()
     Task {

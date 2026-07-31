@@ -1130,9 +1130,7 @@ struct AccountAndDevicesSettingsView: View {
 
       Section {
         if let signOutErrorMessage = session.signOutErrorMessage {
-          Text(signOutErrorMessage)
-            .font(.caption)
-            .foregroundStyle(.red)
+          SignOutErrorBanner(message: signOutErrorMessage)
         }
         Button("Sign Out on This Device", role: .destructive) {
           confirmsSignOut = true
@@ -1626,7 +1624,6 @@ private struct RecoveryKeyPresentation: View {
     }
 
     private func signOut() {
-      session.beginSignOut()
       ewsViewModel.invalidate()
       genericMailViewModel.invalidate()
       Task {

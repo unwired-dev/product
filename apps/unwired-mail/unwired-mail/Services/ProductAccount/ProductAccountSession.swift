@@ -116,6 +116,13 @@ final class ProductAccountSession {
     state = .loading
 
     do {
+      let credential = try await appleSignInService.signIn()
+      guard
+        credential.appleUserIdentifier
+          == pendingProductSyncRecovery.credential.appleUserIdentifier
+      else {
+        throw ProductAccountSessionError.differentAppleAccount
+      }
       _ = try productSyncKeyMaterialStore.restore(
         productAccountId: pendingProductSyncRecovery.response.productAccountId,
         recoveryKey: ProductSyncRecoveryKey(rawValue: rawValue),
@@ -123,7 +130,7 @@ final class ProductAccountSession {
           pendingProductSyncRecovery.recoveryMaterial.encryptedPayload
       )
       try await completeSignIn(
-        credential: pendingProductSyncRecovery.credential,
+        credential: credential,
         response: pendingProductSyncRecovery.response
       )
       clearPendingProductSyncRecovery()
