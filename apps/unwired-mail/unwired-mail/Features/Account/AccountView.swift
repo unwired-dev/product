@@ -1288,9 +1288,6 @@ struct AccountView: View {
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
           )
-        },
-        refreshUnifiedInbox: {
-          loadUnifiedMailbox()
         }
       )
     } detail: {
@@ -2977,7 +2974,6 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
-  var refreshUnifiedInbox: () -> Void = {}
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3055,10 +3051,20 @@ struct MailShellThreadList: View {
         connections: connections
       ) {
         ToolbarItem(placement: .primaryAction) {
-          Button(action: refreshUnifiedInbox) {
+          Button {
+            Task {
+              await viewModel.loadUnifiedInbox(connections: connections)
+            }
+          } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
           }
-          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+          .disabled(
+            Self.isUnifiedInboxRefreshButtonDisabled(
+              isConnectionBusy: isConnectionBusy,
+              isRefreshDisabled: viewModel.isRefreshDisabled
+            )
+          )
+          .accessibilityIdentifier("unified-inbox-refresh")
         }
       }
       if let connection, connection.authorizationState == .authorized,
@@ -3133,6 +3139,13 @@ struct MailShellThreadList: View {
     return connections.contains {
       $0.authorizationState == .authorized && $0.capabilities.canSynchronizeMetadata
     }
+  }
+
+  static func isUnifiedInboxRefreshButtonDisabled(
+    isConnectionBusy: Bool,
+    isRefreshDisabled: Bool
+  ) -> Bool {
+    isConnectionBusy || isRefreshDisabled
   }
 
   @ViewBuilder

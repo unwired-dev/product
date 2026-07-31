@@ -1465,7 +1465,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
-  func testInboxViewModelRefreshesEveryAuthorizedUnifiedInboxConnection() async {
+  func testInboxViewModelRefreshesEveryAuthorizedMailboxConnectionInUnifiedInbox() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
     let syncInboxCallCount = await fixture.service.syncInboxCallCount()
