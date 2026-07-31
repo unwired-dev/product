@@ -816,7 +816,8 @@ final class MailboxFreshnessViewModel {
   ) {
     guard
       isSessionCurrent(session),
-      knownConnections[connection.id] != nil
+      knownConnections[connection.id]?.authorizationGeneration
+        == connection.authorizationGeneration
     else { return }
     var successfulSyncAt: Date?
     var supersedesHistoricalBackfill = true

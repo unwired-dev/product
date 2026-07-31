@@ -2256,6 +2256,45 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessIgnoresCancelledBackfillFromOlderAuthorizationGeneration() async {
+    let fixture = makeMailboxFreshnessFixture(
+      suspendsBackfill: true,
+      cancelsBackfill: true
+    )
+    let connection = fixture.connections[0]
+    let replacement = connection.withAuthorizationGeneration(
+      connection.authorizationGeneration + 1
+    )
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    fixture.viewModel.updateConnections([replacement])
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: replacement.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false,
+      updatesExternalStatusRevision: false
+    )
+    await fixture.service.releaseHistoricalBackfill()
+
+    do {
+      _ = try await backfill.value
+      XCTFail("Expected the older-generation backfill to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    XCTAssertEqual(fixture.viewModel.status(for: replacement).phase, .syncing)
+  }
+
+  @MainActor
   func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
     let connection = fixture.connections[0]
