@@ -73,6 +73,7 @@ final class ProductAccountSession {
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
+    unacknowledgedRecoveryKey = try? sessionStore.loadUnacknowledgedRecoveryKey()
   }
 
   func bootstrap() async {
@@ -418,7 +419,10 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
-    guard unacknowledgedRecoveryKey == nil else {
+    if let recoveryKey = try
+      (unacknowledgedRecoveryKey ?? sessionStore.loadUnacknowledgedRecoveryKey())
+    {
+      unacknowledgedRecoveryKey = recoveryKey
       throw ProductAccountSessionError.recoveryNotBackedUp
     }
     let identityToken = try await identityTokenForRecoveryCheck(snapshot)
@@ -647,12 +651,18 @@ extension ProductAccountSession {
     clearMailboxFreshnessViewModel()
   }
 
-  func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) {
+  func preserveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
+    try sessionStore.saveUnacknowledgedRecoveryKey(recoveryKey)
     unacknowledgedRecoveryKey = recoveryKey
   }
 
   func acknowledgeRecoveryKey() {
-    unacknowledgedRecoveryKey = nil
+    do {
+      try sessionStore.clearUnacknowledgedRecoveryKey()
+      unacknowledgedRecoveryKey = nil
+    } catch {
+      signOutErrorMessage = error.localizedDescription
+    }
   }
 
   func sharedMailboxFreshnessViewModel(

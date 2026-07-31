@@ -128,6 +128,7 @@ disabled while the provider snapshot is partial because freshness state is not a
 - List Trusted Devices and identify the current device.
 - Rename or revoke a Trusted Device.
 - Show Recovery Key status and support generation and replacement.
+- Persist a newly published Recovery Key in local Keychain until its presentation is acknowledged, so the sign-out guard survives app relaunches.
 - Sign out on the current device.
 - Delete the Product Account after recent authentication and explicit confirmation.
 

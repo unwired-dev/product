@@ -1013,7 +1013,7 @@ final class AccountAndDevicesViewModel {
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: () async throws -> String,
     isSessionCurrent: () -> Bool,
-    recoveryKeyPublished: (String) -> Void = { _ in },
+    recoveryKeyPublished: (String) throws -> Void = { _ in },
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1034,7 +1034,7 @@ final class AccountAndDevicesViewModel {
           )
         }
       recoveryKeyStatus = .current
-      recoveryKeyPublished(recoveryKey.rawValue)
+      try recoveryKeyPublished(recoveryKey.rawValue)
       revealedRecoveryKey = recoveryKey.rawValue
       errorMessage = nil
     } catch is CancellationError {

@@ -1,5 +1,7 @@
 # End-to-end encrypted product sync
 
+An unacknowledged published Recovery Key remains in local Keychain and blocks sign-out across app launches until its presentation is explicitly acknowledged.
+
 The product uses its own account system and backend to sync product-owned email organization data across a user's Apple devices. We will make this sync end-to-end encrypted so the backend can transport and store synced data, but cannot read synced categories or message-category assignments. This preserves the privacy promise while accepting additional complexity in trusted device enrollment, account recovery, support, and sync conflict handling.
 
 The first implementation slice stores Product Sync data in Convex only as opaque AES-GCM payload fields: nonce, ciphertext, authentication tag, schema version, key version, and an opaque payload identifier. The Apple client creates local account key material in Keychain, wraps that account key with a user-held Recovery Key, and can restore the account key only from that Recovery Key plus the wrapped account key payload. Product Account sign-in and backend account recovery do not produce decryptable Product Sync key material by themselves.

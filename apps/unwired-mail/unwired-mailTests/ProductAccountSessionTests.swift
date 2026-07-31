@@ -581,16 +581,59 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
-    session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
+    guard case .signedIn(let activeSnapshot) = session.state else {
+      return XCTFail("Expected bootstrap to restore the Product Account")
+    }
+    try session.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
 
     await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
     XCTAssertEqual(
       session.signOutErrorMessage,
       ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
+  }
+
+  func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let appleSignInService = PreviewAppleSignInService(
+      credential: AppleSignInCredential(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        identityToken: snapshot.identityToken
+      )
+    )
+    let firstSession = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    try firstSession.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
+
+    let relaunchedSession = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    XCTAssertEqual(relaunchedSession.unacknowledgedRecoveryKey, "unacknowledged-key")
+
+    await relaunchedSession.signOut()
+
+    XCTAssertEqual(relaunchedSession.state, .signedIn(snapshot))
+    XCTAssertEqual(
+      relaunchedSession.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+
+    relaunchedSession.acknowledgeRecoveryKey()
+    let acknowledgedSession = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    XCTAssertNil(acknowledgedSession.unacknowledgedRecoveryKey)
   }
 
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
@@ -1737,6 +1780,9 @@ private actor SequencedSuspendingAppleSignInService: AppleSignInPerforming {
   }
 
   func signIn() async throws -> AppleSignInCredential {
+    guard !credentials.isEmpty else {
+      throw ProductAccountSessionTestError.unexpectedAuthenticationRequest
+    }
     let credential = credentials.removeFirst()
     defer { callIndex += 1 }
     if callIndex == suspendedCallIndex {
@@ -1760,6 +1806,7 @@ private enum ProductAccountSessionTestError: Error {
   case sessionLoadFailed
   case sessionSaveFailed
   case trustedDeviceUnregistrationFailed
+  case unexpectedAuthenticationRequest
 }
 
 private final class RecordingProductAccountService: ProductAccountConnecting {
@@ -1832,6 +1879,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
 
   private var pendingSignOutProductAccountId: String?
   private var snapshot: ProductAccountSessionSnapshot?
+  private var unacknowledgedRecoveryKey: String?
 
   init(snapshot: ProductAccountSessionSnapshot? = nil) {
     self.snapshot = snapshot
@@ -1860,6 +1908,18 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
     }
     didClear = true
     snapshot = nil
+  }
+
+  func loadUnacknowledgedRecoveryKey() throws -> String? {
+    unacknowledgedRecoveryKey
+  }
+
+  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String) throws {
+    unacknowledgedRecoveryKey = recoveryKey
+  }
+
+  func clearUnacknowledgedRecoveryKey() throws {
+    unacknowledgedRecoveryKey = nil
   }
 
   func loadPendingSignOutProductAccountId() throws -> String? {
