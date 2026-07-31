@@ -145,7 +145,7 @@ struct MessageHTMLView: View {
   }
 }
 
-private struct MessageHTMLWebView: UIViewRepresentable {
+struct MessageHTMLWebView: UIViewRepresentable {
   @Binding var contentHeight: CGFloat
   let documentHTML: String
   let onOpenURL: (URL) -> Void
@@ -294,7 +294,10 @@ private struct MessageHTMLWebView: UIViewRepresentable {
         for: scrollView.contentSize,
         within: scrollView.bounds.size
       )
-      onHeightChange(MessageHTMLLayout.height(for: scrollView.contentSize))
+      let height = MessageHTMLLayout.height(for: scrollView.contentSize)
+      DispatchQueue.main.async { [weak self] in
+        self?.onHeightChange(height)
+      }
     }
   }
 }
