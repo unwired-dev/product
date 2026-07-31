@@ -610,7 +610,10 @@ actor PendingProviderActionService {
     )
     let removedActionIds = confirmedActionIds.union(supersededActionIds)
       .union(contradictedActionIds)
-    let reconciledSuccessfulActions = actions.filter { confirmedActionIds.contains($0.id) }
+    let reconciledSuccessfulActionIds = confirmedActionIds.union(supersededActionIds)
+    let reconciledSuccessfulActions = actions.filter {
+      reconciledSuccessfulActionIds.contains($0.id)
+    }
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && removedActionIds.contains($0.id)
