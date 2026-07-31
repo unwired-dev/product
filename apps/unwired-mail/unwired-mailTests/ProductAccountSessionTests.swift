@@ -16,6 +16,23 @@ final class ProductAccountSessionTests: XCTestCase {
     pushUnregisterer = RecordingDevicePushUnregisterer()
   }
 
+  private func waitForRecoveryOperationWaiter(productAccountId: String) async {
+    let queued = expectation(description: "recovery operation queued")
+    let observer = Task {
+      for _ in 0..<1_000 {
+        if await productAccountRecoveryOperationGate.pendingWaiterCount(
+          productAccountId: productAccountId
+        ) > 0 {
+          queued.fulfill()
+          return
+        }
+        await Task.yield()
+      }
+    }
+    await fulfillment(of: [queued], timeout: 1)
+    observer.cancel()
+  }
+
   func testSignInStoresSessionAndMovesToSignedInState() async {
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -428,9 +445,10 @@ final class ProductAccountSessionTests: XCTestCase {
       didPrepareDestructiveCleanup = true
     }
 
+    XCTAssertEqual(session.state, .signedIn(snapshot))
     XCTAssertEqual(
-      session.state,
-      .failed(ProductAccountSessionError.recoveryNotBackedUp.localizedDescription)
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(
@@ -440,6 +458,10 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [])
     XCTAssertEqual(pushUnregisterer.sessions, [])
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+    XCTAssertEqual(
+      productAccountService.recoveryCheckExpectedWrappedAccountKeys,
+      [material.recoveryWrappedAccountKey]
+    )
     XCTAssertFalse(didPrepareDestructiveCleanup)
   }
 
@@ -477,6 +499,36 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
   }
 
+  func testSignOutRefreshesIdentityTokenThatExpiresDuringCleanup() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "nearly-expired-token",
+      identityTokenExpiresAt: Date().addingTimeInterval(60),
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    try store.save(snapshot)
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(productAccountService.recoveryCheckIdentityTokens, ["fresh-token"])
+    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["fresh-token"])
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
   func testSignOutWaitsForRecoveryPublicationForTheSameAccount() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -501,7 +553,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     let signOut = Task { await session.signOut() }
-    await Task.yield()
+    await waitForRecoveryOperationWaiter(
+      productAccountId: activeSnapshot.productAccountId
+    )
 
     XCTAssertEqual(session.state, .signedIn(activeSnapshot))
 
@@ -1474,7 +1528,10 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     throw ConvexClientError.missingConvexURL
   }
 
-  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
     throw ConvexClientError.missingConvexURL
   }
 
@@ -1560,6 +1617,7 @@ private enum ProductAccountSessionTestError: Error {
 private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryBackedUp = true
   var recoveryCheckCount = 0
+  var recoveryCheckExpectedWrappedAccountKeys: [ProductSyncEncryptedPayload?] = []
   var recoveryCheckIdentityTokens: [String] = []
   var recoveryMaterial: EncryptedProductSyncPayload?
   let response: ProductAccountConnectResponse
@@ -1584,9 +1642,13 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     )
   }
 
-  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool {
+  func productSyncRecoveryIsBackedUp(
+    identityToken: String,
+    expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
     recoveryCheckCount += 1
     recoveryCheckIdentityTokens.append(identityToken)
+    recoveryCheckExpectedWrappedAccountKeys.append(expectedRecoveryWrappedAccountKey)
     return recoveryBackedUp
   }
 

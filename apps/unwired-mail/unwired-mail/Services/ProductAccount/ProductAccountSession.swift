@@ -3,6 +3,8 @@ import Observation
 
 // swiftlint:disable file_length
 
+private let signOutTokenValidityMargin: TimeInterval = 5 * 60
+
 enum ProductAccountSessionState: Equatable {
   case loading
   case signedOut
@@ -37,6 +39,7 @@ final class ProductAccountSession {
   }
 
   private(set) var state: ProductAccountSessionState = .loading
+  private(set) var signOutErrorMessage: String?
   private(set) var requiresProductSyncRecovery = false
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
@@ -150,9 +153,11 @@ final class ProductAccountSession {
     signOutTask = nil
   }
 
+  // swiftlint:disable:next function_body_length
   private func performSignOut(
     afterRecoveryCheck preparation: () async -> Void
   ) async {
+    var preparedDestructiveCleanup = false
     defer {
       isSigningOut = false
       signOutSnapshot = nil
@@ -161,7 +166,10 @@ final class ProductAccountSession {
     do {
       let cleanupSnapshot = try await prepareForSignOut(
         snapshot,
-        preparation: preparation
+        preparation: {
+          await preparation()
+          preparedDestructiveCleanup = true
+        }
       )
       if let cleanupSnapshot {
         // Trusted Device unregistration below removes backend routing even if
@@ -203,24 +211,12 @@ final class ProductAccountSession {
       else { return }
       state = .signedOut
     } catch {
-      state = .failed(error.localizedDescription)
+      publishSignOutFailure(
+        error,
+        snapshot: snapshot,
+        preparedDestructiveCleanup: preparedDestructiveCleanup
+      )
     }
-  }
-
-  func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
-    !isSigningOut && currentSignedInSnapshot() == snapshot
-  }
-
-  private func signOutSnapshotWasReplaced(
-    _ snapshot: ProductAccountSessionSnapshot?
-  ) -> Bool {
-    if let currentSnapshot = currentSignedInSnapshot() {
-      return currentSnapshot != snapshot
-    }
-    if let storedSnapshot = try? sessionStore.load() {
-      return storedSnapshot != snapshot
-    }
-    return false
   }
 
   private func unregisterTrustedDeviceForSignOut(
@@ -297,6 +293,37 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
+    !isSigningOut && currentSignedInSnapshot() == snapshot
+  }
+
+  private func signOutSnapshotWasReplaced(
+    _ snapshot: ProductAccountSessionSnapshot?
+  ) -> Bool {
+    if let currentSnapshot = currentSignedInSnapshot() {
+      return currentSnapshot != snapshot
+    }
+    if let storedSnapshot = try? sessionStore.load() {
+      return storedSnapshot != snapshot
+    }
+    return false
+  }
+
+  private func publishSignOutFailure(
+    _ error: Error,
+    snapshot: ProductAccountSessionSnapshot?,
+    preparedDestructiveCleanup: Bool
+  ) {
+    if !preparedDestructiveCleanup, let snapshot,
+      !signOutSnapshotWasReplaced(snapshot)
+    {
+      signOutErrorMessage = error.localizedDescription
+      state = .signedIn(snapshot)
+    } else {
+      state = .failed(error.localizedDescription)
+    }
+  }
+
   private func prepareForSignOut(
     _ snapshot: ProductAccountSessionSnapshot?,
     preparation: () async -> Void
@@ -338,9 +365,13 @@ extension ProductAccountSession {
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
     let identityToken = try await identityTokenForRecoveryCheck(snapshot)
+    let material = try productSyncKeyMaterialStore.load(
+      productAccountId: snapshot.productAccountId
+    )
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
-        identityToken: identityToken
+        identityToken: identityToken,
+        expectedRecoveryWrappedAccountKey: material?.recoveryWrappedAccountKey
       )
     else {
       throw ProductAccountSessionError.recoveryNotBackedUp
@@ -351,7 +382,10 @@ extension ProductAccountSession {
   private func identityTokenForRecoveryCheck(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
-    guard snapshot.identityTokenState() != .active else {
+    let minimumExpiration = Date().addingTimeInterval(
+      signOutTokenValidityMargin
+    )
+    guard snapshot.identityTokenState(at: minimumExpiration) != .active else {
       return snapshot.identityToken
     }
     let credential = try await appleSignInService.signIn()
@@ -549,6 +583,7 @@ extension ProductAccountSession {
 
   func beginSignOut() {
     guard !isSigningOut else { return }
+    signOutErrorMessage = nil
     signOutSnapshot = currentSignedInSnapshot()
     isSigningOut = true
     state = .loading

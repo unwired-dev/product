@@ -52,7 +52,10 @@ struct EncryptedProductSyncPayloadPage: Decodable, Equatable {
 
 protocol ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse
-  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool
+  func productSyncRecoveryIsBackedUp(
+    identityToken: String,
+    expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+  ) async throws -> Bool
   func productSyncRecoveryMaterial(
     identityToken: String
   ) async throws -> EncryptedProductSyncPayload?
@@ -140,8 +143,13 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     )
   }
 
-  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool {
-    try await productSyncRecoveryMaterial(identityToken: identityToken) != nil
+  func productSyncRecoveryIsBackedUp(
+    identityToken: String,
+    expectedRecoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    guard let expectedRecoveryWrappedAccountKey else { return false }
+    return try await productSyncRecoveryMaterial(identityToken: identityToken)?.encryptedPayload
+      == expectedRecoveryWrappedAccountKey
   }
 
   func productSyncRecoveryMaterial(
@@ -369,6 +377,8 @@ final class AccountAndDevicesService {
       } catch {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.
+        guard isSessionCurrent() else { throw CancellationError() }
+        return replacement.recoveryKey
       }
       throw error
     }
@@ -387,6 +397,30 @@ final class AccountAndDevicesService {
   }
 
   func revealCurrentRecoveryKey(
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: String
+  ) async throws -> ProductSyncRecoveryKey {
+    await productAccountRecoveryOperationGate.acquire(
+      productAccountId: session.productAccountId
+    )
+    do {
+      let recoveryKey = try await performCurrentRecoveryKeyReveal(
+        session: session,
+        recentIdentityToken: recentIdentityToken
+      )
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      return recoveryKey
+    } catch {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: session.productAccountId
+      )
+      throw error
+    }
+  }
+
+  private func performCurrentRecoveryKeyReveal(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: String
   ) async throws -> ProductSyncRecoveryKey {
@@ -467,7 +501,10 @@ struct PreviewProductAccountService: ProductAccountConnecting {
     )
   }
 
-  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
     true
   }
 

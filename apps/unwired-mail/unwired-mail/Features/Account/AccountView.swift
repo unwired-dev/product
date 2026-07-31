@@ -1857,6 +1857,12 @@ extension AccountView {
 
           SmokeView(service: ConvexBackendHealthService())
 
+          if let signOutErrorMessage = session.signOutErrorMessage {
+            Text(signOutErrorMessage)
+              .font(.caption)
+              .foregroundStyle(.red)
+          }
+
           Button("Sign Out", role: .destructive) {
             signOut()
           }

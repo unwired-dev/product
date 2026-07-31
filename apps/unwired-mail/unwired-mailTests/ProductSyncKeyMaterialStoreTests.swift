@@ -80,7 +80,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
     appleUserIdentifier: "apple-user-001",
     identityToken: "stored-token",
-    productAccountId: "product-account-001",
+    productAccountId: "product-account-\(UUID().uuidString)",
     trustedDeviceId: "device-current"
   )
 
@@ -319,6 +319,49 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(recoveryKey, material.recoveryKey)
   }
 
+  func testCurrentRecoveryKeyRevealWaitsForConcurrentReplacement() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let writeGate = RecoveryReplacementWriteGate()
+    transport.recoveryWriteGate = writeGate
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let replacingService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    let revealingService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let replacement = Task {
+      try await replacingService.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "replacement-token"
+      )
+    }
+    await writeGate.waitUntilFirstWriteStarted()
+    let reveal = Task {
+      try await revealingService.revealCurrentRecoveryKey(
+        session: session,
+        recentIdentityToken: "reveal-token"
+      )
+    }
+    await waitForRecoveryOperationWaiter(productAccountId: session.productAccountId)
+    XCTAssertEqual(transport.recoveryReadCount, 1)
+
+    await writeGate.releaseFirstWrite()
+    let replacementKey = try await replacement.value
+    let revealedKey = try await reveal.value
+    XCTAssertEqual(revealedKey, replacementKey)
+    XCTAssertEqual(transport.recoveryReadCount, 2)
+  }
+
   func testCurrentRecoveryKeyCanBeExplicitlyReplaced() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -509,6 +552,42 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
   }
 
+  func testResponseAndReconciliationLostStillRevealsRetainedRecoveryKey() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.recoveryWriteError = AccountAndDevicesTransportError.offline
+    transport.recoveryReadErrorOnCall = 2
+    transport.commitsRecoveryBeforeThrowing = true
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let recoveryKey = try await service.replaceRecoveryKey(
+      session: session,
+      recentIdentityToken: "fresh-apple-token"
+    )
+
+    let saved = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+    XCTAssertEqual(saved.recoveryKey, recoveryKey)
+    XCTAssertEqual(
+      transport.remoteRecoveryMaterial?.encryptedPayload,
+      saved.recoveryWrappedAccountKey
+    )
+  }
+
   func testRecoveryReplacementDoesNotRestoreKeysAfterSignOut() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
@@ -562,6 +641,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteError: Error?
   var recoveryWriteGate: RecoveryReplacementWriteGate?
   var recoveryReadCount = 0
+  var recoveryReadErrorOnCall: Int?
   var recoveryReadIdentityToken: String?
   var renameIdentityToken: String?
   var commitsRecoveryBeforeThrowing = false
@@ -598,6 +678,9 @@ private final class RecordingAccountAndDevicesTransport:
   ) async throws -> EncryptedProductSyncPayload? {
     recoveryReadIdentityToken = identityToken
     recoveryReadCount += 1
+    if recoveryReadCount == recoveryReadErrorOnCall {
+      throw AccountAndDevicesTransportError.offline
+    }
     return remoteRecoveryMaterial
   }
 
@@ -631,11 +714,13 @@ private final class RecordingAccountAndDevicesTransport:
         schemaVersion: 1,
         tagBase64: "concurrent"
       ) : encryptedPayload
-    return EncryptedProductSyncPayload(
+    let stored = EncryptedProductSyncPayload(
       encryptedPayload: storedPayload,
       payloadIdentifier: payloadIdentifier,
       updatedAt: 1
     )
+    remoteRecoveryMaterial = stored
+    return stored
   }
 }
 

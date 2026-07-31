@@ -1129,6 +1129,11 @@ struct AccountAndDevicesSettingsView: View {
       }
 
       Section {
+        if let signOutErrorMessage = session.signOutErrorMessage {
+          Text(signOutErrorMessage)
+            .font(.caption)
+            .foregroundStyle(.red)
+        }
         Button("Sign Out on This Device", role: .destructive) {
           confirmsSignOut = true
         }
