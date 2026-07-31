@@ -3,6 +3,8 @@ import XCTest
 
 @testable import unwired_mail
 
+// swiftlint:disable file_length
+
 final class ProductSyncKeyMaterialStoreTests: XCTestCase {
   private var store = InMemoryProductSyncKeyMaterialStore()
 
@@ -111,11 +113,16 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recoveryTransport: transport
     )
 
-    let snapshot = try await service.load(session: session)
+    let snapshot = try await service.load(
+      session: session,
+      identityToken: "fresh-apple-token"
+    )
 
     XCTAssertEqual(snapshot.devices.map(\.id), ["device-current", "device-other"])
     XCTAssertEqual(snapshot.recoveryKeyStatus, .notBackedUp)
     XCTAssertEqual(transport.listTrustedDeviceId, session.trustedDeviceId)
+    XCTAssertEqual(transport.listIdentityToken, "fresh-apple-token")
+    XCTAssertEqual(transport.recoveryReadIdentityToken, "fresh-apple-token")
   }
 
   func testReplacingRecoveryKeyPublishesOnlyWrappedMaterialAfterRecentAuthentication()
@@ -302,6 +309,42 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       saved.recoveryWrappedAccountKey
     )
   }
+
+  func testRecoveryReplacementDoesNotRestoreKeysAfterSignOut() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let service = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    var sessionCheckCount = 0
+
+    do {
+      _ = try await service.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "fresh-apple-token",
+        isSessionCurrent: {
+          sessionCheckCount += 1
+          if sessionCheckCount > 1 {
+            try? keyMaterialStore.clear(productAccountId: session.productAccountId)
+            return false
+          }
+          return true
+        }
+      )
+      XCTFail("Expected signed-out recovery replacement to cancel")
+    } catch is CancellationError {
+    }
+
+    XCTAssertNil(
+      try keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+  }
 }
 
 private enum AccountAndDevicesTransportError: Error {
@@ -312,19 +355,22 @@ private final class RecordingAccountAndDevicesTransport:
   TrustedDeviceManaging, RecoveryMaterialTransporting
 {
   var devices: [TrustedDeviceSummary] = []
+  var listIdentityToken: String?
   var listTrustedDeviceId: String?
   var remoteRecoveryMaterial: EncryptedProductSyncPayload?
   var recoveryWriteIdentityToken: String?
   var recoveryWritePayload: ProductSyncEncryptedPayload?
   var recoveryWriteError: Error?
   var recoveryReadCount = 0
+  var recoveryReadIdentityToken: String?
   var commitsRecoveryBeforeThrowing = false
   var simulatesConcurrentRecoveryWrite = false
 
   func listTrustedDevices(
-    identityToken _: String,
+    identityToken: String,
     trustedDeviceId: String
   ) async throws -> [TrustedDeviceSummary] {
+    listIdentityToken = identityToken
     listTrustedDeviceId = trustedDeviceId
     return devices
   }
@@ -345,9 +391,10 @@ private final class RecordingAccountAndDevicesTransport:
   }
 
   func getRecoveryMaterial(
-    identityToken _: String,
+    identityToken: String,
     payloadIdentifier _: String
   ) async throws -> EncryptedProductSyncPayload? {
+    recoveryReadIdentityToken = identityToken
     recoveryReadCount += 1
     return remoteRecoveryMaterial
   }

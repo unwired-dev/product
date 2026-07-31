@@ -1,5 +1,7 @@
 import Foundation
 
+// swiftlint:disable file_length
+
 struct ProductAccountConnectResponse: Decodable, Equatable {
   let accountCreated: Bool
   let deviceRegistered: Bool
@@ -172,14 +174,15 @@ final class AccountAndDevicesService {
   }
 
   func load(
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    identityToken: String? = nil
   ) async throws -> AccountAndDevicesSnapshot {
     async let devices = deviceTransport.listTrustedDevices(
-      identityToken: session.identityToken,
+      identityToken: identityToken ?? session.identityToken,
       trustedDeviceId: session.trustedDeviceId
     )
     async let remoteRecoveryMaterial = recoveryTransport.getRecoveryMaterial(
-      identityToken: session.identityToken,
+      identityToken: identityToken ?? session.identityToken,
       payloadIdentifier: Self.recoveryPayloadIdentifier
     )
     let material = try keyMaterialStore.load(
@@ -209,19 +212,22 @@ final class AccountAndDevicesService {
   func renameDevice(
     _ device: TrustedDeviceSummary,
     displayName: String,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    identityToken: String? = nil
   ) async throws -> TrustedDeviceSummary {
     try await deviceTransport.renameTrustedDevice(
       displayName: displayName,
-      identityToken: session.identityToken,
+      identityToken: identityToken ?? session.identityToken,
       trustedDeviceId: session.trustedDeviceId,
       trustedDeviceToRenameId: device.id
     )
   }
 
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func replaceRecoveryKey(
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: String
+    recentIdentityToken: String,
+    isSessionCurrent: () -> Bool = { true }
   ) async throws -> ProductSyncRecoveryKey {
     guard
       let material = try keyMaterialStore.load(
@@ -234,6 +240,7 @@ final class AccountAndDevicesService {
       identityToken: recentIdentityToken,
       payloadIdentifier: Self.recoveryPayloadIdentifier
     )
+    guard isSessionCurrent() else { throw CancellationError() }
     let replacement = try material.replacingRecoveryKey()
     try keyMaterialStore.save(
       replacement,
@@ -248,7 +255,9 @@ final class AccountAndDevicesService {
         expectedUpdatedAt: existing?.updatedAt
       )
       guard written.encryptedPayload == replacement.recoveryWrappedAccountKey else {
-        restoreKeyMaterial(material, productAccountId: session.productAccountId)
+        if isSessionCurrent() {
+          restoreKeyMaterial(material, productAccountId: session.productAccountId)
+        }
         throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
     } catch AccountAndDevicesServiceError.recoveryMaterialChanged {
@@ -262,18 +271,22 @@ final class AccountAndDevicesService {
         if authoritative?.encryptedPayload
           == replacement.recoveryWrappedAccountKey
         {
+          guard isSessionCurrent() else { throw CancellationError() }
           return replacement.recoveryKey
         }
-        try? keyMaterialStore.save(
-          material,
-          productAccountId: session.productAccountId
-        )
+        if isSessionCurrent() {
+          try? keyMaterialStore.save(
+            material,
+            productAccountId: session.productAccountId
+          )
+        }
       } catch {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.
       }
       throw error
     }
+    guard isSessionCurrent() else { throw CancellationError() }
     return replacement.recoveryKey
   }
 

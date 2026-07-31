@@ -42,10 +42,22 @@ enum TrustedDeviceIdentity {
     #else
       let name = ""
     #endif
+    return normalizedDisplayName(name, platform: platform)
+  }
+
+  static func normalizedDisplayName(_ name: String, platform: String) -> String {
     let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalizedName.isEmpty else {
       return platform == "macos" ? "This Mac" : "This Apple Device"
     }
-    return String(normalizedName.prefix(80))
+    var remainingUTF16Units = 80
+    return String(
+      normalizedName.prefix { character in
+        let unitCount = String(character).utf16.count
+        guard unitCount <= remainingUTF16Units else { return false }
+        remainingUTF16Units -= unitCount
+        return true
+      }
+    )
   }
 }

@@ -953,17 +953,26 @@ final class AccountAndDevicesViewModel {
   private(set) var recoveryKeyStatus = RecoveryKeyStatus.unavailable
   private(set) var revealedRecoveryKey: String?
 
+  private var authenticatedIdentityToken: String?
   private let service: AccountAndDevicesService
 
   init(service: AccountAndDevicesService = AccountAndDevicesService()) {
     self.service = service
   }
 
-  func load(session: ProductAccountSessionSnapshot) async {
+  func load(
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: () async throws -> String
+  ) async {
     isLoading = true
     defer { isLoading = false }
     do {
-      let snapshot = try await service.load(session: session)
+      let identityToken = try await recentIdentityToken()
+      let snapshot = try await service.load(
+        session: session,
+        identityToken: identityToken
+      )
+      authenticatedIdentityToken = identityToken
       devices = snapshot.devices
       recoveryKeyStatus = snapshot.recoveryKeyStatus
       errorMessage = nil
@@ -983,7 +992,8 @@ final class AccountAndDevicesViewModel {
       let renamed = try await service.renameDevice(
         device,
         displayName: displayName,
-        session: session
+        session: session,
+        identityToken: authenticatedIdentityToken
       )
       if let index = devices.firstIndex(where: { $0.id == renamed.id }) {
         devices[index] = renamed
@@ -996,7 +1006,8 @@ final class AccountAndDevicesViewModel {
 
   func presentRecoveryKey(
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: () async throws -> String
+    recentIdentityToken: () async throws -> String,
+    isSessionCurrent: () -> Bool
   ) async {
     isWorking = true
     defer { isWorking = false }
@@ -1011,7 +1022,8 @@ final class AccountAndDevicesViewModel {
         } else {
           try await service.replaceRecoveryKey(
             session: session,
-            recentIdentityToken: identityToken
+            recentIdentityToken: identityToken,
+            isSessionCurrent: isSessionCurrent
           )
         }
       recoveryKeyStatus = .current
@@ -1117,13 +1129,23 @@ struct AccountAndDevicesSettingsView: View {
     }
     .navigationTitle("Account & Devices")
     .task(id: snapshot.trustedDeviceId) {
-      await viewModel.load(session: snapshot)
+      await viewModel.load(
+        session: snapshot,
+        recentIdentityToken: {
+          try await session.recentIdentityToken(for: snapshot)
+        }
+      )
     }
     .onDisappear {
       viewModel.hideRecoveryKey()
     }
     .refreshable {
-      await viewModel.load(session: snapshot)
+      await viewModel.load(
+        session: snapshot,
+        recentIdentityToken: {
+          try await session.recentIdentityToken(for: snapshot)
+        }
+      )
     }
     .alert(
       "Account & Devices unavailable",
@@ -1176,7 +1198,8 @@ struct AccountAndDevicesSettingsView: View {
             session: snapshot,
             recentIdentityToken: {
               try await session.recentIdentityToken(for: snapshot)
-            }
+            },
+            isSessionCurrent: { session.isCurrent(snapshot) }
           )
         }
       }
@@ -1401,9 +1424,12 @@ private struct RecoveryKeyPresentation: View {
     @State private var freshnessViewModel: MailboxFreshnessViewModel
     @State private var genericMailViewModel: GenericMailSetupViewModel
     @State private var gmailViewModel: MailboxProviderConnectionViewModel
+    @State private var inboxViewModel: GmailInboxViewModel
+    @State private var mailActionViewModel: GmailMailActionViewModel
     @State private var microsoftGraphViewModel: MailboxProviderConnectionViewModel
     @State private var mailboxWorkCoordinator = MailboxWorkCoordinator.shared
 
+    // swiftlint:disable:next function_body_length
     init(
       session: ProductAccountSession,
       snapshot: ProductAccountSessionSnapshot
@@ -1441,6 +1467,24 @@ private struct RecoveryKeyPresentation: View {
         initialValue: MailboxProviderConnectionViewModel(
           service: mailboxConnection,
           isSessionCurrent: { session.isCurrent($0) },
+          session: snapshot
+        )
+      )
+      _inboxViewModel = State(
+        initialValue: GmailInboxViewModel(
+          bodyPrefetcher: mailboxConnection,
+          service: mailboxConnection,
+          searchService: mailboxConnection,
+          syncCoordinator: session.sharedMailboxFreshnessViewModel(
+            for: snapshot,
+            service: mailboxConnection
+          ),
+          session: snapshot
+        )
+      )
+      _mailActionViewModel = State(
+        initialValue: GmailMailActionViewModel(
+          service: mailboxConnection,
           session: snapshot
         )
       )
@@ -1543,9 +1587,11 @@ private struct RecoveryKeyPresentation: View {
       freshnessViewModel.cancelAll()
       freshnessViewModel.clearPersistedState()
       Task {
+        await mailActionViewModel.prepareForSignOut()
         await mailboxWorkCoordinator.cancelBodyPrefetch(
           productAccountId: snapshot.productAccountId
         )
+        await inboxViewModel.prepareForSignOut()
         await session.signOut()
       }
     }

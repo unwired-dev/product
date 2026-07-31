@@ -113,6 +113,16 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(token, "fresh-token")
   }
 
+  func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
+    let displayName = TrustedDeviceIdentity.normalizedDisplayName(
+      String(repeating: "😀", count: 50),
+      platform: "ios"
+    )
+
+    XCTAssertEqual(displayName.count, 40)
+    XCTAssertEqual(displayName.utf16.count, 80)
+  }
+
   func testAuthenticationPresentationAnchorsPreserveKeyWindowAcrossActiveScenesOffMainThread() {
     let callbackInput = makeAuthenticationPresentationFixture()
     let callbackCompleted = expectation(description: "Presentation callbacks complete")
@@ -555,6 +565,7 @@ final class ProductAccountSessionTests: XCTestCase {
     try store.save(snapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
     gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
+    let productAccountService = RecordingProductAccountService(response: .preview)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -563,7 +574,7 @@ final class ProductAccountSessionTests: XCTestCase {
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
-      productAccountService: PreviewProductAccountService(response: .preview),
+      productAccountService: productAccountService,
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
@@ -576,6 +587,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
+    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
   }
 
   func testSignOutLeavesPendingCleanupWhenProductSyncKeyCleanupFails() async throws {

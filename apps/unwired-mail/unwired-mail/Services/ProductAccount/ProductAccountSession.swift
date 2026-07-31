@@ -124,8 +124,6 @@ final class ProductAccountSession {
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
-      try? await unregisterTrustedDeviceForSignOut(snapshot)
-      guard !signOutSnapshotWasReplaced(snapshot) else { return }
     }
     do {
       var mailboxCleanupError: Error?
@@ -147,6 +145,8 @@ final class ProductAccountSession {
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
       if let snapshot {
+        try? await unregisterTrustedDeviceForSignOut(snapshot)
+        guard !signOutSnapshotWasReplaced(snapshot) else { return }
         try sessionStore.savePendingSignOutProductAccountId(
           snapshot.productAccountId
         )
