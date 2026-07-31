@@ -11,6 +11,7 @@ import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
+import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
@@ -18,6 +19,7 @@ import {
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
+const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
 
@@ -337,10 +339,72 @@ async function deleteGmailConnectionsForTrustedDevice(
         .eq('provider', 'gmail')
         .eq('trustedDeviceId', trustedDeviceId),
     )
-    .collect();
+    .take(gmailConnectionLimitPerTrustedDevice + 1);
+  if (gmailConnections.length > gmailConnectionLimitPerTrustedDevice) {
+    throw new Error('Gmail connection limit exceeded');
+  }
   for (const connection of gmailConnections) {
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete(connection._id);
+  }
+  const opaqueConnectionIds = new Set(
+    gmailConnections.flatMap((connection) =>
+      connection.opaqueConnectionId === undefined
+        ? []
+        : [connection.opaqueConnectionId],
+    ),
+  );
+  const legacyConnections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
+    )
+    .take(gmailLegacyRouteFallbackLimit + 1);
+  const legacyOpaqueConnectionIds = await Promise.all(
+    legacyConnections
+      .slice(0, gmailLegacyRouteFallbackLimit)
+      .flatMap((connection) =>
+        connection.opaqueConnectionId === undefined &&
+        connection.providerAccountIdentifier !== undefined
+          ? [
+              opaqueGmailConnectionId(
+                productAccountId,
+                connection.providerAccountIdentifier,
+              ),
+            ]
+          : [],
+      ),
+  );
+  for (const opaqueConnectionId of opaqueConnectionIds) {
+    const remainingOpaqueConnection = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex(
+        'by_productAccountId_and_provider_and_opaqueConnectionId',
+        (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('provider', 'gmail')
+            .eq('opaqueConnectionId', opaqueConnectionId),
+      )
+      .first();
+    if (
+      remainingOpaqueConnection === null &&
+      legacyConnections.length <= gmailLegacyRouteFallbackLimit &&
+      !legacyOpaqueConnectionIds.includes(opaqueConnectionId)
+    ) {
+      const identityBinding = await ctx.db
+        .query('gmailOpaqueIdentityBindings')
+        .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('opaqueConnectionId', opaqueConnectionId),
+        )
+        .unique();
+      if (identityBinding !== null) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.delete(identityBinding._id);
+      }
+    }
   }
 }
 

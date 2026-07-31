@@ -268,8 +268,8 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
-  it('deletes Gmail routes owned by an unregistered Trusted Device', async () => {
-    expect.assertions(1);
+  it('deletes Gmail routes and orphaned identity bindings owned by an unregistered device', async () => {
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -287,13 +287,20 @@ describe('productAccount.connect', () => {
         currentDevice.trustedDeviceId,
         otherDevice.trustedDeviceId,
       ].entries()) {
+        const opaqueConnectionId = `connection-${index}`;
         await ctx.db.insert('mailProviderConnections', {
           connectedAt: now,
           lastVerifiedAt: now,
-          opaqueConnectionId: `connection-${index}`,
+          opaqueConnectionId,
           productAccountId: currentDevice.productAccountId,
           provider: 'gmail',
           trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('gmailOpaqueIdentityBindings', {
+          identityBindingDigest: `digest-${index}`,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
           updatedAt: now,
         });
       }
@@ -309,6 +316,13 @@ describe('productAccount.connect', () => {
       return routes.map((route) => route.trustedDeviceId);
     });
     expect(remainingDeviceIds).toStrictEqual([otherDevice.trustedDeviceId]);
+    const remainingBindingIds = await t.run(async (ctx) => {
+      const bindings = await ctx.db
+        .query('gmailOpaqueIdentityBindings')
+        .collect();
+      return bindings.map((binding) => binding.opaqueConnectionId);
+    });
+    expect(remainingBindingIds).toStrictEqual(['connection-1']);
   });
 
   it('rejects unregistering another trusted device on the same Product Account', async () => {

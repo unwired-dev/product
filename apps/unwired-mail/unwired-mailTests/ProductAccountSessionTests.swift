@@ -984,6 +984,32 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testSignOutPersistsCleanupIntentBeforeTrustedDeviceUnregistration() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    var pendingAccountIdAtUnregistration: String?
+    productAccountService.unregistrationAction = {
+      pendingAccountIdAtUnregistration = try? self.store.loadPendingSignOutProductAccountId()
+    }
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(pendingAccountIdAtUnregistration, snapshot.productAccountId)
+  }
+
   func testSignOutLeavesPendingCleanupWhenSessionCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -1899,6 +1925,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryMaterialIdentityTokens: [String] = []
   let response: ProductAccountConnectResponse
   var unregisterError: Error?
+  var unregistrationAction: (() -> Void)?
   var unregistrationIdentityTokens: [String] = []
   var unregisteredTrustedDeviceIds: [String] = []
 
@@ -1941,6 +1968,7 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse {
+    unregistrationAction?()
     unregistrationIdentityTokens.append(identityToken)
     unregisteredTrustedDeviceIds.append(trustedDeviceId)
     if let unregisterError {

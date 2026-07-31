@@ -384,11 +384,15 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
     var publishedRecoveryKey: String?
+    var publishedBeforeRemoteWrite = false
     await viewModel.presentRecoveryKey(
       session: session,
       recentIdentityToken: { "replacement-token" },
       isSessionCurrent: { true },
-      recoveryKeyPublished: { publishedRecoveryKey = $0 },
+      recoveryKeyPublished: {
+        publishedRecoveryKey = $0
+        publishedBeforeRemoteWrite = transport.recoveryWritePayload == nil
+      },
       replacingCurrent: true
     )
 
@@ -396,11 +400,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNil(viewModel.errorMessage)
     XCTAssertNotNil(viewModel.revealedRecoveryKey)
     XCTAssertEqual(publishedRecoveryKey, viewModel.revealedRecoveryKey)
+    XCTAssertTrue(publishedBeforeRemoteWrite)
     XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
     XCTAssertNotEqual(viewModel.revealedRecoveryKey, material.recoveryKey.rawValue)
   }
 
-  func testPublishedRecoveryKeyRemainsRevealedWhenAcknowledgementPersistenceFails() async throws {
+  func testRecoveryReplacementStopsWhenAcknowledgementPersistenceFails() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
     _ = try keyMaterialStore.ensureMaterial(
@@ -423,10 +428,9 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       replacingCurrent: true
     )
 
-    XCTAssertNotNil(viewModel.revealedRecoveryKey)
+    XCTAssertNil(viewModel.revealedRecoveryKey)
     XCTAssertNotNil(viewModel.errorMessage)
-    XCTAssertEqual(viewModel.recoveryKeyStatus, .current)
-    XCTAssertNotNil(transport.recoveryWritePayload)
+    XCTAssertNil(transport.recoveryWritePayload)
   }
 
   func testPreservedRecoveryKeyIsNotPresentedAfterRemoteReplacement() async throws {
@@ -480,11 +484,15 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       keyMaterialStore: keyMaterialStore,
       recoveryTransport: transport
     )
+    var publishedRecoveryKey: String?
+    var rejectedRecoveryKey: String?
 
     do {
       _ = try await service.replaceRecoveryKey(
         session: session,
-        recentIdentityToken: "fresh-apple-token"
+        recentIdentityToken: "fresh-apple-token",
+        recoveryKeyPublished: { publishedRecoveryKey = $0 },
+        recoveryKeyRejected: { rejectedRecoveryKey = $0 }
       )
       XCTFail("Expected concurrent replacement to fail")
     } catch {
@@ -495,6 +503,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: session.productAccountId),
       original
     )
+    XCTAssertEqual(rejectedRecoveryKey, publishedRecoveryKey)
     XCTAssertEqual(transport.recoveryReadCount, 1)
   }
 

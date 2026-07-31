@@ -295,7 +295,8 @@ final class AccountAndDevicesService {
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: String,
     isSessionCurrent: () -> Bool = { true },
-    recoveryKeyPublished: (String) -> Void = { _ in }
+    recoveryKeyPublished: (String) throws -> Void = { _ in },
+    recoveryKeyRejected: (String) -> Void = { _ in }
   ) async throws -> ProductSyncRecoveryKey {
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId
@@ -304,9 +305,10 @@ final class AccountAndDevicesService {
       let recoveryKey = try await performRecoveryKeyReplacement(
         session: session,
         recentIdentityToken: recentIdentityToken,
-        isSessionCurrent: isSessionCurrent
+        isSessionCurrent: isSessionCurrent,
+        recoveryKeyPublished: recoveryKeyPublished,
+        recoveryKeyRejected: recoveryKeyRejected
       )
-      recoveryKeyPublished(recoveryKey.rawValue)
       await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId
       )
@@ -323,7 +325,9 @@ final class AccountAndDevicesService {
   private func performRecoveryKeyReplacement(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: String,
-    isSessionCurrent: () -> Bool
+    isSessionCurrent: () -> Bool,
+    recoveryKeyPublished: (String) throws -> Void,
+    recoveryKeyRejected: (String) -> Void
   ) async throws -> ProductSyncRecoveryKey {
     guard
       let material = try keyMaterialStore.load(
@@ -343,6 +347,12 @@ final class AccountAndDevicesService {
       productAccountId: session.productAccountId
     )
     do {
+      try recoveryKeyPublished(replacement.recoveryKey.rawValue)
+    } catch {
+      restoreKeyMaterial(material, productAccountId: session.productAccountId)
+      throw error
+    }
+    do {
       let written = try await recoveryTransport.putRecoveryMaterialIfUnchanged(
         identityToken: recentIdentityToken,
         payloadIdentifier: Self.recoveryPayloadIdentifier,
@@ -351,6 +361,7 @@ final class AccountAndDevicesService {
         expectedUpdatedAt: existing?.updatedAt
       )
       guard written.encryptedPayload == replacement.recoveryWrappedAccountKey else {
+        recoveryKeyRejected(replacement.recoveryKey.rawValue)
         if isSessionCurrent() {
           restoreKeyMaterial(material, productAccountId: session.productAccountId)
         }
@@ -371,6 +382,7 @@ final class AccountAndDevicesService {
           return replacement.recoveryKey
         }
         if isSessionCurrent() {
+          recoveryKeyRejected(replacement.recoveryKey.rawValue)
           try? keyMaterialStore.save(
             material,
             productAccountId: session.productAccountId

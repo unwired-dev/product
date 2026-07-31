@@ -186,11 +186,11 @@ final class ProductAccountSession {
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
       if let snapshot, let cleanupSnapshot {
-        try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
-        guard !signOutSnapshotWasReplaced(snapshot) else { return }
         try sessionStore.savePendingSignOutProductAccountId(
           snapshot.productAccountId
         )
+        try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
+        guard !signOutSnapshotWasReplaced(snapshot) else { return }
         try resumePendingSignOut()
       } else {
         try sessionStore.clear()

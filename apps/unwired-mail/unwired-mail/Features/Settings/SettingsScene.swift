@@ -1014,6 +1014,7 @@ final class AccountAndDevicesViewModel {
     recentIdentityToken: () async throws -> String,
     isSessionCurrent: () -> Bool,
     recoveryKeyPublished: (String) throws -> Void = { _ in },
+    recoveryKeyRejected: (String) -> Void = { _ in },
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1040,7 +1041,8 @@ final class AccountAndDevicesViewModel {
             session: session,
             recentIdentityToken: identityToken,
             isSessionCurrent: isSessionCurrent,
-            recoveryKeyPublished: retainPublishedRecoveryKey
+            recoveryKeyPublished: recoveryKeyPublished,
+            recoveryKeyRejected: recoveryKeyRejected
           )
         }
       recoveryKeyStatus = .current
@@ -1245,7 +1247,13 @@ struct AccountAndDevicesSettingsView: View {
               try await session.recentIdentityToken(for: snapshot)
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
-            recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey
+            recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
+            recoveryKeyRejected: { recoveryKey in
+              try? session.acknowledgeRecoveryKey(
+                recoveryKey,
+                productAccountId: snapshot.productAccountId
+              )
+            }
           )
         }
       }
@@ -1279,6 +1287,12 @@ struct AccountAndDevicesSettingsView: View {
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
+            recoveryKeyRejected: { recoveryKey in
+              try? session.acknowledgeRecoveryKey(
+                recoveryKey,
+                productAccountId: snapshot.productAccountId
+              )
+            },
             replacingCurrent: true
           )
         }
