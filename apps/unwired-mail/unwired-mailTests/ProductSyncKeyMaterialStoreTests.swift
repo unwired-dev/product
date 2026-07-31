@@ -523,14 +523,19 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       )
     )
 
+    var rejectedRecoveryKeyWasHandled = false
     await viewModel.presentRecoveryKey(
       session: session,
       recentIdentityToken: { "fresh-apple-token" },
       isSessionCurrent: { true },
-      recoveryKeyRejected: { _ in throw CocoaError(.fileWriteUnknown) },
+      recoveryKeyRejected: { _ in
+        rejectedRecoveryKeyWasHandled = true
+        throw CocoaError(.fileWriteUnknown)
+      },
       replacingCurrent: true
     )
 
+    XCTAssertTrue(rejectedRecoveryKeyWasHandled)
     XCTAssertNotNil(viewModel.errorMessage)
     XCTAssertNil(viewModel.revealedRecoveryKey)
     XCTAssertEqual(

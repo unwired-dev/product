@@ -6,6 +6,7 @@ import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
+import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
@@ -382,7 +383,11 @@ describe('productAccount.connect', () => {
             updatedAt: now,
           });
         } else if (scenario === 'incomplete legacy snapshot') {
-          for (let index = 0; index <= 100; index += 1) {
+          for (
+            let index = 0;
+            index <= gmailLegacyRouteFallbackLimit;
+            index += 1
+          ) {
             await ctx.db.insert('mailProviderConnections', {
               connectedAt: now,
               lastVerifiedAt: now,

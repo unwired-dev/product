@@ -682,6 +682,13 @@ final class ProductAccountSessionTests: XCTestCase {
   func testAcknowledgingOlderRecoveryKeyDoesNotClearNewerKey() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -689,7 +696,7 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
-      productAccountService: PreviewProductAccountService(response: .preview),
+      productAccountService: PreviewProductAccountService(response: response),
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
     )

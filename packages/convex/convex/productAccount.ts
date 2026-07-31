@@ -19,7 +19,7 @@ import {
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
-const gmailLegacyRouteFallbackLimit = 100;
+export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
 
@@ -362,17 +362,29 @@ async function legacyGmailRouteSnapshot(
   };
 }
 
+type GmailIdentityBindingRouteRequest = Readonly<{
+  legacyRoutes: Readonly<{
+    complete: boolean;
+    opaqueConnectionIds: ReadonlySet<string>;
+  }>;
+  opaqueConnectionId: string;
+  productAccountId: Id<'productAccounts'>;
+}>;
+
+function gmailIdentityBindingStillHasRoute(
+  remainingConnectionExists: boolean,
+  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+): boolean {
+  return (
+    remainingConnectionExists ||
+    !request.legacyRoutes.complete ||
+    request.legacyRoutes.opaqueConnectionIds.has(request.opaqueConnectionId)
+  );
+}
+
 async function deleteGmailIdentityBindingIfOrphaned(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
-  request: Readonly<{
-    legacyRoutes: Readonly<{
-      complete: boolean;
-      opaqueConnectionIds: ReadonlySet<string>;
-    }>;
-    opaqueConnectionId: string;
-    productAccountId: Id<'productAccounts'>;
-  }>,
+  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
 ): Promise<void> {
   const remainingConnection = await ctx.db
     .query('mailProviderConnections')
@@ -384,9 +396,7 @@ async function deleteGmailIdentityBindingIfOrphaned(
     )
     .first();
   if (
-    remainingConnection !== null ||
-    !request.legacyRoutes.complete ||
-    request.legacyRoutes.opaqueConnectionIds.has(request.opaqueConnectionId)
+    gmailIdentityBindingStillHasRoute(remainingConnection !== null, request)
   ) {
     return;
   }

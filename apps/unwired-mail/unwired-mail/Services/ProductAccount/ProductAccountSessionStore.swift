@@ -119,7 +119,8 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     try KeychainStore.writeString(
       recoveryKey,
       service: service,
-      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
+      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId),
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
 
