@@ -22,11 +22,14 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
-    let sourceContent = try sourceContent(in: sourceDocument)
+    let sourceContent = try sourceContent(
+      in: sourceDocument,
+      cancellationCheck: cancellationCheck
+    )
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )
-    try removeElements(matching: MessageHTMLHiddenStylePatterns.preClean, from: sourceDocument)
+    try removePreCleanHiddenElements(from: sourceDocument)
     let documents = try cleanedDocuments(
       from: sourceDocument,
       cancellationCheck: cancellationCheck
@@ -197,14 +200,11 @@ extension MessageHTMLSanitizer {
         return true
       }
     }
-    if let style = try? element.attr("style"),
-      style.range(
-        of: #"(?:^|;)\s*max-(?:width|height)\s*:\s*[+-]?(?:0+(?:\.0*)?|\.0+)"#
-          + #"(?:[a-z%]+)?"#
-          + #"(?:\s*!important)?\s*(?:;|$)"#,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
-    {
+    for property in ["max-width", "max-height"]
+    where InlineImageDimensionPolicy.value(property, in: element)?.range(
+      of: zeroDimensionPattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil {
       return true
     }
     return false

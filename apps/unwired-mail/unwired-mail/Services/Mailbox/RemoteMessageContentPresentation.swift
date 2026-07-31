@@ -3,11 +3,6 @@ import Observation
 import SwiftSoup
 
 enum MessageHTMLHiddenStylePatterns {
-  static let preClean =
-    #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
-    + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
-    + #"(?:\s*!important)?\s*(?:;|$)"#
-
   static let readable =
     #"(?:^|;)\s*(?:display\s*:\s*none|"#
     + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
@@ -17,12 +12,34 @@ enum MessageHTMLHiddenStylePatterns {
     + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
     + #"(?:\s*!important)?\s*(?:;|$)"#
 
+  static func isPreCleanHidden(_ style: String) -> Bool {
+    if ["hidden", "collapse"].contains(effectiveValue("visibility", in: style)) {
+      return true
+    }
+    return effectiveValue("opacity", in: style)?.range(
+      of: #"^(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?$"#,
+      options: .regularExpression
+    ) != nil
+  }
+
   static func isPresentationHidden(_ style: String) -> Bool {
-    var effectiveDeclarations: [String: (value: String, isImportant: Bool)] = [:]
+    if effectiveValue("display", in: style) == "none" { return true }
+    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+    return ["height", "width", "max-width", "max-height"].contains { property in
+      effectiveValue(property, in: style)?.range(
+        of: zeroDimensionPattern,
+        options: .regularExpression
+      ) != nil
+    }
+  }
+
+  private static func effectiveValue(_ targetProperty: String, in style: String) -> String? {
+    var effectiveDeclaration: (value: String, isImportant: Bool)?
     for declaration in style.split(separator: ";") {
       let components = declaration.split(separator: ":", maxSplits: 1)
       guard components.count == 2 else { continue }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      guard property == targetProperty else { continue }
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
       let importantRange = value.range(
         of: #"\s*!important\s*$"#,
@@ -33,18 +50,10 @@ enum MessageHTMLHiddenStylePatterns {
         value.removeSubrange(importantRange)
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
       }
-      if effectiveDeclarations[property]?.isImportant == true, !isImportant { continue }
-      effectiveDeclarations[property] = (value.lowercased(), isImportant)
+      if effectiveDeclaration?.isImportant == true, !isImportant { continue }
+      effectiveDeclaration = (value.lowercased(), isImportant)
     }
-
-    if effectiveDeclarations["display"]?.value == "none" { return true }
-    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
-    return ["height", "width", "max-width", "max-height"].contains { property in
-      effectiveDeclarations[property]?.value.range(
-        of: zeroDimensionPattern,
-        options: .regularExpression
-      ) != nil
-    }
+    return effectiveDeclaration?.value
   }
 }
 
@@ -98,42 +107,6 @@ enum RemoteMessageContentPolicy {
       && url?.host != nil
       && url?.user == nil
       && url?.password == nil
-  }
-}
-
-extension MessageHTMLSanitizer {
-  static func sourceContent(in document: Document) throws -> (
-    hasText: Bool,
-    hasExplicitlyHiddenText: Bool
-  ) {
-    let hasText = try hasReadableText(document.text())
-    let hasExplicitlyHiddenText = try document.select("[hidden], [style]").contains { element in
-      let style = try element.attr("style")
-      let isExplicitlyHidden =
-        element.hasAttr("hidden")
-        || style.range(
-          of: MessageHTMLHiddenStylePatterns.preClean,
-          options: [.regularExpression, .caseInsensitive]
-        ) != nil
-        || style.range(
-          of: MessageHTMLHiddenStylePatterns.readable,
-          options: [.regularExpression, .caseInsensitive]
-        ) != nil
-      guard isExplicitlyHidden else { return false }
-      return try hasReadableText(element.text())
-    }
-    return (hasText, hasExplicitlyHiddenText)
-  }
-
-  static func hasReadableText(_ text: String) -> Bool {
-    let ignoredReadableScalars =
-      CharacterSet.whitespacesAndNewlines
-      .union(.controlCharacters)
-      .union(.nonBaseCharacters)
-    return text.unicodeScalars.contains { scalar in
-      !ignoredReadableScalars.contains(scalar)
-        && scalar.properties.generalCategory != .format
-    }
   }
 }
 

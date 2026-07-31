@@ -1341,6 +1341,41 @@ extension MessageHTMLPresentationTests {
 }
 
 extension MessageHTMLPresentationTests {
+  func testReferencedInlineImagesHonorOverridingMaximumDimensions() {
+    let contentIDs = MessageHTMLSanitizer.referencedInlineImageContentIDs(
+      in: """
+        <img src="cid:normal@example.com" style="max-width: 0; max-width: 600px">
+        <img src="cid:important@example.com"
+             style="max-height: 0; max-height: 600px !important">
+        <img src="cid:hidden@example.com"
+             style="max-width: 0 !important; max-width: 600px">
+        """
+    )
+
+    XCTAssertEqual(contentIDs, ["normal@example.com", "important@example.com"])
+  }
+
+  func testSanitizerHonorsOverridingVisibilityAndOpacityDeclarations() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility: hidden; visibility: visible">Visible text</div>
+        <div style="opacity: 0; opacity: 1 !important">
+          <img src="https://images.example.com/visible.png">
+        </div>
+        <div style="visibility: hidden !important; visibility: visible">Hidden text</div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Visible text"))
+    XCTAssertFalse(result.documentHTML.contains("Hidden text"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerHonorsOverridingMaximumDimensionDeclarations() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1406,6 +1441,23 @@ extension MessageHTMLPresentationTests {
       XCTAssertTrue(error is CancellationError)
     }
     XCTAssertEqual(cancellationChecks, 1)
+  }
+
+  func testSanitizerHandlesDeeplyNestedHiddenTextInOneTraversal() throws {
+    let depth = 2_000
+    let html =
+      String(repeating: #"<div style="visibility: hidden">"#, count: depth)
+      + "Hidden preview"
+      + String(repeating: "</div>", count: depth)
+      + #"<img src="https://images.example.com/hero.png">"#
+
+    let result = try XCTUnwrap(MessageHTMLSanitizer.sanitize(html))
+
+    XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
   }
 }
 
