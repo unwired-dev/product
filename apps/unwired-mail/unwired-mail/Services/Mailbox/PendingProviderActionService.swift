@@ -232,16 +232,25 @@ private struct PendingProviderActionQueueKey: Hashable {
   let productAccountId: String
 }
 
+private struct ReconciledProviderActionEvidence {
+  let connectionId: String
+  let messageIds: Set<String>
+  let productAccountId: String
+}
+
 // swiftlint:disable:next type_body_length
 actor PendingProviderActionService {
   static let shared = PendingProviderActionService()
+
+  private static let maximumReconciledActionEvidenceCount = 1_000
 
   private let failureDisposition: @Sendable (Error) -> PendingProviderActionFailureDisposition
   private let maximumAttempts: Int
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
   private var processingWaiters:
     [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
-  private var reconciledProviderConfirmedMessageIds: [UUID: Set<String>] = [:]
+  private var reconciledActionEvidence: [UUID: ReconciledProviderActionEvidence] = [:]
+  private var reconciledActionEvidenceOrder: [UUID] = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [PendingProviderActionQueueKey: Task<Void, Never>] = [:]
   private let store: PendingProviderActionPersisting
@@ -480,6 +489,7 @@ actor PendingProviderActionService {
     ).details
   }
 
+  // swiftlint:disable:next function_body_length
   func failureLookup(
     _ action: ProviderMailAction,
     selectedActionIds: Set<UUID>? = nil,
@@ -488,15 +498,13 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxProviderActionFailureLookup {
     let reconciledActionIds = Set(
-      selectedActionIds?.filter { reconciledProviderConfirmedMessageIds[$0] != nil } ?? []
+      selectedActionIds?.filter {
+        reconciledActionEvidence[$0]?.connectionId == connection.id.rawValue
+          && reconciledActionEvidence[$0]?.productAccountId == session.productAccountId
+      } ?? []
     )
     let reconciledMessageIds = reconciledActionIds.reduce(into: Set<String>()) {
-      $0.formUnion(reconciledProviderConfirmedMessageIds[$1] ?? [])
-    }
-    defer {
-      for actionId in selectedActionIds ?? [] {
-        reconciledProviderConfirmedMessageIds[actionId] = nil
-      }
+      $0.formUnion(reconciledActionEvidence[$1]?.messageIds ?? [])
     }
     let actions = try store.load(productAccountId: session.productAccountId)
       .filter {
@@ -529,11 +537,19 @@ actor PendingProviderActionService {
       }
     let matchedPendingActionIds = Set(latestActionByMessageId.values.map(\.id))
       .union(reconciledActionIds)
+    let coversSelectedMessageIds =
+      selectedActionIds != nil
+      && Set(latestActionByMessageId.keys).union(reconciledMessageIds) == messageIds
+      && matchedPendingActionIds == selectedActionIds
+      && latestActionByMessageId.values.allSatisfy { $0.state != .pending }
+    if coversSelectedMessageIds, let selectedActionIds {
+      for actionId in selectedActionIds {
+        reconciledActionEvidence[actionId] = nil
+      }
+      reconciledActionEvidenceOrder.removeAll { selectedActionIds.contains($0) }
+    }
     return MailboxProviderActionFailureLookup(
-      coversSelectedMessageIds: selectedActionIds != nil
-        && Set(latestActionByMessageId.keys).union(reconciledMessageIds) == messageIds
-        && matchedPendingActionIds == selectedActionIds
-        && latestActionByMessageId.values.allSatisfy { $0.state != .pending },
+      coversSelectedMessageIds: coversSelectedMessageIds,
       details: details,
       matchedPendingActionIds: matchedPendingActionIds
     )
@@ -594,16 +610,25 @@ actor PendingProviderActionService {
     )
     let removedActionIds = confirmedActionIds.union(supersededActionIds)
       .union(contradictedActionIds)
-    let removedProviderConfirmedActions = actions.filter {
-      $0.state == .providerConfirmed && removedActionIds.contains($0.id)
-    }
+    let reconciledSuccessfulActions = actions.filter { confirmedActionIds.contains($0.id) }
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && removedActionIds.contains($0.id)
     }
     try store.save(actions, productAccountId: session.productAccountId)
-    for action in removedProviderConfirmedActions {
-      reconciledProviderConfirmedMessageIds[action.id] = Set(action.messageIds)
+    for action in reconciledSuccessfulActions {
+      if reconciledActionEvidence[action.id] == nil {
+        reconciledActionEvidenceOrder.append(action.id)
+      }
+      reconciledActionEvidence[action.id] = ReconciledProviderActionEvidence(
+        connectionId: action.connectionId,
+        messageIds: Set(action.messageIds),
+        productAccountId: action.productAccountId
+      )
+    }
+    while reconciledActionEvidence.count > Self.maximumReconciledActionEvidenceCount {
+      let oldestActionId = reconciledActionEvidenceOrder.removeFirst()
+      reconciledActionEvidence[oldestActionId] = nil
     }
   }
 
@@ -647,6 +672,10 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws {
     retryTasks.removeValue(forKey: queueKey(connection: connection, session: session))?.cancel()
+    clearReconciledActionEvidence {
+      $0.connectionId == connection.id.rawValue
+        && $0.productAccountId == session.productAccountId
+    }
     var actions = try store.load(productAccountId: session.productAccountId)
     actions.removeAll { $0.connectionId == connection.id.rawValue }
     try store.save(actions, productAccountId: session.productAccountId)
@@ -659,7 +688,21 @@ actor PendingProviderActionService {
     for key in sessionKeys {
       retryTasks.removeValue(forKey: key)?.cancel()
     }
+    clearReconciledActionEvidence { $0.productAccountId == session.productAccountId }
     try store.save([], productAccountId: session.productAccountId)
+  }
+
+  private func clearReconciledActionEvidence(
+    where shouldRemove: (ReconciledProviderActionEvidence) -> Bool
+  ) {
+    let actionIds = Set(
+      reconciledActionEvidence.compactMap { actionId, evidence in
+        shouldRemove(evidence) ? actionId : nil
+      })
+    for actionId in actionIds {
+      reconciledActionEvidence[actionId] = nil
+    }
+    reconciledActionEvidenceOrder.removeAll { actionIds.contains($0) }
   }
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length

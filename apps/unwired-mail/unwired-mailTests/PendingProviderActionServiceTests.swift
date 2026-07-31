@@ -193,6 +193,95 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
   }
 
+  func testFailureLookupRetainsEvidenceUntilSelectionIsCovered() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let reconciledMessage = pendingActionMessage(
+      providerMessageId: "reconciled-success",
+      providerStateIds: ["INBOX"]
+    )
+    let pendingMessage = pendingActionMessage(
+      providerMessageId: "pending-success",
+      providerStateIds: ["INBOX"]
+    )
+    let selection = try await service.enqueue(
+      .archive,
+      messages: [reconciledMessage, pendingMessage],
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    actions[0].state = .providerConfirmed
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: [reconciledMessage, pendingMessage],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, messageIds in
+        messageIds == [reconciledMessage.providerMessageId]
+      }
+    )
+
+    let messageIds = Set([reconciledMessage.providerMessageId, pendingMessage.providerMessageId])
+    let partialLookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: messageIds,
+      connection: connection,
+      session: session
+    )
+    XCTAssertFalse(partialLookup.coversSelectedMessageIds)
+
+    actions = try store.load(productAccountId: session.productAccountId)
+    actions[0].state = .providerConfirmed
+    try store.save(actions, productAccountId: session.productAccountId)
+    let completeLookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: messageIds,
+      connection: connection,
+      session: session
+    )
+    XCTAssertTrue(completeLookup.coversSelectedMessageIds)
+    XCTAssertEqual(completeLookup.details, [])
+    XCTAssertEqual(completeLookup.matchedPendingActionIds, selection.pendingActionIds)
+  }
+
+  func testFailureLookupRetainsReconciledUserActionRequiredSuccess() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "reconciled-blocked-success",
+      providerStateIds: ["INBOX"]
+    )
+    let selection = try await service.enqueue(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    actions[0].state = .userActionRequired
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in true }
+    )
+
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: [message.providerMessageId],
+      connection: connection,
+      session: session
+    )
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details, [])
+    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+  }
+
   func testPendingActionsResumeInOrderAfterRestart() async throws {
     let store = InMemoryPendingProviderActionStore()
     let firstService = PendingProviderActionService(
