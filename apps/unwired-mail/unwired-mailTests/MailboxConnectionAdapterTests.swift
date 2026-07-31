@@ -5592,7 +5592,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       productAccountId: session.productAccountId
     )
     let viewModel = GmailMailActionViewModel(
-      service: ConnectionPendingActionFailureService(),
+      service: ConnectionPendingActionFailureService(
+        selectedFailureDetails: [],
+        coversSelectedMessageIds: false
+      ),
       session: session
     )
 
@@ -5608,6 +5611,91 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed."
     )
+  }
+
+  func testMailActionViewModelIgnoresUnrelatedConnectionErrorForSuccessfulBulkBatch() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(
+        resumeError: "An older pending action failed.",
+        selectedFailureDetails: []
+      ),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertTrue(result?.failures.isEmpty ?? false)
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
+  func testMailActionViewModelPrefersConnectionErrorWhenFailureLookupIsIncomplete() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let messageId = StableProviderMessageIdentity(
+      connectionId: connection.id,
+      providerMessageId: "message-first"
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(
+        selectedFailureDetails: [
+          MailboxProviderActionFailureDetail(
+            description: "A matched action failed.",
+            messageIds: [messageId]
+          )
+        ],
+        coversSelectedMessageIds: false
+      ),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.messageIds), [[messageId]])
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      "first@example.com — Subject message-first "
+        + "[gmail:gmail-user-001:message-first]: The provider connection failed."
+    )
+  }
+
+  func testMailActionViewModelIgnoresUnrelatedRetryErrorForSuccessfulBulkBatch() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(
+        resumeError: nil,
+        retryError: "An older pending action failed.",
+        selectedFailureDetails: []
+      ),
+      session: session
+    )
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    XCTAssertTrue(result?.failures.isEmpty ?? false)
+    XCTAssertNil(viewModel.errorMessage)
   }
 
   func testMailActionViewModelLeavesBulkActionsEnqueuedDuringHistoricalBackfill() async {
@@ -5791,6 +5879,36 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       "first@example.com — Subject message-first "
         + "[gmail:gmail-user-001:message-first]: The provider connection failed."
     )
+  }
+
+  func testMailActionViewModelIgnoresUnrelatedDeferredConnectionError() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion reported")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeError: "An older pending action failed.",
+      failedConnectionId: connection.id,
+      selectedFailureDetails: []
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)],
+      deferredPendingActionConnectionIds: [connection.id],
+      onDeferredCompletion: { _ in
+        deferredCompletion.fulfill()
+      }
+    )
+
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
+    XCTAssertNil(viewModel.errorMessage)
   }
 
   func testMailActionViewModelAggregatesDeferredBulkResumeFailures() async {
@@ -8300,6 +8418,25 @@ private actor RetryableBulkMailActionService: MailboxProviderMailActing {
 }
 
 private struct ConnectionPendingActionFailureService: MailboxProviderMailActing {
+  let coversSelectedMessageIds: Bool
+  let resumeError: String?
+  let retryError: String?
+  let selectedFailureDetails: [MailboxProviderActionFailureDetail]?
+  let trackedSelection: MailboxProviderActionSelection
+
+  init(
+    resumeError: String? = "The provider connection failed.",
+    retryError: String? = nil,
+    selectedFailureDetails: [MailboxProviderActionFailureDetail]? = nil,
+    coversSelectedMessageIds: Bool = true
+  ) {
+    self.coversSelectedMessageIds = coversSelectedMessageIds
+    self.resumeError = resumeError
+    self.retryError = retryError
+    self.selectedFailureDetails = selectedFailureDetails
+    trackedSelection = MailboxProviderActionSelection(pendingActionIds: [UUID()])
+  }
+
   func perform(
     _: ProviderMailAction,
     messages _: [MailboxMessageMetadata],
@@ -8307,11 +8444,31 @@ private struct ConnectionPendingActionFailureService: MailboxProviderMailActing 
     session _: ProductAccountSessionSnapshot
   ) async throws {}
 
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _: ProviderMailAction,
+    sourceProviderMailboxId _: String?,
+    targetProviderMailboxId _: String?,
+    targetProviderStateIds _: Set<String>,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
+    trackedSelection
+  }
+
   func resumePendingActions(
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async -> String? {
-    "The provider connection failed."
+    resumeError
+  }
+
+  func waitForPendingActionRetries(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    retryError
   }
 
   func pendingActionFailureDetails(
@@ -8320,7 +8477,23 @@ private struct ConnectionPendingActionFailureService: MailboxProviderMailActing 
     connection _: MailboxConnection,
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxProviderActionFailureDetail]? {
-    []
+    selectedFailureDetails
+  }
+
+  func pendingActionFailureLookup(
+    _: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    guard selection == trackedSelection, let selectedFailureDetails else { return nil }
+    return MailboxProviderActionFailureLookup(
+      coversSelectedMessageIds: coversSelectedMessageIds,
+      details: selectedFailureDetails,
+      matchedPendingActionIds: coversSelectedMessageIds
+        ? trackedSelection.pendingActionIds : []
+    )
   }
 
   func send(
@@ -8340,6 +8513,8 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   private let resumeError: String?
   private let resumeErrorConnectionId: MailboxConnectionId?
   private let resumeStarted: XCTestExpectation
+  private let selectedFailureDetails: [MailboxProviderActionFailureDetail]?
+  private let trackedSelection = MailboxProviderActionSelection(pendingActionIds: [UUID()])
   private var recordedResumeWasCancelled = false
   private let suspendsResumeUntilCancelled: Bool
 
@@ -8353,6 +8528,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     performFailureConnectionId: MailboxConnectionId? = nil,
     resumeGate: AdapterLifecycleOperationGate? = nil,
     gatedResumeConnectionId: MailboxConnectionId? = nil,
+    selectedFailureDetails: [MailboxProviderActionFailureDetail]? = nil,
     suspendsResumeUntilCancelled: Bool = false
   ) {
     self.blockedConnectionIds = blockedConnectionIds
@@ -8366,6 +8542,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     self.resumeError = resumeError
     self.resumeErrorConnectionId = resumeErrorConnectionId
     self.resumeStarted = resumeStarted
+    self.selectedFailureDetails = selectedFailureDetails
     self.suspendsResumeUntilCancelled = suspendsResumeUntilCancelled
   }
 
@@ -8378,6 +8555,20 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     if connection.id == performFailureConnectionId {
       throw AdapterTestError.unavailable
     }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId _: String?,
+    targetProviderMailboxId _: String?,
+    targetProviderStateIds _: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
+    try await perform(action, messages: messages, connection: connection, session: session)
+    return trackedSelection
   }
 
   func resumePendingActions(
@@ -8406,6 +8597,30 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxConnectionId] {
     return connections.map(\.id).filter { failedConnectionIds.contains($0) }
+  }
+
+  func pendingActionFailureDetails(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxProviderActionFailureDetail]? {
+    selectedFailureDetails
+  }
+
+  func pendingActionFailureLookup(
+    _: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    guard selection == trackedSelection, let selectedFailureDetails else { return nil }
+    return MailboxProviderActionFailureLookup(
+      coversSelectedMessageIds: true,
+      details: selectedFailureDetails,
+      matchedPendingActionIds: trackedSelection.pendingActionIds
+    )
   }
 
   func blockedPendingActionConnectionIds(

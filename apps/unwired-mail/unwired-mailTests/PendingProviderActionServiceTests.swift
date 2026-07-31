@@ -93,7 +93,8 @@ final class PendingProviderActionServiceTests: XCTestCase {
   }
 
   func testFailureDetailsExcludePendingActions() async throws {
-    let service = PendingProviderActionService(store: InMemoryPendingProviderActionStore())
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
     let message = pendingActionMessage(
       providerMessageId: "message-pending",
       providerStateIds: ["INBOX"]
@@ -114,8 +115,30 @@ final class PendingProviderActionServiceTests: XCTestCase {
       connection: connection,
       session: session
     )
-
+    let selectedActionIds = try Set(
+      store.load(productAccountId: session.productAccountId).map(\.id)
+    )
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selectedActionIds,
+      messageIds: [message.providerMessageId],
+      connection: connection,
+      session: session
+    )
+    let missingLookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selectedActionIds,
+      messageIds: ["message-missing"],
+      connection: connection,
+      session: session
+    )
     XCTAssertEqual(details, [])
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details, [])
+    XCTAssertEqual(lookup.matchedPendingActionIds, selectedActionIds)
+    XCTAssertFalse(missingLookup.coversSelectedMessageIds)
+    XCTAssertEqual(missingLookup.details, [])
+    XCTAssertEqual(missingLookup.matchedPendingActionIds, [])
   }
 
   func testPendingActionsResumeInOrderAfterRestart() async throws {

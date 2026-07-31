@@ -2262,6 +2262,27 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    _ = try await performTracked(
+      action,
+      sourceProviderMailboxId: nil,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId _: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
     try await syncGate.withLock(connection.id) {
       _ = try await authorizationForProviderAccess(
         connection,
@@ -2278,7 +2299,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
       {
         throw MailboxConnectionAdapterError.unsupportedCapability
       }
-      try await pendingActionService.enqueue(
+      return try await pendingActionService.enqueue(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
         targetProviderStateIds: targetProviderStateIds,
@@ -2401,6 +2422,22 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async -> [MailboxProviderActionFailureDetail]? {
     try? await pendingActionService.failureDetails(
       action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    try? await pendingActionService.failureLookup(
+      action,
+      selectedActionIds: selection?.pendingActionIds,
       messageIds: Set(messages.map(\.providerMessageId)),
       connection: connection,
       session: session
@@ -2617,7 +2654,7 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
-  // swiftlint:disable:next cyclomatic_complexity
+  // swiftlint:disable:next cyclomatic_complexity function_parameter_count
   private func applyConfirmedAction(
     _ action: ProviderMailAction,
     targetFolderId: String?,

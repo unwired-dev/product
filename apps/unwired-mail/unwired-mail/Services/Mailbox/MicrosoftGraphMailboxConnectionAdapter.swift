@@ -3274,6 +3274,27 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    _ = try await performTracked(
+      action,
+      sourceProviderMailboxId: nil,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: [],
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId _: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds _: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
     try await syncGate.withLock(connection.id) {
       _ = try await accessToken(
         connection: connection,
@@ -3283,7 +3304,7 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
       guard connection.capabilities.supports(action) else {
         throw MailboxConnectionAdapterError.unsupportedCapability
       }
-      try await pendingActionService.enqueue(
+      return try await pendingActionService.enqueue(
         action,
         targetProviderMailboxId: targetProviderMailboxId,
         messages: messages,
@@ -3400,6 +3421,22 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async -> [MailboxProviderActionFailureDetail]? {
     try? await pendingActionService.failureDetails(
       action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    try? await pendingActionService.failureLookup(
+      action,
+      selectedActionIds: selection?.pendingActionIds,
       messageIds: Set(messages.map(\.providerMessageId)),
       connection: connection,
       session: session

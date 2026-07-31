@@ -268,7 +268,7 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot,
     provider: @escaping PendingProviderActionPerformer
   ) async throws {
-    try enqueue(
+    _ = try enqueue(
       action,
       sourceProviderMailboxId: sourceProviderMailboxId,
       targetProviderMailboxId: targetProviderMailboxId,
@@ -291,8 +291,10 @@ actor PendingProviderActionService {
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
-  ) throws {
-    guard !messages.isEmpty else { return }
+  ) throws -> MailboxProviderActionSelection {
+    guard !messages.isEmpty else {
+      return MailboxProviderActionSelection(pendingActionIds: [])
+    }
     guard connection.productAccountId.rawValue == session.productAccountId else {
       throw PendingProviderActionError.productAccountMismatch
     }
@@ -301,28 +303,30 @@ actor PendingProviderActionService {
     }
     var actions = try store.load(productAccountId: session.productAccountId)
     var nextSequence = (actions.map(\.sequence).max() ?? 0) + 1
+    var pendingActionIds: Set<UUID> = []
     for message in messages {
-      actions.append(
-        PendingProviderAction(
-          action: action,
-          attemptCount: 0,
-          connectionId: connection.id.rawValue,
-          id: UUID(),
-          lastErrorDescription: nil,
-          messageIds: [message.providerMessageId],
-          productAccountId: session.productAccountId,
-          providerId: connection.providerId.rawValue,
-          providerMailboxIdentity: connection.providerMailboxIdentity.value,
-          sequence: nextSequence,
-          sourceProviderMailboxId: sourceProviderMailboxId,
-          state: .pending,
-          targetProviderMailboxId: targetProviderMailboxId,
-          targetProviderStateIds: targetProviderStateIds
-        )
+      let pendingAction = PendingProviderAction(
+        action: action,
+        attemptCount: 0,
+        connectionId: connection.id.rawValue,
+        id: UUID(),
+        lastErrorDescription: nil,
+        messageIds: [message.providerMessageId],
+        productAccountId: session.productAccountId,
+        providerId: connection.providerId.rawValue,
+        providerMailboxIdentity: connection.providerMailboxIdentity.value,
+        sequence: nextSequence,
+        sourceProviderMailboxId: sourceProviderMailboxId,
+        state: .pending,
+        targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds
       )
+      actions.append(pendingAction)
+      pendingActionIds.insert(pendingAction.id)
       nextSequence += 1
     }
     try store.save(actions, productAccountId: session.productAccountId)
+    return MailboxProviderActionSelection(pendingActionIds: pendingActionIds)
   }
 
   func project(
@@ -467,9 +471,25 @@ actor PendingProviderActionService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws -> [MailboxProviderActionFailureDetail] {
+    try failureLookup(
+      action,
+      messageIds: messageIds,
+      connection: connection,
+      session: session
+    ).details
+  }
+
+  func failureLookup(
+    _ action: ProviderMailAction,
+    selectedActionIds: Set<UUID>? = nil,
+    messageIds: Set<String>,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> MailboxProviderActionFailureLookup {
     let actions = try store.load(productAccountId: session.productAccountId)
       .filter {
         $0.action == action && $0.connectionId == connection.id.rawValue
+          && (selectedActionIds == nil || selectedActionIds?.contains($0.id) == true)
           && !Set($0.messageIds).isDisjoint(with: messageIds)
       }
       .sorted { $0.sequence < $1.sequence }
@@ -479,20 +499,29 @@ actor PendingProviderActionService {
         latestActionByMessageId[messageId] = pendingAction
       }
     }
-    return latestActionByMessageId.keys.sorted().compactMap { messageId in
-      guard let pendingAction = latestActionByMessageId[messageId],
-        pendingAction.state == .failed || pendingAction.state == .userActionRequired
-      else { return nil }
-      return MailboxProviderActionFailureDetail(
-        description: pendingAction.lastErrorDescription ?? "Waiting for an earlier pending action.",
-        messageIds: [
-          StableProviderMessageIdentity(
-            connectionId: connection.id,
-            providerMessageId: messageId
-          )
-        ]
-      )
-    }
+    let details: [MailboxProviderActionFailureDetail] =
+      latestActionByMessageId.keys.sorted().compactMap { messageId in
+        guard let pendingAction = latestActionByMessageId[messageId],
+          pendingAction.state == .failed || pendingAction.state == .userActionRequired
+        else { return nil }
+        return MailboxProviderActionFailureDetail(
+          description: pendingAction.lastErrorDescription
+            ?? "Waiting for an earlier pending action.",
+          messageIds: [
+            StableProviderMessageIdentity(
+              connectionId: connection.id,
+              providerMessageId: messageId
+            )
+          ]
+        )
+      }
+    return MailboxProviderActionFailureLookup(
+      coversSelectedMessageIds: selectedActionIds != nil
+        && Set(latestActionByMessageId.keys) == messageIds
+        && Set(latestActionByMessageId.values.map(\.id)) == selectedActionIds,
+      details: details,
+      matchedPendingActionIds: Set(latestActionByMessageId.values.map(\.id))
+    )
   }
 
   func reconcileProviderSync(
