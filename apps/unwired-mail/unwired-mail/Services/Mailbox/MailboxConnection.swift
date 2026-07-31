@@ -2482,47 +2482,60 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         session: session,
         connectionIsLocked: true
       )
-      let recentSync = try await metadataService.syncRecentInbox(
-        connection: gmailConnection,
-        includingHistoryCandidates: includingHistoryCandidates,
-        session: session,
-        sinceHistoryId: sinceHistoryId,
-        throughHistoryId: throughHistoryId,
-        shouldPersist: shouldPersist
-      )
-      let observedMessages = try await metadataService.loadMailbox(
-        .allObserved,
-        connection: gmailConnection,
-        session: session
-      )
-      try await reconcileAndResumePendingActions(
-        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
-        removesContradictedActions: recentSync.historicalMetadataBackfillIsComplete,
-        connection: connection,
-        session: session
-      )
-      let projectedInbox = try await pendingActionService.project(
-        observedMessages.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
-        connection: connection,
-        session: session
-      )
-      _ = try await metadataService.loadMailbox(
-        .role(.inbox),
-        connection: gmailConnection,
-        session: session
-      )
-      return MailboxMetadataSyncResult(
-        hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
-        messages: projectedInbox.messages,
-        newMessageIds: recentSync.newMessageIds,
-        providerCursorIsExpired: recentSync.historyIsExpired,
-        threads: projectedInbox.threads,
-        hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
-        historicalMetadataBackfillCanResume:
-          projectedInbox.historicalMetadataBackfillCanResume,
-        historicalMetadataBackfillIsComplete: projectedInbox.historicalMetadataBackfillIsComplete
-      )
+      do {
+        let recentSync = try await metadataService.syncRecentInbox(
+          connection: gmailConnection,
+          includingHistoryCandidates: includingHistoryCandidates,
+          session: session,
+          sinceHistoryId: sinceHistoryId,
+          throughHistoryId: throughHistoryId,
+          shouldPersist: shouldPersist
+        )
+        let observedMessages = try await metadataService.loadMailbox(
+          .allObserved,
+          connection: gmailConnection,
+          session: session
+        )
+        try await reconcileAndResumePendingActions(
+          messages: observedMessages.messages.map {
+            $0.mailboxMetadata(connectionId: connection.id)
+          },
+          removesContradictedActions: recentSync.historicalMetadataBackfillIsComplete,
+          connection: connection,
+          session: session
+        )
+        let projectedInbox = try await pendingActionService.project(
+          observedMessages.mailboxResult(connectionId: connection.id),
+          collection: .role(.inbox),
+          connection: connection,
+          session: session
+        )
+        _ = try await metadataService.loadMailbox(
+          .role(.inbox),
+          connection: gmailConnection,
+          session: session
+        )
+        return MailboxMetadataSyncResult(
+          hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
+          messages: projectedInbox.messages,
+          newMessageIds: recentSync.newMessageIds,
+          providerCursorIsExpired: recentSync.historyIsExpired,
+          threads: projectedInbox.threads,
+          hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
+          historicalMetadataBackfillCanResume:
+            projectedInbox.historicalMetadataBackfillCanResume,
+          historicalMetadataBackfillIsComplete:
+            projectedInbox.historicalMetadataBackfillIsComplete
+        )
+      } catch {
+        let failure = error
+        await recoverCompletedBackfillAfterFailedPreemption(
+          connection: connection,
+          gmailConnection: gmailConnection,
+          session: session
+        )
+        throw failure
+      }
     }
   }
 
@@ -3177,6 +3190,30 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session,
       connectionIsLocked: true
     )
+  }
+
+  private func recoverCompletedBackfillAfterFailedPreemption(
+    connection: MailboxConnection,
+    gmailConnection: GmailProviderConnectionStatus,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    let recovery = Task {
+      let observedMessages = try await metadataService.loadMailbox(
+        .allObserved,
+        connection: gmailConnection,
+        session: session
+      )
+      guard observedMessages.historicalMetadataBackfillIsComplete else { return }
+      try await reconcileAndResumePendingActions(
+        messages: observedMessages.messages.map {
+          $0.mailboxMetadata(connectionId: connection.id)
+        },
+        removesContradictedActions: true,
+        connection: connection,
+        session: session
+      )
+    }
+    _ = try? await recovery.value
   }
 
   private func performProviderAction(

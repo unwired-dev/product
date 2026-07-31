@@ -19,6 +19,7 @@ enum MailboxSyncNotificationUserInfoKey {
   static let reloadObservedMetadata = "reloadObservedMetadata"
   static let successfulSyncAt = "successfulSyncAt"
   static let supersedesHistoricalBackfill = "supersedesHistoricalBackfill"
+  static let updatesExternalStatusRevision = "updatesExternalStatusRevision"
 }
 
 @MainActor
@@ -340,14 +341,17 @@ final class MailboxFreshnessViewModel {
     connectionIdRawValue: String,
     phase: MailboxSyncPhase,
     successfulSyncAt: Date?,
-    supersedesHistoricalBackfill: Bool = true
+    supersedesHistoricalBackfill: Bool = true,
+    updatesExternalStatusRevision: Bool = true
   ) {
     guard
       let connection = knownConnections.values.first(where: {
         $0.id.rawValue == connectionIdRawValue
       })
     else { return }
-    externalStatusRevisions[connection.id, default: 0] += 1
+    if updatesExternalStatusRevision {
+      externalStatusRevisions[connection.id, default: 0] += 1
+    }
     if supersedesHistoricalBackfill {
       externalSyncRevisions[connection.id, default: 0] += 1
     }
@@ -454,6 +458,7 @@ final class MailboxFreshnessViewModel {
       MailboxSyncNotificationUserInfoKey.productAccountId: session.productAccountId,
       MailboxSyncNotificationUserInfoKey.reloadObservedMetadata: true,
       MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill: false,
+      MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision: false,
     ]
     if let successfulSyncAt = status.lastSuccessfulSyncAt {
       userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
@@ -1467,6 +1472,11 @@ struct AccountView: View {
         supersedesHistoricalBackfill:
           notification.userInfo?[
             MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+          ] as? Bool
+          ?? true,
+        updatesExternalStatusRevision:
+          notification.userInfo?[
+            MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision
           ] as? Bool
           ?? true
       )

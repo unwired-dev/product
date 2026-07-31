@@ -3628,6 +3628,66 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(eventLog.events.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
+  func testGmailAdapterFailedRecentSyncRecoversCompletedCancelledBackfill() async throws {
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let metadataService = RecordingAdapterMetadataService()
+    var staleGmailMessage = adapterGmailMessage
+    staleGmailMessage.providerLabelIds = ["INBOX"]
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      historicalMetadataBackfillIsComplete: true,
+      messages: [staleGmailMessage],
+      threads: GmailInboxThread.group([staleGmailMessage])
+    )
+    metadataService.cancelsAfterHistoricalBackfill = true
+    metadataService.failsRecentSync = true
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService,
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    try await pendingActionService.perform(
+      .archive,
+      messages: [staleGmailMessage.mailboxMetadata(connectionId: connection.id)],
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in }
+
+    do {
+      _ = try await adapter.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+      XCTFail("Expected final-page cancellation before pending-action reconciliation")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+
+    do {
+      _ = try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: true,
+        session: session,
+        sinceHistoryId: "10",
+        throughHistoryId: "11",
+        shouldPersist: { true }
+      )
+      XCTFail("Expected the recent sync to fail")
+    } catch AdapterTestError.unavailable {
+    } catch {
+      XCTFail("Expected provider failure, got \(error)")
+    }
+
+    let actions = try await pendingActionService.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
   func testGmailAdapterStaleRecentSyncDoesNotPreemptHistoricalBackfill() async throws {
     let backfillStarted = expectation(description: "historical backfill started")
     let priorityProbe = AdapterSyncPriorityProbe(
@@ -7052,6 +7112,7 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
   private let loadGate: AdapterLifecycleOperationGate?
   private let syncPriorityProbe: AdapterSyncPriorityProbe?
   var cancelsAfterHistoricalBackfill = false
+  var failsRecentSync = false
   var inboxProjectionCandidateMessageIds: Set<String> = []
   var loadedConnection: GmailProviderConnectionStatus?
   var loadedCollections: [MailboxMessageCollection] = []
@@ -7150,6 +7211,9 @@ private final class RecordingAdapterMetadataService: GmailMessageMetadataSyncing
     shouldPersist _: @escaping () -> Bool
   ) async throws -> GmailMetadataSyncResult {
     await syncPriorityProbe?.recordRecentSync()
+    if failsRecentSync {
+      throw AdapterTestError.unavailable
+    }
     return recentSyncResult
   }
 

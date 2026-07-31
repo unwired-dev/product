@@ -159,6 +159,11 @@ struct EmailAccountsSettingsView: View {
           notification.userInfo?[
             MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
           ] as? Bool
+          ?? true,
+        updatesExternalStatusRevision:
+          notification.userInfo?[
+            MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision
+          ] as? Bool
           ?? true
       )
     }
