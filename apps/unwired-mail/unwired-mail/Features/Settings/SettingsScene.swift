@@ -1020,22 +1020,32 @@ final class AccountAndDevicesViewModel {
     defer { isWorking = false }
     do {
       let identityToken = try await recentIdentityToken()
+      var publicationError: Error?
+      let retainPublishedRecoveryKey = { (recoveryKey: String) in
+        do {
+          try recoveryKeyPublished(recoveryKey)
+        } catch {
+          publicationError = error
+        }
+      }
       let recoveryKey =
         if recoveryKeyStatus == .current, !replacingCurrent {
           try await service.revealCurrentRecoveryKey(
             session: session,
-            recentIdentityToken: identityToken
+            recentIdentityToken: identityToken,
+            recoveryKeyPublished: retainPublishedRecoveryKey
           )
         } else {
           try await service.replaceRecoveryKey(
             session: session,
             recentIdentityToken: identityToken,
-            isSessionCurrent: isSessionCurrent
+            isSessionCurrent: isSessionCurrent,
+            recoveryKeyPublished: retainPublishedRecoveryKey
           )
         }
       recoveryKeyStatus = .current
       revealedRecoveryKey = recoveryKey.rawValue
-      try recoveryKeyPublished(recoveryKey.rawValue)
+      if let publicationError { throw publicationError }
       errorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -1319,7 +1329,7 @@ extension AccountAndDevicesSettingsView {
           }
         }
         Text(
-          "Last active "
+          "Last connected "
             + Date(timeIntervalSince1970: Double(device.lastSeenAt) / 1_000)
             .formatted(date: .abbreviated, time: .shortened)
         )
@@ -1415,6 +1425,7 @@ private struct RecoveryKeyPresentation: View {
             .font(.body.monospaced())
             .textSelection(.enabled)
             .accessibilityLabel("New Recovery Key")
+            .accessibilityValue(recoveryKey)
         }
         Section {
           Text(

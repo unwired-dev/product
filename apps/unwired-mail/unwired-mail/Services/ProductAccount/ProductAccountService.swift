@@ -294,7 +294,8 @@ final class AccountAndDevicesService {
   func replaceRecoveryKey(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: String,
-    isSessionCurrent: () -> Bool = { true }
+    isSessionCurrent: () -> Bool = { true },
+    recoveryKeyPublished: (String) -> Void = { _ in }
   ) async throws -> ProductSyncRecoveryKey {
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId
@@ -305,6 +306,7 @@ final class AccountAndDevicesService {
         recentIdentityToken: recentIdentityToken,
         isSessionCurrent: isSessionCurrent
       )
+      recoveryKeyPublished(recoveryKey.rawValue)
       await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId
       )
@@ -398,7 +400,8 @@ final class AccountAndDevicesService {
 
   func revealCurrentRecoveryKey(
     session: ProductAccountSessionSnapshot,
-    recentIdentityToken: String
+    recentIdentityToken: String,
+    recoveryKeyPublished: (String) -> Void = { _ in }
   ) async throws -> ProductSyncRecoveryKey {
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId
@@ -408,6 +411,7 @@ final class AccountAndDevicesService {
         session: session,
         recentIdentityToken: recentIdentityToken
       )
+      recoveryKeyPublished(recoveryKey.rawValue)
       await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId
       )

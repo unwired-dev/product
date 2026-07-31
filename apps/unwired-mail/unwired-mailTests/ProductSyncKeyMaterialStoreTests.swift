@@ -490,10 +490,12 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       recoveryTransport: transport
     )
 
+    var retainedRecoveryKeys: [String] = []
     let firstReplacement = Task {
       try await firstService.replaceRecoveryKey(
         session: session,
-        recentIdentityToken: "first-token"
+        recentIdentityToken: "first-token",
+        recoveryKeyPublished: { retainedRecoveryKeys.append($0) }
       )
     }
     await writeGate.waitUntilFirstWriteStarted()
@@ -502,7 +504,8 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       secondStarted.fulfill()
       return try await secondService.replaceRecoveryKey(
         session: session,
-        recentIdentityToken: "second-token"
+        recentIdentityToken: "second-token",
+        recoveryKeyPublished: { retainedRecoveryKeys.append($0) }
       )
     }
 
@@ -519,6 +522,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     XCTAssertNotEqual(firstRecoveryKey, secondRecoveryKey)
     XCTAssertEqual(saved.recoveryKey, secondRecoveryKey)
+    XCTAssertEqual(retainedRecoveryKeys, [firstRecoveryKey.rawValue, secondRecoveryKey.rawValue])
     XCTAssertEqual(transport.recoveryReadCount, 2)
   }
 
