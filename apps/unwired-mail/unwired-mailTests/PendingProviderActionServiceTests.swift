@@ -92,7 +92,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertFalse(projected.historicalMetadataBackfillCanResume)
   }
 
-  func testFailureDetailsExcludePendingActions() async throws {
+  func testFailureLookupDoesNotCoverPendingSelectedActions() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)
     let message = pendingActionMessage(
@@ -133,7 +133,7 @@ final class PendingProviderActionServiceTests: XCTestCase {
       session: session
     )
     XCTAssertEqual(details, [])
-    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertFalse(lookup.coversSelectedMessageIds)
     XCTAssertEqual(lookup.details, [])
     XCTAssertEqual(lookup.matchedPendingActionIds, selectedActionIds)
     XCTAssertFalse(missingLookup.coversSelectedMessageIds)

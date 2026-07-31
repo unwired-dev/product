@@ -518,7 +518,8 @@ actor PendingProviderActionService {
     return MailboxProviderActionFailureLookup(
       coversSelectedMessageIds: selectedActionIds != nil
         && Set(latestActionByMessageId.keys) == messageIds
-        && Set(latestActionByMessageId.values.map(\.id)) == selectedActionIds,
+        && Set(latestActionByMessageId.values.map(\.id)) == selectedActionIds
+        && latestActionByMessageId.values.allSatisfy { $0.state != .pending },
       details: details,
       matchedPendingActionIds: Set(latestActionByMessageId.values.map(\.id))
     )
