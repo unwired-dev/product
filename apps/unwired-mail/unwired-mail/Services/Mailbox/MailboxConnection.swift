@@ -359,7 +359,7 @@ extension MailboxConnectionSyncGate {
 
   func withPreemptingLock<T>(
     _ connectionId: MailboxConnectionId,
-    didBeginPreemption: () -> Void = {},
+    didBeginPreemption: (Bool) -> Void = { _ in },
     operation: () async throws -> T
   ) async throws -> T {
     try Task.checkCancellation()
@@ -368,8 +368,9 @@ extension MailboxConnectionSyncGate {
       let remainingCount = preemptionRequestCounts[connectionId, default: 0] - 1
       preemptionRequestCounts[connectionId] = remainingCount > 0 ? remainingCount : nil
     }
-    didBeginPreemption()
-    activePreemptibleOperations[connectionId]?.cancel()
+    let activePreemptibleOperation = activePreemptibleOperations[connectionId]
+    didBeginPreemption(activePreemptibleOperation != nil)
+    activePreemptibleOperation?.cancel()
     guard await acquire(Self.allConnectionsId, mode: .shared) else {
       throw CancellationError()
     }
@@ -2473,9 +2474,14 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async throws -> MailboxMetadataSyncResult {
     try Task.checkCancellation()
     guard shouldPersist() else { throw GmailMessageMetadataSyncError.staleLocalConnection }
+    var didCancelHistoricalBackfill = false
+    let recordPreemption: (Bool) -> Void = {
+      didCancelHistoricalBackfill = $0
+      didBeginPreemption()
+    }
     return try await syncGate.withPreemptingLock(
       connection.id,
-      didBeginPreemption: didBeginPreemption
+      didBeginPreemption: recordPreemption
     ) {
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
@@ -2529,11 +2535,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         )
       } catch {
         let failure = error
-        await recoverCompletedBackfillAfterFailedPreemption(
-          connection: connection,
-          gmailConnection: gmailConnection,
-          session: session
-        )
+        if didCancelHistoricalBackfill {
+          await recoverCompletedBackfillAfterFailedPreemption(
+            connection: connection,
+            gmailConnection: gmailConnection,
+            session: session
+          )
+        }
         throw failure
       }
     }

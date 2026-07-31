@@ -3631,7 +3631,10 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   // swiftlint:disable:next function_body_length
   func testGmailAdapterFailedRecentSyncRecoversCompletedCancelledBackfill() async throws {
     let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
-    let metadataService = RecordingAdapterMetadataService()
+    let historicalBackfillGate = AdapterLifecycleOperationGate()
+    let metadataService = RecordingAdapterMetadataService(
+      historicalBackfillGate: historicalBackfillGate
+    )
     var staleGmailMessage = adapterGmailMessage
     staleGmailMessage.providerLabelIds = ["INBOX"]
     metadataService.inboxSyncResult = GmailMetadataSyncResult(
@@ -3658,16 +3661,76 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       session: session
     ) { _, _, _, _ in }
 
-    do {
-      _ = try await adapter.continueHistoricalBackfill(
+    let backfillTask = Task {
+      try await adapter.continueHistoricalBackfill(
         connection: connection,
         session: session
       )
+    }
+    await historicalBackfillGate.waitUntilStarted()
+    let preemptionStarted = expectation(description: "recent sync began preemption")
+    let recentSyncTask = Task {
+      try await adapter.syncRecentInbox(
+        connection: connection,
+        includingHistoryCandidates: true,
+        session: session,
+        sinceHistoryId: "10",
+        throughHistoryId: "11",
+        shouldPersist: { true },
+        didBeginPreemption: {
+          preemptionStarted.fulfill()
+        }
+      )
+    }
+    await fulfillment(of: [preemptionStarted], timeout: 1)
+    await historicalBackfillGate.release()
+
+    do {
+      _ = try await backfillTask.value
       XCTFail("Expected final-page cancellation before pending-action reconciliation")
     } catch is CancellationError {
     } catch {
       XCTFail("Expected cancellation, got \(error)")
     }
+    do {
+      _ = try await recentSyncTask.value
+      XCTFail("Expected the recent sync to fail")
+    } catch AdapterTestError.unavailable {
+    } catch {
+      XCTFail("Expected provider failure, got \(error)")
+    }
+
+    let actions = try await pendingActionService.pendingActions(session: session)
+    XCTAssertTrue(actions.isEmpty)
+  }
+
+  func testGmailAdapterFailedRecentSyncPreservesActionWithoutPreemptedBackfill() async throws {
+    let pendingActionService = PendingProviderActionService(store: AdapterPendingActionStore())
+    let metadataService = RecordingAdapterMetadataService()
+    var staleGmailMessage = adapterGmailMessage
+    staleGmailMessage.providerLabelIds = ["INBOX"]
+    metadataService.inboxSyncResult = GmailMetadataSyncResult(
+      historicalMetadataBackfillIsComplete: true,
+      messages: [staleGmailMessage],
+      threads: GmailInboxThread.group([staleGmailMessage])
+    )
+    metadataService.failsRecentSync = true
+    let adapter = GmailMailboxConnectionAdapter(
+      definitionSyncService: RecordingAdapterDefinitionSyncService(snapshot: .empty),
+      metadataService: metadataService,
+      pendingActionService: pendingActionService,
+      syncGate: MailboxConnectionSyncGate()
+    )
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    try await pendingActionService.perform(
+      .archive,
+      messages: [staleGmailMessage.mailboxMetadata(connectionId: connection.id)],
+      connection: connection,
+      session: session
+    ) { _, _, _, _ in }
 
     do {
       _ = try await adapter.syncRecentInbox(
@@ -3684,8 +3747,8 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       XCTFail("Expected provider failure, got \(error)")
     }
 
-    let actions = try await pendingActionService.pendingActions(session: session)
-    XCTAssertTrue(actions.isEmpty)
+    let actionStates = try await pendingActionService.pendingActions(session: session).map(\.state)
+    XCTAssertEqual(actionStates, [.providerConfirmed])
   }
 
   func testGmailAdapterStaleRecentSyncDoesNotPreemptHistoricalBackfill() async throws {
