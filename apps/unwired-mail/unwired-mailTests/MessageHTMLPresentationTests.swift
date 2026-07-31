@@ -196,7 +196,11 @@ final class MessageHTMLPresentationTests: XCTestCase {
   }
 
   func testSanitizerRetainsRemoteImageWithHiddenPreheaderText() throws {
-    for hiddenAttribute in ["hidden", "style=\"display: none !important\""] {
+    for hiddenAttribute in [
+      "hidden",
+      "style=\"display: none !important\"",
+      "style=\"visibility: hidden\"",
+    ] {
       let result = try XCTUnwrap(
         MessageHTMLSanitizer.sanitize(
           """
@@ -211,45 +215,22 @@ final class MessageHTMLPresentationTests: XCTestCase {
     }
   }
 
-  func testSanitizerRejectsSignedAndPercentageZeroOpacityContent() throws {
-    for opacity in ["0%", "-0", "+0.0%", "-0.1", "-1%"] {
-      XCTAssertNil(
-        try MessageHTMLSanitizer.sanitize(
-          """
-          <div style="opacity: \(opacity)">Hidden preview</div>
-          <img src="https://tracker.test/hero.png">
-          """
-        ),
-        "Expected opacity \(opacity) content to be unreadable"
-      )
-    }
-  }
-
-  func testSanitizerRejectsContentOnlyReadableThroughZeroSizedPreheaderText() throws {
-    for style in ["font-size: 0", "height: 0px", "width: 0%", "line-height: 0.0em !important"] {
-      XCTAssertNil(
-        try MessageHTMLSanitizer.sanitize(
+  func testSanitizerRetainsRemoteImageWithCSSHiddenPreheaderText() throws {
+    for style in [
+      "opacity: 0%", "opacity: -0.1", "font-size: 0", "height: 0px", "width: 0%",
+      "line-height: 0.0em !important", "text-indent: -9999px", "margin: -9999px",
+      "margin-left: -9999px", "margin-right: -9999px", "margin-top: -9999px",
+    ] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
           """
           <div style="\(style)">Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
-        ),
-        "Expected \(style) content to be unreadable"
+        )
       )
-    }
-  }
 
-  func testSanitizerRejectsContentOnlyReadableThroughOffCanvasPreheaderText() throws {
-    for property in ["text-indent", "margin", "margin-left", "margin-right", "margin-top"] {
-      XCTAssertNil(
-        try MessageHTMLSanitizer.sanitize(
-          """
-          <div style="\(property): -9999px">Hidden preview</div>
-          <img src="https://tracker.test/hero.png">
-          """
-        ),
-        "Expected negative \(property) content to be unreadable"
-      )
+      XCTAssertEqual(result.remoteImageReferences.count, 1)
     }
   }
 
@@ -1058,17 +1039,18 @@ extension MessageHTMLPresentationTests {
     }
   }
 
-  func testSanitizerRejectsNegativeValuesAnywhereInMarginShorthand() throws {
+  func testSanitizerRetainsRemoteImageWithOffCanvasMarginShorthandPreheader() throws {
     for style in ["margin: 0 -9999px", "margin: 0 0 -9999px", "margin: 0 0 0 -9999px"] {
-      XCTAssertNil(
-        try MessageHTMLSanitizer.sanitize(
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
           """
           <div style="\(style)">Hidden preview</div>
           <img src="https://tracker.test/hero.png">
           """
-        ),
-        "Expected \(style) content to be unreadable"
+        )
       )
+
+      XCTAssertEqual(result.remoteImageReferences.count, 1)
     }
   }
 

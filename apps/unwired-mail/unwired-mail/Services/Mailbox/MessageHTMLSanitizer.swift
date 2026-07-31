@@ -26,11 +26,7 @@ enum MessageHTMLSanitizer {
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )
-    let preCleanHiddenStylePattern =
-      #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
-      + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
-    try removeElements(matching: preCleanHiddenStylePattern, from: sourceDocument)
+    try removeElements(matching: MessageHTMLHiddenStylePatterns.preClean, from: sourceDocument)
     let documents = try cleanedDocuments(
       from: sourceDocument,
       cancellationCheck: cancellationCheck
@@ -38,21 +34,12 @@ enum MessageHTMLSanitizer {
     let presentationDocument = documents.presentation
     let readableDocument = documents.readable
     try removeHiddenElements(from: [presentationDocument, readableDocument])
-    let hiddenStylePattern =
-      #"(?:^|;)\s*(?:display\s*:\s*none|"#
-      + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
-      + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
-      + #"(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
-      + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
-      + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
-      + #"(?:\s*!important)?\s*(?:;|$)"#
     let presentationHiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:height|width)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
       + #"(?:[a-z%]+)?)"#
       + #"(?:\s*!important)?\s*(?:;|$)"#
-    try removeElements(matching: hiddenStylePattern, from: readableDocument)
+    try removeElements(matching: MessageHTMLHiddenStylePatterns.readable, from: readableDocument)
     try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)
     remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
       remoteImageReferences,

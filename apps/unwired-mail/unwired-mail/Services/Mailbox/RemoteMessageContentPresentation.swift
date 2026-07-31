@@ -2,13 +2,28 @@ import Foundation
 import Observation
 import SwiftSoup
 
+enum MessageHTMLHiddenStylePatterns {
+  static let preClean =
+    #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
+    + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
+    + #"(?:\s*!important)?\s*(?:;|$)"#
+
+  static let readable =
+    #"(?:^|;)\s*(?:display\s*:\s*none|"#
+    + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
+    + #"(?:[a-z%]+)?|(?:text-indent|margin-(?:left|right|top))\s*:\s*-"#
+    + #"(?:[1-9]\d*(?:\.\d+)?|0*\.\d*[1-9]\d*)(?:[a-z%]+)?|"#
+    + #"margin\s*:\s*[^;]*-(?:[1-9]\d*(?:\.\d+)?|"#
+    + #"0*\.\d*[1-9]\d*)(?:[a-z%]+)?[^;]*)"#
+    + #"(?:\s*!important)?\s*(?:;|$)"#
+}
+
 extension MessageHTMLSanitizer {
   static func sourceContent(in document: Document) throws -> (
     hasText: Bool,
     hasExplicitlyHiddenText: Bool
   ) {
     let hasText = try !document.text().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-    let hiddenTextPattern = #"(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)"#
     let hasExplicitlyHiddenText = try document.select("[hidden], [style]").contains { element in
       let elementHasText = try !element.text().trimmingCharacters(in: .whitespacesAndNewlines)
         .isEmpty
@@ -16,7 +31,11 @@ extension MessageHTMLSanitizer {
       return elementHasText
         && (element.hasAttr("hidden")
           || style.range(
-            of: hiddenTextPattern,
+            of: MessageHTMLHiddenStylePatterns.preClean,
+            options: [.regularExpression, .caseInsensitive]
+          ) != nil
+          || style.range(
+            of: MessageHTMLHiddenStylePatterns.readable,
             options: [.regularExpression, .caseInsensitive]
           ) != nil)
     }
