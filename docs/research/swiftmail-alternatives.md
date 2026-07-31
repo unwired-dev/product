@@ -2,6 +2,8 @@
 
 Research date: 2026-07-26
 
+Status update: 2026-07-31
+
 ## Question
 
 Can an Apple-platform mail library replace SwiftMail while already providing both:
@@ -13,18 +15,26 @@ This framing aligns with ADR-0027's acceptance gate requiring `MOVE` or targeted
 
 ## Conclusion
 
-No high-level Swift/Objective-C library reviewed satisfies both requirements unchanged.
+SwiftMail 1.10.0 now exposes both pieces of information that its 1.8.0 public
+API lost. Its copy and move operations return an optional ordered `COPYUID`
+mapping with destination `UIDVALIDITY`, and its SMTP send operations expose
+typed submission phase, acceptance certainty, final response, and retry
+disposition. The exact tag also replaces the earlier revision-pinned
+transitives with version requirements. It is therefore the preferred candidate
+for qualification, but it is not a production dependency until it passes every
+ADR-0027 gate and the iCloud Mail and Fastmail provider spikes.
 
-The strongest technical alternative to spike is **direct libEtPan**. When the server returns `COPYUID`, its public C API exposes the destination `UIDVALIDITY` plus source and destination UID sets for both copy and move, and it splits SMTP into envelope, `DATA`, and content/final-response calls while retaining the numeric server reply. A thin Swift adapter could therefore validate those UID pairings and classify SMTP outcomes without implementing either wire protocol; this adapter, as the on-device Swift client layer, is responsible for UID mapping validation, SMTP outcome classification, Sent-copy reconciliation, and ambiguous-attempt handling, while the TypeScript/Convex backend (per ADR-0003) only handles operational account data, encrypted sync blobs, device records, and push metadata and must not become a mailbox sync engine or make protocol-level decisions. It cannot currently satisfy ADR-0027's required server profile that advertises `MOVE` without `UIDPLUS`, because that profile supplies no `COPYUID` mapping. This is not an out-of-the-box or presently qualifying Swift API, and the latest tagged release does not include the SwiftPM manifest now on `master`.
+The strongest fallback spike remains **direct libEtPan**. When the server returns `COPYUID`, its public C API exposes the destination `UIDVALIDITY` plus source and destination UID sets for both copy and move, and it splits SMTP into envelope, `DATA`, and content/final-response calls while retaining the numeric server reply. A thin Swift adapter could therefore validate those UID pairings and classify SMTP outcomes without implementing either wire protocol; this adapter, as the on-device Swift client layer, is responsible for UID mapping validation, SMTP outcome classification, Sent-copy reconciliation, and ambiguous-attempt handling, while the TypeScript/Convex backend (per ADR-0003) only handles operational account data, encrypted sync blobs, device records, and push metadata and must not become a mailbox sync engine or make protocol-level decisions. It cannot currently satisfy ADR-0027's required server profile that advertises `MOVE` without `UIDPLUS`, because that profile supplies no `COPYUID` mapping. This is not an out-of-the-box or presently qualifying Swift API, and the latest tagged release does not include the SwiftPM manifest now on `master`.
 
 The strongest native-Swift direction is **swift-nio-imap 0.4.0 paired with libEtPan SMTP**, but this would introduce two protocol engines and require the product to own high-level IMAP connection behavior. Apple still labels swift-nio-imap as pre-production. That conflicts with ADR-0027's reason for choosing a complete third-party engine.
 
-Unless the SwiftMail fixes stall, the lowest-risk recommendation remains to qualify the next SwiftMail release. The decision point is when the qualification boundary in [product issue #177](https://github.com/unwired-dev/product/issues/177) is complete and [product issue #178](https://github.com/unwired-dev/product/issues/178) is ready to start. If no exact SwiftMail tag contains both required capabilities then, run a time-boxed direct-libEtPan spike before changing ADR-0027.
+The qualification boundary in [product issue #177](https://github.com/unwired-dev/product/issues/177) is complete, [SwiftMail #194](https://github.com/Cocoanetics/SwiftMail/issues/194) and [SwiftMail #195](https://github.com/Cocoanetics/SwiftMail/issues/195) are shipped, and [SwiftMail 1.10.0](https://github.com/Cocoanetics/SwiftMail/releases/tag/1.10.0) contains both required public capabilities. The lowest-risk next step is therefore [product issue #178](https://github.com/unwired-dev/product/issues/178): qualify and pin that exact tag. Run the direct-libEtPan spike only if SwiftMail fails the executable gates.
 
 ## Capability matrix
 
 | Candidate | IMAP mapping | SMTP outcome | Apple/toolchain and maintenance | Result |
 | --- | --- | --- | --- | --- |
+| SwiftMail 1.10.0 | Public optional `CopyUID` preserves destination `UIDVALIDITY` and ordered source/destination pairs; adapter must still validate the requested source set, cardinality, uniqueness, and pair expansion | Public send result/error preserves phase, explicit final response, acceptance certainty, and retry disposition; non-reply failure after content dispatch is ambiguous | Native Swift/NIO, BSD-2; exact tag released July 2026 with version-based transitives and compatible iOS/macOS floors | **Preferred candidate; full qualification pending** |
 | libEtPan | Public destination `UIDVALIDITY` and ordered source/destination sets when COPY or MOVE returns `COPYUID`; no mapping for `MOVE` without `UIDPLUS`; adapter must verify the requested source set, cardinality, uniqueness, and pair expansion | Public phase-separated calls and numeric response; stream loss during content/final-response phase can be classified ambiguous | Active C project; 1.10.1 released June 2026; Apple Xcode targets; SwiftPM support is currently only on `master` | **Partial; strongest spike candidate, but does not pass the complete gate** |
 | swift-nio-imap 0.4.0 + libEtPan SMTP | Public ordered `ResponseCodeCopy` including destination `UIDVALIDITY` when supplied by the server; the same `MOVE`-without-`UIDPLUS` gap remains; low-level client must correlate and validate tagged completion | libEtPan can provide the required SMTP distinction | Swift 6 / Apache-2.0; 0.4.0 tagged July 2026; upstream warns it is not production-ready | **Low-level direction with the same unsupported server profile** |
 | MailCore2 | Public COPY/MOVE UID dictionary, but destination `UIDVALIDITY` is discarded | Final SMTP code is available, but connection loss has no public pre/post-DATA stage | Last commit 2022; release 0.6.4 from 2020; old binary/toolchain posture | **Fails SMTP and full mapping verification** |
@@ -95,7 +105,7 @@ Postal is MIT licensed ([license](https://github.com/snipsco/Postal/blob/1e107ef
 
 ## Recommended next decision
 
-1. Keep SwiftMail as the preferred candidate while [SwiftMail #194](https://github.com/Cocoanetics/SwiftMail/issues/194) and [SwiftMail #195](https://github.com/Cocoanetics/SwiftMail/issues/195) are evaluated upstream.
-2. Track swift-nio-imap 0.4.x because its new `COPYUID` representation removes one important technical objection, but do not treat that as removing the high-level-engine objection.
-3. When product issue #177 completes and product issue #178 is ready to start, recheck both upstream issues and SwiftMail's latest exact tag. If either capability is absent, spike direct libEtPan—not MailCore2 or Postal—against the deterministic COPY/MOVE and SMTP disconnect fixtures first.
-4. Adopt libEtPan only after its adapter proves exact requested-source equality, mapping cardinality and uniqueness, and destination `UIDVALIDITY`; establishes a verifiable strategy for `MOVE` without `UIDPLUS`; uses phase-specific SMTP calls; treats every stream failure during content transmission or final-response processing as ambiguous; and passes the complete ADR-0027 gates. Reject it if the unsupported server profile remains unresolved.
+1. Qualify the exact SwiftMail 1.10.0 tag through [product issue #178](https://github.com/unwired-dev/product/issues/178); do not pin or adopt it based on the upstream release tests alone.
+2. Exercise every ADR-0027 mapping, SMTP, TLS, authentication, cancellation, logging, connection-isolation, MIME, and performance gate plus both certified-provider spikes.
+3. Treat an absent `COPYUID` as unsupported and never authorize an unrestricted expunge or identity repair from Message-ID matching.
+4. If SwiftMail fails qualification, spike direct libEtPan—not MailCore2 or Postal—against the deterministic COPY/MOVE and SMTP disconnect fixtures first. Adopt libEtPan only after its adapter proves exact requested-source equality, mapping cardinality and uniqueness, and destination `UIDVALIDITY`; establishes a verifiable strategy for `MOVE` without `UIDPLUS`; uses phase-specific SMTP calls; treats every stream failure during content transmission or final-response processing as ambiguous; and passes the complete ADR-0027 gates. Reject it if the unsupported server profile remains unresolved.
