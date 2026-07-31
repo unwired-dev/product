@@ -3618,6 +3618,87 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelPreservesRemoteImageReservationsAcrossRetries() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId,
+        authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let firstReference = RemoteMessageImageReference(
+      identifier: "remote-image-0",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/first.png"))
+    )
+    let retryReference = RemoteMessageImageReference(
+      identifier: "remote-image-1",
+      url: try XCTUnwrap(URL(string: "https://images.example.com/retry.png"))
+    )
+    let originalHTML = SanitizedMessageHTML(
+      documentHTML: "<html><body></body></html>",
+      remoteImageReferences: [firstReference, retryReference]
+    )
+    let partialHTML = SanitizedMessageHTML(
+      documentHTML: "<html><body></body></html>",
+      remoteImageReferences: [retryReference]
+    )
+    let resolvedHTML = SanitizedMessageHTML(documentHTML: "<html><body></body></html>")
+
+    _ = try await viewModel.loadRemoteMessageContent(
+      originalHTML,
+      for: firstMessage.id
+    ) { _, maximumByteCount, _ in
+      XCTAssertEqual(maximumByteCount, 20 * 1_024 * 1_024)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 1,
+        html: partialHTML,
+        loadedByteCount: 12 * 1_024 * 1_024,
+        loadedImageCount: 1,
+        loadedPixelCount: 12
+      )
+    }
+    _ = try await viewModel.loadRemoteMessageContent(
+      partialHTML,
+      for: firstMessage.id
+    ) { _, maximumByteCount, _ in
+      XCTAssertEqual(maximumByteCount, 8 * 1_024 * 1_024)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: resolvedHTML,
+        loadedByteCount: maximumByteCount,
+        loadedImageCount: 1,
+        loadedPixelCount: 8
+      )
+    }
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    _ = try await viewModel.loadRemoteMessageContent(
+      originalHTML,
+      for: secondMessage.id
+    ) { _, maximumByteCount, _ in
+      XCTAssertEqual(maximumByteCount, 20 * 1_024 * 1_024)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 2,
+        html: originalHTML,
+        loadedImageCount: 0
+      )
+    }
+  }
+
+  @MainActor
   func testInboxViewModelChargesRepeatedInlineImagesToSharedByteBudget() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(

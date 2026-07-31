@@ -453,6 +453,29 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
   }
 
+  func testSanitizerBlocksCSSDeclaredOneByOneRemoteTrackingPixels() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/pixel.gif"
+             style="height: 1.0px !important; width: 01PX">
+        <img src="https://images.example.com/logo.png"
+             style="height: 40px; width: 120px">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/logo.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+  }
+
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
     let presentation = try remoteContentTestPresentation()
     let png = try XCTUnwrap(

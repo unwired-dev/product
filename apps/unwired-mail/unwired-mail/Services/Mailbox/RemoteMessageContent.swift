@@ -52,12 +52,17 @@ enum RemoteMessageContentMarkup {
 
   private static func hasDeclaredTrackingPixel(_ element: Element) -> Bool {
     let onePixelPattern = #"^0*1(?:\.0*)?(?:px)?$"#
-    return ["width", "height"].allSatisfy { attribute in
-      guard let value = try? element.attr(attribute) else { return false }
-      return value.trimmingCharacters(in: .whitespacesAndNewlines).range(
-        of: onePixelPattern,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
+    let style = (try? element.attr("style")) ?? ""
+    return ["width", "height"].allSatisfy { dimension in
+      let value = ((try? element.attr(dimension)) ?? "")
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      return
+        value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil
+        || style.range(
+          of: #"(?:^|;)\s*"# + dimension
+            + #"\s*:\s*0*1(?:\.0*)?(?:px)?(?:\s*!important)?\s*(?:;|$)"#,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
     }
   }
 

@@ -5669,7 +5669,6 @@ final class GmailInboxViewModel {
         ).load(html)
       }
   ) async throws -> RemoteMessageContentLoadResult {
-    discardLoadedRemoteImages(for: messageId)
     let requestedMaximumByteCount =
       Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
       - loadedRemoteImageByteCount
@@ -5693,9 +5692,9 @@ final class GmailInboxViewModel {
         loadedImageCount: 0
       )
     }
-    loadedRemoteImageByteCounts[messageId] = result.loadedByteCount
+    loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
     loadedRemoteImageByteCount += result.loadedByteCount
-    loadedRemoteImagePixelCounts[messageId] = result.loadedPixelCount
+    loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
     loadedRemoteImagePixelCount += result.loadedPixelCount
     return result
   }
