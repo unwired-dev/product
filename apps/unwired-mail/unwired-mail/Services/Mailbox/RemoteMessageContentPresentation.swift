@@ -24,6 +24,59 @@ enum MessageHTMLHiddenStylePatterns {
     + #"(?:\s*!important)?\s*(?:;|$)"#
 }
 
+enum RemoteMessageContentPolicy {
+  static func requestEquivalentURL(_ url: URL) -> URL {
+    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
+    components?.fragment = nil
+    components?.scheme = url.scheme?.lowercased()
+    let normalizedHost = components?.host?.lowercased()
+    components?.host = normalizedHost
+    if components?.path.isEmpty == true { components?.path = "/" }
+    if (components?.scheme?.lowercased() == "https" && components?.port == 443)
+      || (components?.scheme?.lowercased() == "http" && components?.port == 80)
+    {
+      components?.port = nil
+    }
+    let equivalentURL = components?.url ?? url
+    return URL(string: normalizedPercentEscapeCasing(equivalentURL.absoluteString)) ?? equivalentURL
+  }
+
+  private static func normalizedPercentEscapeCasing(_ value: String) -> String {
+    var normalized = ""
+    var index = value.startIndex
+    while index < value.endIndex {
+      guard value[index] == "%" else {
+        normalized.append(value[index])
+        index = value.index(after: index)
+        continue
+      }
+
+      let firstDigit = value.index(after: index)
+      guard firstDigit < value.endIndex else {
+        normalized.append(value[index])
+        break
+      }
+      let secondDigit = value.index(after: firstDigit)
+      guard secondDigit < value.endIndex else {
+        normalized.append(contentsOf: value[index...])
+        break
+      }
+
+      normalized.append("%")
+      normalized.append(contentsOf: value[firstDigit...secondDigit].uppercased())
+      index = value.index(after: secondDigit)
+    }
+    return normalized
+  }
+
+  static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
+    url?.scheme?.lowercased() == "https"
+      && url?.host != nil
+      && url?.user == nil
+      && url?.password == nil
+  }
+}
+
 extension MessageHTMLSanitizer {
   static func sourceContent(in document: Document) throws -> (
     hasText: Bool,
@@ -31,18 +84,19 @@ extension MessageHTMLSanitizer {
   ) {
     let hasText = try hasReadableText(document.text())
     let hasExplicitlyHiddenText = try document.select("[hidden], [style]").contains { element in
-      let elementHasText = try hasReadableText(element.text())
       let style = try element.attr("style")
-      return elementHasText
-        && (element.hasAttr("hidden")
-          || style.range(
-            of: MessageHTMLHiddenStylePatterns.preClean,
-            options: [.regularExpression, .caseInsensitive]
-          ) != nil
-          || style.range(
-            of: MessageHTMLHiddenStylePatterns.readable,
-            options: [.regularExpression, .caseInsensitive]
-          ) != nil)
+      let isExplicitlyHidden =
+        element.hasAttr("hidden")
+        || style.range(
+          of: MessageHTMLHiddenStylePatterns.preClean,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
+        || style.range(
+          of: MessageHTMLHiddenStylePatterns.readable,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
+      guard isExplicitlyHidden else { return false }
+      return try hasReadableText(element.text())
     }
     return (hasText, hasExplicitlyHiddenText)
   }

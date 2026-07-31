@@ -346,6 +346,28 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDeduplicatesPercentEscapeHexCasing() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="https://images.example.com/%2fhero.png?token=%ab" alt="Lowercase escapes">
+        <img src="https://images.example.com/%2Fhero.png?token=%AB" alt="Uppercase escapes">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/%2Fhero.png?token=%AB"]
+    )
+    XCTAssertEqual(
+      result.documentHTML.components(
+        separatedBy: #"data-unwired-remote-image="remote-image-0""#
+      ).count - 1,
+      2
+    )
+  }
+
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(

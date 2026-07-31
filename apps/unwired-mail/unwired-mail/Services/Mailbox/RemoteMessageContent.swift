@@ -142,29 +142,6 @@ enum RemoteMessageImageResolver {
   }
 }
 
-enum RemoteMessageContentPolicy {
-  static func requestEquivalentURL(_ url: URL) -> URL {
-    var components = URLComponents(url: url, resolvingAgainstBaseURL: false)
-    components?.fragment = nil
-    components?.scheme = url.scheme?.lowercased()
-    let normalizedHost = components?.host?.lowercased()
-    components?.host = normalizedHost
-    if components?.path.isEmpty == true { components?.path = "/" }
-    if (components?.scheme?.lowercased() == "https" && components?.port == 443)
-      || (components?.scheme?.lowercased() == "http" && components?.port == 80)
-    {
-      components?.port = nil
-    }
-    return components?.url ?? url
-  }
-  static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
-    url?.scheme?.lowercased() == "https"
-      && url?.host != nil
-      && url?.user == nil
-      && url?.password == nil
-  }
-}
-
 enum RemoteMessageContentRedirectPolicy {
   static func redirectedRequest(_ request: URLRequest) -> URLRequest? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(request.url) else {
