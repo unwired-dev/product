@@ -506,6 +506,8 @@ extension MessageHTMLPresentationTests {
              height="1" style="max-width: 1px">
         <img src="https://tracker.example/max-height.gif"
              width="1" style="max-height: 1px">
+        <img src="https://tracker.example/signed-one.gif"
+             style="width: +1px; height: +1px">
         <img src="https://tracker.example/signed-zero.gif"
              style="width: +0px; height: 1px">
         <img src="https://images.example.com/logo.png"
@@ -524,7 +526,27 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("signed-one.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
+  }
+
+  func testSanitizerRemovesRemoteImagesInsideSignedZeroWrappers() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="max-width: +0px">
+          <img src="https://tracker.example/wrapped.gif">
+        </div>
+        <img src="https://images.example.com/logo.png">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/logo.png"]
+    )
+    XCTAssertFalse(result.documentHTML.contains("wrapped.gif"))
   }
 
   func testSanitizerHonorsCSSDimensionsOverTrackingPixelAttributes() throws {

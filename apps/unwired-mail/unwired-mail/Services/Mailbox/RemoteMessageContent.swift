@@ -51,11 +51,11 @@ enum RemoteMessageContentMarkup {
   }
 
   private static func hasDeclaredTrackingPixel(_ element: Element) -> Bool {
-    let onePixelPattern = #"^0*1(?:\.0*)?(?:px)?$"#
+    let onePixelPattern = #"^\+?0*1(?:\.0*)?(?:px)?$"#
     return ["width", "height"].allSatisfy { dimension in
       let value = ((try? element.attr(dimension)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
-      let onePixelStylePattern = #"^0*1(?:\.0*)?px$"#
+      let onePixelStylePattern = #"^\+?0*1(?:\.0*)?px$"#
       if [dimension, "max-\(dimension)"].contains(where: { property in
         InlineImageDimensionPolicy.value(property, in: element)?.range(
           of: onePixelStylePattern,

@@ -23,16 +23,40 @@ enum MailboxSyncNotificationUserInfoKey {
 }
 
 private actor RemoteMessageContentLoadGate {
-  private var isAcquired = false
-  private var waiters: [CheckedContinuation<Void, Never>] = []
+  private struct Waiter {
+    let continuation: CheckedContinuation<Bool, Never>
+    let id: UUID
+  }
 
-  func acquire() async {
+  private var isAcquired = false
+  private var waiters: [Waiter] = []
+
+  func acquire() async -> Bool {
+    await acquire(maximumWaitDuration: nil)
+  }
+
+  func acquire(maximumWaitDuration: TimeInterval) async -> Bool {
+    await acquire(maximumWaitDuration: Optional(maximumWaitDuration))
+  }
+
+  private func acquire(maximumWaitDuration: TimeInterval?) async -> Bool {
     guard isAcquired else {
       isAcquired = true
-      return
+      return true
     }
-    await withCheckedContinuation { continuation in
-      waiters.append(continuation)
+    if let maximumWaitDuration, maximumWaitDuration <= 0 { return false }
+    let waiterId = UUID()
+    return await withTaskCancellationHandler {
+      await withCheckedContinuation { continuation in
+        waiters.append(Waiter(continuation: continuation, id: waiterId))
+        guard let maximumWaitDuration else { return }
+        Task {
+          try? await Task.sleep(for: .seconds(maximumWaitDuration))
+          self.cancelWaiter(waiterId)
+        }
+      }
+    } onCancel: {
+      Task { await self.cancelWaiter(waiterId) }
     }
   }
 
@@ -41,7 +65,12 @@ private actor RemoteMessageContentLoadGate {
       isAcquired = false
       return
     }
-    waiters.removeFirst().resume()
+    waiters.removeFirst().continuation.resume(returning: true)
+  }
+
+  private func cancelWaiter(_ waiterId: UUID) {
+    guard let index = waiters.firstIndex(where: { $0.id == waiterId }) else { return }
+    waiters.remove(at: index).continuation.resume(returning: false)
   }
 }
 
@@ -5664,7 +5693,10 @@ final class GmailInboxViewModel {
     defer { loadingMessageBodyCount -= 1 }
     let loadedBody = try await reader.loadMessageBody(message: message, session: session)
     try Task.checkCancellation()
-    let body = try retainLoadedInlineImages(loadedBody, for: message.id)
+    let body = try await withRemoteImageAdmissionGate {
+      try Task.checkCancellation()
+      return try retainLoadedInlineImages(loadedBody, for: message.id)
+    }
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
   }
@@ -5681,28 +5713,61 @@ final class GmailInboxViewModel {
     return try await reader.loadMessageBodyText(message: message, session: session)
   }
 
+  // swiftlint:disable:next function_body_length
   func loadRemoteMessageContent(
     _ html: SanitizedMessageHTML,
     for messageId: StableProviderMessageIdentity,
-    using loader:
+    maximumLoadDuration: TimeInterval = 30,
+    using loader: (
       (SanitizedMessageHTML, Int, Int) async throws
-      -> RemoteMessageContentLoadResult = { html, maximumByteCount, maximumPixelCount in
-        try await RemoteMessageContentLoader(
-          maximumTotalByteCount: maximumByteCount,
-          maximumTotalPixelCount: maximumPixelCount
-        ).load(html)
-      }
+        -> RemoteMessageContentLoadResult
+    )? = nil
   ) async throws -> RemoteMessageContentLoadResult {
-    await remoteMessageContentLoadGate.acquire()
+    let deadline = Date.now.addingTimeInterval(maximumLoadDuration)
+    let maximumWaitDuration = deadline.timeIntervalSinceNow
+    guard
+      await remoteMessageContentLoadGate.acquire(
+        maximumWaitDuration: maximumWaitDuration
+      )
+    else {
+      try Task.checkCancellation()
+      return RemoteMessageContentLoadResult(
+        failedImageCount: html.remoteImageReferences.count,
+        html: html,
+        loadedImageCount: 0
+      )
+    }
     do {
       try Task.checkCancellation()
+      let remainingLoadDuration = deadline.timeIntervalSinceNow
+      guard remainingLoadDuration > 0 else {
+        await remoteMessageContentLoadGate.release()
+        return RemoteMessageContentLoadResult(
+          failedImageCount: html.remoteImageReferences.count,
+          html: html,
+          loadedImageCount: 0
+        )
+      }
       let requestedMaximumByteCount =
         Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
         - loadedRemoteImageByteCount
       let requestedMaximumPixelCount =
         Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
         - loadedRemoteImagePixelCount
-      let result = try await loader(html, requestedMaximumByteCount, requestedMaximumPixelCount)
+      let result: RemoteMessageContentLoadResult
+      if let loader {
+        result = try await loader(
+          html,
+          requestedMaximumByteCount,
+          requestedMaximumPixelCount
+        )
+      } else {
+        result = try await RemoteMessageContentLoader(
+          maximumLoadDuration: remainingLoadDuration,
+          maximumTotalByteCount: requestedMaximumByteCount,
+          maximumTotalPixelCount: requestedMaximumPixelCount
+        ).load(html)
+      }
       try Task.checkCancellation()
       let remainingByteCount =
         Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
@@ -5728,6 +5793,22 @@ final class GmailInboxViewModel {
       }
       await remoteMessageContentLoadGate.release()
       return retainedResult
+    } catch {
+      await remoteMessageContentLoadGate.release()
+      throw error
+    }
+  }
+
+  private func withRemoteImageAdmissionGate<Result>(
+    _ operation: () async throws -> Result
+  ) async throws -> Result {
+    guard await remoteMessageContentLoadGate.acquire() else {
+      throw CancellationError()
+    }
+    do {
+      let result = try await operation()
+      await remoteMessageContentLoadGate.release()
+      return result
     } catch {
       await remoteMessageContentLoadGate.release()
       throw error
