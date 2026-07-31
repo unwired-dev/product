@@ -5,6 +5,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
+import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
@@ -323,6 +324,136 @@ describe('productAccount.connect', () => {
       return bindings.map((binding) => binding.opaqueConnectionId);
     });
     expect(remainingBindingIds).toStrictEqual(['connection-1']);
+  });
+
+  /* oxlint-disable vitest/no-conditional-in-test -- table-driven cases select distinct public skip-path fixtures. */
+  it.each([
+    'remaining route',
+    'incomplete legacy snapshot',
+    'matching legacy route',
+  ] as const)(
+    'keeps Gmail identity bindings for the %s skip path',
+    async (scenario) => {
+      expect.assertions(1);
+
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const otherDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+      });
+      const legacyProviderAccountIdentifier = 'gmail-user-legacy';
+      const opaqueConnectionId =
+        scenario === 'matching legacy route'
+          ? await opaqueGmailConnectionId(
+              currentDevice.productAccountId,
+              legacyProviderAccountIdentifier,
+            )
+          : `connection-${scenario}`;
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('gmailOpaqueIdentityBindings', {
+          identityBindingDigest: `digest-${scenario}`,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          updatedAt: now,
+        });
+        if (scenario === 'remaining route') {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            opaqueConnectionId,
+            productAccountId: currentDevice.productAccountId,
+            provider: 'gmail',
+            trustedDeviceId: otherDevice.trustedDeviceId,
+            updatedAt: now,
+          });
+        } else if (scenario === 'incomplete legacy snapshot') {
+          for (let index = 0; index <= 100; index += 1) {
+            await ctx.db.insert('mailProviderConnections', {
+              connectedAt: now,
+              lastVerifiedAt: now,
+              productAccountId: currentDevice.productAccountId,
+              provider: 'gmail',
+              providerAccountIdentifier: `legacy-${index}`,
+              trustedDeviceId: otherDevice.trustedDeviceId,
+              updatedAt: now,
+            });
+          }
+        } else {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            productAccountId: currentDevice.productAccountId,
+            provider: 'gmail',
+            providerAccountIdentifier: legacyProviderAccountIdentifier,
+            trustedDeviceId: otherDevice.trustedDeviceId,
+            updatedAt: now,
+          });
+        }
+      });
+
+      await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+
+      const remainingBindingIds = await t.run(async (ctx) => {
+        const bindings = await ctx.db
+          .query('gmailOpaqueIdentityBindings')
+          .collect();
+        return bindings.map((binding) => binding.opaqueConnectionId);
+      });
+      expect(remainingBindingIds).toContain(opaqueConnectionId);
+    },
+  );
+  /* oxlint-enable vitest/no-conditional-in-test */
+
+  it('drains over-limit legacy Gmail routes during device unregistration', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index <= 20; index += 1) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId: `connection-${index}`,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    await expect(
+      t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
+    ).resolves.toStrictEqual([]);
   });
 
   it('rejects unregistering another trusted device on the same Product Account', async () => {

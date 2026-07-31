@@ -431,26 +431,30 @@ async function deleteGmailConnectionsForTrustedDevice(
   productAccountId: Id<'productAccounts'>,
   trustedDeviceId: Id<'trustedDevices'>,
 ): Promise<void> {
-  const gmailConnections = await ctx.db
-    .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
-      q
-        .eq('productAccountId', productAccountId)
-        .eq('provider', 'gmail')
-        .eq('trustedDeviceId', trustedDeviceId),
-    )
-    .take(gmailConnectionLimitPerTrustedDevice + 1);
-  if (gmailConnections.length > gmailConnectionLimitPerTrustedDevice) {
-    throw new Error('Gmail connection limit exceeded');
-  }
-  for (const connection of gmailConnections) {
-    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-    await ctx.db.delete(connection._id);
+  const deletedConnections: Array<Doc<'mailProviderConnections'>> = [];
+  for (;;) {
+    const page = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .take(gmailConnectionLimitPerTrustedDevice);
+    if (page.length === 0) {
+      break;
+    }
+    for (const connection of page) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+    deletedConnections.push(...page);
   }
   await deleteOrphanedGmailIdentityBindings(
     ctx,
     productAccountId,
-    gmailConnections,
+    deletedConnections,
   );
 }
 

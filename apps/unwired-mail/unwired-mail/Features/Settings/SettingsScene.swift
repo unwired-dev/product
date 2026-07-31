@@ -1014,7 +1014,7 @@ final class AccountAndDevicesViewModel {
     recentIdentityToken: () async throws -> String,
     isSessionCurrent: () -> Bool,
     recoveryKeyPublished: (String) throws -> Void = { _ in },
-    recoveryKeyRejected: (String) -> Void = { _ in },
+    recoveryKeyRejected: (String) throws -> Void = { _ in },
     replacingCurrent: Bool = false
   ) async {
     isWorking = true
@@ -1093,6 +1093,13 @@ struct AccountAndDevicesSettingsView: View {
 
   @State private var confirmsRecoveryReplacement = false
   @State private var confirmsCurrentRecoveryReplacement = false
+
+  private func rejectRecoveryKey(_ recoveryKey: String) throws {
+    try session.acknowledgeRecoveryKey(
+      recoveryKey,
+      productAccountId: snapshot.productAccountId
+    )
+  }
   @State private var confirmsSignOut = false
   @State private var deviceToRename: TrustedDeviceSummary?
   @State private var renameDraft = ""
@@ -1248,12 +1255,7 @@ struct AccountAndDevicesSettingsView: View {
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
-            recoveryKeyRejected: { recoveryKey in
-              try? session.acknowledgeRecoveryKey(
-                recoveryKey,
-                productAccountId: snapshot.productAccountId
-              )
-            }
+            recoveryKeyRejected: rejectRecoveryKey
           )
         }
       }
@@ -1287,12 +1289,7 @@ struct AccountAndDevicesSettingsView: View {
             },
             isSessionCurrent: { session.isCurrent(snapshot) },
             recoveryKeyPublished: session.preserveUnacknowledgedRecoveryKey,
-            recoveryKeyRejected: { recoveryKey in
-              try? session.acknowledgeRecoveryKey(
-                recoveryKey,
-                productAccountId: snapshot.productAccountId
-              )
-            },
+            recoveryKeyRejected: rejectRecoveryKey,
             replacingCurrent: true
           )
         }

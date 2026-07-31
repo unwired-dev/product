@@ -296,7 +296,7 @@ final class AccountAndDevicesService {
     recentIdentityToken: String,
     isSessionCurrent: () -> Bool = { true },
     recoveryKeyPublished: (String) throws -> Void = { _ in },
-    recoveryKeyRejected: (String) -> Void = { _ in }
+    recoveryKeyRejected: (String) throws -> Void = { _ in }
   ) async throws -> ProductSyncRecoveryKey {
     await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId
@@ -327,7 +327,7 @@ final class AccountAndDevicesService {
     recentIdentityToken: String,
     isSessionCurrent: () -> Bool,
     recoveryKeyPublished: (String) throws -> Void,
-    recoveryKeyRejected: (String) -> Void
+    recoveryKeyRejected: (String) throws -> Void
   ) async throws -> ProductSyncRecoveryKey {
     guard
       let material = try keyMaterialStore.load(
@@ -361,40 +361,38 @@ final class AccountAndDevicesService {
         expectedUpdatedAt: existing?.updatedAt
       )
       guard written.encryptedPayload == replacement.recoveryWrappedAccountKey else {
-        recoveryKeyRejected(replacement.recoveryKey.rawValue)
         if isSessionCurrent() {
           restoreKeyMaterial(material, productAccountId: session.productAccountId)
         }
+        try recoveryKeyRejected(replacement.recoveryKey.rawValue)
         throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
     } catch AccountAndDevicesServiceError.recoveryMaterialChanged {
       throw AccountAndDevicesServiceError.recoveryMaterialChanged
-    } catch {
+    } catch let replacementError {
+      let authoritative: EncryptedProductSyncPayload?
       do {
-        let authoritative = try await recoveryTransport.getRecoveryMaterial(
+        authoritative = try await recoveryTransport.getRecoveryMaterial(
           identityToken: recentIdentityToken,
           payloadIdentifier: Self.recoveryPayloadIdentifier
         )
-        if authoritative?.encryptedPayload
-          == replacement.recoveryWrappedAccountKey
-        {
-          guard isSessionCurrent() else { throw CancellationError() }
-          return replacement.recoveryKey
-        }
-        if isSessionCurrent() {
-          recoveryKeyRejected(replacement.recoveryKey.rawValue)
-          try? keyMaterialStore.save(
-            material,
-            productAccountId: session.productAccountId
-          )
-        }
       } catch {
         // Keep the replacement locally until connectivity can resolve whether
         // the compare-and-set committed.
         guard isSessionCurrent() else { throw CancellationError() }
         return replacement.recoveryKey
       }
-      throw error
+      if authoritative?.encryptedPayload == replacement.recoveryWrappedAccountKey {
+        guard isSessionCurrent() else { throw CancellationError() }
+        return replacement.recoveryKey
+      }
+      guard isSessionCurrent() else { throw CancellationError() }
+      try? keyMaterialStore.save(
+        material,
+        productAccountId: session.productAccountId
+      )
+      try recoveryKeyRejected(replacement.recoveryKey.rawValue)
+      throw replacementError
     }
     guard isSessionCurrent() else { throw CancellationError() }
     return replacement.recoveryKey

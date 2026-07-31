@@ -507,6 +507,38 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.recoveryReadCount, 1)
   }
 
+  func testRejectedRecoveryKeyCleanupFailureIsSurfaced() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    transport.simulatesConcurrentRecoveryWrite = true
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let original = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.presentRecoveryKey(
+      session: session,
+      recentIdentityToken: { "fresh-apple-token" },
+      isSessionCurrent: { true },
+      recoveryKeyRejected: { _ in throw CocoaError(.fileWriteUnknown) },
+      replacingCurrent: true
+    )
+
+    XCTAssertNotNil(viewModel.errorMessage)
+    XCTAssertNil(viewModel.revealedRecoveryKey)
+    XCTAssertEqual(
+      try keyMaterialStore.load(productAccountId: session.productAccountId),
+      original
+    )
+  }
+
   func testRecoveryReplacementSerializesAcrossServiceInstancesForOneAccount() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let writeGate = RecoveryReplacementWriteGate()
