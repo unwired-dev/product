@@ -3675,6 +3675,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
 
   func testMailShellMessageBodyDoesNotPublishLoadAfterClear() async {
     let loadStarted = expectation(description: "Message body load started")
+    let presentationReleased = expectation(description: "late presentation released")
     let loader = GatedMessageBodyLoader(started: loadStarted)
     let clearSignal = MessageBodyClearSignal()
     var didPublishLoadedBody = false
@@ -3682,6 +3683,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       rootView: ClearableMessageBodyHarness(
         clearSignal: clearSignal,
         onLoaded: { didPublishLoadedBody = true },
+        onRelease: { presentationReleased.fulfill() },
         load: { await loader.load() }
       )
     )
@@ -3690,10 +3692,43 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [loadStarted], timeout: 1)
     clearSignal.value = UUID()
     await releaseRenderFrame(host.view)
-    loader.resume()
-    await releaseRenderFrame(host.view)
+    loader.resume(
+      with: MailboxMessageBody(
+        text: "Private body",
+        inlineImages: [
+          MailboxMessageInlineImage(
+            contentID: "late@example.com",
+            data: Data([1]),
+            decodedPixelCount: 1,
+            mimeType: "image/png"
+          )
+        ]
+      )
+    )
+    await fulfillment(of: [presentationReleased], timeout: 1)
 
     XCTAssertFalse(didPublishLoadedBody)
+    withExtendedLifetime(window) {}
+  }
+
+  func testMailShellMessageBodyReleasesLoadedPresentationAfterClear() async {
+    let bodyLoaded = expectation(description: "Message body loaded")
+    let presentationReleased = expectation(description: "Message body presentation released")
+    let clearSignal = MessageBodyClearSignal()
+    let host = UIHostingController(
+      rootView: ClearableMessageBodyHarness(
+        clearSignal: clearSignal,
+        onLoaded: { bodyLoaded.fulfill() },
+        onRelease: { presentationReleased.fulfill() },
+        load: { MailboxMessageBody(text: "Private body") }
+      )
+    )
+    let window = releaseFixtureWindow(hosting: host)
+
+    await fulfillment(of: [bodyLoaded], timeout: 1)
+    clearSignal.value = UUID()
+    await fulfillment(of: [presentationReleased], timeout: 1)
+
     withExtendedLifetime(window) {}
   }
 
@@ -6276,12 +6311,14 @@ private final class MessageBodyClearSignal: ObservableObject {
 private struct ClearableMessageBodyHarness: View {
   @ObservedObject var clearSignal: MessageBodyClearSignal
   let onLoaded: () -> Void
+  var onRelease: () -> Void = {}
   let load: () async throws -> MailboxMessageBody
 
   var body: some View {
     MailShellMessageBody(
       clearSignal: clearSignal.value,
       onLoaded: onLoaded,
+      onRelease: onRelease,
       load: load
     )
   }
@@ -6303,8 +6340,8 @@ private final class GatedMessageBodyLoader {
     }
   }
 
-  func resume() {
-    continuation?.resume(returning: MailboxMessageBody(text: "Private body"))
+  func resume(with body: MailboxMessageBody = MailboxMessageBody(text: "Private body")) {
+    continuation?.resume(returning: body)
     continuation = nil
   }
 }

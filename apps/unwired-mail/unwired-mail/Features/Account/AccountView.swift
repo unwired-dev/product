@@ -1203,6 +1203,7 @@ struct AccountView: View {
         ),
         clearCachedBodies: {
           await inboxViewModel.cancelBodyPrefetch()
+          guard !inboxViewModel.isLoadingMessageBody else { return }
           if let selectedConnection {
             try messageReader.clearCachedMessageBodies(
               connection: selectedConnection,
@@ -1211,6 +1212,9 @@ struct AccountView: View {
           } else {
             try messageReader.clearCachedMessageBodies(session: snapshot)
           }
+          inboxViewModel.discardLoadedMessageBodies(
+            connectionId: selectedConnection?.id
+          )
         }
       )
     } detail: {
@@ -3278,6 +3282,7 @@ private struct MailShellMailboxTools: View {
 
   private var areCachedBodyActionsDisabled: Bool {
     areCachedMetadataActionsDisabled || viewModel.isHistoricalBackfillRunning
+      || viewModel.isLoadingMessageBody
   }
 
   private var providerDisplayName: String {
@@ -3437,17 +3442,28 @@ struct MailShellConversationReader: View {
               MailShellConversationMessage(
                 canForward: connection.capabilities.canForward,
                 canReply: connection.capabilities.canReply,
+                clearBodySignal: inboxViewModel.loadedMessageBodyClearSignal(for: message.id),
                 isExpanded: selection.isMessageExpanded(message, in: thread),
+                isForwardDisabled: inboxViewModel.isLoadingMessageBody
+                  || !inboxViewModel.hasLoadedMessageBodyText(for: message.id),
+                isRemoveCachedBodyDisabled: inboxViewModel.isLoadingMessageBody,
                 isLatest: message.id == thread.latestMessage.id,
                 isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
                 isUpdatingPin: pinViewModel.isUpdating(message.id),
                 loadBody: {
                   try await inboxViewModel.loadMessageBody(message, using: messageReader)
                 },
+                markBodyDisplayed: {
+                  inboxViewModel.markMessageBodyDisplayed(message.id)
+                },
+                markBodyHidden: {
+                  inboxViewModel.markMessageBodyHidden(message.id)
+                },
                 message: message,
                 removeCachedBody: {
                   do {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
+                    inboxViewModel.discardLoadedMessageBody(for: message.id)
                     readerErrorMessage = nil
                     return true
                   } catch {
@@ -3455,6 +3471,9 @@ struct MailShellConversationReader: View {
                     readerErrorMessage = error.localizedDescription
                     return false
                   }
+                },
+                releaseBodyPresentation: {
+                  inboxViewModel.discardLoadedMessageBodyPresentation(for: message.id)
                 },
                 reply: { compositionDraft = .reply(to: message) },
                 replyAll: {
@@ -3524,7 +3543,13 @@ struct MailShellConversationReader: View {
               } label: {
                 Label("Forward", systemImage: "arrowshape.turn.up.right")
               }
-              .disabled(isConnectionBusy || mailActionViewModel.isPerformingAction)
+              .disabled(
+                isConnectionBusy || mailActionViewModel.isPerformingAction
+                  || inboxViewModel.isLoadingMessageBody
+                  || !inboxViewModel.hasLoadedMessageBodyText(
+                    for: thread.latestMessage.id
+                  )
+              )
             }
             providerActionMenu(thread: thread, connection: connection)
           }
@@ -3874,11 +3899,11 @@ struct MailShellConversationReader: View {
   private func prepareForward(_ message: MailboxMessageMetadata) async {
     let selectedThreadId = selection.selectedThreadId
     do {
-      let body = try await inboxViewModel.loadMessageBody(message, using: messageReader)
+      let bodyText = try await inboxViewModel.loadMessageBodyText(message, using: messageReader)
       guard !Task.isCancelled, selectedThreadId == message.threadIdentity,
         selection.selectedThreadId == selectedThreadId
       else { return }
-      compositionDraft = .forward(message, body: body.text)
+      compositionDraft = .forward(message, body: bodyText)
       readerErrorMessage = nil
     } catch is CancellationError {
     } catch {
@@ -3913,20 +3938,24 @@ struct MailShellConversationReader: View {
 private struct MailShellConversationMessage: View {
   let canForward: Bool
   let canReply: Bool
+  let clearBodySignal: UUID?
   let isExpanded: Bool
+  let isForwardDisabled: Bool
+  let isRemoveCachedBodyDisabled: Bool
   let isLatest: Bool
   let isPinned: Bool
   let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
+  let markBodyDisplayed: () -> Void
+  let markBodyHidden: () -> Void
   let message: MailboxMessageMetadata
   let removeCachedBody: () -> Bool
+  let releaseBodyPresentation: () -> Void
   let reply: () -> Void
   let replyAll: () -> Void
   let forward: () async -> Void
   let toggleExpansion: () -> Void
   let togglePin: () -> Void
-
-  @State private var messageBodyResetId = UUID()
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -3958,7 +3987,13 @@ private struct MailShellConversationMessage: View {
 
       if isExpanded {
         Divider()
-        MailShellMessageBody(clearSignal: messageBodyResetId, load: loadBody)
+        MailShellMessageBody(
+          clearSignal: clearBodySignal,
+          onDisplay: markBodyDisplayed,
+          onDismiss: markBodyHidden,
+          onRelease: releaseBodyPresentation,
+          load: loadBody
+        )
         HStack {
           Button(action: togglePin) {
             Label(
@@ -3979,13 +4014,13 @@ private struct MailShellConversationMessage: View {
               Task { await forward() }
             }
             .buttonStyle(.bordered)
+            .disabled(isForwardDisabled)
           }
           Button("Remove Cached Body", role: .destructive) {
-            if removeCachedBody() {
-              messageBodyResetId = UUID()
-            }
+            _ = removeCachedBody()
           }
           .buttonStyle(.bordered)
+          .disabled(isRemoveCachedBodyDisabled)
         }
       }
     }
@@ -4006,27 +4041,46 @@ private struct MailShellConversationMessage: View {
 struct MailShellMessageBody: View {
   let clearSignal: UUID?
   let load: () async throws -> MailboxMessageBody
+  let onDisplay: () -> Void
+  let onDismiss: () -> Void
   let onLoaded: () -> Void
+  let onRelease: () -> Void
   @State private var loadedContent: MailShellLoadedMessageContent?
   @State private var errorMessage: String?
   @State private var isCleared = false
   @State private var isLoading = false
+  @State private var isPresentationRetained = false
   @State private var loadGeneration = UUID()
 
   init(
     clearSignal: UUID? = nil,
+    onDisplay: @escaping () -> Void = {},
+    onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
+    onRelease: @escaping () -> Void = {},
     load: @escaping () async throws -> MailboxMessageBody
   ) {
     self.clearSignal = clearSignal
     self.load = load
+    self.onDisplay = onDisplay
+    self.onDismiss = onDismiss
     self.onLoaded = onLoaded
+    self.onRelease = onRelease
   }
 
   var body: some View {
     Group {
       if let loadedContent {
-        MailShellMessageContent(loadedContent: loadedContent)
+        MailShellMessageContent(
+          loadedContent: loadedContent,
+          onRenderingFailure: {
+            self.loadedContent = MailShellLoadedMessageContent(
+              fallbackText: loadedContent.fallbackText,
+              presentation: .plainText(loadedContent.fallbackText)
+            )
+            releasePresentation()
+          }
+        )
       } else if isCleared {
         Text("Cached body removed.")
           .foregroundStyle(.secondary)
@@ -4052,9 +4106,16 @@ struct MailShellMessageBody: View {
       }
       do {
         let loadedMessageBody = try await load()
-        guard generation == loadGeneration else { return }
+        isPresentationRetained = true
+        guard generation == loadGeneration else {
+          releasePresentation()
+          return
+        }
         let presentation = try await MessageHTMLPresentation.prepare(body: loadedMessageBody)
-        guard generation == loadGeneration else { return }
+        guard generation == loadGeneration else {
+          releasePresentation()
+          return
+        }
         loadedContent = MailShellLoadedMessageContent(
           fallbackText: loadedMessageBody.text,
           presentation: presentation
@@ -4063,18 +4124,37 @@ struct MailShellMessageBody: View {
         isCleared = false
         onLoaded()
       } catch is CancellationError {
+        releasePresentation()
       } catch {
+        releasePresentation()
         guard generation == loadGeneration else { return }
         errorMessage = error.localizedDescription
       }
     }
+    .onAppear {
+      onDisplay()
+    }
     .onChange(of: clearSignal) {
+      releasePresentation()
       loadGeneration = UUID()
       loadedContent = nil
       errorMessage = nil
       isCleared = true
       isLoading = false
     }
+    .onDisappear {
+      onDismiss()
+      loadGeneration = UUID()
+      loadedContent = nil
+      isLoading = false
+      releasePresentation()
+    }
+  }
+
+  private func releasePresentation() {
+    guard isPresentationRetained else { return }
+    isPresentationRetained = false
+    onRelease()
   }
 }
 
@@ -4085,19 +4165,16 @@ private struct MailShellLoadedMessageContent {
 
 private struct MailShellMessageContent: View {
   let loadedContent: MailShellLoadedMessageContent
+  let onRenderingFailure: () -> Void
   @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
-  @State private var renderingFailed = false
 
   var body: some View {
-    switch renderingFailed
-      ? MessageHTMLPresentation.plainText(loadedContent.fallbackText)
-      : loadedContent.presentation
-    {
+    switch loadedContent.presentation {
     case .html(let html):
       MessageHTMLView(
         html: html,
-        onRenderingFailure: { renderingFailed = true }
+        onRenderingFailure: onRenderingFailure
       )
     case .plainText(let text):
       Text(text)
@@ -5303,11 +5380,24 @@ extension GmailMailActionViewModel {
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
+  private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
+  private static let maximumLoadedInlineImagePixelCount = 32 * 1_024 * 1_024
+  private static let maximumLoadedMessageBodyTextByteCount = 5 * 1_024 * 1_024
   private var backfillTask: Task<Void, Never>?
   private var backfillTaskId: UUID?
   private let bodyPrefetcher: MailboxMessageBodyPrefetching?
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
+  private var displayedMessageBodyIds: Set<StableProviderMessageIdentity> = []
+  private var loadedInlineImageByteCount = 0
+  private var loadedInlineImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
+  private var loadedInlineImagePixelCount = 0
+  private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
+  private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
+  private var loadedMessageBodyTextByteCount = 0
+  private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
+  private var loadedMessageBodyTexts: [StableProviderMessageIdentity: String] = [:]
+  private var unavailableLoadedMessageBodyTextIds: Set<StableProviderMessageIdentity> = []
   var errorMessage: String?
   var isAssigningCategory = false
   var isCategorizingHistorical = false
@@ -5405,7 +5495,85 @@ final class GmailInboxViewModel {
   ) async throws -> MailboxMessageBody {
     loadingMessageBodyCount += 1
     defer { loadingMessageBodyCount -= 1 }
-    return try await reader.loadMessageBody(message: message, session: session)
+    let loadedBody = try await reader.loadMessageBody(message: message, session: session)
+    try Task.checkCancellation()
+    let body = try retainLoadedInlineImages(loadedBody, for: message.id)
+    retainLoadedMessageBodyText(body.text, for: message.id)
+    return body
+  }
+
+  func loadMessageBodyText(
+    _ message: MailboxMessageMetadata,
+    using reader: MailboxMessageReading
+  ) async throws -> String {
+    if let loadedBodyText = loadedMessageBodyTexts[message.id] {
+      return loadedBodyText
+    }
+    loadingMessageBodyCount += 1
+    defer { loadingMessageBodyCount -= 1 }
+    return try await reader.loadMessageBodyText(message: message, session: session)
+  }
+
+  func isLoadedMessageBodyTextUnavailable(
+    for messageId: StableProviderMessageIdentity
+  ) -> Bool {
+    unavailableLoadedMessageBodyTextIds.contains(messageId)
+  }
+
+  func hasLoadedMessageBodyText(
+    for messageId: StableProviderMessageIdentity
+  ) -> Bool {
+    loadedMessageBodyTexts[messageId] != nil
+  }
+
+  func discardLoadedMessageBodyText(for messageId: StableProviderMessageIdentity) {
+    if let discardedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
+      loadedMessageBodyTextByteCount -= discardedText.utf8.count
+      loadedMessageBodyTextOrder.removeAll { $0 == messageId }
+    }
+    unavailableLoadedMessageBodyTextIds.insert(messageId)
+  }
+
+  func loadedMessageBodyClearSignal(
+    for messageId: StableProviderMessageIdentity
+  ) -> UUID? {
+    loadedMessageBodyClearSignals[messageId]
+  }
+
+  func discardLoadedMessageBody(for messageId: StableProviderMessageIdentity) {
+    discardLoadedMessageBodyText(for: messageId)
+    loadedMessageBodyClearSignals[messageId] = UUID()
+  }
+
+  func discardLoadedMessageBodies(connectionId: MailboxConnectionId?) {
+    let messageIds = Set(loadedMessageBodyTexts.keys)
+      .union(loadedInlineImagePixelCounts.keys)
+      .union(displayedMessageBodyIds)
+      .filter { connectionId == nil || $0.connectionId == connectionId }
+    for messageId in messageIds {
+      discardLoadedMessageBody(for: messageId)
+    }
+  }
+
+  func discardLoadedMessageBodyPresentation(
+    for messageId: StableProviderMessageIdentity
+  ) {
+    loadedInlineImageByteCount -=
+      loadedInlineImageByteCounts.removeValue(
+        forKey: messageId
+      ) ?? 0
+    loadedInlineImagePixelCount -=
+      loadedInlineImagePixelCounts.removeValue(
+        forKey: messageId
+      ) ?? 0
+  }
+
+  func markMessageBodyDisplayed(_ messageId: StableProviderMessageIdentity) {
+    displayedMessageBodyIds.insert(messageId)
+  }
+
+  func markMessageBodyHidden(_ messageId: StableProviderMessageIdentity) {
+    displayedMessageBodyIds.remove(messageId)
   }
 
   var messageCount: Int {
@@ -5414,14 +5582,103 @@ final class GmailInboxViewModel {
     }
   }
 
+  private func retainLoadedMessageBodyText(
+    _ text: String,
+    for messageId: StableProviderMessageIdentity
+  ) {
+    unavailableLoadedMessageBodyTextIds.remove(messageId)
+    if let replacedText = loadedMessageBodyTexts.removeValue(forKey: messageId) {
+      loadedMessageBodyTextByteCount -= replacedText.utf8.count
+      loadedMessageBodyTextOrder.removeAll { $0 == messageId }
+    }
+    let byteCount = text.utf8.count
+    guard byteCount <= Self.maximumLoadedMessageBodyTextByteCount else {
+      unavailableLoadedMessageBodyTextIds.insert(messageId)
+      return
+    }
+    while loadedMessageBodyTextByteCount + byteCount
+      > Self.maximumLoadedMessageBodyTextByteCount,
+      let evictedMessageId = loadedMessageBodyTextOrder.first
+    {
+      loadedMessageBodyTextOrder.removeFirst()
+      if let evictedText = loadedMessageBodyTexts.removeValue(forKey: evictedMessageId) {
+        loadedMessageBodyTextByteCount -= evictedText.utf8.count
+        unavailableLoadedMessageBodyTextIds.insert(evictedMessageId)
+      }
+    }
+    loadedMessageBodyTexts[messageId] = text
+    loadedMessageBodyTextOrder.append(messageId)
+    loadedMessageBodyTextByteCount += byteCount
+  }
+
+  private func retainLoadedInlineImages(
+    _ body: MailboxMessageBody,
+    for messageId: StableProviderMessageIdentity
+  ) throws -> MailboxMessageBody {
+    discardLoadedMessageBodyPresentation(for: messageId)
+    guard !body.inlineImages.isEmpty else { return body }
+    let contentIDOccurrenceList =
+      try body.html.map(
+        MessageHTMLSanitizer.referencedSanitizedInlineImageContentIDOccurrences
+      ) ?? []
+    let contentIDOccurrences = Dictionary(
+      grouping: contentIDOccurrenceList,
+      by: { $0 }
+    ).mapValues(\.count)
+    var remainingByteCount =
+      Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
+    var remainingPixelCount =
+      Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
+    var retainedByteCount = 0
+    var retainedPixelCount = 0
+    let inlineImages = body.inlineImages.filter { image in
+      let normalizedContentID = MessageHTMLSanitizer.normalizedContentID(image.contentID)
+      let occurrenceCount = max(normalizedContentID.flatMap { contentIDOccurrences[$0] } ?? 0, 1)
+      let (byteCount, byteCountOverflowed) = image.data.count.multipliedReportingOverflow(
+        by: occurrenceCount
+      )
+      guard
+        !byteCountOverflowed,
+        byteCount <= remainingByteCount,
+        image.decodedPixelCount <= remainingPixelCount
+      else {
+        return false
+      }
+      remainingByteCount -= byteCount
+      remainingPixelCount -= image.decodedPixelCount
+      retainedByteCount += byteCount
+      retainedPixelCount += image.decodedPixelCount
+      return true
+    }
+    loadedInlineImageByteCounts[messageId] = retainedByteCount
+    loadedInlineImageByteCount += retainedByteCount
+    loadedInlineImagePixelCounts[messageId] = retainedPixelCount
+    loadedInlineImagePixelCount += retainedPixelCount
+    return MailboxMessageBody(
+      text: body.text,
+      html: body.html,
+      inlineImages: inlineImages
+    )
+  }
+
   func clear() {
     cancelBackfill()
     bodyPrefetchTask?.cancel()
     bodyPrefetchTask = nil
     currentConnectionId = nil
+    displayedMessageBodyIds = []
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
+    loadedInlineImageByteCount = 0
+    loadedInlineImageByteCounts = [:]
+    loadedInlineImagePixelCount = 0
+    loadedInlineImagePixelCounts = [:]
+    loadedMessageBodyClearSignals = [:]
+    loadedMessageBodyTextByteCount = 0
+    loadedMessageBodyTextOrder = []
+    loadedMessageBodyTexts = [:]
+    unavailableLoadedMessageBodyTextIds = []
     threads = []
     searchQuery = ""
     searchResult = nil

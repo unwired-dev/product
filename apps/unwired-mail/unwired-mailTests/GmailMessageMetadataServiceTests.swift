@@ -2893,10 +2893,507 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     await reader.waitUntilLoadStarts()
 
     XCTAssertTrue(viewModel.isBusy)
+    XCTAssertFalse(viewModel.hasLoadedMessageBodyText(for: message.id))
     await reader.releaseLoad()
     let body = try await loadTask.value
     XCTAssertEqual(body, MailboxMessageBody(text: "Body"))
     XCTAssertFalse(viewModel.isBusy)
+    XCTAssertTrue(viewModel.hasLoadedMessageBodyText(for: message.id))
+  }
+
+  @MainActor
+  func testInboxViewModelReusesOpenedBodyTextForForwarding() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 0)
+  }
+
+  @MainActor
+  func testInboxViewModelBoundsOpenedBodyTextRetainedForForwarding() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-002",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let retainedText = String(repeating: "x", count: 3 * 1_024 * 1_024)
+    let reader = ImmediateMailboxMessageReader(
+      bodyTexts: [
+        firstMessage.id: retainedText,
+        secondMessage.id: retainedText,
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    _ = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    let evictedBodyText = try await viewModel.loadMessageBodyText(firstMessage, using: reader)
+    let retainedBodyText = try await viewModel.loadMessageBodyText(secondMessage, using: reader)
+
+    XCTAssertEqual(evictedBodyText, "Provider body text")
+    XCTAssertEqual(retainedBodyText, retainedText)
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: firstMessage.id))
+    XCTAssertFalse(viewModel.isLoadedMessageBodyTextUnavailable(for: secondMessage.id))
+  }
+
+  @MainActor
+  func testInboxViewModelBoundsInlineImagePixelsAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let maximumImagePixelCount = 16 * 1_024 * 1_024
+    let firstBody = MailboxMessageBody(
+      text: "First",
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "first@example.com",
+          data: Data([1]),
+          decodedPixelCount: maximumImagePixelCount,
+          mimeType: "image/png"
+        ),
+        MailboxMessageInlineImage(
+          contentID: "second@example.com",
+          data: Data([2]),
+          decodedPixelCount: maximumImagePixelCount,
+          mimeType: "image/png"
+        ),
+      ]
+    )
+    let secondBody = MailboxMessageBody(
+      text: "Second",
+      inlineImages: [
+        MailboxMessageInlineImage(
+          contentID: "third@example.com",
+          data: Data([3]),
+          decodedPixelCount: 1,
+          mimeType: "image/png"
+        )
+      ]
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: firstBody,
+        secondMessage.id: secondBody,
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.count, 2)
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["third@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelBoundsInlineImageBytesAcrossLoadedBodies() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let imageData = Data(repeating: 1, count: 11 * 1_024 * 1_024)
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "first@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["first@example.com"])
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelChargesRepeatedInlineImagesToSharedByteBudget() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let repeatedImageData = Data(repeating: 1, count: 5 * 1_024 * 1_024)
+    let repeatedImageHTML = String(
+      repeating: #"<img src="cid:repeated@example.com">"#,
+      count: 4
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          html: repeatedImageHTML,
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "repeated@example.com",
+              data: repeatedImageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: Data([2]),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["repeated@example.com"])
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+  }
+
+  @MainActor
+  func testInboxViewModelIgnoresSanitizedAwayInlineImageOccurrencesInByteBudget() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let hiddenOccurrences = String(
+      repeating: #"<div style="display: none"><img src="cid:repeated@example.com"></div>"#,
+      count: 4
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          html: #"<img src="cid:repeated@example.com">"# + hiddenOccurrences,
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "repeated@example.com",
+              data: Data(repeating: 1, count: 5 * 1_024 * 1_024),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: Data(repeating: 2, count: 15 * 1_024 * 1_024),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    let loadedFirstBody = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    let loadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertEqual(loadedFirstBody.inlineImages.map(\.contentID), ["repeated@example.com"])
+    XCTAssertEqual(loadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelRetainsPixelReservationUntilClearedViewReleasesIt() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let maximumImagePixelCount = 16 * 1_024 * 1_024
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "first@example.com",
+              data: Data([1]),
+              decodedPixelCount: maximumImagePixelCount * 2,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: Data([2]),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        ),
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    _ = try await viewModel.loadMessageBody(firstMessage, using: reader)
+    viewModel.discardLoadedMessageBodies(connectionId: firstMessage.connectionId)
+    let constrainedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: firstMessage.id)
+    let reloadedSecondBody = try await viewModel.loadMessageBody(secondMessage, using: reader)
+
+    XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: firstMessage.id))
+    XCTAssertEqual(constrainedSecondBody.inlineImages, [])
+    XCTAssertEqual(reloadedSecondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
+  func testInboxViewModelSignalsDisplayedFallbackBodyDuringBulkCacheRemoval() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        message.id: MailboxMessageBody(
+          text: String(repeating: "x", count: 5 * 1_024 * 1_024 + 1),
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "image@example.com",
+              data: Data([1]),
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    viewModel.markMessageBodyDisplayed(message.id)
+    _ = try await viewModel.loadMessageBody(message, using: reader)
+    viewModel.discardLoadedMessageBodyPresentation(for: message.id)
+
+    viewModel.discardLoadedMessageBodies(connectionId: message.connectionId)
+
+    XCTAssertNotNil(viewModel.loadedMessageBodyClearSignal(for: message.id))
+  }
+
+  @MainActor
+  func testInboxViewModelDiscardsOpenedBodyTextWhenCachedBodyIsRemoved() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    viewModel.discardLoadedMessageBodyText(for: message.id)
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Text-only body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
+  }
+
+  @MainActor
+  func testInboxViewModelDiscardsOpenedBodyTextForClearedConnection() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let reader = DelayedMailboxMessageReader()
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+
+    let loadTask = Task {
+      try await viewModel.loadMessageBody(message, using: reader)
+    }
+    await reader.waitUntilLoadStarts()
+    await reader.releaseLoad()
+    _ = try await loadTask.value
+
+    viewModel.discardLoadedMessageBodies(connectionId: message.id.connectionId)
+    let bodyText = try await viewModel.loadMessageBodyText(message, using: reader)
+
+    XCTAssertEqual(bodyText, "Text-only body")
+    XCTAssertEqual(reader.loadBodyTextCallCount, 1)
+    XCTAssertTrue(viewModel.isLoadedMessageBodyTextUnavailable(for: message.id))
   }
 
   @MainActor
@@ -5882,6 +6379,7 @@ private final class DelayedGmailMessageSearchService: MailboxMessageSearching {
 
 private final class DelayedMailboxMessageReader: MailboxMessageReading {
   private let loadGate = OverrideGate()
+  private(set) var loadBodyTextCallCount = 0
 
   func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
 
@@ -5898,6 +6396,14 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
     return MailboxMessageBody(text: "Body")
   }
 
+  func loadMessageBodyText(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    loadBodyTextCallCount += 1
+    return "Text-only body"
+  }
+
   func removeCachedMessageBody(
     message _: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
@@ -5910,6 +6416,46 @@ private final class DelayedMailboxMessageReader: MailboxMessageReading {
   func releaseLoad() async {
     await loadGate.release()
   }
+}
+
+private final class ImmediateMailboxMessageReader: MailboxMessageReading {
+  private let bodies: [StableProviderMessageIdentity: MailboxMessageBody]
+  private(set) var loadBodyTextCallCount = 0
+
+  init(bodyTexts: [StableProviderMessageIdentity: String]) {
+    bodies = bodyTexts.mapValues { MailboxMessageBody(text: $0) }
+  }
+
+  init(bodies: [StableProviderMessageIdentity: MailboxMessageBody]) {
+    self.bodies = bodies
+  }
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func loadMessageBody(
+    message: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageBody {
+    bodies[message.id] ?? MailboxMessageBody(text: "")
+  }
+
+  func loadMessageBodyText(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> String {
+    loadBodyTextCallCount += 1
+    return "Provider body text"
+  }
+
+  func removeCachedMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
 }
 
 private final class RecordingGmailProviderTokenStore: GmailProviderTokenPersisting {

@@ -241,7 +241,7 @@ Content referenced by a message but fetched from an external server only when th
 _Avoid_: Message body, downloaded attachment
 
 **Inline Image**:
-A user-authored image placed at a position inside a **Semantic Message Document** and delivered as part of the outgoing message rather than fetched as **Remote Message Content**.
+An image placed at a position inside message content and delivered as a MIME part rather than fetched as **Remote Message Content**. A user-authored Inline Image occupies a position in the **Semantic Message Document**; a received Inline Image is resolved from its normalized Content-ID only when that message is explicitly opened.
 _Avoid_: Image attachment, remote image
 
 **Attachment**:
@@ -526,7 +526,7 @@ _Avoid_: Password reset, support recovery
 - **Historical Metadata Backfill** pauses under low storage, low power, or network loss and resumes when conditions permit
 - Completing **Historical Metadata Backfill** does not require retaining historical message bodies
 - Body prefetch begins after **Initial Mailbox Availability** rather than delaying the newest message list
-- The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments
+- The **Bounded Encrypted Body Cache** prefetches body text for a recent working set without prefetching attachments or Inline Images
 - For each **Mailbox Connection**, the prefetched recent working set contains at most 500 distinct messages combined across Inbox and **Sent Mailbox**, selected at one synchronization reference instant from messages whose applicable timestamp falls from that instant minus 30 days through that instant, inclusive, ordered by newest applicable timestamp first; duplicate appearances use the later applicable timestamp, and **Stable Provider Message Identity** is the deterministic tie-breaker
 - A synchronization first computes a cache-fitting combined protected set: selected-recent candidates take priority in recency order, then bodies belonging to pinned **Threads** in most-recently-read Thread and message order, stopping when eligible eviction space is exhausted. Applying a new selection may drop an existing pin-only body protection to admit a selected-recent candidate; the dropped body then follows last-resort pinned-Thread eviction. Only admitted candidates are protected; candidates of the same selection never evict one another, and a candidate that still cannot free eligible space is refused and remains on demand until a later synchronization finds space
 - Every non-Spam, non-Trash message body in a pinned **Thread** is eligible for prefetch regardless of the 30-day and 500-message cutoffs, subject to that cache-fitting protected-set admission rule; otherwise the Thread metadata and **Pin** remain while the missing body is fetched on demand
@@ -538,6 +538,7 @@ _Avoid_: Password reset, support recovery
 - **Drafts** are stored separately and do not count against the body-cache limit, but their documents and assets together are constrained by the separate draft-store limit
 - **Remote Message Content** is requested per device, defaults to asking the user, and may be configured to never load or always load
 - Known **Tracking Pixels** remain blocked when other **Remote Message Content** is allowed
+- Explicitly opening retained Gmail HTML may resolve only sanitized, referenced, bounded, supported MIME Inline Images into the isolated presentation; missing or invalid parts fail independently, and their plaintext bytes remain presentation-scoped in memory without entering prefetch or the body cache
 - Building a reply or forward quote never fetches **Remote Message Content**; quoted HTML is sanitized, blocked images remain non-loading placeholders, and unavailable embedded content or attachments are excluded unless the user explicitly downloads them
 - Clearing cached bodies or downloaded attachments removes only device-local copies and never deletes provider mail
 - **System Categorization** may use the **Bounded Encrypted Body Cache** when **Minimized Classification Input** is insufficient
