@@ -4772,27 +4772,6 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testUnifiedInboxRefreshDisablesWhileConnectionOrInboxIsBusy() {
-    XCTAssertFalse(
-      MailShellThreadList.isUnifiedInboxRefreshButtonDisabled(
-        isConnectionBusy: false,
-        isRefreshDisabled: false
-      )
-    )
-    XCTAssertTrue(
-      MailShellThreadList.isUnifiedInboxRefreshButtonDisabled(
-        isConnectionBusy: true,
-        isRefreshDisabled: false
-      )
-    )
-    XCTAssertTrue(
-      MailShellThreadList.isUnifiedInboxRefreshButtonDisabled(
-        isConnectionBusy: false,
-        isRefreshDisabled: true
-      )
-    )
-  }
-
   func testCanonicalUnifiedMailboxCountsAggregateObservedDataAcrossConnections() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
