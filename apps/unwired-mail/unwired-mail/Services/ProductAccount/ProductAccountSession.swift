@@ -128,7 +128,9 @@ final class ProductAccountSession {
     }
   }
 
-  func signOut() async {
+  func signOut(
+    afterRecoveryCheck preparation: () async -> Void = {}
+  ) async {
     beginSignOut()
     defer {
       isSigningOut = false
@@ -136,8 +138,8 @@ final class ProductAccountSession {
     }
     let snapshot = signOutSnapshot ?? (try? sessionStore.load())
     do {
+      try await prepareForSignOut(snapshot, preparation: preparation)
       if let snapshot {
-        try await verifyProductSyncRecoveryIsBackedUp(snapshot)
         try? await devicePushUnregistrationService.unregister(session: snapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
       }
@@ -177,6 +179,16 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
+  }
+
+  private func prepareForSignOut(
+    _ snapshot: ProductAccountSessionSnapshot?,
+    preparation: () async -> Void
+  ) async throws {
+    if let snapshot {
+      try await verifyProductSyncRecoveryIsBackedUp(snapshot)
+    }
+    await preparation()
   }
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {

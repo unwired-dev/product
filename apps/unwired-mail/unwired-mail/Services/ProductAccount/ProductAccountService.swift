@@ -180,8 +180,36 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   }
 }
 
+private actor AccountAndDevicesRecoveryReplacementGate {
+  private var lockedProductAccountIds: Set<String> = []
+  private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+  func acquire(productAccountId: String) async {
+    guard lockedProductAccountIds.contains(productAccountId) else {
+      lockedProductAccountIds.insert(productAccountId)
+      return
+    }
+    await withCheckedContinuation { continuation in
+      waiters[productAccountId, default: []].append(continuation)
+    }
+  }
+
+  func release(productAccountId: String) {
+    guard var productAccountWaiters = waiters[productAccountId], !productAccountWaiters.isEmpty
+    else {
+      lockedProductAccountIds.remove(productAccountId)
+      waiters[productAccountId] = nil
+      return
+    }
+    let next = productAccountWaiters.removeFirst()
+    waiters[productAccountId] = productAccountWaiters.isEmpty ? nil : productAccountWaiters
+    next.resume()
+  }
+}
+
 final class AccountAndDevicesService {
   static let recoveryPayloadIdentifier = "product-account-recovery-v1"
+  private static let recoveryReplacementGate = AccountAndDevicesRecoveryReplacementGate()
 
   private let deviceTransport: TrustedDeviceManaging
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -248,11 +276,37 @@ final class AccountAndDevicesService {
     )
   }
 
-  // swiftlint:disable:next cyclomatic_complexity function_body_length
   func replaceRecoveryKey(
     session: ProductAccountSessionSnapshot,
     recentIdentityToken: String,
     isSessionCurrent: () -> Bool = { true }
+  ) async throws -> ProductSyncRecoveryKey {
+    await Self.recoveryReplacementGate.acquire(
+      productAccountId: session.productAccountId
+    )
+    do {
+      let recoveryKey = try await performRecoveryKeyReplacement(
+        session: session,
+        recentIdentityToken: recentIdentityToken,
+        isSessionCurrent: isSessionCurrent
+      )
+      await Self.recoveryReplacementGate.release(
+        productAccountId: session.productAccountId
+      )
+      return recoveryKey
+    } catch {
+      await Self.recoveryReplacementGate.release(
+        productAccountId: session.productAccountId
+      )
+      throw error
+    }
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  private func performRecoveryKeyReplacement(
+    session: ProductAccountSessionSnapshot,
+    recentIdentityToken: String,
+    isSessionCurrent: () -> Bool
   ) async throws -> ProductSyncRecoveryKey {
     guard
       let material = try keyMaterialStore.load(

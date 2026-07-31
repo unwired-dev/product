@@ -418,7 +418,10 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
-    await session.signOut()
+    var didPrepareDestructiveCleanup = false
+    await session.signOut {
+      didPrepareDestructiveCleanup = true
+    }
 
     XCTAssertEqual(
       session.state,
@@ -432,6 +435,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(gmailConnectionService.clearedSessions, [])
     XCTAssertEqual(pushUnregisterer.sessions, [])
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [])
+    XCTAssertFalse(didPrepareDestructiveCleanup)
   }
 
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {

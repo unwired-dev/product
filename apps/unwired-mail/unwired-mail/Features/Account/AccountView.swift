@@ -1879,11 +1879,12 @@ extension AccountView {
     ewsSetupViewModel.invalidate()
     genericMailSetupViewModel.invalidate()
     Task {
-      await mailActionViewModel.prepareForSignOut()
-      mailboxFreshnessViewModel.cancelAll()
-      mailboxFreshnessViewModel.clearPersistedState()
-      await inboxViewModel.prepareForSignOut()
-      await session.signOut()
+      await session.signOut {
+        await mailActionViewModel.prepareForSignOut()
+        mailboxFreshnessViewModel.cancelAll()
+        mailboxFreshnessViewModel.clearPersistedState()
+        await inboxViewModel.prepareForSignOut()
+      }
     }
   }
 }

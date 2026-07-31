@@ -264,6 +264,57 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.recoveryReadCount, 1)
   }
 
+  func testRecoveryReplacementSerializesAcrossServiceInstancesForOneAccount() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let writeGate = RecoveryReplacementWriteGate()
+    transport.recoveryWriteGate = writeGate
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let firstService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+    let secondService = AccountAndDevicesService(
+      deviceTransport: transport,
+      keyMaterialStore: keyMaterialStore,
+      recoveryTransport: transport
+    )
+
+    let firstReplacement = Task {
+      try await firstService.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "first-token"
+      )
+    }
+    await writeGate.waitUntilFirstWriteStarted()
+    let secondStarted = expectation(description: "second replacement requested")
+    let secondReplacement = Task {
+      secondStarted.fulfill()
+      return try await secondService.replaceRecoveryKey(
+        session: session,
+        recentIdentityToken: "second-token"
+      )
+    }
+
+    await fulfillment(of: [secondStarted], timeout: 1)
+    XCTAssertEqual(transport.recoveryReadCount, 1)
+
+    await writeGate.releaseFirstWrite()
+    let firstRecoveryKey = try await firstReplacement.value
+    let secondRecoveryKey = try await secondReplacement.value
+    let saved = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: session.productAccountId)
+    )
+
+    XCTAssertNotEqual(firstRecoveryKey, secondRecoveryKey)
+    XCTAssertEqual(saved.recoveryKey, secondRecoveryKey)
+    XCTAssertEqual(transport.recoveryReadCount, 2)
+  }
+
   func testOfflineRecoveryReplacementRestoresMaterialWhenBackendDidNotCommit()
     async throws
   {
@@ -387,6 +438,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteIdentityToken: String?
   var recoveryWritePayload: ProductSyncEncryptedPayload?
   var recoveryWriteError: Error?
+  var recoveryWriteGate: RecoveryReplacementWriteGate?
   var recoveryReadCount = 0
   var recoveryReadIdentityToken: String?
   var renameIdentityToken: String?
@@ -434,6 +486,7 @@ private final class RecordingAccountAndDevicesTransport:
     trustedDeviceId _: String,
     expectedUpdatedAt _: Int64?
   ) async throws -> EncryptedProductSyncPayload {
+    await recoveryWriteGate?.waitForReleaseIfFirstWrite()
     recoveryWriteIdentityToken = identityToken
     recoveryWritePayload = encryptedPayload
     if commitsRecoveryBeforeThrowing {
@@ -461,5 +514,34 @@ private final class RecordingAccountAndDevicesTransport:
       payloadIdentifier: payloadIdentifier,
       updatedAt: 1
     )
+  }
+}
+
+private actor RecoveryReplacementWriteGate {
+  private var firstWriteStarted = false
+  private var releaseContinuation: CheckedContinuation<Void, Never>?
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+  private var writeCount = 0
+
+  func waitForReleaseIfFirstWrite() async {
+    writeCount += 1
+    guard writeCount == 1 else { return }
+    firstWriteStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    await withCheckedContinuation { releaseContinuation = $0 }
+  }
+
+  func waitUntilFirstWriteStarted() async {
+    guard !firstWriteStarted else { return }
+    await withCheckedContinuation { startContinuations.append($0) }
+  }
+
+  func releaseFirstWrite() {
+    releaseContinuation?.resume()
+    releaseContinuation = nil
   }
 }
