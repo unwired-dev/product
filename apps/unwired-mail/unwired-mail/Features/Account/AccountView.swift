@@ -672,11 +672,13 @@ final class MailboxFreshnessViewModel {
       return result
     } catch {
       if Task.isCancelled || error is CancellationError || Self.isCancellation(error) {
-        if historicalBackfills[connection.id]?.id == backfillId,
-          externalStatusRevisions[connection.id, default: 0] == externalStatusRevision
-        {
-          statuses[connection.id] = priorStatus
-        }
+        finishHistoricalBackfill(
+          connection: connection,
+          externalStatusRevision: externalStatusRevision,
+          externalSyncRevision: externalSyncRevision,
+          priorStatus: priorStatus,
+          result: .failure(error)
+        )
         throw CancellationError()
       }
       finishHistoricalBackfill(
@@ -833,15 +835,19 @@ final class MailboxFreshnessViewModel {
         )
       }
     case .failure(let error):
+      if Task.isCancelled || Self.isCancellation(error) {
+        if !Task.isCancelled,
+          externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id),
+          externalStatusIsCurrent(externalStatusRevision, for: connection.id)
+        {
+          statuses[connection.id] = priorStatus
+        }
+        supersedesHistoricalBackfill = false
+        break
+      }
       guard
-        !Task.isCancelled,
         externalSyncRevisionIsCurrent(externalSyncRevision, for: connection.id)
       else { return }
-      guard !Self.isCancellation(error) else {
-        guard externalStatusIsCurrent(externalStatusRevision, for: connection.id) else { return }
-        statuses[connection.id] = priorStatus
-        return
-      }
       guard externalStatusIsCurrent(externalStatusRevision, for: connection.id) else { return }
       statuses[connection.id] = MailboxSyncStatus(
         lastSuccessfulSyncAt: priorStatus.lastSuccessfulSyncAt,

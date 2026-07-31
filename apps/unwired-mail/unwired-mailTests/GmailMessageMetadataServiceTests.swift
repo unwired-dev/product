@@ -2220,8 +2220,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     await fixture.service.waitUntilHistoricalBackfillStarts()
+    let reloadPublished = expectation(description: "cancelled backfill reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
 
     _ = try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    await fulfillment(of: [reloadPublished], timeout: 1)
 
     let syncCallCount = await fixture.service.syncCallCount()
     XCTAssertEqual(syncCallCount, 1)
