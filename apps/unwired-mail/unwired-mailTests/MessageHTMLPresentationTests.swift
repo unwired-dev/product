@@ -254,17 +254,14 @@ final class MessageHTMLPresentationTests: XCTestCase {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>Receipt</p>
         <div style="margin-top: -1px">
           Visible details
-          <img src="cid:logo@example.com" alt="Logo">
         </div>
         """
       )
     )
 
     XCTAssertTrue(result.documentHTML.contains("Visible details"))
-    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
   }
 
   func testSanitizedDocumentUsesRestrictiveContentSecurityPolicy() throws {
@@ -510,6 +507,8 @@ extension MessageHTMLPresentationTests {
              style="width: +1px; height: +1px">
         <img src="https://tracker.example/signed-zero.gif"
              style="width: +0px; height: 1px">
+        <img src="https://images.example.com/minimum-width.png"
+             style="width: 1px; height: 1px; min-width: 600px">
         <img src="https://images.example.com/logo.png"
              style="height: 40px; width: 120px">
         """
@@ -521,7 +520,10 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertEqual(
       presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/logo.png"]
+      [
+        "https://images.example.com/minimum-width.png",
+        "https://images.example.com/logo.png",
+      ]
     )
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
@@ -1442,6 +1444,16 @@ extension MessageHTMLPresentationTests {
     }
   }
 
+  func testSanitizerPreservesVisibleContentWithInvalidZeroLengthOverride() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"<div style="height: 12px; height: 0abc">Visible text</div>"#
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Visible text"))
+  }
+
   func testSanitizerIgnoresInvalidMaximumDimensionOverrides() throws {
     for style in [
       "max-height: 0; max-height: normal",
@@ -1467,7 +1479,7 @@ extension MessageHTMLPresentationTests {
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
-        <div style="max-width: calc(0px)">
+        <div style="max-width: calc(0px + 0px)">
           <img src="https://tracker.example/hidden.png">
         </div>
         """

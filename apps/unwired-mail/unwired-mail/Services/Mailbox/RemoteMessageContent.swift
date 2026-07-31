@@ -56,6 +56,9 @@ enum RemoteMessageContentMarkup {
       let value = ((try? element.attr(dimension)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
       let onePixelStylePattern = #"^\+?0*1(?:\.0*)?px$"#
+      if InlineImageDimensionPolicy.hasExpandingMinimum(dimension, in: element) {
+        return false
+      }
       if [dimension, "max-\(dimension)"].contains(where: { property in
         InlineImageDimensionPolicy.value(property, in: element)?.range(
           of: onePixelStylePattern,

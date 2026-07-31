@@ -1,6 +1,13 @@
 import Foundation
 import SwiftSoup
 
+enum CSSLengthValuePolicy {
+  static let unitPattern = #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%)"#
+  static let optionalUnitPattern = unitPattern + "?"
+  static let unsignedZeroPattern = #"(?:0+(?:\.0*)?|\.0+)"#
+  static let zeroLengthPattern = #"[+-]?"# + unsignedZeroPattern + optionalUnitPattern
+}
+
 extension MessageHTMLHiddenStylePatterns {
   static func isReadableHidden(_ declarations: [StyleDeclaration]) -> Bool {
     if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
@@ -13,23 +20,16 @@ extension MessageHTMLHiddenStylePatterns {
     }) {
       return true
     }
-    let negativeValuePattern = #"^-(?:[1-9]\d*(?:\.\d+)?|0*\.\d*[1-9]\d*)(?:[a-z%]+)?$"#
     if effectiveValue(
       "text-indent", in: declarations,
       where: {
         isLengthValue($0, for: "text-indent")
-      })?.range(
-        of: negativeValuePattern,
-        options: .regularExpression
-      ) != nil
-    {
+      }
+    ).map(isOffCanvasNegativeLengthValue) == true {
       return true
     }
     return (0..<4).contains { side in
-      effectiveMarginValue(side, in: declarations)?.range(
-        of: negativeValuePattern,
-        options: .regularExpression
-      ) != nil
+      effectiveMarginValue(side, in: declarations).map(isOffCanvasNegativeLengthValue) == true
     }
   }
 
@@ -74,7 +74,8 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isLengthValue(_ value: String, for property: String) -> Bool {
     if value.range(
-      of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[a-z%]+)?$"#,
+      of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)"#
+        + CSSLengthValuePolicy.optionalUnitPattern + "$",
       options: .regularExpression
     ) != nil {
       let isUnitlessNonzero =
@@ -92,13 +93,28 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isZeroLengthValue(_ value: String) -> Bool {
     value.range(
-      of: #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#,
+      of: "^" + CSSLengthValuePolicy.zeroLengthPattern + "$",
       options: .regularExpression
     ) != nil
-      || value.range(
-        of: #"^calc\(\s*[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?\s*\)$"#,
-        options: .regularExpression
-      ) != nil
+      || isCalculatedZeroLengthValue(value)
+  }
+
+  private static func isCalculatedZeroLengthValue(_ value: String) -> Bool {
+    guard value.hasPrefix("calc("), value.hasSuffix(")") else { return false }
+    let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
+    let additionalZeroTerm =
+      #"(?:[+-]"# + CSSLengthValuePolicy.unsignedZeroPattern
+      + CSSLengthValuePolicy.optionalUnitPattern + ")*"
+    return expression.range(
+      of: "^" + CSSLengthValuePolicy.zeroLengthPattern + additionalZeroTerm + "$",
+      options: .regularExpression
+    ) != nil
+  }
+
+  private static func isOffCanvasNegativeLengthValue(_ value: String) -> Bool {
+    guard isLengthValue(value, for: "margin") else { return false }
+    let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
+    return Double(numericPrefix).map { $0 <= -100 } == true
   }
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {

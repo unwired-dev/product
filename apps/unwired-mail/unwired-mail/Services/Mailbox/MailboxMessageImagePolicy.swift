@@ -4,6 +4,22 @@ import ImageIO
 import SwiftSoup
 
 enum InlineImageDimensionPolicy {
+  static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
+    guard let value = value("min-\(dimension)", in: element) else { return false }
+    let isPositiveLength =
+      value.range(
+        of: #"^\+?(?:\d+(?:\.\d*)?|\.\d+)"# + CSSLengthValuePolicy.unitPattern + "$",
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    let isOnePixel =
+      value.range(
+        of: #"^\+?0*1(?:\.0*)?px$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    return isPositiveLength && !isOnePixel
+      && !MessageHTMLHiddenStylePatterns.isZeroLengthValue(value)
+  }
+
   static func value(_ property: String, in element: Element) -> String? {
     guard let style = try? element.attr("style") else { return nil }
     var normalValue: String?
@@ -46,9 +62,8 @@ enum InlineImageDimensionPolicy {
       return true
     }
     return normalized.range(
-      of: #"^(?:[+-]?(?:0+(?:\.0*)?|\.0+)(?:ch|cm|em|ex|in|mm|pc|pt|px|q|"#
-        + #"rem|vh|vmax|vmin|vw|%)?|\+?(?:\d+(?:\.\d*)?|\.\d+)"#
-        + #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%))$"#,
+      of: "^(?:" + CSSLengthValuePolicy.zeroLengthPattern + #"|\+?(?:\d+(?:\.\d*)?|\.\d+)"#
+        + CSSLengthValuePolicy.unitPattern + ")$",
       options: .regularExpression
     ) != nil
   }
