@@ -1288,6 +1288,9 @@ struct AccountView: View {
           inboxViewModel.discardLoadedMessageBodies(
             connectionId: selectedConnection?.id
           )
+        },
+        refreshUnifiedInbox: {
+          loadUnifiedMailbox()
         }
       )
     } detail: {
@@ -2974,6 +2977,7 @@ struct MailShellThreadList: View {
   var selectSearchResult: (MailboxMessageMetadata) -> Void = { _ in }
   var categoryChoices: [MessageCategoryChoice] = []
   var clearCachedBodies: () async throws -> Void = {}
+  var refreshUnifiedInbox: () -> Void = {}
   @State private var editingAttempt: OutgoingDeliveryAttempt?
   @State private var showsMailboxTools = false
 
@@ -3046,6 +3050,17 @@ struct MailShellThreadList: View {
           EditButton()
         }
       }
+      if Self.showsUnifiedInboxRefreshButton(
+        mailboxSelection: mailboxSelection,
+        connections: connections
+      ) {
+        ToolbarItem(placement: .primaryAction) {
+          Button(action: refreshUnifiedInbox) {
+            Label("Refresh", systemImage: "arrow.clockwise")
+          }
+          .disabled(viewModel.isRefreshDisabled || isConnectionBusy)
+        }
+      }
       if let connection, connection.authorizationState == .authorized,
         connection.capabilities.canSynchronizeMetadata
       {
@@ -3107,6 +3122,16 @@ struct MailShellThreadList: View {
         },
         viewModel: viewModel
       )
+    }
+  }
+
+  static func showsUnifiedInboxRefreshButton(
+    mailboxSelection: MailShellMailboxSelection?,
+    connections: [MailboxConnection]
+  ) -> Bool {
+    guard mailboxSelection == .unified(.inbox) else { return false }
+    return connections.contains {
+      $0.authorizationState == .authorized && $0.capabilities.canSynchronizeMetadata
     }
   }
 

@@ -1465,6 +1465,41 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelRefreshesEveryAuthorizedUnifiedInboxConnection() async {
+    let fixture = makeUnifiedInboxViewModelFixture()
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    let syncInboxCallCount = await fixture.service.syncInboxCallCount()
+    let unauthorizedConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "authorization-required@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: connection.provider,
+      providerAccountIdentifier: "gmail-user-003",
+      trustedDeviceId: connection.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    )
+    .mailboxConnection(productAccountId: session.productAccountId, authorizationState: .authorized)
+    .definition
+    .mailboxConnection(
+      productAccountId: session.productAccountId,
+      trustedDeviceId: session.trustedDeviceId
+    )
+    fixture.viewModel.errorMessage = "Previous refresh failed"
+
+    await fixture.viewModel.loadUnifiedInbox(
+      connections: fixture.connections + [unauthorizedConnection]
+    )
+
+    XCTAssertNil(fixture.viewModel.errorMessage)
+    let refreshedSyncInboxCallCount = await fixture.service.syncInboxCallCount()
+    XCTAssertEqual(refreshedSyncInboxCallCount, syncInboxCallCount + fixture.connections.count)
+    XCTAssertEqual(
+      fixture.viewModel.threads.map(\.providerThreadId),
+      ["thread-second", "thread-first"]
+    )
+  }
+
+  @MainActor
   func testInboxViewModelRefreshesOneUnifiedInboxConnectionWithoutDroppingOthers() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)

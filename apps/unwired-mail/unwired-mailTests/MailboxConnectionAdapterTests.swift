@@ -4741,6 +4741,20 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(viewModel.selectedThreadId, secondThread.id)
   }
 
+  func testUnifiedInboxShowsRefreshWithoutSelectedConnection() {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+
+    XCTAssertTrue(
+      MailShellThreadList.showsUnifiedInboxRefreshButton(
+        mailboxSelection: .unified(.inbox),
+        connections: [connection]
+      )
+    )
+  }
+
   func testCanonicalUnifiedMailboxCountsAggregateObservedDataAcrossConnections() {
     let secondConnectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
