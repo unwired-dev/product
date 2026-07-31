@@ -49,6 +49,11 @@ extension MessageHTMLSanitizer {
   }
 }
 
+enum RemoteMessageContentError: Error {
+  case responseTooLarge(receivedByteCount: Int)
+  case transferFailed(receivedByteCount: Int)
+}
+
 final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelegate,
   URLSessionDataDelegate, @unchecked Sendable
 {
@@ -138,12 +143,26 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
   }
 
   func urlSession(_: URLSession, task _: URLSessionTask, didCompleteWithError error: Error?) {
-    let state: (isCancelled: Bool, result: (Data, URLResponse)?) = lock.withLock {
-      (isCancelled, response.map { (data, $0) })
-    }
-    if let error {
-      finish(.failure(state.isCancelled ? CancellationError() : error))
-    } else if let result = state.result {
+    let state:
+      (
+        isCancelled: Bool,
+        transfer: (receivedByteCount: Int, result: (Data, URLResponse)?)
+      ) =
+        lock.withLock {
+          let receivedByteCount = self.data.endIndex - self.data.startIndex
+          return (isCancelled, (receivedByteCount, response.map { (self.data, $0) }))
+        }
+    if error != nil {
+      let completionError: Error =
+        if state.isCancelled {
+          CancellationError()
+        } else {
+          RemoteMessageContentError.transferFailed(
+            receivedByteCount: state.transfer.receivedByteCount
+          )
+        }
+      finish(.failure(completionError))
+    } else if let result = state.transfer.result {
       finish(.success(result))
     } else {
       finish(.failure(URLError(.badServerResponse)))

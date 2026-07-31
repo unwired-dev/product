@@ -162,10 +162,6 @@ enum RemoteMessageContentPolicy {
   }
 }
 
-enum RemoteMessageContentError: Error {
-  case responseTooLarge(receivedByteCount: Int)
-}
-
 enum RemoteMessageContentRedirectPolicy {
   static func redirectedRequest(_ request: URLRequest) -> URLRequest? {
     guard RemoteMessageContentPolicy.isLoadableHTTPSURL(request.url) else {
@@ -337,6 +333,8 @@ struct RemoteMessageContentLoader {
         data.count
       )
     } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount) {
+      return (nil, receivedByteCount)
+    } catch RemoteMessageContentError.transferFailed(let receivedByteCount) {
       return (nil, receivedByteCount)
     } catch is CancellationError {
       throw CancellationError()
