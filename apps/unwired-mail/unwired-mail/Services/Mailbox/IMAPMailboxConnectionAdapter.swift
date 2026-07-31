@@ -2051,17 +2051,22 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
   func loadConnectionSnapshot(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionLoadSnapshot {
+    async let gmailLoad = loadConnections(from: gmail, session: session)
+    async let imapLoad = loadConnections(from: imap, session: session)
+    async let graphLoad = loadConnections(from: microsoftGraph, session: session)
+    async let ewsLoad = loadConnections(from: exchangeWebServices, session: session)
+    let (gmailResult, imapResult, graphResult, ewsResult) =
+      try await (gmailLoad, imapLoad, graphLoad, ewsLoad)
     var connections: [MailboxConnection] = []
     var isAuthoritative = true
     var loadErrorDescription: String?
-    for adapter in [gmail, imap, microsoftGraph, exchangeWebServices] {
-      do {
-        connections += try await adapter.loadConnections(session: session)
-      } catch is CancellationError {
-        throw CancellationError()
-      } catch {
+    for providerLoad in [gmailResult, imapResult, graphResult, ewsResult] {
+      switch providerLoad {
+      case .success(let loadedConnections):
+        connections += loadedConnections
+      case .failure(let errorDescription):
         isAuthoritative = false
-        loadErrorDescription = loadErrorDescription ?? error.localizedDescription
+        loadErrorDescription = loadErrorDescription ?? errorDescription
       }
     }
     return MailboxConnectionLoadSnapshot(
@@ -2475,11 +2480,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     let ewsConnections = connections.filter { $0.id.providerId == .exchangeWebServices }
     let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
     let graphConnections = connections.filter { $0.id.providerId == .microsoftGraph }
-    let gmailError = await operation(gmail, gmailConnections)
-    let ewsError = await operation(exchangeWebServices, ewsConnections)
-    let imapError = await operation(imap, imapConnections)
-    let graphError = await operation(microsoftGraph, graphConnections)
-    let errors = [gmailError, imapError, graphError, ewsError].compactMap { $0 }
+    async let gmailError = operation(gmail, gmailConnections)
+    async let ewsError = operation(exchangeWebServices, ewsConnections)
+    async let imapError = operation(imap, imapConnections)
+    async let graphError = operation(microsoftGraph, graphConnections)
+    let (resolvedGmailError, resolvedImapError, resolvedGraphError, resolvedEWSError) =
+      await (gmailError, imapError, graphError, ewsError)
+    let errors = [resolvedGmailError, resolvedImapError, resolvedGraphError, resolvedEWSError]
+      .compactMap { $0 }
     return errors.isEmpty ? nil : errors.joined(separator: "\n")
   }
 
@@ -2492,10 +2500,30 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     let gmailConnections = connections.filter { $0.id.providerId == .gmail }
     let imapConnections = connections.filter { $0.id.providerId == .imapSMTP }
     let graphConnections = connections.filter { $0.id.providerId == .microsoftGraph }
-    let ewsIds = await operation(exchangeWebServices, ewsConnections)
-    let gmailIds = await operation(gmail, gmailConnections)
-    let imapIds = await operation(imap, imapConnections)
-    let graphIds = await operation(microsoftGraph, graphConnections)
-    return ewsIds + gmailIds + imapIds + graphIds
+    async let ewsIds = operation(exchangeWebServices, ewsConnections)
+    async let gmailIds = operation(gmail, gmailConnections)
+    async let imapIds = operation(imap, imapConnections)
+    async let graphIds = operation(microsoftGraph, graphConnections)
+    let (resolvedEWSIds, resolvedGmailIds, resolvedImapIds, resolvedGraphIds) =
+      await (ewsIds, gmailIds, imapIds, graphIds)
+    return resolvedEWSIds + resolvedGmailIds + resolvedImapIds + resolvedGraphIds
+  }
+
+  private func loadConnections(
+    from adapter: MailboxConnectionAdapter,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> ProviderConnectionLoad {
+    do {
+      return .success(try await adapter.loadConnections(session: session))
+    } catch is CancellationError {
+      throw CancellationError()
+    } catch {
+      return .failure(error.localizedDescription)
+    }
+  }
+
+  private enum ProviderConnectionLoad {
+    case failure(String)
+    case success([MailboxConnection])
   }
 }
