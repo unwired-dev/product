@@ -433,6 +433,19 @@ export const unregisterTrustedDevice = mutation({
     if (device.deviceIdentifier !== args.deviceIdentifier) {
       throw new Error('Current trusted device required');
     }
+    const gmailConnections = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', account.productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', args.trustedDeviceId),
+      )
+      .collect();
+    for (const connection of gmailConnections) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
     await deleteTrustedDeviceHeartbeat(ctx, args.trustedDeviceId);
     await ctx.db.delete(args.trustedDeviceId);
     return { registered: false };

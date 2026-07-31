@@ -268,6 +268,49 @@ describe('productAccount.connect', () => {
     ).rejects.toThrow('Trusted device required');
   });
 
+  it('deletes Gmail routes owned by an unregistered Trusted Device', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const [index, trustedDeviceId] of [
+        currentDevice.trustedDeviceId,
+        otherDevice.trustedDeviceId,
+      ].entries()) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId: `connection-${index}`,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    const remainingDeviceIds = await t.run(async (ctx) => {
+      const routes = await ctx.db.query('mailProviderConnections').collect();
+      return routes.map((route) => route.trustedDeviceId);
+    });
+    expect(remainingDeviceIds).toStrictEqual([otherDevice.trustedDeviceId]);
+  });
+
   it('rejects unregistering another trusted device on the same Product Account', async () => {
     expect.assertions(1);
 

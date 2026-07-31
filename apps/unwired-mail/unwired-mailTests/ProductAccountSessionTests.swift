@@ -626,6 +626,15 @@ final class ProductAccountSessionTests: XCTestCase {
       session.signOutErrorMessage,
       ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
     )
+
+    try session.acknowledgeRecoveryKey(
+      "published-key",
+      productAccountId: activeSnapshot.productAccountId
+    )
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(session.unacknowledgedRecoveryKey)
   }
 
   func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {
@@ -1541,7 +1550,7 @@ final class ProductAccountSessionTests: XCTestCase {
       return XCTFail("Expected Recovery Key prompt state")
     }
 
-    await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
+    await session.restoreProductSyncMaterial(recoveryKey: " \n\(original.recoveryKey.rawValue)\t")
 
     guard case .signedIn(let snapshot) = session.state else {
       return XCTFail("Expected signed-in state")

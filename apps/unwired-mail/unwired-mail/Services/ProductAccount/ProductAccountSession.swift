@@ -5,6 +5,12 @@ import Observation
 
 private let signOutTokenValidityMargin: TimeInterval = 5 * 60
 
+extension ProductSyncRecoveryKey {
+  fileprivate init(pastedRawValue: String) throws {
+    try self.init(rawValue: pastedRawValue.trimmingCharacters(in: .whitespacesAndNewlines))
+  }
+}
+
 enum ProductAccountSessionState: Equatable {
   case loading
   case signedOut
@@ -316,7 +322,7 @@ extension ProductAccountSession {
         else { throw CancellationError() }
         _ = try productSyncKeyMaterialStore.restore(
           productAccountId: productAccountId,
-          recoveryKey: ProductSyncRecoveryKey(rawValue: rawValue),
+          recoveryKey: ProductSyncRecoveryKey(pastedRawValue: rawValue),
           recoveryWrappedAccountKey: currentRecoveryMaterial.encryptedPayload
         )
         try await completeSignIn(
@@ -686,12 +692,13 @@ extension ProductAccountSession {
     productAccountId: String
   ) throws {
     guard currentSignedInSnapshot()?.productAccountId == productAccountId else { return }
-    guard
-      try sessionStore.loadUnacknowledgedRecoveryKey(
-        productAccountId: productAccountId
-      ) == recoveryKey
-    else { return }
-    try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+    let persistedRecoveryKey = try sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: productAccountId
+    )
+    guard persistedRecoveryKey == nil || persistedRecoveryKey == recoveryKey else { return }
+    if persistedRecoveryKey == recoveryKey {
+      try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+    }
     if unacknowledgedRecoveryAccountId == productAccountId,
       unacknowledgedRecoveryKey == recoveryKey
     {
