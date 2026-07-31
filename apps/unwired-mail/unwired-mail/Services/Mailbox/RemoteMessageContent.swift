@@ -56,10 +56,11 @@ enum RemoteMessageContentMarkup {
     return ["width", "height"].allSatisfy { dimension in
       let value = ((try? element.attr(dimension)) ?? "")
         .trimmingCharacters(in: .whitespacesAndNewlines)
+      let styleDimension = dimension == "width" ? #"(?:width|max-width)"# : dimension
       return
         value.range(of: onePixelPattern, options: [.regularExpression, .caseInsensitive]) != nil
         || style.range(
-          of: #"(?:^|;)\s*"# + dimension
+          of: #"(?:^|;)\s*"# + styleDimension
             + #"\s*:\s*0*1(?:\.0*)?(?:px)?(?:\s*!important)?\s*(?:;|$)"#,
           options: [.regularExpression, .caseInsensitive]
         ) != nil

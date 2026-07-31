@@ -442,6 +442,8 @@ extension MessageHTMLPresentationTests {
         <p>Newsletter</p>
         <img src="https://tracker.example/pixel.gif"
              style="height: 1.0px !important; width: 01PX">
+        <img src="https://tracker.example/max-width.gif"
+             height="1" style="max-width: 1px">
         <img src="https://images.example.com/logo.png"
              style="height: 40px; width: 120px">
         """
@@ -456,6 +458,7 @@ extension MessageHTMLPresentationTests {
       ["https://images.example.com/logo.png"]
     )
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+    XCTAssertFalse(presentation.documentHTML.contains("max-width.gif"))
   }
 
   func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
