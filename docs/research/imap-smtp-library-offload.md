@@ -2,6 +2,8 @@
 
 Research date: 2026-07-28
 
+Status update: 2026-07-31
+
 ## Executive answer
 
 Yes: the product can and should offload IMAP, SMTP, TLS, SASL, MIME framing,
@@ -17,16 +19,16 @@ The recommended course is:
 1. **Retain ADR-0027's architecture boundary.** The library owns protocols; the
    product owns durable sync, identity, retry, reconciliation, privacy, and
    capability policy.
-2. **Time-box a direct libEtPan 1.10.1 spike as the leading native candidate.**
-   It is the only reviewed Apple-compatible engine whose public APIs expose both
-   the full IMAP `COPYUID` payload and phase-separated SMTP operations needed to
-   preserve delivery ambiguity. The Swift adapter remains meaningful, but it
-   does not implement either wire protocol.
-3. **Keep SwiftMail as a watch-list candidate, not a production dependency at
-   1.8.0.** It is the closest ergonomic Swift package, but its public copy/move
-   APIs discard `COPYUID`, its send API does not expose the transaction stage of
-   transport loss, and the 1.8.0 manifest revision-pins transitive packages in a
-   way that prevents clean adoption through a normal version requirement.
+2. **Qualify the exact SwiftMail 1.10.0 tag as the leading native candidate.**
+   It now exposes the full IMAP `COPYUID` payload and typed SMTP submission
+   outcomes needed to preserve delivery ambiguity, and its manifest uses tagged
+   dependency ranges instead of the revision-pinned transitives that blocked
+   clean adoption at 1.8.0. It is eligible for qualification, not yet accepted
+   as a production dependency.
+3. **Keep direct libEtPan 1.10.1 as the fallback spike.** Its public APIs expose
+   the same required protocol information, but adopting it would add a Swift/C
+   adapter and more product-owned connection behavior. Run this spike only if
+   SwiftMail 1.10.0 fails the executable qualification gates.
 4. **Evaluate Chilkat only as a commercial fallback.** It is directly usable
    from Swift through Objective-C and is actively shipped, but its documented
    copy/move APIs return only success and its SMTP failure model does not tell a
@@ -124,11 +126,11 @@ means an adapter or reduced capability can satisfy it without editing the
 library; **No** means the public boundary loses required information; **Unknown**
 means public primary documentation did not establish support.
 
-| Candidate | IMAP sync and extensions | Verifiable copy/move identity | SMTP, MIME, and delivery outcome | Apple integration / maintenance | Decision |
+| Candidate | IMAP sync and extensions | Verifiable copy/move identity | SMTP, MIME, and submission outcome | Apple integration / maintenance | Decision |
 | --- | --- | --- | --- | --- | --- |
 | **MailKit 4.16+ + MimeKit (.NET)** | **Benchmark.** IDLE, UIDPLUS, CONDSTORE, QRESYNC, MOVE, SPECIAL-USE, UTF8 and many more; cancellable async APIs | Returns a `UniqueIdMap` for UID moves when available; mature UID-oriented API | SMTPS, STARTTLS, OAuth/SASL, DSN, SMTPUTF8, pipelining, streaming MIME; command exceptions preserve server status, but monolithic send still needs conservative ambiguity handling for I/O failure | Active, MIT, security policy; requires a .NET runtime/AOT and custom Swift interop rather than SwiftPM | **Feature benchmark only; reject for this Swift app** |
-| **SwiftMail 1.8.0 (Swift)** | IMAP4rev1, IDLE, UIDPLUS, MOVE, SPECIAL-USE, ESEARCH; **no** CONDSTORE, QRESYNC, or UTF8=ACCEPT in its own capability table | **No.** Public copy/move convenience APIs discard the parsed `COPYUID` mapping | TLS, XOAUTH2, MIME and SMTP; **no typed pre/post-content transport-loss result**; SMTPUTF8 and DSN are not documented | Native Swift/NIO, BSD-2; active July 2026, but 1.8.0 revision-pins `swift-nio-imap` and `swift-nio-ssl` transitives and cannot be consumed cleanly as a normal tagged version | **Closest ergonomic fit; blocked pending a clean tag and API fixes** |
-| **libEtPan 1.10.1 (C)** | Mature IMAP/SMTP/MIME engine; broad extension support, but a Swift adapter must own async scheduling, cancellation, and high-level connection policy | **Yes when the server emits `COPYUID`.** Public functions return destination `UIDVALIDITY` plus ordered source and destination UID sets for COPY and MOVE | **Yes with low-level calls.** Public `MAIL`, `RCPT`, `DATA`, and message/final-response phases plus numeric reply code permit safe classification | Active BSD-3 C project; Xcode iOS/macOS targets; exact 1.10.1 tag lacks the SwiftPM manifest now on `master`; no published security policy | **Best native spike; adopt only after qualification** |
+| **SwiftMail 1.10.0 (Swift)** | IMAP4rev1, IDLE, UIDPLUS, MOVE, SPECIAL-USE, ESEARCH; **no** CONDSTORE, QRESYNC, or UTF8=ACCEPT in its own capability table | **Yes when emitted.** Public copy/move APIs return ordered source/destination pairs plus destination `UIDVALIDITY`; absence is distinct from a verified mapping | TLS, XOAUTH2, MIME and SMTP; typed send results and errors preserve phase, explicit final reply, acceptance certainty, and retry disposition; SMTPUTF8 and DSN are not documented | Native Swift/NIO, BSD-2; exact 1.10.0 tag published July 2026 with tagged dependency ranges and iOS 15/macOS 12 floors | **Preferred candidate; exact-tag qualification pending** |
+| **libEtPan 1.10.1 (C)** | Mature IMAP/SMTP/MIME engine; broad extension support, but a Swift adapter must own async scheduling, cancellation, and high-level connection policy | **Yes when the server emits `COPYUID`.** Public functions return destination `UIDVALIDITY` plus ordered source and destination UID sets for COPY and MOVE | **Yes with low-level calls.** Public `MAIL`, `RCPT`, `DATA`, and message/final-response phases plus numeric reply code permit safe classification | Active BSD-3 C project; Xcode iOS/macOS targets; exact 1.10.1 tag lacks the SwiftPM manifest now on `master`; no published security policy | **Fallback spike only if SwiftMail 1.10.0 fails qualification; adoption still requires full qualification** |
 | **Chilkat 11.5.0 (commercial Objective-C binary)** | Broad IMAP, OAuth2, TLS, IDLE, MIME, cancellation/task APIs; rev2/QRESYNC support was not established from public Objective-C docs | **No typed mapping.** `Copy`/`CopyMultiple` return `BOOL`; `LastResponse` could be reparsed, but that reintroduces product-owned IMAP parsing | Rich SMTP/MIME, TLS, XOAUTH2 and DSN. `SmtpFailReason` distinguishes several commands and generic connection loss, but not whether loss/timeout happened before or after content; logs are diagnostic strings, not a durable typed contract | Current iOS/Swift static binaries, checksums and 30-day evaluation; proprietary bundle license, bridging-header/manual static-library integration, no public source audit | **Commercial fallback only; public APIs fail two hard gates** |
 | **swift-nio-imap 0.4.0 + libEtPan SMTP (Swift/C)** | Low-level IMAP grammar/state building block; IDLE and extension representation; upstream says it is pre-production | **Yes when emitted.** `ResponseCodeCopy` preserves destination `UIDVALIDITY` and ordered ranges | libEtPan can meet the SMTP outcome gate; MIME/high-level session behavior must be assembled | Swift 6 / Apache-2; Apple-supported project, but two engines and substantial product-owned orchestration | **Useful upstream component, not the desired complete engine** |
 | **async-imap 0.11.3 + lettre 0.11.22 (Rust)** | Active async IMAP4rev1 client; IDLE and CONDSTORE; QRESYNC/rev2 not documented | **No.** Public `uid_copy`/`uid_mv` return success without `COPYUID` mapping | lettre is active, async, TLS, OAuth and pooled; its low-level connection can expose SMTP phases, but SMTPUTF8/DSN are not documented and a MIME/IMAP orchestration layer is still needed | MIT/Apache; requires Rust cross-compilation, static libraries/XCFramework, generated Swift binding, runtime/executor policy, cancellation/error/panic bridging | **Good components, worse total fit than native C/Swift** |
@@ -167,17 +169,15 @@ Making MailKit callable from the existing Swift app would require maintaining a
 .NET iOS build, native exports, object/error/async marshaling, and runtime
 servicing. That is more architectural risk than the protocol engine removes.
 
-### SwiftMail is near-fit but 1.8.0 is not adoptable
+### SwiftMail 1.10.0 is eligible for qualification
 
-SwiftMail's own capability table reports IMAP4rev1, `IDLE`, `UIDPLUS`, `MOVE`,
+SwiftMail's capability table reports IMAP4rev1, `IDLE`, `UIDPLUS`, `MOVE`,
 `SPECIAL-USE`, `ESEARCH`, SASL-IR, TLS and XOAUTH2, while marking `CONDSTORE`,
 `QRESYNC`, `ENABLE`, `LIST-STATUS`, and UTF8 acceptance unsupported
-([README](https://github.com/Cocoanetics/SwiftMail/blob/1.8.0/README.md)).
-It uses SwiftNIO and offers a high-level IMAP/SMTP/MIME surface. Release 1.8.0
-also improved IDLE teardown, authentication parsing, and parser-buffer control
-([release](https://github.com/Cocoanetics/SwiftMail/releases/tag/1.8.0)).
+([README](https://github.com/Cocoanetics/SwiftMail/blob/1.10.0/README.md)).
+It uses SwiftNIO and offers a high-level IMAP/SMTP/MIME surface.
 
-Two public-boundary gaps remain:
+Release 1.8.0 was not adoptable because two public-boundary gaps remained:
 
 - copy and move parse but do not return the server's `COPYUID` result
   ([SwiftMail #194](https://github.com/Cocoanetics/SwiftMail/issues/194));
@@ -185,14 +185,29 @@ Two public-boundary gaps remain:
   content submission
   ([SwiftMail #195](https://github.com/Cocoanetics/SwiftMail/issues/195)).
 
-There is also a release-engineering blocker. The 1.8.0
+It also had a release-engineering blocker. The 1.8.0
 [`Package.swift`](https://github.com/Cocoanetics/SwiftMail/blob/1.8.0/Package.swift)
 revision-pins `swift-nio-imap` and `swift-nio-ssl`. SwiftPM cannot resolve such
 revision-pinned transitive dependencies when the parent is consumed through a
-version requirement. The default branch has moved `swift-nio-imap` to a tagged
-range but still revision-pins `swift-nio-ssl`. Production should wait for an
-exact audited tag whose transitive requirements are stable tags and whose
-public APIs preserve both hard-gate results.
+version requirement.
+
+[Release 1.10.0](https://github.com/Cocoanetics/SwiftMail/releases/tag/1.10.0)
+resolves both upstream issues. Its public [`CopyUID`](https://github.com/Cocoanetics/SwiftMail/blob/1.10.0/Sources/SwiftMail/IMAP/Models/CopyUID.swift)
+model preserves destination `UIDVALIDITY` and ordered source-to-destination
+pairs while representing an omitted server mapping as `nil`. Its public
+[`SMTPSendError`](https://github.com/Cocoanetics/SwiftMail/blob/1.10.0/Sources/SwiftMail/SMTP/SMTPSendError.swift)
+preserves submission phase, acceptance certainty, an explicit final reply when
+available, and retry disposition; non-reply failures after content dispatch are
+classified as ambiguous. The exact tag's
+[`Package.swift`](https://github.com/Cocoanetics/SwiftMail/blob/1.10.0/Package.swift)
+uses version requirements for its transitive packages and supports platform
+floors below this application's iOS 17 and macOS 14 targets.
+
+These changes remove the adoption prerequisites; they do not prove the exact
+tag satisfies the complete ADR-0027 contract. Qualification must still validate
+malformed and missing mappings, connection isolation, TLS and authentication,
+logging containment, MIME behavior, synchronization budgets, and the iCloud
+Mail and Fastmail provider spikes before the dependency is pinned.
 
 ### Direct libEtPan preserves the important information
 
@@ -425,13 +440,13 @@ Before shipping:
 
 ## Final recommendation
 
-Proceed with **adopt-after-spike**, not build and not immediate dependency
+Proceed with **qualify-before-adoption**, not build and not immediate dependency
 replacement:
 
-- **Primary:** direct libEtPan 1.10.1 behind a thin Swift façade.
-- **Watch:** the next clean SwiftMail tag containing both result-shape fixes and
-  stable tagged transitives; if it arrives before the libEtPan spike completes,
-  run the same fixtures against both.
+- **Primary:** qualify the exact SwiftMail 1.10.0 tag against ADR-0027 and both
+  certified providers.
+- **Fallback:** time-box direct libEtPan 1.10.1 behind a thin Swift façade only
+  if SwiftMail fails qualification.
 - **Commercial fallback:** Chilkat only if the vendor exposes and supports typed
   COPYUID and SMTP-stage results.
 - **Benchmark:** MailKit/MimeKit for capability coverage and test design.
