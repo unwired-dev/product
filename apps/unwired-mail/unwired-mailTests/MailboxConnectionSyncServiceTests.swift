@@ -1091,7 +1091,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
   }
 
   func testCancelledProviderAccessWaiterDoesNotEnterTransport() async throws {
-    let transport = ProviderAccessConcurrencyTransport()
+    let transport = ProviderAccessConcurrencyTransport(blocksLoads: true)
     let firstService = MailboxConnectionSyncService(
       cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
       transport: transport
@@ -1109,7 +1109,11 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     let cancelled = Task {
       try await secondService.loadSnapshotForProviderAccess(session: firstDeviceSession)
     }
-    await Task.yield()
+    while await MailboxConnectionSyncService.providerAccessWaiterCountForTesting(
+      productAccountId: firstDeviceSession.productAccountId
+    ) == 0 {
+      await Task.yield()
+    }
     cancelled.cancel()
 
     do {
@@ -1120,6 +1124,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     }
     let loadCallCount = await transport.loadCallCount
     XCTAssertEqual(loadCallCount, 1)
+    await transport.releaseBlockedLoads()
     _ = try await first.value
   }
 
@@ -1396,7 +1401,21 @@ private enum MailboxConnectionSyncTestError: Error {
 private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
   private(set) var loadCallCount = 0
   private(set) var maximumConcurrentLoadCount = 0
+  private let blocksLoads: Bool
+  private var blockedLoadContinuations: [CheckedContinuation<Void, Never>] = []
   private var concurrentLoadCount = 0
+
+  init(blocksLoads: Bool = false) {
+    self.blocksLoads = blocksLoads
+  }
+
+  func releaseBlockedLoads() {
+    let continuations = blockedLoadContinuations
+    blockedLoadContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
 
   func listEncryptedProductSyncPayloads(
     identityToken _: String,
@@ -1419,7 +1438,13 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
     loadCallCount += 1
     concurrentLoadCount += 1
     maximumConcurrentLoadCount = max(maximumConcurrentLoadCount, concurrentLoadCount)
-    try await Task.sleep(nanoseconds: 50_000_000)
+    if blocksLoads {
+      await withCheckedContinuation { continuation in
+        blockedLoadContinuations.append(continuation)
+      }
+    } else {
+      try await Task.sleep(nanoseconds: 50_000_000)
+    }
     concurrentLoadCount -= 1
     return []
   }

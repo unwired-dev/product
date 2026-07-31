@@ -42,6 +42,10 @@ private actor MailboxConnectionProviderAccessGate {
     waiter.continuation.resume(throwing: CancellationError())
   }
 
+  func waiterCount(productAccountId: String) -> Int {
+    waiters[productAccountId]?.count ?? 0
+  }
+
   func release(productAccountId: String) {
     guard var accountWaiters = waiters[productAccountId], !accountWaiters.isEmpty else {
       lockedAccounts.remove(productAccountId)
@@ -59,6 +63,10 @@ private actor MailboxConnectionProviderAccessGate {
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
   private static let providerAccessGate = MailboxConnectionProviderAccessGate()
+
+  static func providerAccessWaiterCountForTesting(productAccountId: String) async -> Int {
+    await providerAccessGate.waiterCount(productAccountId: productAccountId)
+  }
 
   private let cacheStore: MailboxConnectionSyncCachePersisting
   private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
