@@ -241,6 +241,7 @@ actor PendingProviderActionService {
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
   private var processingWaiters:
     [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
+  private var reconciledProviderConfirmedMessageIds: [UUID: Set<String>] = [:]
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [PendingProviderActionQueueKey: Task<Void, Never>] = [:]
   private let store: PendingProviderActionPersisting
@@ -486,6 +487,17 @@ actor PendingProviderActionService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws -> MailboxProviderActionFailureLookup {
+    let reconciledActionIds = Set(
+      selectedActionIds?.filter { reconciledProviderConfirmedMessageIds[$0] != nil } ?? []
+    )
+    let reconciledMessageIds = reconciledActionIds.reduce(into: Set<String>()) {
+      $0.formUnion(reconciledProviderConfirmedMessageIds[$1] ?? [])
+    }
+    defer {
+      for actionId in selectedActionIds ?? [] {
+        reconciledProviderConfirmedMessageIds[actionId] = nil
+      }
+    }
     let actions = try store.load(productAccountId: session.productAccountId)
       .filter {
         $0.action == action && $0.connectionId == connection.id.rawValue
@@ -515,16 +527,19 @@ actor PendingProviderActionService {
           ]
         )
       }
+    let matchedPendingActionIds = Set(latestActionByMessageId.values.map(\.id))
+      .union(reconciledActionIds)
     return MailboxProviderActionFailureLookup(
       coversSelectedMessageIds: selectedActionIds != nil
-        && Set(latestActionByMessageId.keys) == messageIds
-        && Set(latestActionByMessageId.values.map(\.id)) == selectedActionIds
+        && Set(latestActionByMessageId.keys).union(reconciledMessageIds) == messageIds
+        && matchedPendingActionIds == selectedActionIds
         && latestActionByMessageId.values.allSatisfy { $0.state != .pending },
       details: details,
-      matchedPendingActionIds: Set(latestActionByMessageId.values.map(\.id))
+      matchedPendingActionIds: matchedPendingActionIds
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
     removesContradictedActions: Bool = true,
@@ -577,13 +592,19 @@ actor PendingProviderActionService {
           && !actionIsConfirmed(action)
       }.map(\.id)
     )
+    let removedActionIds = confirmedActionIds.union(supersededActionIds)
+      .union(contradictedActionIds)
+    let removedProviderConfirmedActions = actions.filter {
+      $0.state == .providerConfirmed && removedActionIds.contains($0.id)
+    }
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
-        && (confirmedActionIds.contains($0.id)
-          || supersededActionIds.contains($0.id)
-          || contradictedActionIds.contains($0.id))
+        && removedActionIds.contains($0.id)
     }
     try store.save(actions, productAccountId: session.productAccountId)
+    for action in removedProviderConfirmedActions {
+      reconciledProviderConfirmedMessageIds[action.id] = Set(action.messageIds)
+    }
   }
 
   func pendingActions(

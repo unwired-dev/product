@@ -141,6 +141,58 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(missingLookup.matchedPendingActionIds, [])
   }
 
+  func testFailureLookupRetainsSelectedSuccessAfterReconciliation() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(
+      failureDisposition: { _ in .permanent },
+      store: store
+    )
+    let failedMessage = pendingActionMessage(
+      providerMessageId: "older-failure",
+      providerStateIds: ["INBOX"]
+    )
+    let selectedMessage = pendingActionMessage(
+      providerMessageId: "selected-success",
+      providerStateIds: ["INBOX"]
+    )
+    do {
+      try await service.perform(
+        .archive,
+        messages: [failedMessage],
+        connection: connection,
+        session: session
+      ) { _, _, _, _ in
+        throw PendingProviderActionTestError.rejected
+      }
+      XCTFail("Expected the older action to fail")
+    } catch is PendingProviderActionTestError {}
+    let selection = try await service.enqueue(
+      .archive,
+      messages: [selectedMessage],
+      connection: connection,
+      session: session
+    )
+    try await service.resume(connection: connection, session: session) { _, _, _, _ in }
+    try await service.reconcileProviderSync(
+      messages: [selectedMessage],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, messageIds in messageIds == [selectedMessage.providerMessageId] }
+    )
+
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: [selectedMessage.providerMessageId],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details, [])
+    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+  }
+
   func testPendingActionsResumeInOrderAfterRestart() async throws {
     let store = InMemoryPendingProviderActionStore()
     let firstService = PendingProviderActionService(
