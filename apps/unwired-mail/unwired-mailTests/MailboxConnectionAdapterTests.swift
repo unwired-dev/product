@@ -6240,6 +6240,57 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [errorsSurfaced], timeout: 1)
   }
 
+  func testMailActionViewModelDoesNotResurfaceDismissedDeferredFailureAfterSuccess() async {
+    let failedConnection = mailShellConnection(
+      emailAddress: "failed@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let successfulConnection = mailShellConnection(
+      emailAddress: "successful@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let deferredCompletion = expectation(description: "deferred completion recorded")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: failedConnection.id,
+      failedConnectionId: failedConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: failedConnection, suffix: "failed", receivedAt: 200)
+      ],
+      deferredPendingActionConnectionIds: [failedConnection.id],
+      onDeferredCompletion: { _ in deferredCompletion.fulfill() }
+    )
+    await fulfillment(of: [deferredCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    viewModel.errorMessage = nil
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: successfulConnection,
+          suffix: "successful",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    XCTAssertEqual(result?.succeededConnectionIds, [successfulConnection.id])
+    XCTAssertEqual(result?.failures, [])
+    XCTAssertNil(viewModel.errorMessage)
+  }
+
   // swiftlint:disable:next function_body_length
   func testMailActionViewModelPreservesNewerInlineFailureAfterDeferredCompletion() async {
     let deferredConnection = mailShellConnection(

@@ -193,6 +193,79 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
   }
 
+  func testFailureLookupRetainsActiveSelectionBeyondEvidenceLimit() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let messages = (0...1_000).map {
+      pendingActionMessage(providerMessageId: "selected-\($0)", providerStateIds: ["INBOX"])
+    }
+    let selection = try await service.enqueue(
+      .archive,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    for index in actions.indices {
+      actions[index].state = .providerConfirmed
+    }
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: messages,
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in true }
+    )
+
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details, [])
+    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+  }
+
+  func testFailureLookupReportsContradictedSelectedAction() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "selected-contradiction",
+      providerStateIds: ["INBOX"]
+    )
+    let selection = try await service.enqueue(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    actions[0].state = .providerConfirmed
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in false }
+    )
+
+    let lookup = try await service.failureLookup(
+      .archive,
+      selectedActionIds: selection.pendingActionIds,
+      messageIds: [message.providerMessageId],
+      connection: connection,
+      session: session
+    )
+
+    XCTAssertTrue(lookup.coversSelectedMessageIds)
+    XCTAssertEqual(lookup.details.map(\.description), ["The provider did not confirm this action."])
+    XCTAssertEqual(lookup.matchedPendingActionIds, selection.pendingActionIds)
+  }
+
   // swiftlint:disable:next function_body_length
   func testFailureLookupRetainsEvidenceUntilSelectionIsCovered() async throws {
     let store = InMemoryPendingProviderActionStore()

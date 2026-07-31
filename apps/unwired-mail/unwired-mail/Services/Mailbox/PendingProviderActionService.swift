@@ -234,6 +234,7 @@ private struct PendingProviderActionQueueKey: Hashable {
 
 private struct ReconciledProviderActionEvidence {
   let connectionId: String
+  let failureDescription: String?
   let messageIds: Set<String>
   let productAccountId: String
 }
@@ -249,6 +250,7 @@ actor PendingProviderActionService {
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
   private var processingWaiters:
     [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
+  private var activeSelectionActionIds: Set<UUID> = []
   private var reconciledActionEvidence: [UUID: ReconciledProviderActionEvidence] = [:]
   private var reconciledActionEvidenceOrder: [UUID] = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
@@ -284,7 +286,8 @@ actor PendingProviderActionService {
       targetProviderMailboxId: targetProviderMailboxId,
       messages: messages,
       connection: connection,
-      session: session
+      session: session,
+      tracksSelection: false
     )
     try await process(
       connectionId: connection.id,
@@ -300,7 +303,8 @@ actor PendingProviderActionService {
     targetProviderStateIds: Set<String>? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
+    session: ProductAccountSessionSnapshot,
+    tracksSelection: Bool = true
   ) throws -> MailboxProviderActionSelection {
     guard !messages.isEmpty else {
       return MailboxProviderActionSelection(pendingActionIds: [])
@@ -336,6 +340,9 @@ actor PendingProviderActionService {
       nextSequence += 1
     }
     try store.save(actions, productAccountId: session.productAccountId)
+    if tracksSelection {
+      activeSelectionActionIds.formUnion(pendingActionIds)
+    }
     return MailboxProviderActionSelection(pendingActionIds: pendingActionIds)
   }
 
@@ -520,7 +527,23 @@ actor PendingProviderActionService {
       }
     }
     let details: [MailboxProviderActionFailureDetail] =
-      latestActionByMessageId.keys.sorted().compactMap { messageId in
+      reconciledActionIds.sorted { $0.uuidString < $1.uuidString }.flatMap { actionId in
+        guard let evidence = reconciledActionEvidence[actionId],
+          let failureDescription = evidence.failureDescription
+        else { return [MailboxProviderActionFailureDetail]() }
+        return evidence.messageIds.intersection(messageIds).sorted().map { messageId in
+          MailboxProviderActionFailureDetail(
+            description: failureDescription,
+            messageIds: [
+              StableProviderMessageIdentity(
+                connectionId: connection.id,
+                providerMessageId: messageId
+              )
+            ]
+          )
+        }
+      }
+      + latestActionByMessageId.keys.sorted().compactMap { messageId in
         guard let pendingAction = latestActionByMessageId[messageId],
           pendingAction.state == .failed || pendingAction.state == .userActionRequired
         else { return nil }
@@ -543,6 +566,7 @@ actor PendingProviderActionService {
       && matchedPendingActionIds == selectedActionIds
       && latestActionByMessageId.values.allSatisfy { $0.state != .pending }
     if coversSelectedMessageIds, let selectedActionIds {
+      activeSelectionActionIds.subtract(selectedActionIds)
       for actionId in selectedActionIds {
         reconciledActionEvidence[actionId] = nil
       }
@@ -611,26 +635,33 @@ actor PendingProviderActionService {
     let removedActionIds = confirmedActionIds.union(supersededActionIds)
       .union(contradictedActionIds)
     let reconciledSuccessfulActionIds = confirmedActionIds.union(supersededActionIds)
-    let reconciledSuccessfulActions = actions.filter {
-      reconciledSuccessfulActionIds.contains($0.id)
+    let reconciledActions = actions.filter {
+      reconciledSuccessfulActionIds.contains($0.id) || contradictedActionIds.contains($0.id)
     }
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
         && removedActionIds.contains($0.id)
     }
     try store.save(actions, productAccountId: session.productAccountId)
-    for action in reconciledSuccessfulActions {
+    for action in reconciledActions {
       if reconciledActionEvidence[action.id] == nil {
         reconciledActionEvidenceOrder.append(action.id)
       }
       reconciledActionEvidence[action.id] = ReconciledProviderActionEvidence(
         connectionId: action.connectionId,
+        failureDescription: reconciledSuccessfulActionIds.contains(action.id)
+          ? nil : "The provider did not confirm this action.",
         messageIds: Set(action.messageIds),
         productAccountId: action.productAccountId
       )
     }
     while reconciledActionEvidence.count > Self.maximumReconciledActionEvidenceCount {
-      let oldestActionId = reconciledActionEvidenceOrder.removeFirst()
+      guard
+        let evictionIndex = reconciledActionEvidenceOrder.firstIndex(where: {
+          !activeSelectionActionIds.contains($0)
+        })
+      else { break }
+      let oldestActionId = reconciledActionEvidenceOrder.remove(at: evictionIndex)
       reconciledActionEvidence[oldestActionId] = nil
     }
   }
@@ -680,6 +711,9 @@ actor PendingProviderActionService {
         && $0.productAccountId == session.productAccountId
     }
     var actions = try store.load(productAccountId: session.productAccountId)
+    activeSelectionActionIds.subtract(
+      actions.filter { $0.connectionId == connection.id.rawValue }.map(\.id)
+    )
     actions.removeAll { $0.connectionId == connection.id.rawValue }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -692,6 +726,9 @@ actor PendingProviderActionService {
       retryTasks.removeValue(forKey: key)?.cancel()
     }
     clearReconciledActionEvidence { $0.productAccountId == session.productAccountId }
+    activeSelectionActionIds.subtract(
+      try store.load(productAccountId: session.productAccountId).map(\.id)
+    )
     try store.save([], productAccountId: session.productAccountId)
   }
 

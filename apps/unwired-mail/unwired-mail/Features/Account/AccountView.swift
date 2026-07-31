@@ -5160,7 +5160,7 @@ extension GmailMailActionViewModel {
     if !activeFailures.isEmpty {
       deferredBulkFailures[operationId] = activeFailures
     }
-    updateBulkActionErrorMessage(adding: result.failures)
+    updateBulkActionErrorMessage(adding: result.failures, includesDeferredFailures: false)
     let deferredBatches: [MailboxTrackedBulkActionBatch] = outcomes.compactMap { outcome in
       guard
         outcome.wasEnqueued,
@@ -5426,9 +5426,13 @@ extension GmailMailActionViewModel {
   }
 
   private func updateBulkActionErrorMessage(
-    adding failures: [MailboxBulkActionFailure] = []
+    adding failures: [MailboxBulkActionFailure] = [],
+    includesDeferredFailures: Bool = true
   ) {
-    let failures = (deferredBulkFailures.values.flatMap { $0 } + failures).reduce(
+    let retainedFailures =
+      includesDeferredFailures
+      ? deferredBulkFailures.values.flatMap { $0 } : []
+    let failures = (retainedFailures + failures).reduce(
       into: [MailboxBulkActionFailure]()
     ) {
       if !$0.contains($1) {
