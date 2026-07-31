@@ -326,6 +326,106 @@ async function deleteTrustedDeviceHeartbeat(
   }
 }
 
+async function legacyGmailRouteSnapshot(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<
+  Readonly<{
+    complete: boolean;
+    opaqueConnectionIds: ReadonlySet<string>;
+  }>
+> {
+  const connections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
+    )
+    .take(gmailLegacyRouteFallbackLimit + 1);
+  const opaqueConnectionIds = await Promise.all(
+    connections
+      .slice(0, gmailLegacyRouteFallbackLimit)
+      .flatMap((connection) =>
+        connection.opaqueConnectionId === undefined &&
+        connection.providerAccountIdentifier !== undefined
+          ? [
+              opaqueGmailConnectionId(
+                productAccountId,
+                connection.providerAccountIdentifier,
+              ),
+            ]
+          : [],
+      ),
+  );
+  return {
+    complete: connections.length <= gmailLegacyRouteFallbackLimit,
+    opaqueConnectionIds: new Set(opaqueConnectionIds),
+  };
+}
+
+async function deleteGmailIdentityBindingIfOrphaned(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+  request: Readonly<{
+    legacyRoutes: Readonly<{
+      complete: boolean;
+      opaqueConnectionIds: ReadonlySet<string>;
+    }>;
+    opaqueConnectionId: string;
+    productAccountId: Id<'productAccounts'>;
+  }>,
+): Promise<void> {
+  const remainingConnection = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_opaqueConnectionId', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('opaqueConnectionId', request.opaqueConnectionId),
+    )
+    .first();
+  if (
+    remainingConnection !== null ||
+    !request.legacyRoutes.complete ||
+    request.legacyRoutes.opaqueConnectionIds.has(request.opaqueConnectionId)
+  ) {
+    return;
+  }
+  const identityBinding = await ctx.db
+    .query('gmailOpaqueIdentityBindings')
+    .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('opaqueConnectionId', request.opaqueConnectionId),
+    )
+    .unique();
+  if (identityBinding !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(identityBinding._id);
+  }
+}
+
+async function deleteOrphanedGmailIdentityBindings(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Promise<void> {
+  const opaqueConnectionIds = new Set(
+    connections.flatMap((connection) =>
+      connection.opaqueConnectionId === undefined
+        ? []
+        : [connection.opaqueConnectionId],
+    ),
+  );
+  const legacyRoutes = await legacyGmailRouteSnapshot(ctx, productAccountId);
+  for (const opaqueConnectionId of opaqueConnectionIds) {
+    await deleteGmailIdentityBindingIfOrphaned(ctx, {
+      legacyRoutes,
+      opaqueConnectionId,
+      productAccountId,
+    });
+  }
+}
+
 async function deleteGmailConnectionsForTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   productAccountId: Id<'productAccounts'>,
@@ -347,65 +447,11 @@ async function deleteGmailConnectionsForTrustedDevice(
     // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
     await ctx.db.delete(connection._id);
   }
-  const opaqueConnectionIds = new Set(
-    gmailConnections.flatMap((connection) =>
-      connection.opaqueConnectionId === undefined
-        ? []
-        : [connection.opaqueConnectionId],
-    ),
+  await deleteOrphanedGmailIdentityBindings(
+    ctx,
+    productAccountId,
+    gmailConnections,
   );
-  const legacyConnections = await ctx.db
-    .query('mailProviderConnections')
-    .withIndex('by_productAccountId_and_provider', (q) =>
-      q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
-    )
-    .take(gmailLegacyRouteFallbackLimit + 1);
-  const legacyOpaqueConnectionIds = await Promise.all(
-    legacyConnections
-      .slice(0, gmailLegacyRouteFallbackLimit)
-      .flatMap((connection) =>
-        connection.opaqueConnectionId === undefined &&
-        connection.providerAccountIdentifier !== undefined
-          ? [
-              opaqueGmailConnectionId(
-                productAccountId,
-                connection.providerAccountIdentifier,
-              ),
-            ]
-          : [],
-      ),
-  );
-  for (const opaqueConnectionId of opaqueConnectionIds) {
-    const remainingOpaqueConnection = await ctx.db
-      .query('mailProviderConnections')
-      .withIndex(
-        'by_productAccountId_and_provider_and_opaqueConnectionId',
-        (q) =>
-          q
-            .eq('productAccountId', productAccountId)
-            .eq('provider', 'gmail')
-            .eq('opaqueConnectionId', opaqueConnectionId),
-      )
-      .first();
-    if (
-      remainingOpaqueConnection === null &&
-      legacyConnections.length <= gmailLegacyRouteFallbackLimit &&
-      !legacyOpaqueConnectionIds.includes(opaqueConnectionId)
-    ) {
-      const identityBinding = await ctx.db
-        .query('gmailOpaqueIdentityBindings')
-        .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
-          q
-            .eq('productAccountId', productAccountId)
-            .eq('opaqueConnectionId', opaqueConnectionId),
-        )
-        .unique();
-      if (identityBinding !== null) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(identityBinding._id);
-      }
-    }
-  }
 }
 
 export const connect = mutation({
