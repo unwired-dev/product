@@ -5820,8 +5820,10 @@ final class GmailInboxViewModel {
     ).mapValues(\.count)
     var remainingByteCount =
       Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
+      - loadedRemoteImageByteCount
     var remainingPixelCount =
       Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
+      - loadedRemoteImagePixelCount
     var retainedByteCount = 0
     var retainedPixelCount = 0
     let inlineImages = body.inlineImages.filter { image in

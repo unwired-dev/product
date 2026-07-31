@@ -3594,11 +3594,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         loadedPixelCount: 1
       )
     }
+    viewModel.discardLoadedMessageBodies(connectionId: nil)
+    _ = try await viewModel.loadRemoteMessageContent(
+      originalHTML,
+      for: secondMessage.id
+    ) { _, _, _ in
+      RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: resolvedHTML,
+        loadedByteCount: 12 * 1_024 * 1_024,
+        loadedImageCount: 1,
+        loadedPixelCount: 1
+      )
+    }
+    let reverseOrderConstrainedBody = try await viewModel.loadMessageBody(
+      firstMessage, using: reader)
 
     XCTAssertEqual(constrainedResult.html, originalHTML)
     XCTAssertEqual(constrainedResult.loadedImageCount, 0)
     XCTAssertEqual(releasedResult.html, resolvedHTML)
     XCTAssertEqual(releasedResult.loadedImageCount, 1)
+    XCTAssertEqual(reverseOrderConstrainedBody.inlineImages, [])
   }
 
   @MainActor
