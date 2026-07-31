@@ -154,7 +154,7 @@ struct MailboxConnectionSyncPayloadCodec {
       encoder.encode(payload),
       associatedData: associatedData
     )
-    try cacheStore.replace(
+    try cacheStore.replaceIfNotOlder(
       EncryptedProductSyncPayload(
         encryptedPayload: encryptedPayload,
         payloadIdentifier: remotePayload.payloadIdentifier,

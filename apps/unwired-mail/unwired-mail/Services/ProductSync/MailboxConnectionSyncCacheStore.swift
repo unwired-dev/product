@@ -4,7 +4,7 @@ import Security
 protocol MailboxConnectionSyncCachePersisting {
   func clear(productAccountId: String) throws
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
-  func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
+  func replaceIfNotOlder(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
 }
 
@@ -92,8 +92,18 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
     }
   }
 
-  func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+  func replaceIfNotOlder(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) throws {
     try Self.lock.withLock {
+      if let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8),
+        let existing = try? JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data),
+        existing.updatedAt > payload.updatedAt
+      {
+        return
+      }
       try saveUnlocked(payload, productAccountId: productAccountId)
     }
   }
@@ -162,7 +172,13 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
       payloads[productAccountId]
     }
 
-    func replace(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    func replaceIfNotOlder(
+      _ payload: EncryptedProductSyncPayload,
+      productAccountId: String
+    ) throws {
+      guard (payloads[productAccountId]?.updatedAt ?? .min) <= payload.updatedAt else {
+        return
+      }
       payloads[productAccountId] = payload
     }
 

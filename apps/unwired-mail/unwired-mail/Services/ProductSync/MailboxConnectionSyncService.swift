@@ -1,9 +1,36 @@
 import Foundation
 
+private actor MailboxConnectionProviderAccessGate {
+  private var lockedAccounts: Set<String> = []
+  private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
+
+  func acquire(productAccountId: String) async {
+    guard lockedAccounts.contains(productAccountId) else {
+      lockedAccounts.insert(productAccountId)
+      return
+    }
+    await withCheckedContinuation { continuation in
+      waiters[productAccountId, default: []].append(continuation)
+    }
+  }
+
+  func release(productAccountId: String) {
+    guard var accountWaiters = waiters[productAccountId], !accountWaiters.isEmpty else {
+      lockedAccounts.remove(productAccountId)
+      waiters[productAccountId] = nil
+      return
+    }
+    let next = accountWaiters.removeFirst()
+    waiters[productAccountId] = accountWaiters.isEmpty ? nil : accountWaiters
+    next.resume()
+  }
+}
+
 // swiftlint:disable file_length
 // swiftlint:disable:next type_body_length
 final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   private static let maximumWriteAttempts = 5
+  private static let providerAccessGate = MailboxConnectionProviderAccessGate()
 
   private let cacheStore: MailboxConnectionSyncCachePersisting
   private let cleanupReceiptStore: MailboxCleanupReceiptPersisting
@@ -80,6 +107,20 @@ final class MailboxConnectionSyncService: MailboxConnectionDefinitionSyncing {
   }
 
   func loadSnapshotForProviderAccess(
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionSyncSnapshot {
+    await Self.providerAccessGate.acquire(productAccountId: session.productAccountId)
+    do {
+      let snapshot = try await loadSnapshotForProviderAccessWithoutGate(session: session)
+      await Self.providerAccessGate.release(productAccountId: session.productAccountId)
+      return snapshot
+    } catch {
+      await Self.providerAccessGate.release(productAccountId: session.productAccountId)
+      throw error
+    }
+  }
+
+  private func loadSnapshotForProviderAccessWithoutGate(
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxConnectionSyncSnapshot {
     let remotePayload: EncryptedProductSyncPayload?
