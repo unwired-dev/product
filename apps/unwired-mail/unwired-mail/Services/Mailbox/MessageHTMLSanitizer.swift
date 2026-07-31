@@ -22,8 +22,7 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
-    let hasSourceText =
-      try !sourceDocument.text().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let sourceContent = try sourceContent(in: sourceDocument)
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )
@@ -63,7 +62,8 @@ enum MessageHTMLSanitizer {
       try hasRenderableContent(
         presentationDocument: presentationDocument,
         readableDocument: readableDocument,
-        hasRemoteImageOnlyContent: !hasSourceText && !remoteImageReferences.isEmpty
+        hasRemoteImageOnlyContent: (!sourceContent.hasText || sourceContent.hasExplicitlyHiddenText)
+          && !remoteImageReferences.isEmpty
       )
     else { return nil }
 

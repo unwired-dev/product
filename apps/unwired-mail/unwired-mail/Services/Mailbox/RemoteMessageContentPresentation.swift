@@ -1,5 +1,28 @@
 import Foundation
 import Observation
+import SwiftSoup
+
+extension MessageHTMLSanitizer {
+  static func sourceContent(in document: Document) throws -> (
+    hasText: Bool,
+    hasExplicitlyHiddenText: Bool
+  ) {
+    let hasText = try !document.text().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    let hiddenTextPattern = #"(?:^|;)\s*display\s*:\s*none(?:\s*!important)?\s*(?:;|$)"#
+    let hasExplicitlyHiddenText = try document.select("[hidden], [style]").contains { element in
+      let elementHasText = try !element.text().trimmingCharacters(in: .whitespacesAndNewlines)
+        .isEmpty
+      let style = try element.attr("style")
+      return elementHasText
+        && (element.hasAttr("hidden")
+          || style.range(
+            of: hiddenTextPattern,
+            options: [.regularExpression, .caseInsensitive]
+          ) != nil)
+    }
+    return (hasText, hasExplicitlyHiddenText)
+  }
+}
 
 struct RemoteMessageContentLoadResult: Equatable, Sendable {
   let failedImageCount: Int

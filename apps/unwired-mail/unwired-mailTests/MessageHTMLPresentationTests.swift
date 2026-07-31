@@ -195,15 +195,20 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
   }
 
-  func testSanitizerRejectsContentOnlyReadableThroughHiddenPreheaderText() throws {
-    XCTAssertNil(
-      try MessageHTMLSanitizer.sanitize(
-        """
-        <div style="display: none !important">Hidden preview</div>
-        <img src="https://tracker.test/hero.png">
-        """
+  func testSanitizerRetainsRemoteImageWithHiddenPreheaderText() throws {
+    for hiddenAttribute in ["hidden", "style=\"display: none !important\""] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <div \(hiddenAttribute)>Hidden preview</div>
+          <img src="https://tracker.test/hero.png">
+          """
+        )
       )
-    )
+
+      XCTAssertEqual(result.remoteImageReferences.count, 1)
+      XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
+    }
   }
 
   func testSanitizerRejectsSignedAndPercentageZeroOpacityContent() throws {
