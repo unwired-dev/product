@@ -242,22 +242,30 @@ struct RemoteMessageContentLoader {
   typealias Fetch = (URLRequest, Int) async throws -> (Data, URLResponse)
 
   private let fetch: Fetch?
+  private let maximumLoadDuration: TimeInterval
   private let maximumTotalByteCount: Int
   private let maximumTotalPixelCount: Int
+  private let now: () -> Date
 
   init(
+    maximumLoadDuration: TimeInterval = 30,
     maximumTotalByteCount: Int = MailboxMessageImagePolicy.maximumTotalByteCount,
     maximumTotalPixelCount: Int = MailboxMessageImagePolicy.maximumTotalPixelCount,
+    now: @escaping () -> Date = Date.init,
     fetch: Fetch? = nil
   ) {
     self.fetch = fetch
+    self.maximumLoadDuration = maximumLoadDuration
     self.maximumTotalByteCount = maximumTotalByteCount
     self.maximumTotalPixelCount = maximumTotalPixelCount
+    self.now = now
   }
 
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
+    let deadline = now().addingTimeInterval(maximumLoadDuration)
     let sessionConfiguration = fetch == nil ? RemoteMessageContentSession.makeConfiguration() : nil
     var images: [RemoteMessageImage] = []
+    var attemptedIdentifiers = Set<String>()
     var attemptedImageCount = 0
     var loadedByteCount = 0
     var loadedPixelCount = 0
@@ -270,13 +278,17 @@ struct RemoteMessageContentLoader {
       guard let occurrenceCount = occurrenceCounts[reference.identifier], occurrenceCount > 0 else {
         continue
       }
+      let remainingLoadDuration = deadline.timeIntervalSince(now())
+      guard remainingLoadDuration > 0 else { break }
       guard attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
         break
       }
       attemptedImageCount += 1
+      attemptedIdentifiers.insert(reference.identifier)
       guard
         let admission = try await admission(
           for: reference,
+          remainingLoadDuration: remainingLoadDuration,
           remainingByteCount: (maximumTotalByteCount - loadedByteCount) / occurrenceCount,
           remainingPixelCount: (maximumTotalPixelCount - loadedPixelCount) / occurrenceCount,
           sessionConfiguration: sessionConfiguration
@@ -290,7 +302,8 @@ struct RemoteMessageContentLoader {
     }
     return RemoteMessageContentLoadResult(
       failedImageCount: html.remoteImageReferences.count - images.count,
-      html: RemoteMessageImageResolver.resolve(html, images: images),
+      html: RemoteMessageImageResolver.resolve(html, images: images)
+        .prioritizingUnattemptedRemoteImages(attemptedIdentifiers),
       loadedByteCount: loadedByteCount,
       loadedImageCount: images.count,
       loadedPixelCount: loadedPixelCount
@@ -299,6 +312,7 @@ struct RemoteMessageContentLoader {
 
   private func admission(
     for reference: RemoteMessageImageReference,
+    remainingLoadDuration: TimeInterval,
     remainingByteCount: Int,
     remainingPixelCount: Int,
     sessionConfiguration: URLSessionConfiguration?
@@ -313,7 +327,7 @@ struct RemoteMessageContentLoader {
     guard maximumByteCount > 0, remainingPixelCount > 0 else { return nil }
     do {
       let (data, response) = try await response(
-        for: request(url: reference.url),
+        for: request(url: reference.url, timeoutInterval: remainingLoadDuration),
         maximumByteCount: maximumByteCount,
         sessionConfiguration: sessionConfiguration
       )
@@ -342,9 +356,8 @@ struct RemoteMessageContentLoader {
     if let fetch {
       return try await fetch(request, maximumByteCount)
     }
-    guard let sessionConfiguration else {
-      throw CancellationError()
-    }
+    guard let sessionConfiguration else { throw CancellationError() }
+    sessionConfiguration.timeoutIntervalForResource = request.timeoutInterval
     return try await RemoteMessageContentSession.data(
       for: request,
       maximumByteCount: maximumByteCount,
@@ -382,19 +395,5 @@ struct RemoteMessageContentLoader {
       ),
       pixelCount: pixelCount
     )
-  }
-
-  private func request(url: URL) -> URLRequest {
-    var request = URLRequest(
-      url: url,
-      cachePolicy: .reloadIgnoringLocalCacheData,
-      timeoutInterval: 30
-    )
-    request.httpMethod = "GET"
-    request.setValue(
-      "image/png,image/jpeg,image/gif,image/webp",
-      forHTTPHeaderField: "Accept"
-    )
-    return RemoteMessageContentRedirectPolicy.isolatedRequest(request)
   }
 }

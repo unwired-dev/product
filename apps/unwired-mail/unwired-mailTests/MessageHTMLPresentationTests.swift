@@ -591,6 +591,84 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
   }
 
+  func testRemoteContentLoaderAdvancesRetriesPastFailedAttemptBatch() async throws {
+    let references = try (0...MailboxMessageImagePolicy.maximumImageAttemptCount).map {
+      RemoteMessageImageReference(
+        identifier: "remote-image-\($0)",
+        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+      )
+    }
+    let markers = references.map {
+      #"<img data-unwired-remote-image="\#($0.identifier)">"#
+    }.joined()
+    let presentation = SanitizedMessageHTML(
+      documentHTML: "<html><body>\(markers)</body></html>",
+      remoteImageReferences: references
+    )
+    let png = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    let validURL = try XCTUnwrap(references.last?.url)
+    let loader = RemoteMessageContentLoader(fetch: { request, _ in
+      guard request.url == validURL else { throw URLError(.badServerResponse) }
+      return (
+        png,
+        try XCTUnwrap(
+          HTTPURLResponse(
+            url: validURL,
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": "image/png"]
+          )
+        )
+      )
+    })
+
+    let firstResult = try await loader.load(presentation)
+    let retryResult = try await loader.load(firstResult.html)
+
+    XCTAssertEqual(firstResult.loadedImageCount, 0)
+    XCTAssertEqual(firstResult.html.remoteImageReferences.first?.url, validURL)
+    XCTAssertEqual(retryResult.loadedImageCount, 1)
+  }
+
+  func testRemoteContentLoaderStopsAtAggregateDeadline() async throws {
+    var currentDate = Date(timeIntervalSinceReferenceDate: 0)
+    let references = try (0..<2).map {
+      RemoteMessageImageReference(
+        identifier: "remote-image-\($0)",
+        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+      )
+    }
+    let markers = references.map {
+      #"<img data-unwired-remote-image="\#($0.identifier)">"#
+    }.joined()
+    var requestedURLs: [URL] = []
+    let loader = RemoteMessageContentLoader(
+      maximumLoadDuration: 30,
+      now: { currentDate },
+      fetch: { request, _ in
+        requestedURLs.append(try XCTUnwrap(request.url))
+        XCTAssertEqual(request.timeoutInterval, 30)
+        currentDate.addTimeInterval(31)
+        throw URLError(.timedOut)
+      }
+    )
+
+    let result = try await loader.load(
+      SanitizedMessageHTML(
+        documentHTML: "<html><body>\(markers)</body></html>",
+        remoteImageReferences: references
+      )
+    )
+
+    XCTAssertEqual(requestedURLs, [references[0].url])
+    XCTAssertEqual(result.failedImageCount, 2)
+  }
+
   func testRemoteContentLoaderChargesRepeatedMarkerExpansionsAgainstByteBudget() async throws {
     let reference = RemoteMessageImageReference(
       identifier: "remote-image-0",

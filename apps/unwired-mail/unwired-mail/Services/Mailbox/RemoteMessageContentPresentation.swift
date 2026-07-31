@@ -195,3 +195,31 @@ final class RemoteMessageContentPresentation {
     state = .blocked
   }
 }
+
+extension SanitizedMessageHTML {
+  func prioritizingUnattemptedRemoteImages(_ attemptedIdentifiers: Set<String>) -> Self {
+    let unattempted = remoteImageReferences.filter {
+      !attemptedIdentifiers.contains($0.identifier)
+    }
+    let attempted = remoteImageReferences.filter {
+      attemptedIdentifiers.contains($0.identifier)
+    }
+    return Self(documentHTML: documentHTML, remoteImageReferences: unattempted + attempted)
+  }
+}
+
+extension RemoteMessageContentLoader {
+  func request(url: URL, timeoutInterval: TimeInterval) -> URLRequest {
+    var request = URLRequest(
+      url: url,
+      cachePolicy: .reloadIgnoringLocalCacheData,
+      timeoutInterval: min(30, timeoutInterval)
+    )
+    request.httpMethod = "GET"
+    request.setValue(
+      "image/png,image/jpeg,image/gif,image/webp",
+      forHTTPHeaderField: "Accept"
+    )
+    return RemoteMessageContentRedirectPolicy.isolatedRequest(request)
+  }
+}
