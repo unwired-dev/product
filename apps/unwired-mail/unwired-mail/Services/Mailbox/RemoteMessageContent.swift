@@ -26,20 +26,21 @@ enum RemoteMessageContentMarkup {
       else {
         continue
       }
+      let requestURL = RemoteMessageContentPolicy.requestEquivalentURL(url)
       try element.removeAttr("src")
       guard !MessageHTMLSanitizer.hasZeroDimension(element) else {
         continue
       }
       let reference: RemoteMessageImageReference
-      if let existingReference = referencesByURL[url] {
+      if let existingReference = referencesByURL[requestURL] {
         reference = existingReference
       } else {
         reference = RemoteMessageImageReference(
           identifier: "remote-image-\(references.count)",
-          url: url
+          url: requestURL
         )
         references.append(reference)
-        referencesByURL[url] = reference
+        referencesByURL[requestURL] = reference
       }
       try element.attr(attribute, reference.identifier)
     }
@@ -56,6 +57,18 @@ enum RemoteMessageContentMarkup {
       }
     )
     return references.filter { identifiers.contains($0.identifier) }
+  }
+
+  static func occurrenceCounts(in html: SanitizedMessageHTML) -> [String: Int] {
+    guard let document = try? SwiftSoup.parse(html.documentHTML),
+      let elements = try? document.select("[\(attribute)]")
+    else {
+      return [:]
+    }
+    return elements.reduce(into: [:]) { counts, element in
+      guard let identifier = try? element.attr(attribute), !identifier.isEmpty else { return }
+      counts[identifier, default: 0] += 1
+    }
   }
 }
 
@@ -109,6 +122,14 @@ enum RemoteMessageImageResolver {
 }
 
 enum RemoteMessageContentPolicy {
+  static func requestEquivalentURL(_ url: URL) -> URL {
+    guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+      return url
+    }
+    components.fragment = nil
+    return components.url ?? url
+  }
+
   static func isLoadableHTTPSURL(_ url: URL?) -> Bool {
     url?.scheme?.lowercased() == "https"
       && url?.host != nil
@@ -172,6 +193,7 @@ enum RemoteMessageContentSession {
     configuration.requestCachePolicy = .reloadIgnoringLocalCacheData
     configuration.urlCache = nil
     configuration.urlCredentialStorage = nil
+    configuration.timeoutIntervalForResource = 30
     return configuration
   }
 
@@ -237,9 +259,13 @@ struct RemoteMessageContentLoader {
     var attemptedImageCount = 0
     var loadedByteCount = 0
     var loadedPixelCount = 0
+    let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
     for reference in html.remoteImageReferences {
       try Task.checkCancellation()
       guard RemoteMessageContentPolicy.isLoadableHTTPSURL(reference.url) else {
+        continue
+      }
+      guard let occurrenceCount = occurrenceCounts[reference.identifier], occurrenceCount > 0 else {
         continue
       }
       guard attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount else {
@@ -249,16 +275,18 @@ struct RemoteMessageContentLoader {
       guard
         let admission = try await admission(
           for: reference,
-          remainingByteCount: MailboxMessageImagePolicy.maximumTotalByteCount - loadedByteCount,
-          remainingPixelCount: MailboxMessageImagePolicy.maximumTotalPixelCount - loadedPixelCount,
+          remainingByteCount: (MailboxMessageImagePolicy.maximumTotalByteCount - loadedByteCount)
+            / occurrenceCount,
+          remainingPixelCount: (MailboxMessageImagePolicy.maximumTotalPixelCount - loadedPixelCount)
+            / occurrenceCount,
           session: session
         )
       else {
         continue
       }
       images.append(admission.image)
-      loadedByteCount += admission.image.data.count
-      loadedPixelCount += admission.pixelCount
+      loadedByteCount += admission.image.data.count * occurrenceCount
+      loadedPixelCount += admission.pixelCount * occurrenceCount
     }
     return RemoteMessageContentLoadResult(
       failedImageCount: html.remoteImageReferences.count - images.count,

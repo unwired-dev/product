@@ -22,6 +22,8 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
+    let hasSourceText =
+      try !sourceDocument.text().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )
@@ -60,7 +62,8 @@ enum MessageHTMLSanitizer {
     guard
       try hasRenderableContent(
         presentationDocument: presentationDocument,
-        readableDocument: readableDocument
+        readableDocument: readableDocument,
+        hasRemoteImageOnlyContent: !hasSourceText && !remoteImageReferences.isEmpty
       )
     else { return nil }
 
@@ -107,7 +110,8 @@ extension MessageHTMLSanitizer {
 
   private static func hasRenderableContent(
     presentationDocument: Document,
-    readableDocument: Document
+    readableDocument: Document,
+    hasRemoteImageOnlyContent: Bool
   ) throws -> Bool {
     let ignoredReadableScalars =
       CharacterSet.whitespacesAndNewlines
@@ -119,7 +123,7 @@ extension MessageHTMLSanitizer {
     }
     let hasInlineImage =
       !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
-    return hasReadableText || hasInlineImage
+    return hasReadableText || hasInlineImage || hasRemoteImageOnlyContent
   }
 
   static func normalizedContentID(_ value: String, decodesPercentEscapes: Bool = false) -> String? {
