@@ -62,6 +62,60 @@ final class MessageHTMLPresentationTests: XCTestCase {
     XCTAssertTrue(sanitized.contains("width=\"1\""))
   }
 
+  func testSanitizerRecordsRemoteImagesWithoutExposingTheirURLsToWebKit() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/hero.png" alt="Hero">
+        <img src="http://legacy.example.com/chart.jpg" alt="Chart">
+        <img src="cid:logo@example.com" alt="Logo">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/hero.png",
+        "http://legacy.example.com/chart.jpg",
+      ]
+    )
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.identifier),
+      ["remote-image-0", "remote-image-1"]
+    )
+    XCTAssertTrue(
+      result.documentHTML.contains(
+        "data-unwired-remote-image=\"remote-image-0\""
+      )
+    )
+    XCTAssertTrue(
+      result.documentHTML.contains(
+        "data-unwired-remote-image=\"remote-image-1\""
+      )
+    )
+    XCTAssertFalse(result.documentHTML.contains("images.example.com"))
+    XCTAssertFalse(result.documentHTML.contains("legacy.example.com"))
+    XCTAssertTrue(result.documentHTML.contains("src=\"cid:logo@example.com\""))
+  }
+
+  func testSanitizerIgnoresSpoofedRemoteImageMarkersAndCredentialedURLs() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img data-unwired-remote-image="remote-image-9" alt="Spoofed">
+        <img src="https://user:secret@example.com/private.png" alt="Credentialed">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("data-unwired-remote-image"))
+    XCTAssertFalse(result.documentHTML.contains("secret"))
+  }
+
   func testSanitizerAllowsOnlyExplicitLinkSchemes() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -307,6 +361,170 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.lowercased().contains("cid:"))
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertFalse(presentation.documentHTML.contains("<img src="))
+  }
+
+  func testRemoteContentLoaderAdmitsOnlyBoundedHTTPSRasterResponses() async throws {
+    let presentation = try remoteContentTestPresentation()
+    let png = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    let loader = RemoteMessageContentLoader { request, maximumByteCount in
+      XCTAssertEqual(request.url?.scheme, "https")
+      XCTAssertEqual(request.cachePolicy, .reloadIgnoringLocalCacheData)
+      XCTAssertEqual(request.httpShouldHandleCookies, false)
+      XCTAssertNil(request.value(forHTTPHeaderField: "Authorization"))
+      XCTAssertNil(request.value(forHTTPHeaderField: "Cookie"))
+      XCTAssertNil(request.value(forHTTPHeaderField: "Referer"))
+      XCTAssertEqual(maximumByteCount, MailboxMessageImagePolicy.maximumImageByteCount)
+      let mimeType =
+        request.url?.lastPathComponent == "hero.png"
+        ? "image/png"
+        : "text/html"
+      return (
+        request.url?.lastPathComponent == "hero.png" ? png : Data("<script></script>".utf8),
+        try XCTUnwrap(
+          HTTPURLResponse(
+            url: try XCTUnwrap(request.url),
+            statusCode: 200,
+            httpVersion: nil,
+            headerFields: ["Content-Type": mimeType]
+          )
+        )
+      )
+    }
+
+    let result = try await loader.load(presentation)
+
+    XCTAssertEqual(result.loadedImageCount, 1)
+    XCTAssertEqual(result.failedImageCount, 2)
+    XCTAssertEqual(
+      result.html.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/not-an-image",
+        "http://legacy.example.com/chart.jpg",
+      ]
+    )
+    XCTAssertTrue(result.html.documentHTML.contains("src=\"data:image/png;base64,"))
+    XCTAssertFalse(result.html.documentHTML.contains("<script"))
+    XCTAssertFalse(result.html.documentHTML.contains("images.example.com"))
+    XCTAssertFalse(result.html.documentHTML.contains("legacy.example.com"))
+  }
+
+  func testRemoteContentLoaderPropagatesCancellation() async throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: #"<p>Newsletter</p><img src="https://images.example.com/hero.png">"#
+    )
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+    let loader = RemoteMessageContentLoader { _, _ in
+      throw CancellationError()
+    }
+
+    do {
+      _ = try await loader.load(presentation)
+      XCTFail("Cancellation should stop remote content loading")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+  }
+
+  func testRemoteContentSessionUsesEphemeralCookieFreeStorage() {
+    let configuration = RemoteMessageContentSession.makeConfiguration()
+
+    XCTAssertFalse(configuration.httpShouldSetCookies)
+    XCTAssertNil(configuration.httpCookieStorage)
+    XCTAssertNil(configuration.urlCredentialStorage)
+    XCTAssertNil(configuration.urlCache)
+    XCTAssertEqual(configuration.requestCachePolicy, .reloadIgnoringLocalCacheData)
+  }
+
+  func testRemoteContentRedirectsRemainHTTPSAndDropRequestIdentity() throws {
+    var secureRequest = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://cdn.example.com/image.png"))
+    )
+    secureRequest.httpShouldHandleCookies = true
+    secureRequest.setValue("Bearer secret", forHTTPHeaderField: "Authorization")
+    secureRequest.setValue("session=secret", forHTTPHeaderField: "Cookie")
+    secureRequest.setValue("https://mail.example.com/message", forHTTPHeaderField: "Referer")
+
+    let redirectedRequest = try XCTUnwrap(
+      RemoteMessageContentRedirectPolicy.redirectedRequest(secureRequest)
+    )
+
+    XCTAssertFalse(redirectedRequest.httpShouldHandleCookies)
+    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Authorization"))
+    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Cookie"))
+    XCTAssertNil(redirectedRequest.value(forHTTPHeaderField: "Referer"))
+    XCTAssertNil(
+      RemoteMessageContentRedirectPolicy.redirectedRequest(
+        URLRequest(url: try XCTUnwrap(URL(string: "http://cdn.example.com/image.png")))
+      )
+    )
+  }
+
+  @MainActor
+  func testRemoteContentPresentationRequiresConsentAndRetriesFromOriginalHTML() async throws {
+    let originalHTML = try remoteContentTestPresentation()
+    let presentation = RemoteMessageContentPresentation()
+    var receivedHTML: [SanitizedMessageHTML] = []
+    let partiallyLoadedHTML = SanitizedMessageHTML(
+      documentHTML: originalHTML.documentHTML.replacingOccurrences(
+        of: #"data-unwired-remote-image="remote-image-0""#,
+        with: #"src="data:image/png;base64,AA==""#
+      ),
+      remoteImageReferences: Array(originalHTML.remoteImageReferences.dropFirst())
+    )
+    let loader: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult = { html in
+      receivedHTML.append(html)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: partiallyLoadedHTML.remoteImageReferences.count,
+        html: partiallyLoadedHTML,
+        loadedImageCount: 1
+      )
+    }
+
+    await presentation.load(originalHTML: originalHTML, using: loader)
+
+    XCTAssertTrue(receivedHTML.isEmpty)
+    XCTAssertEqual(presentation.state, .blocked)
+
+    presentation.requestLoad()
+    XCTAssertEqual(
+      presentation.displayedHTML(originalHTML: originalHTML),
+      originalHTML
+    )
+    await presentation.load(originalHTML: originalHTML, using: loader)
+    presentation.requestLoad()
+    XCTAssertEqual(
+      presentation.displayedHTML(originalHTML: originalHTML),
+      originalHTML
+    )
+    await presentation.load(originalHTML: originalHTML, using: loader)
+
+    XCTAssertEqual(receivedHTML, [originalHTML, originalHTML])
+    XCTAssertEqual(
+      presentation.displayedHTML(originalHTML: originalHTML),
+      partiallyLoadedHTML
+    )
+    XCTAssertEqual(
+      presentation.state,
+      .failed(partiallyLoadedHTML.remoteImageReferences.count)
+    )
+
+    presentation.reset()
+
+    XCTAssertNil(presentation.loadRequest)
+    XCTAssertEqual(presentation.state, .blocked)
+    XCTAssertEqual(
+      presentation.displayedHTML(originalHTML: originalHTML),
+      originalHTML
+    )
   }
 
   @MainActor
@@ -561,6 +779,22 @@ extension MessageHTMLPresentationTests {
     }
     XCTAssertEqual(cancellationChecks, 1)
   }
+}
+
+private func remoteContentTestPresentation() throws -> SanitizedMessageHTML {
+  let body = MailboxMessageBody(
+    text: "Newsletter",
+    html: """
+      <p>Newsletter</p>
+      <img src="https://images.example.com/hero.png" alt="Hero">
+      <img src="https://images.example.com/not-an-image" alt="Invalid">
+      <img src="http://legacy.example.com/chart.jpg" alt="Legacy">
+      """
+  )
+  guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+    throw TestError.sanitizationFailed
+  }
+  return presentation
 }
 
 private enum TestError: Error {

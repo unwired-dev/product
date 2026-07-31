@@ -3,6 +3,15 @@ import SwiftSoup
 
 struct SanitizedMessageHTML: Equatable, Sendable {
   let documentHTML: String
+  let remoteImageReferences: [RemoteMessageImageReference]
+
+  init(
+    documentHTML: String,
+    remoteImageReferences: [RemoteMessageImageReference] = []
+  ) {
+    self.documentHTML = documentHTML
+    self.remoteImageReferences = remoteImageReferences
+  }
 }
 
 enum MessageHTMLSanitizer {
@@ -13,24 +22,21 @@ enum MessageHTMLSanitizer {
     guard !html.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
 
     let sourceDocument = try SwiftSoup.parseBodyFragment(html)
+    var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
+      in: sourceDocument
+    )
     let preCleanHiddenStylePattern =
       #"(?:^|;)\s*(?:visibility\s*:\s*(?:hidden|collapse)|"#
       + #"opacity\s*:\s*(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?)"#
       + #"(?:\s*!important)?\s*(?:;|$)"#
     try removeElements(matching: preCleanHiddenStylePattern, from: sourceDocument)
-    let sourceHTML = try sourceDocument.body()?.html() ?? ""
-    let bodyHTML =
-      try SwiftSoup.clean(sourceHTML, "", allowlist())
-      ?? ""
-    try cancellationCheck()
-    let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
-    let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
-    try cancellationCheck()
-    for document in [presentationDocument, readableDocument] {
-      for element in try document.select("[hidden]") {
-        try element.remove()
-      }
-    }
+    let documents = try cleanedDocuments(
+      from: sourceDocument,
+      cancellationCheck: cancellationCheck
+    )
+    let presentationDocument = documents.presentation
+    let readableDocument = documents.readable
+    try removeHiddenElements(from: [presentationDocument, readableDocument])
     let hiddenStylePattern =
       #"(?:^|;)\s*(?:display\s*:\s*none|"#
       + #"(?:font-size|height|width|line-height)\s*:\s*(?:0+(?:\.0*)?|\.0+)"#
@@ -47,21 +53,36 @@ enum MessageHTMLSanitizer {
       + #"(?:\s*!important)?\s*(?:;|$)"#
     try removeElements(matching: hiddenStylePattern, from: readableDocument)
     try removeElements(matching: presentationHiddenStylePattern, from: presentationDocument)
-    let ignoredReadableScalars =
-      CharacterSet.whitespacesAndNewlines
-      .union(.controlCharacters)
-      .union(.nonBaseCharacters)
-    let hasReadableText = try readableDocument.text().unicodeScalars.contains { scalar in
-      !ignoredReadableScalars.contains(scalar)
-        && scalar.properties.generalCategory != .format
-    }
-    let hasInlineImage =
-      !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
-    guard hasReadableText || hasInlineImage else { return nil }
+    remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
+      remoteImageReferences,
+      in: presentationDocument
+    )
+    guard
+      try hasRenderableContent(
+        presentationDocument: presentationDocument,
+        readableDocument: readableDocument
+      )
+    else { return nil }
 
     return SanitizedMessageHTML(
-      documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? "")
+      documentHTML: document(bodyHTML: try presentationDocument.body()?.html() ?? ""),
+      remoteImageReferences: remoteImageReferences
     )
+  }
+}
+
+extension MessageHTMLSanitizer {
+  private static func cleanedDocuments(
+    from sourceDocument: Document,
+    cancellationCheck: () throws -> Void
+  ) throws -> (presentation: Document, readable: Document) {
+    let sourceHTML = try sourceDocument.body()?.html() ?? ""
+    let bodyHTML = try SwiftSoup.clean(sourceHTML, "", allowlist()) ?? ""
+    try cancellationCheck()
+    let presentationDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
+    let readableDocument = try SwiftSoup.parseBodyFragment(bodyHTML)
+    try cancellationCheck()
+    return (presentationDocument, readableDocument)
   }
 
   private static func removeElements(matching pattern: String, from document: Document) throws {
@@ -74,6 +95,31 @@ enum MessageHTMLSanitizer {
         try element.remove()
       }
     }
+  }
+
+  private static func removeHiddenElements(from documents: [Document]) throws {
+    for document in documents {
+      for element in try document.select("[hidden]") {
+        try element.remove()
+      }
+    }
+  }
+
+  private static func hasRenderableContent(
+    presentationDocument: Document,
+    readableDocument: Document
+  ) throws -> Bool {
+    let ignoredReadableScalars =
+      CharacterSet.whitespacesAndNewlines
+      .union(.controlCharacters)
+      .union(.nonBaseCharacters)
+    let hasReadableText = try readableDocument.text().unicodeScalars.contains { scalar in
+      !ignoredReadableScalars.contains(scalar)
+        && scalar.properties.generalCategory != .format
+    }
+    let hasInlineImage =
+      !referencedInlineImageContentIDs(in: try presentationDocument.outerHtml()).isEmpty
+    return hasReadableText || hasInlineImage
   }
 
   static func normalizedContentID(_ value: String, decodesPercentEscapes: Bool = false) -> String? {
@@ -181,6 +227,7 @@ enum MessageHTMLSanitizer {
       .addAttributes("col", "align", "span", "valign", "width")
       .addAttributes("colgroup", "align", "span", "valign", "width")
       .addAttributes("img", "alt", "height", "src", "width")
+      .addAttributes("img", RemoteMessageContentMarkup.attribute)
       .addAttributes("li", "value")
       .addAttributes("ol", "start", "type")
       .addAttributes("q", "cite")
@@ -297,7 +344,10 @@ enum MessageHTMLInlineImageResolver {
     guard let resolvedHTML = try? document.outerHtml() else {
       return html
     }
-    return SanitizedMessageHTML(documentHTML: resolvedHTML)
+    return SanitizedMessageHTML(
+      documentHTML: resolvedHTML,
+      remoteImageReferences: html.remoteImageReferences
+    )
   }
 }
 
