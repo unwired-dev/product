@@ -91,6 +91,16 @@ The generic-mail Manage menu offers Default Sending Connection only when the rou
 contains the same authorized connection with sending capability; read-only IMAP routes and
 unrouted POP3 definitions cannot become the default sender.
 
+Mailbox Connection providers load independently and concurrently. If one provider load fails,
+the router retains healthy providers in a non-authoritative snapshot and surfaces the failure;
+it never treats the unavailable provider as an authoritative empty connection list. Pending
+Provider Action resume, retry-wait, and status aggregation also run independently per provider
+while retaining deterministic provider ordering in combined errors and connection identifiers.
+Production adapters share the pending-action and outbox actors. Product Sync provider-access loads
+are serialized per Product Account, and cache replacement is atomic and version-aware, so concurrent
+providers cannot overwrite newer cached definitions or one another's durable state, or observe a
+temporary empty cache.
+
 ## Destination requirements
 
 ### Email Accounts

@@ -3,7 +3,12 @@ import Security
 
 protocol MailboxConnectionSyncCachePersisting {
   func clear(productAccountId: String) throws
+  func clearIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String
+  ) throws
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
+  func replaceIfNotOlder(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
 }
 
@@ -70,23 +75,74 @@ struct KeychainMailboxCleanupReceiptStore:
 }
 
 struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersisting {
+  private static let lock = NSLock()
   private let service = "dev.unwired.mail.mailbox-connection-sync-cache"
 
   func clear(productAccountId: String) throws {
-    try KeychainStore.delete(service: service, account: productAccountId)
+    try Self.lock.withLock {
+      try KeychainStore.delete(service: service, account: productAccountId)
+    }
+  }
+
+  func clearIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String
+  ) throws {
+    try Self.lock.withLock {
+      let existing: EncryptedProductSyncPayload?
+      if let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8)
+      {
+        existing = try JSONDecoder().decode(
+          EncryptedProductSyncPayload.self,
+          from: data
+        )
+      } else {
+        existing = nil
+      }
+      guard existing == payload else { return }
+      try KeychainStore.delete(service: service, account: productAccountId)
+    }
   }
 
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
-    guard
-      let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
-      let data = rawValue.data(using: .utf8)
-    else {
-      return nil
+    try Self.lock.withLock {
+      guard
+        let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8)
+      else {
+        return nil
+      }
+      return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
     }
-    return try JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data)
+  }
+
+  func replaceIfNotOlder(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) throws {
+    try Self.lock.withLock {
+      if let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8),
+        let existing = try? JSONDecoder().decode(EncryptedProductSyncPayload.self, from: data),
+        existing.updatedAt > payload.updatedAt
+      {
+        return
+      }
+      try saveUnlocked(payload, productAccountId: productAccountId)
+    }
   }
 
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
+    try Self.lock.withLock {
+      try saveUnlocked(payload, productAccountId: productAccountId)
+    }
+  }
+
+  private func saveUnlocked(
+    _ payload: EncryptedProductSyncPayload,
+    productAccountId: String
+  ) throws {
     let data = try JSONEncoder().encode(payload)
     guard let rawValue = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
@@ -137,8 +193,26 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
       payloads[productAccountId] = nil
     }
 
+    func clearIfUnchanged(
+      _ payload: EncryptedProductSyncPayload?,
+      productAccountId: String
+    ) throws {
+      guard payloads[productAccountId] == payload else { return }
+      payloads[productAccountId] = nil
+    }
+
     func load(productAccountId: String) throws -> EncryptedProductSyncPayload? {
       payloads[productAccountId]
+    }
+
+    func replaceIfNotOlder(
+      _ payload: EncryptedProductSyncPayload,
+      productAccountId: String
+    ) throws {
+      guard (payloads[productAccountId]?.updatedAt ?? .min) <= payload.updatedAt else {
+        return
+      }
+      payloads[productAccountId] = payload
     }
 
     func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws {
