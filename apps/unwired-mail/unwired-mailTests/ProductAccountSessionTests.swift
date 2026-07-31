@@ -438,6 +438,75 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertFalse(didPrepareDestructiveCleanup)
   }
 
+  func testSignOutUsesRefreshedIdentityTokenForAllRemoteCleanup() async throws {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: "apple-user-001",
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+    try store.save(snapshot)
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: "fresh-token"
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(productAccountService.recoveryCheckIdentityTokens, ["fresh-token"])
+    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, ["fresh-token"])
+    XCTAssertEqual(pushUnregisterer.sessions.map(\.identityToken), ["fresh-token"])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions.map(\.identityToken), ["fresh-token"])
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
+  func testSignOutWaitsForRecoveryPublicationForTheSameAccount() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    guard case .signedIn(let activeSnapshot) = session.state else {
+      return XCTFail("Expected bootstrap to restore the Product Account")
+    }
+    await productAccountRecoveryOperationGate.acquire(
+      productAccountId: activeSnapshot.productAccountId
+    )
+
+    let signOut = Task { await session.signOut() }
+    await Task.yield()
+
+    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
+
+    await productAccountRecoveryOperationGate.release(
+      productAccountId: activeSnapshot.productAccountId
+    )
+    await signOut.value
+    XCTAssertEqual(session.state, .signedOut)
+  }
+
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -1484,9 +1553,11 @@ private enum ProductAccountSessionTestError: Error {
 private final class RecordingProductAccountService: ProductAccountConnecting {
   var recoveryBackedUp = true
   var recoveryCheckCount = 0
+  var recoveryCheckIdentityTokens: [String] = []
   var recoveryMaterial: EncryptedProductSyncPayload?
   let response: ProductAccountConnectResponse
   var unregisterError: Error?
+  var unregistrationIdentityTokens: [String] = []
   var unregisteredTrustedDeviceIds: [String] = []
 
   init(response: ProductAccountConnectResponse) {
@@ -1506,8 +1577,9 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
     )
   }
 
-  func productSyncRecoveryIsBackedUp(identityToken _: String) async throws -> Bool {
+  func productSyncRecoveryIsBackedUp(identityToken: String) async throws -> Bool {
     recoveryCheckCount += 1
+    recoveryCheckIdentityTokens.append(identityToken)
     return recoveryBackedUp
   }
 
@@ -1518,9 +1590,10 @@ private final class RecordingProductAccountService: ProductAccountConnecting {
   }
 
   func unregisterTrustedDevice(
-    identityToken _: String,
+    identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse {
+    unregistrationIdentityTokens.append(identityToken)
     unregisteredTrustedDeviceIds.append(trustedDeviceId)
     if let unregisterError {
       throw unregisterError

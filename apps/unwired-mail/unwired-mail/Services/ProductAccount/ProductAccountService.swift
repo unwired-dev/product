@@ -180,7 +180,7 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   }
 }
 
-private actor AccountAndDevicesRecoveryReplacementGate {
+actor ProductAccountRecoveryOperationGate {
   private var lockedProductAccountIds: Set<String> = []
   private var waiters: [String: [CheckedContinuation<Void, Never>]] = [:]
 
@@ -207,9 +207,10 @@ private actor AccountAndDevicesRecoveryReplacementGate {
   }
 }
 
+let productAccountRecoveryOperationGate = ProductAccountRecoveryOperationGate()
+
 final class AccountAndDevicesService {
   static let recoveryPayloadIdentifier = "product-account-recovery-v1"
-  private static let recoveryReplacementGate = AccountAndDevicesRecoveryReplacementGate()
 
   private let deviceTransport: TrustedDeviceManaging
   private let keyMaterialStore: ProductSyncKeyMaterialPersisting
@@ -281,7 +282,7 @@ final class AccountAndDevicesService {
     recentIdentityToken: String,
     isSessionCurrent: () -> Bool = { true }
   ) async throws -> ProductSyncRecoveryKey {
-    await Self.recoveryReplacementGate.acquire(
+    await productAccountRecoveryOperationGate.acquire(
       productAccountId: session.productAccountId
     )
     do {
@@ -290,12 +291,12 @@ final class AccountAndDevicesService {
         recentIdentityToken: recentIdentityToken,
         isSessionCurrent: isSessionCurrent
       )
-      await Self.recoveryReplacementGate.release(
+      await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId
       )
       return recoveryKey
     } catch {
-      await Self.recoveryReplacementGate.release(
+      await productAccountRecoveryOperationGate.release(
         productAccountId: session.productAccountId
       )
       throw error

@@ -136,9 +136,14 @@ final class ProductAccountSession {
       await signOutTask.value
       return
     }
-    beginSignOut()
+    let productAccountId =
+      currentSignedInSnapshot()?.productAccountId
+      ?? (try? sessionStore.load())?.productAccountId
     let task = Task {
-      await performSignOut(afterRecoveryCheck: preparation)
+      await performCoordinatedSignOut(
+        productAccountId: productAccountId,
+        afterRecoveryCheck: preparation
+      )
     }
     signOutTask = task
     await task.value
@@ -154,16 +159,19 @@ final class ProductAccountSession {
     }
     let snapshot = signOutSnapshot ?? (try? sessionStore.load())
     do {
-      try await prepareForSignOut(snapshot, preparation: preparation)
-      if let snapshot {
-        try? await devicePushUnregistrationService.unregister(session: snapshot)
+      let cleanupSnapshot = try await prepareForSignOut(
+        snapshot,
+        preparation: preparation
+      )
+      if let cleanupSnapshot {
+        try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
       }
       var mailboxCleanupError: Error?
-      if let snapshot {
+      if let cleanupSnapshot {
         do {
           try await mailboxConnectionService.clearLocalConnection(
-            session: snapshot,
+            session: cleanupSnapshot,
             isStillCurrent: {
               !self.signOutSnapshotWasReplaced(snapshot)
             }
@@ -177,8 +185,8 @@ final class ProductAccountSession {
         return
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
-      if let snapshot {
-        try? await unregisterTrustedDeviceForSignOut(snapshot)
+      if let snapshot, let cleanupSnapshot {
+        try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
         try sessionStore.savePendingSignOutProductAccountId(
           snapshot.productAccountId
@@ -195,16 +203,6 @@ final class ProductAccountSession {
     } catch {
       state = .failed(error.localizedDescription)
     }
-  }
-
-  private func prepareForSignOut(
-    _ snapshot: ProductAccountSessionSnapshot?,
-    preparation: () async -> Void
-  ) async throws {
-    if let snapshot {
-      try await verifyProductSyncRecoveryIsBackedUp(snapshot)
-    }
-    await preparation()
   }
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
@@ -297,9 +295,46 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  private func prepareForSignOut(
+    _ snapshot: ProductAccountSessionSnapshot?,
+    preparation: () async -> Void
+  ) async throws -> ProductAccountSessionSnapshot? {
+    guard let snapshot else {
+      await preparation()
+      return nil
+    }
+    let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
+    await preparation()
+    return ProductAccountSessionSnapshot(
+      appleUserIdentifier: snapshot.appleUserIdentifier,
+      identityToken: identityToken,
+      identityTokenExpiresAt: AppleIdentityToken.expirationDate(from: identityToken),
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
+  }
+
+  private func performCoordinatedSignOut(
+    productAccountId: String?,
+    afterRecoveryCheck preparation: () async -> Void
+  ) async {
+    if let productAccountId {
+      await productAccountRecoveryOperationGate.acquire(
+        productAccountId: productAccountId
+      )
+    }
+    beginSignOut()
+    await performSignOut(afterRecoveryCheck: preparation)
+    if let productAccountId {
+      await productAccountRecoveryOperationGate.release(
+        productAccountId: productAccountId
+      )
+    }
+  }
+
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
-  ) async throws {
+  ) async throws -> String {
     let identityToken = try await identityTokenForRecoveryCheck(snapshot)
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
@@ -308,6 +343,7 @@ extension ProductAccountSession {
     else {
       throw ProductAccountSessionError.recoveryNotBackedUp
     }
+    return identityToken
   }
 
   private func identityTokenForRecoveryCheck(
