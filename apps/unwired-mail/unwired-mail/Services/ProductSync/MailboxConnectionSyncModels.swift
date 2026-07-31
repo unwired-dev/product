@@ -140,10 +140,14 @@ struct MailboxConnectionSyncPayloadCodec {
   func refreshCache(
     _ payload: MailboxConnectionSyncPayload,
     remotePayload: EncryptedProductSyncPayload?,
+    cachedPayloadBeforeLoad: EncryptedProductSyncPayload? = nil,
     session: ProductAccountSessionSnapshot
   ) throws {
     guard let remotePayload else {
-      try cacheStore.clear(productAccountId: session.productAccountId)
+      try cacheStore.clearIfUnchanged(
+        cachedPayloadBeforeLoad,
+        productAccountId: session.productAccountId
+      )
       return
     }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)

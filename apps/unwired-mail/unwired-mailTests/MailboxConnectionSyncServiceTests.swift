@@ -991,6 +991,7 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
     try codec.refreshCache(
       .empty,
       remotePayload: remotePayload,
+      cachedPayloadBeforeLoad: nil,
       session: firstDeviceSession
     )
 
@@ -1029,11 +1030,44 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
           payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
           updatedAt: Int64(updatedAt)
         ),
+        cachedPayloadBeforeLoad: nil,
         session: firstDeviceSession
       )
     }
 
     XCTAssertEqual(cacheStore.replaceCallCount, 2)
+    XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
+  }
+
+  func testEmptyLoadDoesNotClearCacheWrittenAfterLoadStarted() throws {
+    let cacheStore = RecordingMailboxConnectionSyncCacheStore()
+    let codec = MailboxConnectionSyncPayloadCodec(
+      cacheStore: cacheStore,
+      keyMaterialStore: InMemoryProductSyncKeyMaterialStore()
+    )
+    try cacheStore.replaceIfNotOlder(
+      EncryptedProductSyncPayload(
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: ProductSyncEncryptedPayload.algorithmName,
+          ciphertextBase64: "unused",
+          keyVersion: 1,
+          nonceBase64: "unused",
+          schemaVersion: 1,
+          tagBase64: "unused"
+        ),
+        payloadIdentifier: MailboxConnectionSyncPayload.primaryIdentifier,
+        updatedAt: 42
+      ),
+      productAccountId: firstDeviceSession.productAccountId
+    )
+
+    try codec.refreshCache(
+      .empty,
+      remotePayload: nil,
+      cachedPayloadBeforeLoad: nil,
+      session: firstDeviceSession
+    )
+
     XCTAssertEqual(cacheStore.payload?.updatedAt, 42)
   }
 
@@ -1054,6 +1088,39 @@ final class MailboxConnectionSyncServiceTests: XCTestCase {
 
     let maximumConcurrentLoadCount = await transport.maximumConcurrentLoadCount
     XCTAssertEqual(maximumConcurrentLoadCount, 1)
+  }
+
+  func testCancelledProviderAccessWaiterDoesNotEnterTransport() async throws {
+    let transport = ProviderAccessConcurrencyTransport()
+    let firstService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+    let secondService = MailboxConnectionSyncService(
+      cacheStore: InMemoryMailboxConnectionSyncCacheStore(),
+      transport: transport
+    )
+    let first = Task {
+      try await firstService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    }
+    while await transport.loadCallCount == 0 {
+      await Task.yield()
+    }
+    let cancelled = Task {
+      try await secondService.loadSnapshotForProviderAccess(session: firstDeviceSession)
+    }
+    await Task.yield()
+    cancelled.cancel()
+
+    do {
+      _ = try await cancelled.value
+      XCTFail("Expected the queued provider-access load to be cancelled")
+    } catch is CancellationError {
+      // Expected.
+    }
+    let loadCallCount = await transport.loadCallCount
+    XCTAssertEqual(loadCallCount, 1)
+    _ = try await first.value
   }
 
   private func observedRemoval(
@@ -1327,6 +1394,7 @@ private enum MailboxConnectionSyncTestError: Error {
 }
 
 private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
+  private(set) var loadCallCount = 0
   private(set) var maximumConcurrentLoadCount = 0
   private var concurrentLoadCount = 0
 
@@ -1348,6 +1416,7 @@ private actor ProviderAccessConcurrencyTransport: ProductSyncPayloadTransport {
     identityToken _: String,
     payloadIdentifiers _: [String]
   ) async throws -> [EncryptedProductSyncPayload] {
+    loadCallCount += 1
     concurrentLoadCount += 1
     maximumConcurrentLoadCount = max(maximumConcurrentLoadCount, concurrentLoadCount)
     try await Task.sleep(nanoseconds: 50_000_000)
@@ -1393,6 +1462,15 @@ private final class RecordingMailboxConnectionSyncCacheStore:
 
   func clear(productAccountId _: String) throws {
     clearCallCount += 1
+    payload = nil
+  }
+
+  func clearIfUnchanged(
+    _ expectedPayload: EncryptedProductSyncPayload?,
+    productAccountId _: String
+  ) throws {
+    clearCallCount += 1
+    guard payload == expectedPayload else { return }
     payload = nil
   }
 

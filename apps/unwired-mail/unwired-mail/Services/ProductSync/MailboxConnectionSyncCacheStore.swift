@@ -3,6 +3,10 @@ import Security
 
 protocol MailboxConnectionSyncCachePersisting {
   func clear(productAccountId: String) throws
+  func clearIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String
+  ) throws
   func load(productAccountId: String) throws -> EncryptedProductSyncPayload?
   func replaceIfNotOlder(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
   func save(_ payload: EncryptedProductSyncPayload, productAccountId: String) throws
@@ -76,6 +80,27 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
 
   func clear(productAccountId: String) throws {
     try Self.lock.withLock {
+      try KeychainStore.delete(service: service, account: productAccountId)
+    }
+  }
+
+  func clearIfUnchanged(
+    _ payload: EncryptedProductSyncPayload?,
+    productAccountId: String
+  ) throws {
+    try Self.lock.withLock {
+      let existing: EncryptedProductSyncPayload?
+      if let rawValue = try KeychainStore.readString(service: service, account: productAccountId),
+        let data = rawValue.data(using: .utf8)
+      {
+        existing = try JSONDecoder().decode(
+          EncryptedProductSyncPayload.self,
+          from: data
+        )
+      } else {
+        existing = nil
+      }
+      guard existing == payload else { return }
       try KeychainStore.delete(service: service, account: productAccountId)
     }
   }
@@ -165,6 +190,14 @@ struct KeychainMailboxConnectionSyncCacheStore: MailboxConnectionSyncCachePersis
     private var payloads: [String: EncryptedProductSyncPayload] = [:]
 
     func clear(productAccountId: String) throws {
+      payloads[productAccountId] = nil
+    }
+
+    func clearIfUnchanged(
+      _ payload: EncryptedProductSyncPayload?,
+      productAccountId: String
+    ) throws {
+      guard payloads[productAccountId] == payload else { return }
       payloads[productAccountId] = nil
     }
 
