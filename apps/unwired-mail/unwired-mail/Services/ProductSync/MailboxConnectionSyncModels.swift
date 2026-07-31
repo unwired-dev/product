@@ -140,10 +140,16 @@ struct MailboxConnectionSyncPayloadCodec {
   func refreshCache(
     _ payload: MailboxConnectionSyncPayload,
     remotePayload: EncryptedProductSyncPayload?,
+    cachedPayloadBeforeLoad: EncryptedProductSyncPayload? = nil,
     session: ProductAccountSessionSnapshot
   ) throws {
-    try cacheStore.clear(productAccountId: session.productAccountId)
-    guard let remotePayload else { return }
+    guard let remotePayload else {
+      try cacheStore.clearIfUnchanged(
+        cachedPayloadBeforeLoad,
+        productAccountId: session.productAccountId
+      )
+      return
+    }
     guard let material = try keyMaterialStore.load(productAccountId: session.productAccountId)
     else {
       throw MailboxConnectionSyncError.missingProductSyncKeyMaterial
@@ -152,7 +158,7 @@ struct MailboxConnectionSyncPayloadCodec {
       encoder.encode(payload),
       associatedData: associatedData
     )
-    try cacheStore.save(
+    try cacheStore.replaceIfNotOlder(
       EncryptedProductSyncPayload(
         encryptedPayload: encryptedPayload,
         payloadIdentifier: remotePayload.payloadIdentifier,

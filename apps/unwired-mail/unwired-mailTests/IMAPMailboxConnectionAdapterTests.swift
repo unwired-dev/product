@@ -87,6 +87,105 @@ final class IMAPMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNotNil(viewModel.errorMessage)
   }
 
+  func testRouterLoadsProviderConnectionsConcurrentlyAndPreservesOrdering() async throws {
+    let gmailGate = RouterOperationGate()
+    let imapGate = RouterOperationGate()
+    await imapGate.release()
+    let gmailConnection = routerConnection(providerId: .gmail, displayName: "Zulu")
+    let imapConnection = routerConnection(providerId: .imapSMTP, displayName: "alpha")
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(connections: [gmailConnection], loadGate: gmailGate),
+      imap: RouterTestAdapter(connections: [imapConnection], loadGate: imapGate),
+      microsoftGraph: RouterTestAdapter()
+    )
+    let imapStarted = expectation(description: "IMAP load starts while Gmail remains suspended")
+
+    let loadTask = Task {
+      try await router.loadConnectionSnapshot(session: session)
+    }
+    await gmailGate.waitUntilStarted()
+    Task {
+      await imapGate.waitUntilStarted()
+      imapStarted.fulfill()
+    }
+
+    await fulfillment(of: [imapStarted], timeout: 1)
+    await gmailGate.release()
+    let snapshot = try await loadTask.value
+
+    XCTAssertEqual(snapshot.connections.map(\.id), [imapConnection.id, gmailConnection.id])
+    XCTAssertTrue(snapshot.isAuthoritative)
+  }
+
+  func testRouterResumesProviderActionsConcurrentlyAndPreservesErrorOrdering() async {
+    let gmailGate = RouterOperationGate()
+    let imapGate = RouterOperationGate()
+    await imapGate.release()
+    let gmailConnection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let imapConnection = routerConnection(providerId: .imapSMTP, displayName: "IMAP")
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(pendingActionError: "Gmail failed.", pendingActionGate: gmailGate),
+      imap: RouterTestAdapter(pendingActionError: "IMAP failed.", pendingActionGate: imapGate),
+      microsoftGraph: RouterTestAdapter()
+    )
+    let imapStarted = expectation(description: "IMAP resume starts while Gmail remains suspended")
+
+    let resumeTask = Task {
+      await router.resumePendingActions(
+        connections: [gmailConnection, imapConnection],
+        session: session
+      )
+    }
+    await gmailGate.waitUntilStarted()
+    Task {
+      await imapGate.waitUntilStarted()
+      imapStarted.fulfill()
+    }
+
+    await fulfillment(of: [imapStarted], timeout: 1)
+    await gmailGate.release()
+    let error = await resumeTask.value
+
+    XCTAssertEqual(error, "Gmail failed.\nIMAP failed.")
+  }
+
+  func testRouterLoadsPendingActionConnectionIdsConcurrentlyAndPreservesProviderOrdering() async {
+    let gmailGate = RouterOperationGate()
+    let imapGate = RouterOperationGate()
+    await imapGate.release()
+    let gmailConnection = routerConnection(providerId: .gmail, displayName: "Gmail")
+    let imapConnection = routerConnection(providerId: .imapSMTP, displayName: "IMAP")
+    let router = MailboxConnectionRouter(
+      exchangeWebServices: RouterTestAdapter(),
+      gmail: RouterTestAdapter(
+        blockedConnectionIds: [gmailConnection.id], pendingActionGate: gmailGate),
+      imap: RouterTestAdapter(
+        blockedConnectionIds: [imapConnection.id], pendingActionGate: imapGate),
+      microsoftGraph: RouterTestAdapter()
+    )
+    let imapStarted = expectation(description: "IMAP status starts while Gmail remains suspended")
+
+    let statusTask = Task {
+      await router.blockedPendingActionConnectionIds(
+        connections: [gmailConnection, imapConnection],
+        session: session
+      )
+    }
+    await gmailGate.waitUntilStarted()
+    Task {
+      await imapGate.waitUntilStarted()
+      imapStarted.fulfill()
+    }
+
+    await fulfillment(of: [imapStarted], timeout: 1)
+    await gmailGate.release()
+    let connectionIds = await statusTask.value
+
+    XCTAssertEqual(connectionIds, [gmailConnection.id, imapConnection.id])
+  }
+
   // swiftlint:disable:next function_body_length
   func testIMAPConnectionRequiresAuthorizationForAnOlderConnectionGeneration() async throws {
     let definition = imapDefinition(username: "reader")
@@ -1381,6 +1480,236 @@ private final class RecordingIMAPBodyCache: GmailMessageBodyCaching {
     stableProviderMessageId _: String,
     accessedAt _: Date
   ) throws {}
+}
+
+private actor RouterOperationGate {
+  private var hasReleased = false
+  private var hasStarted = false
+  private var releaseContinuations: [CheckedContinuation<Void, Never>] = []
+  private var startContinuations: [CheckedContinuation<Void, Never>] = []
+
+  func waitForRelease() async {
+    hasStarted = true
+    let continuations = startContinuations
+    startContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+    guard !hasReleased else { return }
+    await withCheckedContinuation { releaseContinuations.append($0) }
+  }
+
+  func waitUntilStarted() async {
+    guard !hasStarted else { return }
+    await withCheckedContinuation { startContinuations.append($0) }
+  }
+
+  func release() {
+    hasReleased = true
+    let continuations = releaseContinuations
+    releaseContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
+}
+
+private final class RouterTestAdapter: MailboxConnectionAdapter, @unchecked Sendable {
+  private let blockedConnectionIds: [MailboxConnectionId]
+  private let connections: [MailboxConnection]
+  private let loadError: Error?
+  private let loadGate: RouterOperationGate?
+  private let pendingActionError: String?
+  private let pendingActionGate: RouterOperationGate?
+
+  init(
+    blockedConnectionIds: [MailboxConnectionId] = [],
+    connections: [MailboxConnection] = [],
+    loadError: Error? = nil,
+    loadGate: RouterOperationGate? = nil,
+    pendingActionError: String? = nil,
+    pendingActionGate: RouterOperationGate? = nil
+  ) {
+    self.blockedConnectionIds = blockedConnectionIds
+    self.connections = connections
+    self.loadError = loadError
+    self.loadGate = loadGate
+    self.pendingActionError = pendingActionError
+    self.pendingActionGate = pendingActionGate
+  }
+
+  func clearLocalConnection(session _: ProductAccountSessionSnapshot) async throws {}
+
+  func clearLocalConnection(
+    _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  @MainActor
+  func connect(
+    expectedConnectionId _: MailboxConnectionId?,
+    removalObservation _: MailboxConnectionRemovalObservation?,
+    session _: ProductAccountSessionSnapshot,
+    isSessionCurrent _: @escaping (ProductAccountSessionSnapshot) -> Bool
+  ) async throws -> MailboxConnection? {
+    nil
+  }
+
+  func loadConnections(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxConnection] {
+    await loadGate?.waitForRelease()
+    if let loadError { throw loadError }
+    return connections
+  }
+
+  func loadDefaultSendingConnectionId(
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxConnectionId? {
+    nil
+  }
+
+  func removeMailboxConnectionEverywhere(
+    _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func setDefaultSendingConnection(
+    _: MailboxConnection?,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func categorizeHistorical(
+    scope _: HistoricalCategorizationScope,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func loadInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func syncInbox(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMetadataSyncResult {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection _: MailboxConnection,
+    includingHistoryCandidates _: Bool,
+    session _: ProductAccountSessionSnapshot,
+    sinceHistoryId _: String?,
+    throughHistoryId _: String?,
+    shouldPersist _: @escaping () -> Bool
+  ) async throws -> MailboxMetadataSyncResult {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func overrideCategory(
+    _: String,
+    for _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageMetadata {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func searchProvider(
+    query _: String,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> [MailboxMessageMetadata] {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func prefetchMessageBodies(
+    connection _: MailboxConnection,
+    pinnedMessageIds _: Set<StableProviderMessageIdentity>,
+    referenceDate _: Date,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func clearCachedMessageBodies(session _: ProductAccountSessionSnapshot) throws {}
+
+  func clearCachedMessageBodies(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func loadMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) async throws -> MailboxMessageBody {
+    throw MailboxConnectionAdapterError.unsupportedCapability
+  }
+
+  func removeCachedMessageBody(
+    message _: MailboxMessageMetadata,
+    session _: ProductAccountSessionSnapshot
+  ) throws {}
+
+  func registerOrRenewPush(
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func perform(
+    _: ProviderMailAction,
+    messages _: [MailboxMessageMetadata],
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+
+  func resumePendingActions(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> String? {
+    await pendingActionGate?.waitForRelease()
+    return pendingActionError
+  }
+
+  func blockedPendingActionConnectionIds(
+    connections _: [MailboxConnection],
+    session _: ProductAccountSessionSnapshot
+  ) async -> [MailboxConnectionId] {
+    await pendingActionGate?.waitForRelease()
+    return blockedConnectionIds
+  }
+
+  func send(
+    _: OutgoingMessage,
+    connection _: MailboxConnection,
+    session _: ProductAccountSessionSnapshot
+  ) async throws {}
+}
+
+private func routerConnection(
+  providerId: MailProviderId,
+  displayName: String
+) -> MailboxConnection {
+  MailboxConnection(
+    authorizationState: .authorized,
+    capabilities: .none,
+    connectedAt: 1,
+    displayName: displayName,
+    id: MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: providerId,
+        value: displayName.lowercased()
+      )
+    ),
+    lastVerifiedAt: 1,
+    productAccountId: ProductAccountId("product-account-001"),
+    trustedDeviceId: "trusted-device-001",
+    updatedAt: 1
+  )
 }
 
 private final class TranscriptIMAPStreamTaskFactory: GenericMailStreamTaskCreating {
