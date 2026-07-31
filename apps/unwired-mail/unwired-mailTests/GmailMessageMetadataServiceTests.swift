@@ -1559,7 +1559,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
           as? String == selectedConnection.id.rawValue,
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
-          as? Bool == true
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
       else { return }
       reloadPublished.fulfill()
     }
@@ -1805,6 +1808,271 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessRestoresPriorStatusWhenAutomaticBackfillIsPreempted() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      cancelsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+    XCTAssertEqual(fixture.viewModel.status(for: connection).lastSuccessfulSyncAt, fixture.now)
+  }
+
+  @MainActor
+  func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillIsPreempted() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      cancelsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      try? await Task.sleep(for: .milliseconds(10))
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+  }
+
+  @MainActor
+  func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillSucceeds() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+  }
+
+  @MainActor
+  func testMailboxFreshnessFencesSuccessfulBackfillOncePushPreemptionBegins() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    let reloadPublished = expectation(description: "completed backfill reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false
+    )
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [reloadPublished], timeout: 1)
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+  }
+
+  @MainActor
+  func testMailboxFreshnessPreservesExternalStatusWhenAutomaticBackfillFails() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      failsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+  }
+
+  @MainActor
+  func testMailboxFreshnessPreservesProvisionalExternalStatusWhenAutomaticBackfillFails() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      failsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    let reloadPublished = expectation(description: "failed backfill reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    await fulfillment(of: [reloadPublished], timeout: 1)
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+  }
+
+  @MainActor
+  func testMailboxFreshnessSettingsReloadDoesNotFenceAutomaticBackfillFailure() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      failsBackfill: true
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: connection.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: fixture.now,
+      supersedesHistoricalBackfill: false,
+      updatesExternalStatusRevision: false
+    )
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    guard case .failed = fixture.viewModel.status(for: connection).phase else {
+      XCTFail("Expected the originating backfill to publish its failure")
+      return
+    }
+  }
+
+  @MainActor
+  func testMailboxFreshnessPublishesBackfillAfterProvisionalExternalStatusEnds() async {
+    let fixture = makeMailboxFreshnessFixture(
+      outcomes: [.incomplete],
+      suspendsBackfill: true,
+      completesBackfill: false
+    )
+    let connection = fixture.connections[0]
+
+    await fixture.viewModel.synchronize(connections: [connection])
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    for phase in [MailboxSyncPhase.syncing, .idle] {
+      fixture.viewModel.recordExternalSync(
+        connectionIdRawValue: connection.id.rawValue,
+        phase: phase,
+        successfulSyncAt: nil,
+        supersedesHistoricalBackfill: false
+      )
+    }
+
+    await fixture.service.releaseHistoricalBackfill()
+    for _ in 0..<100
+    where fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]) {
+      await Task.yield()
+    }
+
+    XCTAssertFalse(fixture.viewModel.isHistoricalBackfillRunning(for: [connection.id]))
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .backfillPending)
+  }
+
+  @MainActor
   func testMailboxFreshnessActivePollUsesFiveMinuteInterval() async {
     let sleeper = OneShotMailboxPollSleeper()
     let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
@@ -1962,6 +2230,71 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testMailboxFreshnessDirectBackfillCancellationRestoresPriorStatus() async {
+    let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
+    let connection = fixture.connections[0]
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .syncing)
+
+    backfill.cancel()
+
+    do {
+      _ = try await backfill.value
+      XCTFail("Expected the historical backfill to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    XCTAssertEqual(fixture.viewModel.status(for: connection).phase, .idle)
+  }
+
+  @MainActor
+  func testMailboxFreshnessIgnoresCancelledBackfillFromOlderAuthorizationGeneration() async {
+    let fixture = makeMailboxFreshnessFixture(
+      suspendsBackfill: true,
+      cancelsBackfill: true
+    )
+    let connection = fixture.connections[0]
+    let replacement = connection.withAuthorizationGeneration(
+      connection.authorizationGeneration + 1
+    )
+    fixture.viewModel.updateConnections([connection])
+    let backfill = Task { @MainActor in
+      try await fixture.viewModel.continueHistoricalBackfill(
+        connection: connection,
+        session: session
+      )
+    }
+    await fixture.service.waitUntilHistoricalBackfillStarts()
+
+    fixture.viewModel.updateConnections([replacement])
+    fixture.viewModel.recordExternalSync(
+      connectionIdRawValue: replacement.id.rawValue,
+      phase: .syncing,
+      successfulSyncAt: nil,
+      supersedesHistoricalBackfill: false,
+      updatesExternalStatusRevision: false
+    )
+    await fixture.service.releaseHistoricalBackfill()
+
+    do {
+      _ = try await backfill.value
+      XCTFail("Expected the older-generation backfill to be cancelled")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected cancellation, got \(error)")
+    }
+    XCTAssertEqual(fixture.viewModel.status(for: replacement).phase, .syncing)
+  }
+
+  @MainActor
   func testFailedSettingsLoadPreservesSharedHistoricalBackfill() async throws {
     let fixture = makeMailboxFreshnessFixture(suspendsBackfill: true)
     let connection = fixture.connections[0]
@@ -2003,8 +2336,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       )
     }
     await fixture.service.waitUntilHistoricalBackfillStarts()
+    let reloadPublished = expectation(description: "cancelled backfill reload published")
+    let observer = NotificationCenter.default.addObserver(
+      forName: .mailboxMetadataDidSynchronize,
+      object: nil,
+      queue: .main
+    ) { notification in
+      guard
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
+          as? String == connection.id.rawValue,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.reloadObservedMetadata]
+          as? Bool == true,
+        notification.userInfo?[
+          MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+        ] as? Bool == false
+      else { return }
+      reloadPublished.fulfill()
+    }
+    defer { NotificationCenter.default.removeObserver(observer) }
 
     _ = try await fixture.viewModel.syncInbox(connection: connection, session: session)
+    await fulfillment(of: [reloadPublished], timeout: 1)
 
     let syncCallCount = await fixture.service.syncCallCount()
     XCTAssertEqual(syncCallCount, 1)
@@ -2291,7 +2643,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       suspendsSync: false,
       suspendsBackfill: false,
       completesBackfill: true,
-      failsBackfill: false
+      failsBackfill: false,
+      cancelsBackfill: false
     )
     let mailboxConnection = connection.mailboxConnection(
       productAccountId: session.productAccountId,
@@ -5163,6 +5516,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     suspendsBackfill: Bool = false,
     completesBackfill: Bool = true,
     failsBackfill: Bool = false,
+    cancelsBackfill: Bool = false,
     sleep: @escaping (Duration) async throws -> Void = { _ in throw CancellationError() }
   ) -> MailboxFreshnessFixture {
     let secondConnection = GmailProviderConnectionStatus(
@@ -5179,7 +5533,8 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       suspendsSync: suspendsSync,
       suspendsBackfill: suspendsBackfill,
       completesBackfill: completesBackfill,
-      failsBackfill: failsBackfill
+      failsBackfill: failsBackfill,
+      cancelsBackfill: cancelsBackfill
     )
     let now = Date(timeIntervalSince1970: 1_781_200_000)
     let sessionState = MailboxFreshnessSessionState()
@@ -5325,6 +5680,7 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
   private var syncContinuations: [CheckedContinuation<Void, Error>] = []
   private let completesBackfill: Bool
   private let failsBackfill: Bool
+  private let cancelsBackfill: Bool
   private let suspendsBackfill: Bool
   private let suspendsSync: Bool
 
@@ -5333,8 +5689,10 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     suspendsSync: Bool,
     suspendsBackfill: Bool,
     completesBackfill: Bool,
-    failsBackfill: Bool
+    failsBackfill: Bool,
+    cancelsBackfill: Bool
   ) {
+    self.cancelsBackfill = cancelsBackfill
     self.completesBackfill = completesBackfill
     self.failsBackfill = failsBackfill
     self.outcomes = outcomes
@@ -5439,6 +5797,9 @@ private actor RecordingMailboxFreshnessService: MailboxMetadataSyncing {
     }
     if failsBackfill {
       throw URLError(.timedOut)
+    }
+    if cancelsBackfill {
+      throw CancellationError()
     }
     guard !completesBackfill else { return .empty }
     return MailboxMetadataSyncResult(

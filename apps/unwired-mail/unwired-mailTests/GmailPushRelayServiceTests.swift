@@ -976,6 +976,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
         connectionId: mailboxConnection.id
       )
     }
+    let preemptionPublished = expectation(description: "push preemption status published")
     let statusPublished = expectation(description: "push sync status published")
     let observer = NotificationCenter.default.addObserver(
       forName: .mailboxMetadataDidSynchronize,
@@ -984,12 +985,21 @@ final class GmailPushRelayServiceTests: XCTestCase {
     ) { notification in
       guard
         notification.userInfo?[MailboxSyncNotificationUserInfoKey.connectionId]
-          as? String == mailboxConnection.id.rawValue,
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
-          as? MailboxSyncPhase == .idle,
-        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
+          as? String == mailboxConnection.id.rawValue
       else { return }
-      statusPublished.fulfill()
+      let phase =
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.phase]
+        as? MailboxSyncPhase
+      if phase == .syncing,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill]
+          as? Bool == true
+      {
+        preemptionPublished.fulfill()
+      } else if phase == .idle,
+        notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] is Date
+      {
+        statusPublished.fulfill()
+      }
     }
     defer { NotificationCenter.default.removeObserver(observer) }
     let watchStore = RecordingGmailPushWatchStore(
@@ -1013,7 +1023,7 @@ final class GmailPushRelayServiceTests: XCTestCase {
       "provider": "gmail",
       "routeId": "route-001",
     ])
-    await fulfillment(of: [statusPublished], timeout: 1)
+    await fulfillment(of: [preemptionPublished, statusPublished], timeout: 1)
 
     XCTAssertTrue(handled)
     XCTAssertEqual(connectionStore.loadedProductAccountId, session.productAccountId)

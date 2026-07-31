@@ -154,7 +154,17 @@ struct EmailAccountsSettingsView: View {
         connectionIdRawValue: connectionId,
         phase: phase,
         successfulSyncAt:
-          notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date
+          notification.userInfo?[MailboxSyncNotificationUserInfoKey.successfulSyncAt] as? Date,
+        supersedesHistoricalBackfill:
+          notification.userInfo?[
+            MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill
+          ] as? Bool
+          ?? true,
+        updatesExternalStatusRevision:
+          notification.userInfo?[
+            MailboxSyncNotificationUserInfoKey.updatesExternalStatusRevision
+          ] as? Bool
+          ?? true
       )
     }
     .onDisappear {

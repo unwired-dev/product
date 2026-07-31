@@ -1428,7 +1428,8 @@ struct GmailPushWakeupHandler {
     publishSyncStatus(
       .syncing,
       connection: mailboxConnection,
-      productAccountId: productSession.productAccountId
+      productAccountId: productSession.productAccountId,
+      supersedesHistoricalBackfill: false
     )
     let syncResult: MailboxMetadataSyncResult
     do {
@@ -1438,20 +1439,29 @@ struct GmailPushWakeupHandler {
         session: productSession,
         sinceHistoryId: watchStatus.latestSyncedHistoryId ?? watchStatus.historyId,
         throughHistoryId: historyId,
-        shouldPersist: routeIsCurrent
+        shouldPersist: routeIsCurrent,
+        didBeginPreemption: {
+          publishSyncStatus(
+            .syncing,
+            connection: mailboxConnection,
+            productAccountId: productSession.productAccountId
+          )
+        }
       )
     } catch is CancellationError {
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,
-        productAccountId: productSession.productAccountId
+        productAccountId: productSession.productAccountId,
+        supersedesHistoricalBackfill: false
       )
       throw CancellationError()
     } catch GmailMessageMetadataSyncError.staleLocalConnection {
       publishSyncStatus(
         .idle,
         connection: mailboxConnection,
-        productAccountId: productSession.productAccountId
+        productAccountId: productSession.productAccountId,
+        supersedesHistoricalBackfill: false
       )
       return false
     } catch MailboxConnectionAdapterError.connectionRemoved {
@@ -1601,12 +1611,15 @@ struct GmailPushWakeupHandler {
     _ phase: MailboxSyncPhase,
     connection: MailboxConnection,
     productAccountId: String,
-    successfulSyncAt: Date? = nil
+    successfulSyncAt: Date? = nil,
+    supersedesHistoricalBackfill: Bool = true
   ) {
     var userInfo: [AnyHashable: Any] = [
       MailboxSyncNotificationUserInfoKey.connectionId: connection.id.rawValue,
       MailboxSyncNotificationUserInfoKey.phase: phase,
       MailboxSyncNotificationUserInfoKey.productAccountId: productAccountId,
+      MailboxSyncNotificationUserInfoKey.supersedesHistoricalBackfill:
+        supersedesHistoricalBackfill,
     ]
     userInfo[MailboxSyncNotificationUserInfoKey.successfulSyncAt] = successfulSyncAt
     NotificationCenter.default.post(

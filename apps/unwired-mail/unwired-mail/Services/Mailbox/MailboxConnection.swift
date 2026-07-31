@@ -77,14 +77,27 @@ actor MailboxConnectionSyncGate {
     case shared
   }
 
+  private enum WaiterPriority: Equatable {
+    case normal
+    case preempting
+  }
+
+  private struct PreemptibleOperation {
+    let cancel: @Sendable () -> Void
+    let id: UUID
+  }
+
   private struct Waiter {
     let continuation: CheckedContinuation<Bool, Never>
     let id: UUID
     let mode: LockMode
+    let priority: WaiterPriority
   }
 
+  private var activePreemptibleOperations: [MailboxConnectionId: PreemptibleOperation] = [:]
   private var exclusivelyLockedConnectionIds: Set<MailboxConnectionId> = []
   private var exclusiveRevisions: [MailboxConnectionId: UInt64] = [:]
+  private var preemptionRequestCounts: [MailboxConnectionId: Int] = [:]
   private var sharedLockCounts: [MailboxConnectionId: Int] = [:]
   private var waiters: [MailboxConnectionId: [Waiter]] = [:]
 
@@ -92,7 +105,11 @@ actor MailboxConnectionSyncGate {
     await acquire(connectionId, mode: .exclusive)
   }
 
-  private func acquire(_ connectionId: MailboxConnectionId, mode: LockMode) async -> Bool {
+  private func acquire(
+    _ connectionId: MailboxConnectionId,
+    mode: LockMode,
+    priority: WaiterPriority = .normal
+  ) async -> Bool {
     let hasExclusiveLock = exclusivelyLockedConnectionIds.contains(connectionId)
     let hasSharedLocks = sharedLockCounts[connectionId, default: 0] > 0
     let hasQueuedWaiters = waiters[connectionId]?.isEmpty == false
@@ -111,13 +128,32 @@ actor MailboxConnectionSyncGate {
           continuation.resume(returning: false)
           return
         }
-        waiters[connectionId, default: []].append(
-          Waiter(continuation: continuation, id: waiterId, mode: mode)
+        enqueue(
+          Waiter(
+            continuation: continuation,
+            id: waiterId,
+            mode: mode,
+            priority: priority
+          ),
+          for: connectionId
         )
       }
     } onCancel: {
       Task { await self.cancelWaiter(waiterId, for: connectionId) }
     }
+  }
+
+  private func enqueue(_ waiter: Waiter, for connectionId: MailboxConnectionId) {
+    guard waiter.priority == .preempting else {
+      waiters[connectionId, default: []].append(waiter)
+      return
+    }
+    var connectionWaiters = waiters[connectionId, default: []]
+    let insertionIndex =
+      connectionWaiters.firstIndex { $0.priority == .normal }
+      ?? connectionWaiters.endIndex
+    connectionWaiters.insert(waiter, at: insertionIndex)
+    waiters[connectionId] = connectionWaiters
   }
 
   private func grant(_ mode: LockMode, for connectionId: MailboxConnectionId) {
@@ -278,6 +314,74 @@ actor MailboxConnectionSyncGate {
       throw CancellationError()
     }
     defer { release(Self.allConnectionsId, mode: .exclusive) }
+    return try await operation()
+  }
+}
+
+extension MailboxConnectionSyncGate {
+  /// Cancelling a preemptible operation does not release its lock until the operation exits.
+  /// This keeps metadata writes serialized while a higher-priority sync waits to take ownership.
+  func withPreemptibleLock<T>(
+    _ connectionId: MailboxConnectionId,
+    operation: @escaping () async throws -> T
+  ) async throws -> T {
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    guard await acquire(connectionId, mode: .exclusive) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .exclusive) }
+
+    let operationId = UUID()
+    let task = Task {
+      try await operation()
+    }
+    activePreemptibleOperations[connectionId] = PreemptibleOperation(
+      cancel: { task.cancel() },
+      id: operationId
+    )
+    if preemptionRequestCounts[connectionId, default: 0] > 0 {
+      task.cancel()
+    }
+    defer {
+      if activePreemptibleOperations[connectionId]?.id == operationId {
+        activePreemptibleOperations[connectionId] = nil
+      }
+    }
+    return try await withTaskCancellationHandler {
+      try await task.value
+    } onCancel: {
+      task.cancel()
+    }
+  }
+
+  func withPreemptingLock<T>(
+    _ connectionId: MailboxConnectionId,
+    beforePreemption: () throws -> Void = {},
+    didBeginPreemption: (Bool) -> Void = { _ in },
+    operation: () async throws -> T
+  ) async throws -> T {
+    try Task.checkCancellation()
+    try beforePreemption()
+    preemptionRequestCounts[connectionId, default: 0] += 1
+    defer {
+      let remainingCount = preemptionRequestCounts[connectionId, default: 0] - 1
+      preemptionRequestCounts[connectionId] = remainingCount > 0 ? remainingCount : nil
+    }
+    let activePreemptibleOperation = activePreemptibleOperations[connectionId]
+    didBeginPreemption(activePreemptibleOperation != nil)
+    activePreemptibleOperation?.cancel()
+    guard await acquire(Self.allConnectionsId, mode: .shared) else {
+      throw CancellationError()
+    }
+    defer { release(Self.allConnectionsId, mode: .shared) }
+    guard await acquire(connectionId, mode: .exclusive, priority: .preempting) else {
+      throw CancellationError()
+    }
+    defer { release(connectionId, mode: .exclusive) }
+    try Task.checkCancellation()
     return try await operation()
   }
 }
@@ -1142,6 +1246,17 @@ protocol MailboxMetadataSyncing {
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult
 
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult
+
   func overrideCategory(
     _ categoryId: String,
     for message: MailboxMessageMetadata,
@@ -1174,6 +1289,27 @@ extension MailboxMetadataSyncing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
     try await syncInbox(connection: connection, session: session)
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult {
+    didBeginPreemption()
+    return try await syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: includingHistoryCandidates,
+      session: session,
+      sinceHistoryId: sinceHistoryId,
+      throughHistoryId: throughHistoryId,
+      shouldPersist: shouldPersist
+    )
   }
 }
 
@@ -2263,7 +2399,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
+    try await syncGate.withPreemptibleLock(connection.id) {
       try Task.checkCancellation()
       let gmailConnection = try await gmailConnectionForProviderAccess(
         connection,
@@ -2274,6 +2410,7 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
         connection: gmailConnection,
         session: session
       )
+      try Task.checkCancellation()
       if result.historicalMetadataBackfillIsComplete {
         let observedMessages = try await metadataService.loadMailbox(
           .allObserved,
@@ -2343,54 +2480,104 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     throughHistoryId: String?,
     shouldPersist: @escaping () -> Bool
   ) async throws -> MailboxMetadataSyncResult {
-    try await syncGate.withLock(connection.id) {
-      try Task.checkCancellation()
-      let gmailConnection = try await gmailConnectionForProviderAccess(
-        connection,
-        session: session,
-        connectionIsLocked: true
+    try await syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: includingHistoryCandidates,
+      session: session,
+      sinceHistoryId: sinceHistoryId,
+      throughHistoryId: throughHistoryId,
+      shouldPersist: shouldPersist,
+      didBeginPreemption: {}
+    )
+  }
+
+  // swiftlint:disable:next function_body_length function_parameter_count
+  func syncRecentInbox(
+    connection: MailboxConnection,
+    includingHistoryCandidates: Bool,
+    session: ProductAccountSessionSnapshot,
+    sinceHistoryId: String?,
+    throughHistoryId: String?,
+    shouldPersist: @escaping () -> Bool,
+    didBeginPreemption: @escaping () -> Void
+  ) async throws -> MailboxMetadataSyncResult {
+    try Task.checkCancellation()
+    guard shouldPersist() else { throw GmailMessageMetadataSyncError.staleLocalConnection }
+    var didCancelHistoricalBackfill = false
+    let recordPreemption: (Bool) -> Void = {
+      didCancelHistoricalBackfill = $0
+      didBeginPreemption()
+    }
+    do {
+      return try await syncGate.withPreemptingLock(
+        connection.id,
+        beforePreemption: {
+          guard shouldPersist() else {
+            throw GmailMessageMetadataSyncError.staleLocalConnection
+          }
+        },
+        didBeginPreemption: recordPreemption,
+        operation: {
+          let gmailConnection = try await gmailConnectionForProviderAccess(
+            connection,
+            session: session,
+            connectionIsLocked: true
+          )
+          let recentSync = try await metadataService.syncRecentInbox(
+            connection: gmailConnection,
+            includingHistoryCandidates: includingHistoryCandidates,
+            session: session,
+            sinceHistoryId: sinceHistoryId,
+            throughHistoryId: throughHistoryId,
+            shouldPersist: shouldPersist
+          )
+          let observedMessages = try await metadataService.loadMailbox(
+            .allObserved,
+            connection: gmailConnection,
+            session: session
+          )
+          try await reconcileAndResumePendingActions(
+            messages: observedMessages.messages.map {
+              $0.mailboxMetadata(connectionId: connection.id)
+            },
+            removesContradictedActions: recentSync.historicalMetadataBackfillIsComplete,
+            connection: connection,
+            session: session
+          )
+          let projectedInbox = try await pendingActionService.project(
+            observedMessages.mailboxResult(connectionId: connection.id),
+            collection: .role(.inbox),
+            connection: connection,
+            session: session
+          )
+          _ = try await metadataService.loadMailbox(
+            .role(.inbox),
+            connection: gmailConnection,
+            session: session
+          )
+          return MailboxMetadataSyncResult(
+            hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
+            messages: projectedInbox.messages,
+            newMessageIds: recentSync.newMessageIds,
+            providerCursorIsExpired: recentSync.historyIsExpired,
+            threads: projectedInbox.threads,
+            hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
+            historicalMetadataBackfillCanResume:
+              projectedInbox.historicalMetadataBackfillCanResume,
+            historicalMetadataBackfillIsComplete:
+              projectedInbox.historicalMetadataBackfillIsComplete
+          )
+        }
       )
-      let recentSync = try await metadataService.syncRecentInbox(
-        connection: gmailConnection,
-        includingHistoryCandidates: includingHistoryCandidates,
-        session: session,
-        sinceHistoryId: sinceHistoryId,
-        throughHistoryId: throughHistoryId,
-        shouldPersist: shouldPersist
-      )
-      let observedMessages = try await metadataService.loadMailbox(
-        .allObserved,
-        connection: gmailConnection,
-        session: session
-      )
-      try await reconcileAndResumePendingActions(
-        messages: observedMessages.messages.map { $0.mailboxMetadata(connectionId: connection.id) },
-        removesContradictedActions: recentSync.historicalMetadataBackfillIsComplete,
-        connection: connection,
-        session: session
-      )
-      let projectedInbox = try await pendingActionService.project(
-        observedMessages.mailboxResult(connectionId: connection.id),
-        collection: .role(.inbox),
-        connection: connection,
-        session: session
-      )
-      _ = try await metadataService.loadMailbox(
-        .role(.inbox),
-        connection: gmailConnection,
-        session: session
-      )
-      return MailboxMetadataSyncResult(
-        hasUnlistedNewMessages: recentSync.hasUnlistedNewMessages,
-        messages: projectedInbox.messages,
-        newMessageIds: recentSync.newMessageIds,
-        providerCursorIsExpired: recentSync.historyIsExpired,
-        threads: projectedInbox.threads,
-        hasInitialMailboxAvailability: projectedInbox.hasInitialMailboxAvailability,
-        historicalMetadataBackfillCanResume:
-          projectedInbox.historicalMetadataBackfillCanResume,
-        historicalMetadataBackfillIsComplete: projectedInbox.historicalMetadataBackfillIsComplete
-      )
+    } catch {
+      let failure = error
+      if didCancelHistoricalBackfill {
+        await recoverCompletedBackfillAfterFailedPreemption(
+          connection: connection,
+          session: session
+        )
+      }
+      throw failure
     }
   }
 
@@ -3069,6 +3256,36 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       session: session,
       connectionIsLocked: true
     )
+  }
+
+  private func recoverCompletedBackfillAfterFailedPreemption(
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async {
+    let recovery = Task {
+      try await syncGate.withLock(connection.id) {
+        let gmailConnection = try await gmailConnectionForProviderAccess(
+          connection,
+          session: session,
+          connectionIsLocked: true
+        )
+        let observedMessages = try await metadataService.loadMailbox(
+          .allObserved,
+          connection: gmailConnection,
+          session: session
+        )
+        guard observedMessages.historicalMetadataBackfillIsComplete else { return }
+        try await reconcileAndResumePendingActions(
+          messages: observedMessages.messages.map {
+            $0.mailboxMetadata(connectionId: connection.id)
+          },
+          removesContradictedActions: true,
+          connection: connection,
+          session: session
+        )
+      }
+    }
+    _ = try? await recovery.value
   }
 
   private func performProviderAction(
