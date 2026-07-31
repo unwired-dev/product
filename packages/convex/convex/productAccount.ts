@@ -376,6 +376,7 @@ export const renameTrustedDevice = mutation({
 
 export const unregisterTrustedDevice = mutation({
   args: {
+    deviceIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -386,6 +387,9 @@ export const unregisterTrustedDevice = mutation({
     }
     if (device.productAccountId !== account.productAccountId) {
       throw new Error('Trusted device required');
+    }
+    if (device.deviceIdentifier !== args.deviceIdentifier) {
+      throw new Error('Current trusted device required');
     }
     const heartbeat = await ctx.db
       .query('devicePushRouteHeartbeats')

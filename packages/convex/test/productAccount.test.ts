@@ -242,11 +242,13 @@ describe('productAccount.connect', () => {
 
     await expect(
       asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ registered: false });
     await expect(
       asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).resolves.toStrictEqual({ registered: false });
@@ -264,6 +266,28 @@ describe('productAccount.connect', () => {
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Trusted device required');
+  });
+
+  it('rejects unregistering another trusted device on the same Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Current trusted device required');
   });
 
   it('rejects unregistering another Product Account trusted device', async () => {
@@ -287,6 +311,7 @@ describe('productAccount.connect', () => {
 
     await expect(
       asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
         trustedDeviceId: otherDevice.trustedDeviceId,
       }),
     ).rejects.toThrow('Trusted device required');

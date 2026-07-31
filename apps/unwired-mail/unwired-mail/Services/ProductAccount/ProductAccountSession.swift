@@ -124,9 +124,10 @@ final class ProductAccountSession {
     if let snapshot {
       try? await devicePushUnregistrationService.unregister(session: snapshot)
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
+      try? await unregisterTrustedDeviceForSignOut(snapshot)
+      guard !signOutSnapshotWasReplaced(snapshot) else { return }
     }
     do {
-      guard try await unregisterTrustedDeviceForSignOut(snapshot) else { return }
       var mailboxCleanupError: Error?
       if let snapshot {
         do {
@@ -180,14 +181,12 @@ final class ProductAccountSession {
   }
 
   private func unregisterTrustedDeviceForSignOut(
-    _ snapshot: ProductAccountSessionSnapshot?
-  ) async throws -> Bool {
-    guard let snapshot else { return true }
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async throws {
     _ = try await productAccountService.unregisterTrustedDevice(
       identityToken: snapshot.identityToken,
       trustedDeviceId: snapshot.trustedDeviceId
     )
-    return !signOutSnapshotWasReplaced(snapshot)
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(
@@ -294,8 +293,7 @@ extension ProductAccountSession {
       case .notAuthorized:
         try? await devicePushUnregistrationService.unregister(session: snapshot)
         do {
-          try await mailboxConnectionService.clearLocalConnection(session: snapshot)
-          try sessionStore.clear()
+          try await clearRevokedSession(snapshot)
           state = .signedOut
         } catch {
           state = .failed(error.localizedDescription)
@@ -316,6 +314,16 @@ extension ProductAccountSession {
       state = .failed(error.localizedDescription)
       return false
     }
+  }
+
+  private func clearRevokedSession(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    try sessionStore.savePendingSignOutProductAccountId(
+      snapshot.productAccountId
+    )
+    try resumePendingSignOut()
   }
 
   private func resumePendingSignOut() throws {

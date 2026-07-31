@@ -1334,7 +1334,8 @@ struct AccountView: View {
             case .accountAndDevices:
               AccountAndDevicesSettingsView(
                 session: session,
-                snapshot: snapshot
+                snapshot: snapshot,
+                signOut: signOut
               )
             case .emailAccounts:
               EmailAccountsSettingsView(
@@ -1805,7 +1806,8 @@ extension AccountView {
           NavigationLink {
             AccountAndDevicesSettingsView(
               session: session,
-              snapshot: snapshot
+              snapshot: snapshot,
+              signOut: signOut
             )
           } label: {
             Label("Account & Devices", systemImage: "person.2")
@@ -1856,16 +1858,7 @@ extension AccountView {
           SmokeView(service: ConvexBackendHealthService())
 
           Button("Sign Out", role: .destructive) {
-            session.beginSignOut()
-            ewsSetupViewModel.invalidate()
-            genericMailSetupViewModel.invalidate()
-            Task {
-              await mailActionViewModel.prepareForSignOut()
-              mailboxFreshnessViewModel.cancelAll()
-              mailboxFreshnessViewModel.clearPersistedState()
-              await inboxViewModel.prepareForSignOut()
-              await session.signOut()
-            }
+            signOut()
           }
           .buttonStyle(.bordered)
         }
@@ -1878,6 +1871,19 @@ extension AccountView {
           Button("Done") { showsAccountSettings = false }
         }
       }
+    }
+  }
+
+  private func signOut() {
+    session.beginSignOut()
+    ewsSetupViewModel.invalidate()
+    genericMailSetupViewModel.invalidate()
+    Task {
+      await mailActionViewModel.prepareForSignOut()
+      mailboxFreshnessViewModel.cancelAll()
+      mailboxFreshnessViewModel.clearPersistedState()
+      await inboxViewModel.prepareForSignOut()
+      await session.signOut()
     }
   }
 }

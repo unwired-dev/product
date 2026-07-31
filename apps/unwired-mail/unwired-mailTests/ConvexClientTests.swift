@@ -218,6 +218,41 @@ final class ConvexClientTests: XCTestCase {
     XCTAssertEqual(device.displayName, "Desk Mac")
   }
 
+  func testUnregisterTrustedDeviceBindsTheCurrentDeviceIdentifier() async throws {
+    let fixtureEnvelope = """
+      {
+        "status": "success",
+        "value": { "registered": false }
+      }
+      """.data(using: .utf8)!
+
+    let client = ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let requestJSON = try XCTUnwrap(
+          JSONSerialization.jsonObject(with: Self.requestBody(from: request))
+            as? [String: Any]
+        )
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productAccount:unregisterTrustedDevice"
+        )
+        let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
+        XCTAssertEqual(args["deviceIdentifier"] as? String, "device-001")
+        XCTAssertEqual(args["trustedDeviceId"] as? String, "trustedDeviceFixtureId")
+        return (convexClientTestResponse(for: request), fixtureEnvelope)
+      }
+    )
+
+    let response = try await client.unregisterTrustedDevice(
+      deviceIdentifier: "device-001",
+      identityToken: "apple-token",
+      trustedDeviceId: "trustedDeviceFixtureId"
+    )
+
+    XCTAssertFalse(response.registered)
+  }
+
   func testRegisterGmailConnectionSendsOnlyOpaqueOperationalData() async throws {
     let fixtureEnvelope = """
       {

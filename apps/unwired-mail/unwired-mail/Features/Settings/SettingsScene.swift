@@ -1044,6 +1044,7 @@ enum AccountAndDevicesAccessibility {
 struct AccountAndDevicesSettingsView: View {
   let session: ProductAccountSession
   let snapshot: ProductAccountSessionSnapshot
+  let signOut: @MainActor () -> Void
 
   @State private var confirmsRecoveryReplacement = false
   @State private var confirmsSignOut = false
@@ -1054,10 +1055,12 @@ struct AccountAndDevicesSettingsView: View {
   init(
     session: ProductAccountSession,
     snapshot: ProductAccountSessionSnapshot,
+    signOut: @escaping @MainActor () -> Void,
     service: AccountAndDevicesService = AccountAndDevicesService()
   ) {
     self.session = session
     self.snapshot = snapshot
+    self.signOut = signOut
     _viewModel = State(
       initialValue: AccountAndDevicesViewModel(service: service)
     )
@@ -1187,8 +1190,7 @@ struct AccountAndDevicesSettingsView: View {
       titleVisibility: .visible
     ) {
       Button("Sign Out", role: .destructive) {
-        session.beginSignOut()
-        Task { await session.signOut() }
+        signOut()
       }
       Button("Cancel", role: .cancel) {}
     } message: {
@@ -1473,7 +1475,8 @@ private struct RecoveryKeyPresentation: View {
           case .accountAndDevices:
             AccountAndDevicesSettingsView(
               session: session,
-              snapshot: snapshot
+              snapshot: snapshot,
+              signOut: signOut
             )
           case .emailAccounts:
             EmailAccountsSettingsView(
@@ -1531,6 +1534,20 @@ private struct RecoveryKeyPresentation: View {
         return []
       }
       return [attention]
+    }
+
+    private func signOut() {
+      session.beginSignOut()
+      ewsViewModel.invalidate()
+      genericMailViewModel.invalidate()
+      freshnessViewModel.cancelAll()
+      freshnessViewModel.clearPersistedState()
+      Task {
+        await mailboxWorkCoordinator.cancelBodyPrefetch(
+          productAccountId: snapshot.productAccountId
+        )
+        await session.signOut()
+      }
     }
 
     private func refreshConnectionAuthorityAndNotify() {

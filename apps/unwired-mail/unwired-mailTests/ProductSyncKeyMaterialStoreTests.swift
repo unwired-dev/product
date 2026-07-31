@@ -228,6 +228,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: session.productAccountId),
       original
     )
+    XCTAssertEqual(transport.recoveryReadCount, 1)
   }
 
   func testOfflineRecoveryReplacementRestoresMaterialWhenBackendDidNotCommit()
@@ -316,6 +317,7 @@ private final class RecordingAccountAndDevicesTransport:
   var recoveryWriteIdentityToken: String?
   var recoveryWritePayload: ProductSyncEncryptedPayload?
   var recoveryWriteError: Error?
+  var recoveryReadCount = 0
   var commitsRecoveryBeforeThrowing = false
   var simulatesConcurrentRecoveryWrite = false
 
@@ -346,7 +348,8 @@ private final class RecordingAccountAndDevicesTransport:
     identityToken _: String,
     payloadIdentifier _: String
   ) async throws -> EncryptedProductSyncPayload? {
-    remoteRecoveryMaterial
+    recoveryReadCount += 1
+    return remoteRecoveryMaterial
   }
 
   func putRecoveryMaterialIfUnchanged(

@@ -130,7 +130,9 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse {
-    try await client.unregisterTrustedDevice(
+    let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
+    return try await client.unregisterTrustedDevice(
+      deviceIdentifier: deviceIdentifier,
       identityToken: identityToken,
       trustedDeviceId: trustedDeviceId
     )
@@ -246,8 +248,11 @@ final class AccountAndDevicesService {
         expectedUpdatedAt: existing?.updatedAt
       )
       guard written.encryptedPayload == replacement.recoveryWrappedAccountKey else {
+        restoreKeyMaterial(material, productAccountId: session.productAccountId)
         throw AccountAndDevicesServiceError.recoveryMaterialChanged
       }
+    } catch AccountAndDevicesServiceError.recoveryMaterialChanged {
+      throw AccountAndDevicesServiceError.recoveryMaterialChanged
     } catch {
       do {
         let authoritative = try await recoveryTransport.getRecoveryMaterial(
@@ -270,6 +275,16 @@ final class AccountAndDevicesService {
       throw error
     }
     return replacement.recoveryKey
+  }
+
+  private func restoreKeyMaterial(
+    _ material: ProductSyncKeyMaterial,
+    productAccountId: String
+  ) {
+    try? keyMaterialStore.save(
+      material,
+      productAccountId: productAccountId
+    )
   }
 
   func revealCurrentRecoveryKey(

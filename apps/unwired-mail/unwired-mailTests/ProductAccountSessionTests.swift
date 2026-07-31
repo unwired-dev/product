@@ -384,7 +384,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
-  func testSignOutPreservesStoredSessionWhenTrustedDeviceUnregistrationFails() async throws {
+  func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
@@ -407,15 +407,9 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.signOut()
 
-    XCTAssertEqual(
-      session.state,
-      .failed(
-        ProductAccountSessionTestError.trustedDeviceUnregistrationFailed
-          .localizedDescription
-      )
-    )
-    XCTAssertEqual(try store.load(), snapshot)
-    XCTAssertEqual(gmailConnectionService.clearedSessions, [])
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
   }
 
   func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
@@ -943,6 +937,10 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let session = ProductAccountSession(
       appleSignInService: RevokedAppleSignInService(),
@@ -957,6 +955,10 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
+    XCTAssertNil(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
   }
