@@ -3,9 +3,10 @@ import Foundation
 import ImageIO
 import SwiftSoup
 
+// swiftlint:disable:next type_body_length
 enum InlineImageDimensionPolicy {
-  private static let maximumResolutionDepth = 32
-  private static let maximumResolutionWork = 256
+  private static let maximumResolutionDepth = 64
+  private static let maximumResolutionWork = 8_192
 
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
     let fontSizePixels = inheritedFontSizePixels(in: element)
@@ -125,12 +126,37 @@ enum InlineImageDimensionPolicy {
     guard hasAutoNormalFlowBlockWidth(element),
       let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth)
     else { return nil }
-    return resolvedUsedDimensionPixels(
-      dimension: "width",
-      in: parent,
-      remainingDepth: remainingDepth - 1,
-      remainingWork: &remainingWork
-    )
+    guard
+      var pixels = resolvedUsedDimensionPixels(
+        dimension: "width",
+        in: parent,
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
+      )
+    else { return nil }
+    if let maximumValue = value("max-width", in: element),
+      let maximumPixels = resolvedDimensionPixels(
+        maximumValue,
+        dimension: "width",
+        in: element,
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
+      )
+    {
+      pixels = min(pixels, maximumPixels)
+    }
+    if let minimumValue = value("min-width", in: element),
+      let minimumPixels = resolvedDimensionPixels(
+        minimumValue,
+        dimension: "width",
+        in: element,
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
+      )
+    {
+      pixels = max(pixels, minimumPixels)
+    }
+    return pixels
   }
 
   private static func hasAutoNormalFlowBlockWidth(_ element: Element) -> Bool {

@@ -79,6 +79,15 @@ private actor RemoteMessageContentLoadGate {
 }
 
 @MainActor
+private final class LoadedMessageImageBudget {
+  var inlineByteCount = 0
+  var inlinePixelCount = 0
+  var remoteByteCount = 0
+  var remotePixelCount = 0
+  let loadGate = RemoteMessageContentLoadGate()
+}
+
+@MainActor
 @Observable
 final class MailboxWorkCoordinator {
   static let shared = MailboxWorkCoordinator()
@@ -5689,6 +5698,7 @@ extension GmailMailActionViewModel {
 @Observable
 // swiftlint:disable:next type_body_length
 final class GmailInboxViewModel {
+  private static var loadedImageBudgets: [String: LoadedMessageImageBudget] = [:]
   private static let maximumLoadedInlineImageByteCount = 20 * 1_024 * 1_024
   private static let maximumLoadedInlineImagePixelCount = 32 * 1_024 * 1_024
   private static let maximumLoadedMessageBodyTextByteCount = 5 * 1_024 * 1_024
@@ -5698,15 +5708,11 @@ final class GmailInboxViewModel {
   private var bodyPrefetchTask: Task<Void, Never>?
   private var hasSignedOut = false
   private var displayedMessageBodyIds: Set<StableProviderMessageIdentity> = []
-  private var loadedInlineImageByteCount = 0
   private var loadedInlineImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
-  private var loadedInlineImagePixelCount = 0
   private var loadedInlineImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
-  private var loadedRemoteImageByteCount = 0
   private var loadedRemoteImageByteCounts: [StableProviderMessageIdentity: Int] = [:]
-  private var loadedRemoteImagePixelCount = 0
   private var loadedRemoteImagePixelCounts: [StableProviderMessageIdentity: Int] = [:]
-  private let remoteMessageContentLoadGate = RemoteMessageContentLoadGate()
+  private let loadedImageBudget: LoadedMessageImageBudget
   private var loadedMessageBodyClearSignals: [StableProviderMessageIdentity: UUID] = [:]
   private var loadedMessageBodyTextByteCount = 0
   private var loadedMessageBodyTextOrder: [StableProviderMessageIdentity] = []
@@ -5747,6 +5753,10 @@ final class GmailInboxViewModel {
     session: ProductAccountSessionSnapshot,
     productMailboxState: MailShellProductMailboxState = .empty
   ) {
+    let loadedImageBudget =
+      Self.loadedImageBudgets[session.productAccountId] ?? LoadedMessageImageBudget()
+    Self.loadedImageBudgets[session.productAccountId] = loadedImageBudget
+    self.loadedImageBudget = loadedImageBudget
     self.bodyPrefetcher = bodyPrefetcher
     navigationSnapshot = MailboxNavigationSnapshot(
       messagesByConnection: [:],
@@ -5757,6 +5767,13 @@ final class GmailInboxViewModel {
     self.service = service
     self.session = session
     self.syncCoordinator = syncCoordinator
+  }
+
+  isolated deinit {
+    loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
+    loadedImageBudget.inlinePixelCount -= loadedInlineImagePixelCounts.values.reduce(0, +)
+    loadedImageBudget.remoteByteCount -= loadedRemoteImageByteCounts.values.reduce(0, +)
+    loadedImageBudget.remotePixelCount -= loadedRemoteImagePixelCounts.values.reduce(0, +)
   }
 
   var isRefreshDisabled: Bool {
@@ -5850,7 +5867,7 @@ final class GmailInboxViewModel {
     let deadline = clock.now.advanced(by: .seconds(maximumLoadDuration))
     let maximumWaitDuration = clock.now.duration(to: deadline)
     guard
-      await remoteMessageContentLoadGate.acquire(
+      await loadedImageBudget.loadGate.acquire(
         maximumWaitDuration: maximumWaitDuration
       )
     else {
@@ -5865,7 +5882,7 @@ final class GmailInboxViewModel {
       try Task.checkCancellation()
       let remainingDuration = clock.now.duration(to: deadline)
       guard remainingDuration > .zero else {
-        await remoteMessageContentLoadGate.release()
+        await loadedImageBudget.loadGate.release()
         return RemoteMessageContentLoadResult(
           failedImageCount: html.remoteImageReferences.count,
           html: html,
@@ -5877,11 +5894,11 @@ final class GmailInboxViewModel {
         Double(durationComponents.seconds)
         + Double(durationComponents.attoseconds) / 1_000_000_000_000_000_000
       let requestedMaximumByteCount =
-        Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
-        - loadedRemoteImageByteCount
+        Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
+        - loadedImageBudget.remoteByteCount
       let requestedMaximumPixelCount =
-        Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
-        - loadedRemoteImagePixelCount
+        Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
+        - loadedImageBudget.remotePixelCount
       let result: RemoteMessageContentLoadResult
       if let loader {
         result = try await loader(
@@ -5898,19 +5915,19 @@ final class GmailInboxViewModel {
       }
       try Task.checkCancellation()
       let remainingByteCount =
-        Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
-        - loadedRemoteImageByteCount
+        Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
+        - loadedImageBudget.remoteByteCount
       let remainingPixelCount =
-        Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
-        - loadedRemoteImagePixelCount
+        Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
+        - loadedImageBudget.remotePixelCount
       let retainedResult: RemoteMessageContentLoadResult
       if result.loadedByteCount <= remainingByteCount,
         result.loadedPixelCount <= remainingPixelCount
       {
         loadedRemoteImageByteCounts[messageId, default: 0] += result.loadedByteCount
-        loadedRemoteImageByteCount += result.loadedByteCount
+        loadedImageBudget.remoteByteCount += result.loadedByteCount
         loadedRemoteImagePixelCounts[messageId, default: 0] += result.loadedPixelCount
-        loadedRemoteImagePixelCount += result.loadedPixelCount
+        loadedImageBudget.remotePixelCount += result.loadedPixelCount
         retainedResult = result
       } else {
         retainedResult = RemoteMessageContentLoadResult(
@@ -5919,10 +5936,10 @@ final class GmailInboxViewModel {
           loadedImageCount: 0
         )
       }
-      await remoteMessageContentLoadGate.release()
+      await loadedImageBudget.loadGate.release()
       return retainedResult
     } catch {
-      await remoteMessageContentLoadGate.release()
+      await loadedImageBudget.loadGate.release()
       throw error
     }
   }
@@ -5930,15 +5947,15 @@ final class GmailInboxViewModel {
   private func withRemoteImageAdmissionGate<Result>(
     _ operation: () async throws -> Result
   ) async throws -> Result {
-    guard await remoteMessageContentLoadGate.acquire() else {
+    guard await loadedImageBudget.loadGate.acquire() else {
       throw CancellationError()
     }
     do {
       let result = try await operation()
-      await remoteMessageContentLoadGate.release()
+      await loadedImageBudget.loadGate.release()
       return result
     } catch {
-      await remoteMessageContentLoadGate.release()
+      await loadedImageBudget.loadGate.release()
       throw error
     }
   }
@@ -5988,11 +6005,11 @@ final class GmailInboxViewModel {
   func discardLoadedMessageBodyPresentation(
     for messageId: StableProviderMessageIdentity
   ) {
-    loadedInlineImageByteCount -=
+    loadedImageBudget.inlineByteCount -=
       loadedInlineImageByteCounts.removeValue(
         forKey: messageId
       ) ?? 0
-    loadedInlineImagePixelCount -=
+    loadedImageBudget.inlinePixelCount -=
       loadedInlineImagePixelCounts.removeValue(
         forKey: messageId
       ) ?? 0
@@ -6000,8 +6017,10 @@ final class GmailInboxViewModel {
   }
 
   private func discardLoadedRemoteImages(for messageId: StableProviderMessageIdentity) {
-    loadedRemoteImageByteCount -= loadedRemoteImageByteCounts.removeValue(forKey: messageId) ?? 0
-    loadedRemoteImagePixelCount -= loadedRemoteImagePixelCounts.removeValue(forKey: messageId) ?? 0
+    loadedImageBudget.remoteByteCount -=
+      loadedRemoteImageByteCounts.removeValue(forKey: messageId) ?? 0
+    loadedImageBudget.remotePixelCount -=
+      loadedRemoteImagePixelCounts.removeValue(forKey: messageId) ?? 0
   }
 
   func markMessageBodyDisplayed(_ messageId: StableProviderMessageIdentity) {
@@ -6062,11 +6081,11 @@ final class GmailInboxViewModel {
       by: { $0 }
     ).mapValues(\.count)
     var remainingByteCount =
-      Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
-      - loadedRemoteImageByteCount
+      Self.maximumLoadedInlineImageByteCount - loadedImageBudget.inlineByteCount
+      - loadedImageBudget.remoteByteCount
     var remainingPixelCount =
-      Self.maximumLoadedInlineImagePixelCount - loadedInlineImagePixelCount
-      - loadedRemoteImagePixelCount
+      Self.maximumLoadedInlineImagePixelCount - loadedImageBudget.inlinePixelCount
+      - loadedImageBudget.remotePixelCount
     var retainedByteCount = 0
     var retainedPixelCount = 0
     let inlineImages = body.inlineImages.filter { image in
@@ -6089,9 +6108,9 @@ final class GmailInboxViewModel {
       return true
     }
     loadedInlineImageByteCounts[messageId] = retainedByteCount
-    loadedInlineImageByteCount += retainedByteCount
+    loadedImageBudget.inlineByteCount += retainedByteCount
     loadedInlineImagePixelCounts[messageId] = retainedPixelCount
-    loadedInlineImagePixelCount += retainedPixelCount
+    loadedImageBudget.inlinePixelCount += retainedPixelCount
     return MailboxMessageBody(
       text: body.text,
       html: body.html,
@@ -6108,13 +6127,13 @@ final class GmailInboxViewModel {
     unifiedConnectionIds = []
     unifiedLoadId = nil
     isLoading = false
-    loadedInlineImageByteCount = 0
+    loadedImageBudget.inlineByteCount -= loadedInlineImageByteCounts.values.reduce(0, +)
     loadedInlineImageByteCounts = [:]
-    loadedInlineImagePixelCount = 0
+    loadedImageBudget.inlinePixelCount -= loadedInlineImagePixelCounts.values.reduce(0, +)
     loadedInlineImagePixelCounts = [:]
-    loadedRemoteImageByteCount = 0
+    loadedImageBudget.remoteByteCount -= loadedRemoteImageByteCounts.values.reduce(0, +)
     loadedRemoteImageByteCounts = [:]
-    loadedRemoteImagePixelCount = 0
+    loadedImageBudget.remotePixelCount -= loadedRemoteImagePixelCounts.values.reduce(0, +)
     loadedRemoteImagePixelCounts = [:]
     loadedMessageBodyClearSignals = [:]
     loadedMessageBodyTextByteCount = 0

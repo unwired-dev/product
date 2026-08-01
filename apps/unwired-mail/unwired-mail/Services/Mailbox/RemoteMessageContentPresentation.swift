@@ -35,6 +35,8 @@ enum MessageHTMLHiddenStylePatterns {
         effectiveValue(property, in: declarations) { value in
           isLengthValue(value, for: property)
         }.map(isZeroLengthValue) == true
+          && element.map { !InlineImageDimensionPolicy.hasPositiveMinimum(property, in: $0) }
+            != false
       })
     {
       return true
@@ -60,7 +62,8 @@ enum MessageHTMLHiddenStylePatterns {
   }
 
   static func dimensionsApply(to element: Element) -> Bool {
-    if let display = InlineImageDimensionPolicy.value("display", in: element)?.lowercased() {
+    let declarations = declarations(in: (try? element.attr("style")) ?? "")
+    if let display = effectiveValue("display", in: declarations, where: isDisplayValue) {
       if ["initial", "unset"].contains(display) { return false }
       if display == "inherit" {
         return element.parent().map(dimensionsApply) ?? false

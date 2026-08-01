@@ -699,6 +699,42 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("auto-block-percentage.gif"))
   }
 
+  func testSanitizerResolvesPercentageWidthThroughExplicitBlockSpan() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <span style="display: block; width: 1px; height: 1px">
+          <img src="https://tracker.example/block-span-percentage.gif"
+               style="width: 100%; height: 100%">
+        </span>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("block-span-percentage.gif"))
+  }
+
+  func testSanitizerAppliesMaximumToAutoBlockWidth() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width: 600px">
+          <div style="max-width: 1px">
+            <img src="https://tracker.example/constrained-auto-block.gif"
+                 style="width: 100%; height: 1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("constrained-auto-block.gif"))
+  }
+
   func testSanitizerParsesSpacedImportantImageDimensions() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1887,6 +1923,20 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("collapsed-row.png"))
   }
 
+  func testSanitizerPromotesVisibleDescendantsOfCollapsedNonTableElements() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility: collapse">
+          <span style="visibility: visible">Receipt</span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+  }
+
   func testSanitizerRemovesHiddenBranchesInsidePromotedVisibleSubtrees() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2323,7 +2373,7 @@ extension MessageHTMLPresentationTests {
     )
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
-        #"<div style="width:1px;height:1px">"# + wrappers
+        #"<p>Newsletter</p><div style="width:1px;height:1px">"# + wrappers
           + #"<img src="https://tracker.example/pixel.gif" style="width:100%;height:100%">"#
           + String(repeating: "</div>", count: 33)
       )

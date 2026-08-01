@@ -454,6 +454,7 @@ extension MessageHTMLSanitizer {
     try NodeTraversor(OffCanvasRemoteImageMarkerVisitor()).traverse(document)
   }
 
+  // swiftlint:disable:next function_body_length
   static func removePreCleanHiddenElements(
     from document: Document,
     cancellationCheck: () throws -> Void
@@ -477,7 +478,8 @@ extension MessageHTMLSanitizer {
       )
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       let isHiddenOnlyByVisibility =
-        visibility == "hidden"
+        (visibility == "hidden"
+          || (visibility == "collapse" && !isCollapsedTableTrack(element)))
         && !element.hasAttr("hidden")
         && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
         && !MessageHTMLHiddenStylePatterns.isPresentationHidden(
@@ -508,6 +510,12 @@ extension MessageHTMLSanitizer {
       }
       try element.remove()
     }
+  }
+
+  private static func isCollapsedTableTrack(_ element: Element) -> Bool {
+    ["col", "colgroup", "tbody", "tfoot", "thead", "tr"].contains(
+      element.tagName().lowercased()
+    )
   }
 
   private static func canPromoteVisibleDescendant(
