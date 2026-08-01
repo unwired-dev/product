@@ -104,7 +104,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
       )
     )
 
-    XCTAssertLessThanOrEqual(result.remoteImageReferences.count, 1)
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("data-unwired-remote-image"))
     XCTAssertFalse(result.documentHTML.contains("secret"))
   }
@@ -1951,6 +1951,23 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("collapsed-row.png"))
   }
 
+  func testSanitizerDoesNotPromoteVisibleDescendantsOfCollapsedTableDisplay() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="display: table-row; visibility: collapse">
+          <span style="visibility: visible">
+            <img src="https://tracker.example/collapsed-row.png">
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
   func testSanitizerPromotesVisibleDescendantsOfCollapsedNonTableElements() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2485,19 +2502,75 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
-  func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
+  func testSanitizerAccountsForAutoBlockMarginsInPercentageDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>Newsletter</p><img src="https://images.example.com/hero.png"
-          style="width:600px;width:calc(1px+0px);height:600px;height:calc(1px+0px)">
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <div style="margin:0 1px">
+            <img src="https://tracker.example/pixel.gif" style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerAccountsForAutoBlockBordersInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <div style="border-left:1px solid;border-right:1px solid">
+            <img src="https://tracker.example/pixel.gif" style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerIncludesAncestorPaddingWhenEvaluatingNegativeOffsets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="padding-left:200px">
+          <span>
+            <img src="https://images.example.com/visible.png" style="margin-left:-100px">
+          </span>
+        </div>
         """
       )
     )
 
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
+  func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p><img src="https://images.example.com/hero.png"
+          style="width:600px;width:calc(1px+0px);height:600px;height:calc(1px+0px)">
+        <img src="https://images.example.com/banner.png"
+          style="width:600px;width:calc(0px+0px);height:600px;height:calc(0px+0px)">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png", "https://images.example.com/banner.png"]
     )
   }
 }

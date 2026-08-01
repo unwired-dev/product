@@ -4071,15 +4071,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   @MainActor
   func testInboxViewModelsShareRemoteImageBudgetAcrossWindows() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let isolatedSession = ProductAccountSessionSnapshot(
+      appleUserIdentifier: session.appleUserIdentifier,
+      identityToken: session.identityToken,
+      productAccountId: "shared-remote-image-budget-test",
+      trustedDeviceId: session.trustedDeviceId
+    )
     let firstViewModel = GmailInboxViewModel(
       service: service,
       searchService: service,
-      session: session
+      session: isolatedSession
     )
     let secondViewModel = GmailInboxViewModel(
       service: service,
       searchService: service,
-      session: session
+      session: isolatedSession
     )
     let firstMessage = metadata(
       messageId: "message-001",
@@ -4087,7 +4093,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       internalDateMilliseconds: 10
     ).mailboxMetadata(
       connectionId: connection.mailboxConnection(
-        productAccountId: session.productAccountId,
+        productAccountId: isolatedSession.productAccountId,
         authorizationState: .authorized
       ).id
     )

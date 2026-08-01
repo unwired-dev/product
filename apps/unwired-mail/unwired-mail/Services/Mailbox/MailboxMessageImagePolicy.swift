@@ -134,6 +134,21 @@ enum InlineImageDimensionPolicy {
         remainingWork: &remainingWork
       )
     else { return nil }
+    let declarations = MessageHTMLHiddenStylePatterns.declarations(
+      in: (try? element.attr("style")) ?? ""
+    )
+    for side in [1, 3] {
+      for inset in [
+        MessageHTMLHiddenStylePatterns.effectiveMarginValue(side, in: declarations),
+        MessageHTMLHiddenStylePatterns.effectivePaddingValue(side, in: declarations),
+        MessageHTMLHiddenStylePatterns.effectiveBorderWidthValue(side, in: declarations),
+      ] {
+        if let inset, let insetPixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(inset) {
+          pixels -= insetPixels
+        }
+      }
+    }
+    pixels = max(0, pixels)
     if let maximumValue = value("max-width", in: element),
       let maximumPixels = resolvedDimensionPixels(
         maximumValue,

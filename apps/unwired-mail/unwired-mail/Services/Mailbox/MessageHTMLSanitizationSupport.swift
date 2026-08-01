@@ -24,6 +24,11 @@ enum CSSLengthValuePolicy {
 }
 
 extension MessageHTMLHiddenStylePatterns {
+  private static let zeroLengthCalculatedUnits = Set([
+    "", "%", "ch", "cm", "em", "ex", "in", "mm", "pc", "pt", "px", "q", "rem", "vh",
+    "vmax", "vmin", "vw",
+  ])
+
   private struct CalculatedTerm {
     let sign: Double
     let number: Double
@@ -180,11 +185,9 @@ extension MessageHTMLHiddenStylePatterns {
     guard let terms = simpleCalculatedTerms(value) else { return nil }
     var total = 0.0
     for term in terms {
-      let zeroLengthUnits = Set([
-        "", "%", "ch", "cm", "em", "ex", "in", "mm", "pc", "pt", "px", "q", "rem", "vh",
-        "vmax", "vmin", "vw",
-      ])
-      guard term.unit == "px" || (term.number == 0 && zeroLengthUnits.contains(term.unit))
+      guard
+        term.unit == "px"
+          || (term.number == 0 && zeroLengthCalculatedUnits.contains(term.unit))
       else { return nil }
       if term.unit == "px" { total += term.sign * term.number }
     }
@@ -224,14 +227,7 @@ extension MessageHTMLHiddenStylePatterns {
 
   private static func isCalculatedZeroLengthValue(_ value: String) -> Bool {
     guard value.hasPrefix("calc("), value.hasSuffix(")") else { return false }
-    let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
-    let additionalZeroTerm =
-      #"(?:[+-]"# + CSSLengthValuePolicy.unsignedZeroPattern
-      + CSSLengthValuePolicy.optionalUnitPattern + ")*"
-    return expression.range(
-      of: "^" + CSSLengthValuePolicy.zeroLengthPattern + additionalZeroTerm + "$",
-      options: .regularExpression
-    ) != nil
+    return simpleCalculatedPixelLengthValue(value).map { abs($0) < 0.000_000_001 } == true
   }
 
   private static func isOffCanvasNegativeLengthValue(_ value: String) -> Bool {
@@ -260,15 +256,18 @@ extension MessageHTMLHiddenStylePatterns {
         let margin = effectiveMarginValue(side, in: declarations),
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
-      guard
-        let parent = element?.parent(),
-        let marginPixels = pixelLengthValue(margin),
-        let padding = effectivePaddingValue(
-          side,
-          in: Self.declarations(in: (try? parent.attr("style")) ?? "")
-        ),
-        let paddingPixels = pixelLengthValue(padding)
-      else { return true }
+      guard let marginPixels = pixelLengthValue(margin) else { return true }
+      var ancestor = element?.parent()
+      var paddingPixels = 0.0
+      while let current = ancestor {
+        let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+        if let padding = effectivePaddingValue(side, in: declarations),
+          let pixels = pixelLengthValue(padding)
+        {
+          paddingPixels += pixels
+        }
+        ancestor = current.parent()
+      }
       if paddingPixels + marginPixels < 0 { return true }
     }
     return false
@@ -389,7 +388,7 @@ extension MessageHTMLHiddenStylePatterns {
     ) != nil
   }
 
-  private static func effectiveMarginValue(
+  static func effectiveMarginValue(
     _ side: Int,
     in declarations: [StyleDeclaration]
   ) -> String? {
@@ -411,7 +410,7 @@ extension MessageHTMLHiddenStylePatterns {
     return effectiveDeclaration?.value
   }
 
-  private static func effectivePaddingValue(
+  static func effectivePaddingValue(
     _ side: Int,
     in declarations: [StyleDeclaration]
   ) -> String? {
@@ -424,6 +423,37 @@ extension MessageHTMLHiddenStylePatterns {
       } else if declaration.property == "padding" {
         value = paddingValues(declaration.value)?[side]
       } else {
+        continue
+      }
+      guard let value else { continue }
+      if effectiveDeclaration?.isImportant == true, !declaration.isImportant { continue }
+      effectiveDeclaration = (value, declaration.isImportant)
+    }
+    return effectiveDeclaration?.value
+  }
+
+  static func effectiveBorderWidthValue(
+    _ side: Int,
+    in declarations: [StyleDeclaration]
+  ) -> String? {
+    let sideName = ["top", "right", "bottom", "left"][side]
+    let sideProperty = "border-\(sideName)"
+    var effectiveDeclaration: (value: String, isImportant: Bool)?
+    for declaration in declarations {
+      let value: String?
+      switch declaration.property {
+      case "\(sideProperty)-width":
+        value =
+          isLengthValue(declaration.value, for: "border-width")
+          ? declaration.value
+          : nil
+      case "border-width":
+        value = paddingValues(declaration.value)?[side]
+      case sideProperty, "border":
+        value = declaration.value.split(whereSeparator: \Character.isWhitespace)
+          .map(String.init)
+          .first { isLengthValue($0, for: "border-width") }
+      default:
         continue
       }
       guard let value else { continue }
@@ -565,9 +595,22 @@ extension MessageHTMLSanitizer {
   }
 
   private static func isCollapsedTableTrack(_ element: Element) -> Bool {
-    ["col", "colgroup", "tbody", "tfoot", "thead", "tr"].contains(
+    if ["col", "colgroup", "tbody", "tfoot", "thead", "tr"].contains(
       element.tagName().lowercased()
+    ) {
+      return true
+    }
+    let display = MessageHTMLHiddenStylePatterns.effectiveValue(
+      "display",
+      in: MessageHTMLHiddenStylePatterns.declarations(
+        in: (try? element.attr("style")) ?? ""
+      ),
+      where: MessageHTMLHiddenStylePatterns.isDisplayValue
     )
+    return [
+      "table-column", "table-column-group", "table-footer-group", "table-header-group",
+      "table-row", "table-row-group",
+    ].contains(display)
   }
 
   private static func canPromoteVisibleDescendant(
