@@ -1292,7 +1292,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertEqual(retainedConnectionIds, [connection.id])
 
     outboxStore.saveError = nil
-    try await outboxService.clear(session: session)
+    try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+
+    XCTAssertEqual(
+      connectionService.clearedConnection?.providerAccountIdentifier,
+      "gmail-user-001"
+    )
+    let remainingAttempts = try await outboxService.items(session: session)
+    XCTAssertTrue(remainingAttempts.isEmpty)
   }
 
   func testGmailAdapterRemovesTokenlessDeviceConnectionEverywhere() async throws {
