@@ -966,16 +966,19 @@ final class ProductAccountSessionTests: XCTestCase {
         trustedDeviceId: "trusted-device-001"
       )
     )
+    let appleSignInService = RevokedAppleSignInService()
     let session = ProductAccountSession(
-      appleSignInService: RevokedAppleSignInService(),
+      appleSignInService: appleSignInService,
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
     await session.bootstrap()
+    let signInCallCount = await appleSignInService.signInCallCount
 
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations().count, 1)
+    XCTAssertEqual(signInCallCount, 0)
   }
 
   func testExplicitSignInRetriesEveryPendingTrustedDeviceForAppleAccount() async throws {
@@ -2262,8 +2265,11 @@ private struct FailingProductAccountService: ProductAccountConnecting {
   }
 }
 
-private struct RevokedAppleSignInService: AppleSignInPerforming {
+private actor RevokedAppleSignInService: AppleSignInPerforming {
+  private(set) var signInCallCount = 0
+
   func signIn() async throws -> AppleSignInCredential {
+    signInCallCount += 1
     throw AppleSignInError.notAuthorized
   }
 

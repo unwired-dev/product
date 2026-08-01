@@ -191,7 +191,15 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     ) {
       return unregistrations
     }
-    return [try JSONDecoder().decode(PendingTrustedDeviceUnregistration.self, from: data)]
+    guard
+      let legacyUnregistration = try? JSONDecoder().decode(
+        PendingTrustedDeviceUnregistration.self,
+        from: data
+      )
+    else {
+      return []
+    }
+    return [legacyUnregistration]
   }
 
   func savePendingTrustedDeviceUnregistration(
@@ -258,8 +266,7 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 #if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingSignOutProductAccountId: String?
-    private var pendingTrustedDeviceUnregistrations: [String: PendingTrustedDeviceUnregistration] =
-      [:]
+    private var pendingTrustedDeviceUnregistrations: [PendingTrustedDeviceUnregistration] = []
     private var snapshot: ProductAccountSessionSnapshot?
     private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
 
@@ -295,17 +302,20 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     func loadPendingTrustedDeviceUnregistrations() throws
       -> [PendingTrustedDeviceUnregistration]
     {
-      Array(pendingTrustedDeviceUnregistrations.values)
+      pendingTrustedDeviceUnregistrations
     }
 
     func savePendingTrustedDeviceUnregistration(
       _ unregistration: PendingTrustedDeviceUnregistration
     ) throws {
-      pendingTrustedDeviceUnregistrations[unregistration.trustedDeviceId] = unregistration
+      pendingTrustedDeviceUnregistrations.removeAll {
+        $0.trustedDeviceId == unregistration.trustedDeviceId
+      }
+      pendingTrustedDeviceUnregistrations.append(unregistration)
     }
 
     func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws {
-      pendingTrustedDeviceUnregistrations[trustedDeviceId] = nil
+      pendingTrustedDeviceUnregistrations.removeAll { $0.trustedDeviceId == trustedDeviceId }
     }
 
     func loadPendingSignOutProductAccountId() throws -> String? {

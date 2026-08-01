@@ -37,6 +37,41 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     XCTAssertNil(try store.load())
   }
 
+  func testPendingTrustedDeviceUnregistrationsPreserveInsertionOrder() throws {
+    let first = PendingTrustedDeviceUnregistration(
+      appleUserIdentifier: "apple-user-001",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-002"
+    )
+    let second = PendingTrustedDeviceUnregistration(
+      appleUserIdentifier: "apple-user-001",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    try store.savePendingTrustedDeviceUnregistration(first)
+    try store.savePendingTrustedDeviceUnregistration(second)
+
+    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [first, second])
+  }
+
+  func testSavingPendingTrustedDeviceUnregistrationReplacesMalformedKeychainData() throws {
+    let service = ProductAccountSessionStore.serviceName
+    let account = "pending-trusted-device-unregistration"
+    defer { try? KeychainStore.delete(service: service, account: account) }
+    try KeychainStore.writeString("not-json", service: service, account: account)
+    let keychainStore = KeychainProductAccountSessionStore()
+    let unregistration = PendingTrustedDeviceUnregistration(
+      appleUserIdentifier: "apple-user-001",
+      productAccountId: "product-account-001",
+      trustedDeviceId: "trusted-device-001"
+    )
+
+    try keychainStore.savePendingTrustedDeviceUnregistration(unregistration)
+
+    XCTAssertEqual(try keychainStore.loadPendingTrustedDeviceUnregistrations(), [unregistration])
+  }
+
   func testUnacknowledgedRecoveryKeysAreScopedToTheProductAccount() throws {
     let recoveryKey = UnacknowledgedRecoveryKey(
       recoveryKey: "first-account-key",
