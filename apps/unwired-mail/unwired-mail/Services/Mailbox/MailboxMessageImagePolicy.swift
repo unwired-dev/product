@@ -43,7 +43,7 @@ enum InlineImageDimensionPolicy {
     let normalized = value.lowercased()
     guard normalized.hasSuffix("%"),
       let percentage = Double(normalized.dropLast()),
-      let parent = element.parent(),
+      let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth),
       let containingValue = self.value(dimension, in: parent),
       let containingPixels = resolvedDimensionPixels(
         containingValue,
@@ -53,6 +53,27 @@ enum InlineImageDimensionPolicy {
       )
     else { return nil }
     return containingPixels * percentage / 100
+  }
+
+  private static func containingBlockAncestor(
+    of element: Element,
+    remainingDepth: Int
+  ) -> Element? {
+    guard remainingDepth > 0, let parent = element.parent() else { return nil }
+    guard isOrdinaryInlineBox(parent) else { return parent }
+    return containingBlockAncestor(of: parent, remainingDepth: remainingDepth - 1)
+  }
+
+  private static func isOrdinaryInlineBox(_ element: Element) -> Bool {
+    if let display = value("display", in: element)?.lowercased() {
+      let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
+      return display == "contents" || components == ["inline"]
+        || Set(components) == Set(["inline", "flow"])
+    }
+    return [
+      "a", "b", "cite", "code", "em", "i", "q", "s", "small", "span", "strike",
+      "strong", "sub", "sup", "u",
+    ].contains(element.tagName().lowercased())
   }
 
   private static func inheritedFontSizePixels(

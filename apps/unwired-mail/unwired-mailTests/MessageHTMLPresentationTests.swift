@@ -624,6 +624,12 @@ extension MessageHTMLPresentationTests {
                  style="width: 100%; height: 100%">
           </div>
         </div>
+        <div style="width: 1px; height: 1px">
+          <span>
+            <img src="https://tracker.example/inline-ancestor-percentage.gif"
+                 style="width: 100%; height: 100%">
+          </span>
+        </div>
         <div style="width: 600px; height: 400px">
           <img src="https://images.example.com/hero.png"
                style="width: 100%; height: 100%">
@@ -641,6 +647,7 @@ extension MessageHTMLPresentationTests {
     )
     XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("nested-percentage.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("inline-ancestor-percentage.gif"))
   }
 
   func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
