@@ -77,13 +77,9 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: SequencedAppleSignInService(
         credentials: [
           AppleSignInCredential(
-            appleUserIdentifier: oldSnapshot.appleUserIdentifier,
-            identityToken: "refreshed-old-token"
-          ),
-          AppleSignInCredential(
             appleUserIdentifier: "apple-user-002",
             identityToken: "token-002"
-          ),
+          )
         ]
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
@@ -101,6 +97,16 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try store.loadPendingSignOutProductAccountId())
     XCTAssertNil(
       try keyMaterialStore.load(productAccountId: oldSnapshot.productAccountId)
+    )
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: oldSnapshot.appleUserIdentifier,
+          productAccountId: oldSnapshot.productAccountId,
+          trustedDeviceId: oldSnapshot.trustedDeviceId
+        )
+      ]
     )
   }
 
