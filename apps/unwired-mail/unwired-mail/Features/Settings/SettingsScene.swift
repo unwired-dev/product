@@ -1045,9 +1045,9 @@ final class AccountAndDevicesViewModel {
             recoveryKeyRejected: recoveryKeyRejected
           )
         }
+      if let publicationError { throw publicationError }
       recoveryKeyStatus = .current
       revealedRecoveryKey = recoveryKey.rawValue
-      if let publicationError { throw publicationError }
       errorMessage = nil
     } catch is CancellationError {
     } catch {

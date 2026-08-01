@@ -319,6 +319,38 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(recoveryKey, material.recoveryKey)
   }
 
+  func testCurrentRecoveryKeyIsNotPresentedWhenMarkerPersistenceFails() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    await viewModel.presentRecoveryKey(
+      session: session,
+      recentIdentityToken: { "reveal-token" },
+      isSessionCurrent: { true },
+      recoveryKeyPublished: { _ in throw CocoaError(.fileWriteUnknown) }
+    )
+
+    XCTAssertNil(viewModel.revealedRecoveryKey)
+    XCTAssertNotNil(viewModel.errorMessage)
+  }
+
   func testCurrentRecoveryKeyRevealWaitsForConcurrentReplacement() async throws {
     let transport = RecordingAccountAndDevicesTransport()
     let writeGate = RecoveryReplacementWriteGate()
