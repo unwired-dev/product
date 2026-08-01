@@ -584,6 +584,10 @@ actor PendingProviderActionService {
     pruneReconciledActionEvidence()
   }
 
+  func activeSelectionActionCountForTesting() -> Int {
+    activeSelectionActionIds.count
+  }
+
   // swiftlint:disable:next function_body_length
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
@@ -752,6 +756,7 @@ actor PendingProviderActionService {
       reconciledActionEvidence[actionId] = nil
     }
     reconciledActionEvidenceOrder.removeAll { actionIds.contains($0) }
+    activeSelectionActionIds.subtract(actionIds)
   }
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length

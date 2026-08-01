@@ -3754,6 +3754,7 @@ struct MailShellConversationReader: View {
         if !isPresented {
           readerErrorConnectionId = nil
           readerErrorMessage = nil
+          mailActionViewModel.clearError()
         }
       }
     )
@@ -5162,7 +5163,7 @@ extension GmailMailActionViewModel {
     }
     updateBulkActionErrorMessage(
       adding: result.failures,
-      includesDeferredFailures: result.failures.isEmpty && errorMessage != nil
+      includesDeferredFailures: errorMessage != nil
     )
     let deferredBatches: [MailboxTrackedBulkActionBatch] = outcomes.compactMap { outcome in
       guard
@@ -5463,11 +5464,14 @@ extension GmailMailActionViewModel {
   }
 
   private func pruneDeferredBulkFailures() {
-    deferredBulkFailures = deferredBulkFailures.compactMapValues { failures in
-      let activeFailures = failures.filter {
-        activeFailureConnectionIds.contains($0.connectionId)
+    deferredBulkFailures = deferredBulkFailures.reduce(into: [:]) { retained, entry in
+      let failures =
+        pendingActionTasks[entry.key] == nil
+        ? entry.value.filter { activeFailureConnectionIds.contains($0.connectionId) }
+        : entry.value
+      if !failures.isEmpty {
+        retained[entry.key] = failures
       }
-      return activeFailures.isEmpty ? nil : activeFailures
     }
   }
 

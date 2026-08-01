@@ -278,6 +278,37 @@ final class PendingProviderActionServiceTests: XCTestCase {
     XCTAssertEqual(lookup.matchedPendingActionIds, [])
   }
 
+  func testClearReleasesReconciledActiveSelection() async throws {
+    let store = InMemoryPendingProviderActionStore()
+    let service = PendingProviderActionService(store: store)
+    let message = pendingActionMessage(
+      providerMessageId: "cleared-selection",
+      providerStateIds: ["INBOX"]
+    )
+    _ = try await service.enqueue(
+      .archive,
+      messages: [message],
+      connection: connection,
+      session: session
+    )
+    var actions = try store.load(productAccountId: session.productAccountId)
+    actions[0].state = .providerConfirmed
+    try store.save(actions, productAccountId: session.productAccountId)
+    try await service.reconcileProviderSync(
+      messages: [message],
+      connection: connection,
+      session: session,
+      isConfirmed: { _, _, _ in true }
+    )
+    let activeSelectionCount = await service.activeSelectionActionCountForTesting()
+    XCTAssertEqual(activeSelectionCount, 1)
+
+    try await service.clear(connection: connection, session: session)
+
+    let clearedSelectionCount = await service.activeSelectionActionCountForTesting()
+    XCTAssertEqual(clearedSelectionCount, 0)
+  }
+
   func testFailureLookupReportsContradictedSelectedAction() async throws {
     let store = InMemoryPendingProviderActionStore()
     let service = PendingProviderActionService(store: store)

@@ -6266,6 +6266,85 @@ final class MailboxConnectionAdapterTests: XCTestCase {
   }
 
   // swiftlint:disable:next function_body_length
+  func testMailActionViewModelPreservesReconciledFailureFromOverlappingOperation() async {
+    let failedConnection = mailShellConnection(
+      emailAddress: "failed@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let gatedConnection = mailShellConnection(
+      emailAddress: "gated@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let overlappingConnection = mailShellConnection(
+      emailAddress: "overlapping@example.com",
+      providerAccountIdentifier: "gmail-user-003",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 3
+    let failedCompletion = expectation(description: "reconciled failure recorded")
+    let gatedCompletion = expectation(description: "gated operation completed")
+    let overlappingCompletion = expectation(description: "overlapping operation completed")
+    let resumeGate = AdapterLifecycleOperationGate()
+    let failedMessageId = StableProviderMessageIdentity(
+      connectionId: failedConnection.id,
+      providerMessageId: "message-failed"
+    )
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeGate: resumeGate,
+      gatedResumeConnectionId: gatedConnection.id,
+      selectedFailureDetails: [
+        MailboxProviderActionFailureDetail(
+          description: "The provider did not confirm this action.",
+          messageIds: [failedMessageId]
+        )
+      ],
+      selectedFailureDetailsConnectionId: failedConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: failedConnection, suffix: "failed", receivedAt: 300),
+        mailShellBulkActionBatch(connection: gatedConnection, suffix: "gated", receivedAt: 200),
+      ],
+      deferredPendingActionConnectionIds: [failedConnection.id, gatedConnection.id],
+      onDeferredCompletion: { connection in
+        if connection.id == failedConnection.id {
+          failedCompletion.fulfill()
+        } else {
+          gatedCompletion.fulfill()
+        }
+      }
+    )
+    await fulfillment(of: [failedCompletion], timeout: 1)
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: overlappingConnection,
+          suffix: "overlapping",
+          receivedAt: 100
+        )
+      ],
+      deferredPendingActionConnectionIds: [overlappingConnection.id],
+      onDeferredCompletion: { _ in overlappingCompletion.fulfill() }
+    )
+    await fulfillment(of: [resumesStarted, overlappingCompletion], timeout: 1)
+
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+
+    await resumeGate.release()
+    await fulfillment(of: [gatedCompletion], timeout: 1)
+  }
+
+  // swiftlint:disable:next function_body_length
   func testMailActionViewModelRetainsReconciledDeferredFailureAcrossBatchCompletions() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -6376,6 +6455,49 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
   }
 
+  func testMailActionViewModelKeepsVisibleDeferredFailureWhenLaterBulkActionFails() async {
+    let failedConnection = mailShellConnection(
+      emailAddress: "failed@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let currentConnection = mailShellConnection(
+      emailAddress: "current@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let deferredCompletion = expectation(description: "deferred completion recorded")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      resumeError: "The provider connection failed.",
+      failedConnectionId: failedConnection.id,
+      performFailureConnectionId: currentConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: failedConnection, suffix: "failed", receivedAt: 200)
+      ],
+      deferredPendingActionConnectionIds: [failedConnection.id],
+      onDeferredCompletion: { _ in deferredCompletion.fulfill() }
+    )
+    await fulfillment(of: [resumeStarted, deferredCompletion], timeout: 1)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: currentConnection, suffix: "current", receivedAt: 100)
+      ]
+    )
+
+    XCTAssertEqual(result?.failures.map(\.connectionId), [currentConnection.id])
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+    XCTAssertTrue(viewModel.errorMessage?.contains("current@example.com") ?? false)
+  }
+
   func testMailActionViewModelDoesNotResurfaceDismissedDeferredFailureAfterSuccess() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -6408,7 +6530,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
     await fulfillment(of: [deferredCompletion], timeout: 1)
     XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
-    viewModel.errorMessage = nil
+    viewModel.clearError()
 
     let result = await viewModel.performBulk(
       .archive,
