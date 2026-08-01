@@ -383,6 +383,11 @@ extension MessageHTMLHiddenStylePatterns {
       guard components.count == 2 else { return nil }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
+      value = value.replacingOccurrences(
+        of: #"/\*[\s\S]*?\*/"#,
+        with: " ",
+        options: .regularExpression
+      ).trimmingCharacters(in: .whitespacesAndNewlines)
       let importantPattern = #"!\s*(?:/\*[\s\S]*?\*/\s*)*important\s*$"#
       let importantRange = value.range(
         of: importantPattern,

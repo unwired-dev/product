@@ -58,6 +58,7 @@ enum RemoteMessageContentMarkup {
       if InlineImageDimensionPolicy.hasExpandingMinimum(dimension, in: element) {
         return false
       }
+      if InlineImageDimensionPolicy.hasOnePixelUsedDimension(dimension, in: element) { return true }
       if [dimension, "max-\(dimension)"].contains(where: { property in
         InlineImageDimensionPolicy.value(property, in: element).map {
           InlineImageDimensionPolicy.isOnePixel($0, dimension: dimension, in: element)

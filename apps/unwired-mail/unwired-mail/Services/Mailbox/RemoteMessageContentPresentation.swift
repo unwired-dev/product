@@ -58,6 +58,13 @@ enum MessageHTMLHiddenStylePatterns {
 
   private static func dimensionsApply(to element: Element) -> Bool {
     if let display = InlineImageDimensionPolicy.value("display", in: element)?.lowercased() {
+      if ["initial", "unset"].contains(display) { return false }
+      if display == "inherit" {
+        return element.parent().map(dimensionsApply) ?? false
+      }
+      if ["revert", "revert-layer"].contains(display) {
+        return dimensionsApplyByDefault(to: element)
+      }
       let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
       if display == "contents" || components == ["inline"]
         || Set(components) == Set(["inline", "flow"])
@@ -66,6 +73,10 @@ enum MessageHTMLHiddenStylePatterns {
       }
       return true
     }
+    return dimensionsApplyByDefault(to: element)
+  }
+
+  private static func dimensionsApplyByDefault(to element: Element) -> Bool {
     return ![
       "a", "b", "cite", "code", "em", "i", "q", "s", "small", "span", "strike",
       "strong", "sub", "sup", "u",

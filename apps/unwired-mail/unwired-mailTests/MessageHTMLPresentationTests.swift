@@ -762,6 +762,9 @@ extension MessageHTMLPresentationTests {
              style="width: 1px; height: 1px; min-height: calc(.5px)">
         <img src="https://tracker.example/subpixel-point-minimum.gif"
              style="width: 1px; height: 1px; min-width: .5pt">
+        <img src="https://tracker.example/constrained-one.gif"
+             style="width: 2px; height: 2px; max-width: 0; max-height: 0;
+                    min-width: 1px; min-height: 1px">
         <img src="https://images.example.com/point-minimum.png"
              style="width: 1px; height: 1px; min-width: 1pt">
         <img src="https://images.example.com/minimum-height.png"
@@ -1756,6 +1759,10 @@ extension MessageHTMLPresentationTests {
         <div style="visibility: hidden!important; visibility: visible ! important">
           Visible spaced important text
         </div>
+        <div style="visibility:/**/hidden">
+          Comment-hidden text
+          <img src="https://tracker.example/comment-hidden.png">
+        </div>
         """
       )
     )
@@ -1763,6 +1770,8 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.documentHTML.contains("Visible text"))
     XCTAssertTrue(result.documentHTML.contains("Visible spaced important text"))
     XCTAssertFalse(result.documentHTML.contains("Hidden text"))
+    XCTAssertFalse(result.documentHTML.contains("Comment-hidden text"))
+    XCTAssertFalse(result.documentHTML.contains("comment-hidden.png"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/visible.png"]
@@ -2264,10 +2273,14 @@ extension MessageHTMLPresentationTests {
 
   func testSanitizerIgnoresDimensionsOnOrdinaryInlineElements() throws {
     let result = try XCTUnwrap(
-      MessageHTMLSanitizer.sanitize(#"<p>Order <span style="width:0;height:0">Receipt</span></p>"#)
+      MessageHTMLSanitizer.sanitize(
+        #"<p>Order <span style="width:0;height:0">Receipt</span>"#
+          + #"<span style="display:initial;width:0">Initial receipt</span></p>"#
+      )
     )
 
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
   }
 
   func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
