@@ -232,15 +232,27 @@ private struct PendingProviderActionQueueKey: Hashable {
   let productAccountId: String
 }
 
+private struct ReconciledProviderActionEvidence {
+  let connectionId: String
+  let failureDescription: String?
+  let messageIds: Set<String>
+  let productAccountId: String
+}
+
 // swiftlint:disable:next type_body_length
 actor PendingProviderActionService {
   static let shared = PendingProviderActionService()
+
+  private static let maximumReconciledActionEvidenceCount = 1_000
 
   private let failureDisposition: @Sendable (Error) -> PendingProviderActionFailureDisposition
   private let maximumAttempts: Int
   private var processingQueueKeys: Set<PendingProviderActionQueueKey> = []
   private var processingWaiters:
     [PendingProviderActionQueueKey: [UUID: CheckedContinuation<Void, Never>]] = [:]
+  private var activeSelectionActionIds: Set<UUID> = []
+  private var reconciledActionEvidence: [UUID: ReconciledProviderActionEvidence] = [:]
+  private var reconciledActionEvidenceOrder: [UUID] = []
   private let retryDelayNanoseconds: @Sendable (Int) -> UInt64
   private var retryTasks: [PendingProviderActionQueueKey: Task<Void, Never>] = [:]
   private let store: PendingProviderActionPersisting
@@ -268,13 +280,14 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot,
     provider: @escaping PendingProviderActionPerformer
   ) async throws {
-    try enqueue(
+    _ = try enqueue(
       action,
       sourceProviderMailboxId: sourceProviderMailboxId,
       targetProviderMailboxId: targetProviderMailboxId,
       messages: messages,
       connection: connection,
-      session: session
+      session: session,
+      tracksSelection: false
     )
     try await process(
       connectionId: connection.id,
@@ -290,9 +303,12 @@ actor PendingProviderActionService {
     targetProviderStateIds: Set<String>? = nil,
     messages: [MailboxMessageMetadata],
     connection: MailboxConnection,
-    session: ProductAccountSessionSnapshot
-  ) throws {
-    guard !messages.isEmpty else { return }
+    session: ProductAccountSessionSnapshot,
+    tracksSelection: Bool = true
+  ) throws -> MailboxProviderActionSelection {
+    guard !messages.isEmpty else {
+      return MailboxProviderActionSelection(pendingActionIds: [])
+    }
     guard connection.productAccountId.rawValue == session.productAccountId else {
       throw PendingProviderActionError.productAccountMismatch
     }
@@ -301,28 +317,33 @@ actor PendingProviderActionService {
     }
     var actions = try store.load(productAccountId: session.productAccountId)
     var nextSequence = (actions.map(\.sequence).max() ?? 0) + 1
+    var pendingActionIds: Set<UUID> = []
     for message in messages {
-      actions.append(
-        PendingProviderAction(
-          action: action,
-          attemptCount: 0,
-          connectionId: connection.id.rawValue,
-          id: UUID(),
-          lastErrorDescription: nil,
-          messageIds: [message.providerMessageId],
-          productAccountId: session.productAccountId,
-          providerId: connection.providerId.rawValue,
-          providerMailboxIdentity: connection.providerMailboxIdentity.value,
-          sequence: nextSequence,
-          sourceProviderMailboxId: sourceProviderMailboxId,
-          state: .pending,
-          targetProviderMailboxId: targetProviderMailboxId,
-          targetProviderStateIds: targetProviderStateIds
-        )
+      let pendingAction = PendingProviderAction(
+        action: action,
+        attemptCount: 0,
+        connectionId: connection.id.rawValue,
+        id: UUID(),
+        lastErrorDescription: nil,
+        messageIds: [message.providerMessageId],
+        productAccountId: session.productAccountId,
+        providerId: connection.providerId.rawValue,
+        providerMailboxIdentity: connection.providerMailboxIdentity.value,
+        sequence: nextSequence,
+        sourceProviderMailboxId: sourceProviderMailboxId,
+        state: .pending,
+        targetProviderMailboxId: targetProviderMailboxId,
+        targetProviderStateIds: targetProviderStateIds
       )
+      actions.append(pendingAction)
+      pendingActionIds.insert(pendingAction.id)
       nextSequence += 1
     }
     try store.save(actions, productAccountId: session.productAccountId)
+    if tracksSelection {
+      activeSelectionActionIds.formUnion(pendingActionIds)
+    }
+    return MailboxProviderActionSelection(pendingActionIds: pendingActionIds)
   }
 
   func project(
@@ -467,9 +488,35 @@ actor PendingProviderActionService {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) throws -> [MailboxProviderActionFailureDetail] {
+    try failureLookup(
+      action,
+      messageIds: messageIds,
+      connection: connection,
+      session: session
+    ).details
+  }
+
+  // swiftlint:disable:next function_body_length
+  func failureLookup(
+    _ action: ProviderMailAction,
+    selectedActionIds: Set<UUID>? = nil,
+    messageIds: Set<String>,
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) throws -> MailboxProviderActionFailureLookup {
+    let reconciledActionIds = Set(
+      selectedActionIds?.filter {
+        reconciledActionEvidence[$0]?.connectionId == connection.id.rawValue
+          && reconciledActionEvidence[$0]?.productAccountId == session.productAccountId
+      } ?? []
+    )
+    let reconciledMessageIds = reconciledActionIds.reduce(into: Set<String>()) {
+      $0.formUnion(reconciledActionEvidence[$1]?.messageIds ?? [])
+    }
     let actions = try store.load(productAccountId: session.productAccountId)
       .filter {
         $0.action == action && $0.connectionId == connection.id.rawValue
+          && (selectedActionIds == nil || selectedActionIds?.contains($0.id) == true)
           && !Set($0.messageIds).isDisjoint(with: messageIds)
       }
       .sorted { $0.sequence < $1.sequence }
@@ -479,22 +526,69 @@ actor PendingProviderActionService {
         latestActionByMessageId[messageId] = pendingAction
       }
     }
-    return latestActionByMessageId.keys.sorted().compactMap { messageId in
-      guard let pendingAction = latestActionByMessageId[messageId],
-        pendingAction.state == .failed || pendingAction.state == .userActionRequired
-      else { return nil }
-      return MailboxProviderActionFailureDetail(
-        description: pendingAction.lastErrorDescription ?? "Waiting for an earlier pending action.",
-        messageIds: [
-          StableProviderMessageIdentity(
-            connectionId: connection.id,
-            providerMessageId: messageId
+    let details: [MailboxProviderActionFailureDetail] =
+      reconciledActionIds.sorted { $0.uuidString < $1.uuidString }.flatMap { actionId in
+        guard let evidence = reconciledActionEvidence[actionId],
+          let failureDescription = evidence.failureDescription
+        else { return [MailboxProviderActionFailureDetail]() }
+        return evidence.messageIds.intersection(messageIds).sorted().map { messageId in
+          MailboxProviderActionFailureDetail(
+            description: failureDescription,
+            messageIds: [
+              StableProviderMessageIdentity(
+                connectionId: connection.id,
+                providerMessageId: messageId
+              )
+            ]
           )
-        ]
-      )
+        }
+      }
+      + latestActionByMessageId.keys.sorted().compactMap { messageId in
+        guard let pendingAction = latestActionByMessageId[messageId],
+          pendingAction.state == .failed || pendingAction.state == .userActionRequired
+        else { return nil }
+        return MailboxProviderActionFailureDetail(
+          description: pendingAction.lastErrorDescription
+            ?? "Waiting for an earlier pending action.",
+          messageIds: [
+            StableProviderMessageIdentity(
+              connectionId: connection.id,
+              providerMessageId: messageId
+            )
+          ]
+        )
+      }
+    let matchedPendingActionIds = Set(latestActionByMessageId.values.map(\.id))
+      .union(reconciledActionIds)
+    let coversSelectedMessageIds =
+      selectedActionIds != nil
+      && Set(latestActionByMessageId.keys).union(reconciledMessageIds) == messageIds
+      && matchedPendingActionIds == selectedActionIds
+      && latestActionByMessageId.values.allSatisfy { $0.state != .pending }
+    if coversSelectedMessageIds, let selectedActionIds {
+      activeSelectionActionIds.subtract(selectedActionIds)
+      for actionId in selectedActionIds {
+        reconciledActionEvidence[actionId] = nil
+      }
+      reconciledActionEvidenceOrder.removeAll { selectedActionIds.contains($0) }
     }
+    return MailboxProviderActionFailureLookup(
+      coversSelectedMessageIds: coversSelectedMessageIds,
+      details: details,
+      matchedPendingActionIds: matchedPendingActionIds
+    )
   }
 
+  func releaseSelection(_ selection: MailboxProviderActionSelection) {
+    activeSelectionActionIds.subtract(selection.pendingActionIds)
+    pruneReconciledActionEvidence()
+  }
+
+  func activeSelectionActionCountForTesting() -> Int {
+    activeSelectionActionIds.count
+  }
+
+  // swiftlint:disable:next function_body_length
   func reconcileProviderSync(
     messages: [MailboxMessageMetadata],
     removesContradictedActions: Bool = true,
@@ -547,13 +641,42 @@ actor PendingProviderActionService {
           && !actionIsConfirmed(action)
       }.map(\.id)
     )
+    let removedActionIds = confirmedActionIds.union(supersededActionIds)
+      .union(contradictedActionIds)
+    let reconciledSuccessfulActionIds = confirmedActionIds.union(supersededActionIds)
+    let reconciledActions = actions.filter {
+      reconciledSuccessfulActionIds.contains($0.id) || contradictedActionIds.contains($0.id)
+    }
     actions.removeAll {
       $0.connectionId == connection.id.rawValue
-        && (confirmedActionIds.contains($0.id)
-          || supersededActionIds.contains($0.id)
-          || contradictedActionIds.contains($0.id))
+        && removedActionIds.contains($0.id)
     }
     try store.save(actions, productAccountId: session.productAccountId)
+    for action in reconciledActions {
+      if reconciledActionEvidence[action.id] == nil {
+        reconciledActionEvidenceOrder.append(action.id)
+      }
+      reconciledActionEvidence[action.id] = ReconciledProviderActionEvidence(
+        connectionId: action.connectionId,
+        failureDescription: reconciledSuccessfulActionIds.contains(action.id)
+          ? nil : "The provider did not confirm this action.",
+        messageIds: Set(action.messageIds),
+        productAccountId: action.productAccountId
+      )
+    }
+    pruneReconciledActionEvidence()
+  }
+
+  private func pruneReconciledActionEvidence() {
+    while reconciledActionEvidence.count > Self.maximumReconciledActionEvidenceCount {
+      guard
+        let evictionIndex = reconciledActionEvidenceOrder.firstIndex(where: {
+          !activeSelectionActionIds.contains($0)
+        })
+      else { break }
+      let oldestActionId = reconciledActionEvidenceOrder.remove(at: evictionIndex)
+      reconciledActionEvidence[oldestActionId] = nil
+    }
   }
 
   func pendingActions(
@@ -596,7 +719,14 @@ actor PendingProviderActionService {
     session: ProductAccountSessionSnapshot
   ) throws {
     retryTasks.removeValue(forKey: queueKey(connection: connection, session: session))?.cancel()
+    clearReconciledActionEvidence {
+      $0.connectionId == connection.id.rawValue
+        && $0.productAccountId == session.productAccountId
+    }
     var actions = try store.load(productAccountId: session.productAccountId)
+    activeSelectionActionIds.subtract(
+      actions.filter { $0.connectionId == connection.id.rawValue }.map(\.id)
+    )
     actions.removeAll { $0.connectionId == connection.id.rawValue }
     try store.save(actions, productAccountId: session.productAccountId)
   }
@@ -608,7 +738,25 @@ actor PendingProviderActionService {
     for key in sessionKeys {
       retryTasks.removeValue(forKey: key)?.cancel()
     }
+    clearReconciledActionEvidence { $0.productAccountId == session.productAccountId }
+    activeSelectionActionIds.subtract(
+      try store.load(productAccountId: session.productAccountId).map(\.id)
+    )
     try store.save([], productAccountId: session.productAccountId)
+  }
+
+  private func clearReconciledActionEvidence(
+    where shouldRemove: (ReconciledProviderActionEvidence) -> Bool
+  ) {
+    let actionIds = Set(
+      reconciledActionEvidence.compactMap { actionId, evidence in
+        shouldRemove(evidence) ? actionId : nil
+      })
+    for actionId in actionIds {
+      reconciledActionEvidence[actionId] = nil
+    }
+    reconciledActionEvidenceOrder.removeAll { actionIds.contains($0) }
+    activeSelectionActionIds.subtract(actionIds)
   }
 
   // swiftlint:disable:next cyclomatic_complexity function_body_length
