@@ -326,7 +326,12 @@ extension ProductAccountSession {
       return
     }
 
-    try await outboxDeliveryService.clear(session: existingSnapshot)
+    do {
+      try await outboxDeliveryService.clear(session: existingSnapshot)
+    } catch {
+      try? sessionStore.save(existingSnapshot)
+      throw error
+    }
   }
 
   fileprivate func clearLocalProductAccountData(
@@ -454,8 +459,8 @@ extension ProductAccountSession {
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
-    await preparation()
     try await outboxDeliveryService.clear(session: snapshot)
+    await preparation()
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
       identityToken: identityToken,
