@@ -1488,6 +1488,48 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testProductAccountOutboxStoreScopesAttemptsAndClearByProductAccount() throws {
+    func attempt(productAccountId: String) -> OutgoingDeliveryAttempt {
+      OutgoingDeliveryAttempt(
+        attemptCount: 0,
+        connectionId: MailboxConnectionId(
+          providerMailboxIdentity: StableProviderMailboxIdentity(
+            providerId: .gmail,
+            value: "gmail-user-001"
+          )
+        ),
+        createdAtMilliseconds: 1_700_000_000_000,
+        firstAttemptAtMilliseconds: nil,
+        id: UUID(),
+        idempotencyKey: UUID().uuidString,
+        lastErrorDescription: nil,
+        message: OutgoingMessage(
+          body: "Queued private body",
+          recipient: "reader@example.com",
+          subject: "Queued message"
+        ),
+        nextRetryAtMilliseconds: nil,
+        productAccountId: ProductAccountId(productAccountId),
+        reconciliationAttemptCount: 0,
+        state: .pending
+      )
+    }
+
+    let store = ProductAccountOutboxStore()
+    let firstAttempt = attempt(productAccountId: "product-account-001")
+    let secondAttempt = attempt(productAccountId: "product-account-002")
+    try store.save([firstAttempt], productAccountId: "product-account-001")
+    try store.save([secondAttempt], productAccountId: "product-account-002")
+
+    XCTAssertEqual(try store.load(productAccountId: "product-account-001"), [firstAttempt])
+    XCTAssertEqual(try store.load(productAccountId: "product-account-002"), [secondAttempt])
+
+    try store.clear(productAccountId: "product-account-001")
+
+    XCTAssertEqual(try store.load(productAccountId: "product-account-001"), [])
+    XCTAssertEqual(try store.load(productAccountId: "product-account-002"), [secondAttempt])
+  }
+
   // swiftlint:disable:next function_body_length
   func testSignOutPresentsOutboxCleanupFailureAndPreservesStoredSession() async throws {
     let snapshot = Self.restorableSnapshot
@@ -2571,22 +2613,22 @@ private struct EmptyProductAccountPendingActionStore: PendingProviderActionPersi
 
 private final class ProductAccountOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   var clearError: Error?
-  private var attempts: [OutgoingDeliveryAttempt] = []
+  private var attemptsByProductAccountId: [String: [OutgoingDeliveryAttempt]] = [:]
 
-  func clear(productAccountId _: String) throws {
+  func clear(productAccountId: String) throws {
     if let clearError { throw clearError }
-    attempts = []
+    attemptsByProductAccountId[productAccountId] = nil
   }
 
-  func load(productAccountId _: String) throws -> [OutgoingDeliveryAttempt] {
-    attempts
+  func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
+    attemptsByProductAccountId[productAccountId] ?? []
   }
 
   func save(
     _ attempts: [OutgoingDeliveryAttempt],
-    productAccountId _: String
+    productAccountId: String
   ) throws {
-    self.attempts = attempts
+    attemptsByProductAccountId[productAccountId] = attempts
   }
 }
 
