@@ -598,6 +598,7 @@ final class ProductAccountSessionTests: XCTestCase {
 
   func testSecondRecoveryKeyCannotReplaceAnUnacknowledgedMarker() async throws {
     let snapshot = Self.restorableSnapshot
+    let productAccountId = ProductAccountConnectResponse.preview.productAccountId
     try store.save(snapshot)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -612,13 +613,20 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     await session.bootstrap()
     try session.preserveUnacknowledgedRecoveryKey("first-key")
+    let material = try XCTUnwrap(
+      keyMaterialStore.load(productAccountId: productAccountId)
+    )
+    try keyMaterialStore.save(
+      material.replacingRecoveryKey(),
+      productAccountId: productAccountId
+    )
 
     XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("second-key")) {
       XCTAssertEqual($0 as? ProductAccountSessionError, .recoveryKeyUnacknowledged)
     }
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "first-key")
     let persistedMarker = try store.loadUnacknowledgedRecoveryKey(
-      productAccountId: ProductAccountConnectResponse.preview.productAccountId
+      productAccountId: productAccountId
     )
     XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
   }
@@ -831,9 +839,20 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: snapshot.productAccountId,
       trustedDeviceId: snapshot.trustedDeviceId
     )
-    _ = try keyMaterialStore.ensureMaterial(
+    let material = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
       allowCreation: true
+    )
+    try store.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: "older-key",
+        recoveryWrappedAccountKey: material.recoveryWrappedAccountKey
+      ),
+      productAccountId: snapshot.productAccountId
+    )
+    try keyMaterialStore.save(
+      material.replacingRecoveryKey(),
+      productAccountId: snapshot.productAccountId
     )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -847,14 +866,6 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
-    try session.preserveUnacknowledgedRecoveryKey("older-key")
-    let material = try XCTUnwrap(
-      keyMaterialStore.load(productAccountId: snapshot.productAccountId)
-    )
-    try keyMaterialStore.save(
-      material.replacingRecoveryKey(),
-      productAccountId: snapshot.productAccountId
-    )
     try session.preserveUnacknowledgedRecoveryKey("newer-key")
 
     try session.acknowledgeRecoveryKey(
