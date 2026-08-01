@@ -5,12 +5,26 @@ import SwiftSoup
 
 enum InlineImageDimensionPolicy {
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
-    let fontSizePixels = self.value("font-size", in: element)
-      .flatMap(MessageHTMLHiddenStylePatterns.pixelLengthValue)
+    let fontSizePixels = inheritedFontSizePixels(in: element)
     return MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(
       value,
       fontSizePixels: fontSizePixels
     )
+  }
+
+  private static func inheritedFontSizePixels(in element: Element) -> Double? {
+    var current: Element? = element
+    while let candidate = current {
+      if let fontSize = value("font-size", in: candidate) {
+        let normalizedFontSize = fontSize.lowercased()
+        if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(normalizedFontSize) {
+          return pixels
+        }
+        if normalizedFontSize != "inherit" && normalizedFontSize != "unset" { return nil }
+      }
+      current = candidate.parent()
+    }
+    return nil
   }
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {

@@ -569,6 +569,29 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
   }
 
+  func testSanitizerBlocksFontRelativeTrackingPixelWithInheritedFontSize() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <div style="font-size: 1px">
+          <img src="https://tracker.example/inherited-font-relative-one.gif"
+               style="width: 1em; height: 1em">
+        </div>
+        <img src="https://images.example.com/logo.png" style="height: 40px; width: 120px">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/logo.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("inherited-font-relative-one.gif"))
+  }
+
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1559,6 +1582,29 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerPromotesOnlyTopmostExplicitlyVisibleDescendant() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility: hidden">
+          <span style="visibility: initial">
+            <b style="visibility: visible">
+              Receipt
+              <img src="https://images.example.com/receipt.png">
+            </b>
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(result.documentHTML.components(separatedBy: "Receipt").count - 1, 1)
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/receipt.png"]
+    )
+  }
+
   func testSanitizerDoesNotPromoteVisibleDescendantsOfOtherwiseHiddenWrappers() throws {
     for intermediateAttribute in [
       #"style="display: none""#,
@@ -1684,6 +1730,7 @@ extension MessageHTMLPresentationTests {
   func testSanitizerIgnoresInvalidMaximumDimensionOverrides() throws {
     for style in [
       "max-height: 0; max-height: normal",
+      "max-width: 0; max-width: auto",
       "height: 0; height: 5",
     ] {
       let result = try XCTUnwrap(

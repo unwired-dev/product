@@ -90,9 +90,19 @@ extension MessageHTMLHiddenStylePatterns {
       return property == "line-height" || !isUnitlessNonzero
     }
     if value == "normal" { return property == "line-height" }
-    return ["auto", "fit-content", "max-content", "min-content", "none"].contains(value)
-      || isCSSWideKeyword(value)
-      || isCSSFunctionValue(value)
+    let sizingProperties = [
+      "height", "max-height", "max-width", "min-height", "min-width", "width",
+    ]
+    switch value {
+    case "auto":
+      return ["height", "min-height", "min-width", "width"].contains(property)
+    case "fit-content", "max-content", "min-content":
+      return sizingProperties.contains(property)
+    case "none":
+      return ["max-height", "max-width"].contains(property)
+    default:
+      return isCSSWideKeyword(value) || isCSSFunctionValue(value)
+    }
   }
 
   static func isZeroLengthValue(_ value: String) -> Bool {
@@ -383,7 +393,7 @@ extension MessageHTMLSanitizer {
         in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
-      if visibility == "visible" { return false }
+      if visibility == "visible" || visibility == "initial" { return false }
       ancestor = current.parent()
     }
     return true
