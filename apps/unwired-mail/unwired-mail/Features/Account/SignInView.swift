@@ -2,6 +2,8 @@ import SwiftUI
 
 struct SignInView: View {
   let session: ProductAccountSession
+  @State private var isRestoringRecovery = false
+  @State private var recoveryKey = ""
 
   #if DEBUG && !targetEnvironment(macCatalyst)
     @State private var showsAppearance = false
@@ -34,6 +36,30 @@ struct SignInView: View {
           .frame(maxWidth: 320, minHeight: 44)
       }
       .buttonStyle(.borderedProminent)
+
+      if session.requiresProductSyncRecovery {
+        VStack(alignment: .leading, spacing: 12) {
+          Text("Restore Product Sync")
+            .font(.headline)
+          Text(
+            "Enter the Recovery Key saved from another Trusted Device to restore encrypted data."
+          )
+          .foregroundStyle(.secondary)
+          SecureField("Recovery Key", text: $recoveryKey)
+            .textFieldStyle(.roundedBorder)
+            .frame(maxWidth: 420)
+          Button("Restore with Recovery Key") {
+            Task {
+              guard !isRestoringRecovery else { return }
+              isRestoringRecovery = true
+              defer { isRestoringRecovery = false }
+              await session.restoreProductSyncMaterial(recoveryKey: recoveryKey)
+            }
+          }
+          .buttonStyle(.borderedProminent)
+          .disabled(recoveryKey.isEmpty || isRestoringRecovery)
+        }
+      }
 
       #if DEBUG && !targetEnvironment(macCatalyst)
         Button {

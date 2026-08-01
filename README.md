@@ -30,28 +30,6 @@ Install TypeScript workspace dependencies:
 pnpm install
 ```
 
-For Linux CI parity against local changes, install and authenticate the
-[Blacksmith CLI](https://docs.blacksmith.sh/blacksmith-testbox/overview), then
-warm the repository's TypeScript Testbox from the repository root:
-
-```sh
-curl -fsSL https://get.blacksmith.sh | sh
-blacksmith auth login
-blacksmith testbox warmup blacksmith-testbox.yml --job typescript
-```
-
-Reuse the returned Testbox ID to sync local changes and run checks in the warm
-CI environment, then stop it when finished:
-
-```sh
-blacksmith testbox run --id <ID> "pnpm install --frozen-lockfile && pnpm lint && pnpm format && pnpm turbo run check-types && pnpm test && pnpm fallow"
-blacksmith testbox stop --id <ID>
-```
-
-Run `blacksmith testbox` from the repository root because it mirrors the current
-working tree with deletion enabled. Testboxes provide the Linux TypeScript
-environment only; Apple lint and Xcode tests still run locally or in macOS CI.
-
 Run the Convex backend development environment:
 
 ```sh
@@ -144,7 +122,7 @@ On Apple Silicon machines, use the explicit arm64 destination if Xcode tries to 
 xcodebuild -project apps/unwired-mail/unwired-mail.xcodeproj -scheme unwired-mail -destination 'platform=macOS,variant=Mac Catalyst,arch=arm64' build
 ```
 
-The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, and register the current trusted device with the backend using only operational account data. After sign-in, the adaptive mail shell becomes the root experience; the current Account Settings sheet contains diagnostics and raw backend health. Development builds expose adaptive Settings destinations for Email Accounts and device-local Appearance. On iPhone and iPad, the signed-out Product Account screen also opens Appearance directly; Mac Catalyst uses its Settings window. Appearance applies System, Light, or Dark theme, Dynamic Type-relative reading size, sender or system message-body typography, and optional increased contrast immediately across the app; its live message-list and reader preview is also available before sign-in. Device-local search indexes only static destination, group, section, and control labels; contextual authorization links can open and briefly highlight the affected connection without indexing mailbox addresses or content. Settings restores the last available destination, prompts before navigation discards an edited connection, and shows only actionable authorization or synchronization indicators. Production builds keep the current Account Settings entry point until every Settings destination meets the release gate; the completed redesign will move diagnostics to Advanced.
+The first app screen is the Product Account path. It lets a user sign in with Apple, create or resume a Product Account, and register the current trusted device with the backend using only operational account data. After sign-in, the adaptive mail shell becomes the root experience; the current Account Settings sheet contains diagnostics and raw backend health. Development builds expose adaptive Settings destinations for Email Accounts, Account & Devices, and device-local Appearance. Account & Devices keeps Product Account identity separate from Mailbox Connections, lists and renames Trusted Devices, manages the Recovery Key after recent Sign in with Apple authentication, and signs the current device out while unregistering its push route and clearing account-scoped local state. The Recovery Key and decrypted Product Sync data never leave the device; Convex stores only the opaque encrypted account-key wrapper. On iPhone and iPad, the signed-out Product Account screen also opens Appearance directly; Mac Catalyst uses its Settings window. Appearance applies System, Light, or Dark theme, Dynamic Type-relative reading size, sender or system message-body typography, and optional increased contrast immediately across the app; its live message-list and reader preview is also available before sign-in. Device-local search indexes only static destination, group, section, and control labels; contextual authorization links can open and briefly highlight the affected connection without indexing mailbox addresses or content. Settings restores the last available destination, prompts before navigation discards an edited connection, and shows only actionable authorization or synchronization indicators. Production builds keep the current Account Settings entry point until every Settings destination meets the release gate; the completed redesign will move diagnostics to Advanced.
 
 ### Sign in with Apple (local development)
 

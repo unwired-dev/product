@@ -79,7 +79,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 1. Inspect nearby implementation, tests, and pattern docs before editing.
 2. Prefer existing abstractions and conventions over introducing new ones.
 3. Trust the local mise config with `mise trust .mise.toml`, then set up the local toolchain with `mise install` before running validation. If mise is not activated in the shell, run tools through `mise exec -- <command>` so `.mise.toml` versions are used.
-4. Use the `blacksmith-testbox` skill when Linux CI parity is needed for TypeScript validation. Warm `.github/workflows/blacksmith-testbox.yml` once from the repository root, reuse its Testbox ID, and keep Apple validation local or on the macOS CI runner.
+4. Run TypeScript validation with the repository's mise-managed toolchain, and keep Apple validation local or on the macOS CI runner.
 5. For ad hoc runnable code, create a temporary file in `scratchpad/`, run it with `node scratchpad/<file>.ts`, and delete it when done.
    The local runtime is Node 24, which can run TypeScript files directly; use plain `node` for local TypeScript probes instead of `tsx` unless `node` fails.
 6. Add a changeset with `pnpm changeset` when the change should appear in package release notes.

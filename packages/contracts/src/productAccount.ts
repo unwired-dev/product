@@ -14,6 +14,24 @@ export type ProductAccountConnectResponse = Infer<
   typeof productAccountConnectResponseValidator
 >;
 
+export const trustedDeviceSummaryValidator = v.object({
+  displayName: v.string(),
+  id: v.string(),
+  lastSeenAt: v.number(),
+  platform: v.string(),
+  registeredAt: v.number(),
+});
+
+export type TrustedDeviceSummary = Infer<typeof trustedDeviceSummaryValidator>;
+
+export const trustedDeviceUnregistrationResponseValidator = v.object({
+  registered: v.boolean(),
+});
+
+export type TrustedDeviceUnregistrationResponse = Infer<
+  typeof trustedDeviceUnregistrationResponseValidator
+>;
+
 export const productAccountConnectResponseFixture: ProductAccountConnectResponse =
   {
     accountCreated: true,

@@ -5,6 +5,8 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 import { convexTest } from 'convex-test';
 
 import { api } from '../convex/_generated/api.js';
+import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
+import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
 
 const modules = import.meta.glob('../convex/**/*.ts');
@@ -135,6 +137,500 @@ describe('productAccount.connect', () => {
 
     expect(resumedConnect.productAccountId).toBe(firstConnect.productAccountId);
     expect(resumedConnect.deviceRegistered).toBe(true);
+  });
+
+  it('lists every trusted device with its user-facing name', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      deviceName: 'Jans iPhone',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      deviceName: 'Desk Mac',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({
+        displayName: 'Jans iPhone',
+        id: currentDevice.trustedDeviceId,
+        platform: 'ios',
+      }),
+      expect.objectContaining({
+        displayName: 'Desk Mac',
+        id: otherDevice.trustedDeviceId,
+        platform: 'macos',
+      }),
+    ]);
+  });
+
+  it('renames a trusted device without changing its registration identity', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.renameTrustedDevice, {
+        displayName: '  Work Mac  ',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
+      }),
+    ).resolves.toMatchObject({
+      displayName: 'Work Mac',
+      id: otherDevice.trustedDeviceId,
+      platform: 'macos',
+    });
+  });
+
+  it('rejects renaming a trusted device owned by another Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.renameTrustedDevice, {
+        displayName: 'Not Mine',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRenameId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
+  it('unregisters only the current Trusted Device', async () => {
+    expect.assertions(4);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({ registered: false });
+    await expect(
+      asUser.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([
+      expect.objectContaining({ id: otherDevice.trustedDeviceId }),
+    ]);
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayload, {
+        encryptedPayload,
+        payloadIdentifier: 'payload-after-unregistration',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
+  it('deletes Gmail routes and orphaned identity bindings owned by an unregistered device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const [index, trustedDeviceId] of [
+        currentDevice.trustedDeviceId,
+        otherDevice.trustedDeviceId,
+      ].entries()) {
+        const opaqueConnectionId = `connection-${index}`;
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('gmailOpaqueIdentityBindings', {
+          identityBindingDigest: `digest-${index}`,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    const remainingDeviceIds = await t.run(async (ctx) => {
+      const routes = await ctx.db.query('mailProviderConnections').collect();
+      return routes.map((route) => route.trustedDeviceId);
+    });
+    expect(remainingDeviceIds).toStrictEqual([otherDevice.trustedDeviceId]);
+    const remainingBindingIds = await t.run(async (ctx) => {
+      const bindings = await ctx.db
+        .query('gmailOpaqueIdentityBindings')
+        .collect();
+      return bindings.map((binding) => binding.opaqueConnectionId);
+    });
+    expect(remainingBindingIds).toStrictEqual(['connection-1']);
+  });
+
+  it('deletes paginated Microsoft Graph routes and wakeup states owned by an unregistered device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index < 21; index += 1) {
+        const routeId = await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'microsoft-graph',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('microsoftGraphWakeupStates', {
+          routeId,
+          scheduledAt: now,
+        });
+      }
+      const otherRouteId = await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'microsoft-graph',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('microsoftGraphWakeupStates', {
+        routeId: otherRouteId,
+        scheduledAt: now,
+      });
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    const remaining = await t.run(async (ctx) => ({
+      routes: await ctx.db.query('mailProviderConnections').collect(),
+      wakeupStates: await ctx.db.query('microsoftGraphWakeupStates').collect(),
+    }));
+    expect(
+      remaining.routes.map((route) => route.trustedDeviceId),
+    ).toStrictEqual([otherDevice.trustedDeviceId]);
+    expect(remaining.wakeupStates).toHaveLength(1);
+  });
+
+  /* oxlint-disable vitest/no-conditional-in-test -- table-driven cases select distinct public skip-path fixtures. */
+  it.each([
+    'remaining route',
+    'incomplete legacy snapshot',
+    'matching legacy route',
+  ] as const)(
+    'keeps Gmail identity bindings for the %s skip path',
+    async (scenario) => {
+      expect.assertions(1);
+
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const otherDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-002',
+        platform: 'macos',
+      });
+      const legacyProviderAccountIdentifier = 'gmail-user-legacy';
+      const opaqueConnectionId =
+        scenario === 'matching legacy route'
+          ? await opaqueGmailConnectionId(
+              currentDevice.productAccountId,
+              legacyProviderAccountIdentifier,
+            )
+          : `connection-${scenario}`;
+      await t.run(async (ctx) => {
+        const now = Date.now();
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('gmailOpaqueIdentityBindings', {
+          identityBindingDigest: `digest-${scenario}`,
+          opaqueConnectionId,
+          productAccountId: currentDevice.productAccountId,
+          updatedAt: now,
+        });
+        if (scenario === 'remaining route') {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            opaqueConnectionId,
+            productAccountId: currentDevice.productAccountId,
+            provider: 'gmail',
+            trustedDeviceId: otherDevice.trustedDeviceId,
+            updatedAt: now,
+          });
+        } else if (scenario === 'incomplete legacy snapshot') {
+          for (
+            let index = 0;
+            index <= gmailLegacyRouteFallbackLimit;
+            index += 1
+          ) {
+            await ctx.db.insert('mailProviderConnections', {
+              connectedAt: now,
+              lastVerifiedAt: now,
+              productAccountId: currentDevice.productAccountId,
+              provider: 'gmail',
+              providerAccountIdentifier: `legacy-${index}`,
+              trustedDeviceId: otherDevice.trustedDeviceId,
+              updatedAt: now,
+            });
+          }
+        } else {
+          await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            productAccountId: currentDevice.productAccountId,
+            provider: 'gmail',
+            providerAccountIdentifier: legacyProviderAccountIdentifier,
+            trustedDeviceId: otherDevice.trustedDeviceId,
+            updatedAt: now,
+          });
+        }
+      });
+
+      await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      });
+
+      const remainingBindingIds = await t.run(async (ctx) => {
+        const bindings = await ctx.db
+          .query('gmailOpaqueIdentityBindings')
+          .collect();
+        return bindings.map((binding) => binding.opaqueConnectionId);
+      });
+      expect(remainingBindingIds).toContain(opaqueConnectionId);
+    },
+  );
+  /* oxlint-enable vitest/no-conditional-in-test */
+
+  it('deletes a Gmail identity binding after its final legacy route is removed', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const providerAccountIdentifier = 'gmail-user-legacy';
+    const opaqueConnectionId = await opaqueGmailConnectionId(
+      currentDevice.productAccountId,
+      providerAccountIdentifier,
+    );
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: 'digest-legacy',
+        opaqueConnectionId,
+        productAccountId: currentDevice.productAccountId,
+        updatedAt: now,
+      });
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('gmailOpaqueIdentityBindings').collect(),
+      ),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('drains over-limit legacy Gmail routes during device unregistration', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (let index = 0; index <= 20; index += 1) {
+        await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          opaqueConnectionId: `connection-${index}`,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'gmail',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+      }
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    await expect(
+      t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
+    ).resolves.toStrictEqual([]);
+  });
+
+  it('rejects unregistering another trusted device on the same Product Account', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Current trusted device required');
+  });
+
+  it('rejects unregistering another Product Account trusted device', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const asOtherUser = t.withIdentity({
+      issuer: 'https://appleid.apple.com',
+      subject: 'apple-user-002',
+      tokenIdentifier: 'https://appleid.apple.com|apple-user-002',
+    });
+    const otherDevice = await asOtherUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+
+    await expect(
+      asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+        deviceIdentifier: 'device-001',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Trusted device required');
+  });
+
+  it('rejects registration beyond the Trusted Device list limit', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    for (let index = 0; index < 100; index += 1) {
+      await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: `device-${index}`,
+        platform: 'ios',
+      });
+    }
+
+    await expect(
+      asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-over-limit',
+        platform: 'ios',
+      }),
+    ).rejects.toThrow('Trusted Device limit exceeded');
   });
 
   it('marks Product Sync material initialized for the trusted device', async () => {

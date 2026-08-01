@@ -87,6 +87,16 @@ private final class LoadedMessageImageBudget {
   let loadGate = RemoteMessageContentLoadGate()
 }
 
+struct SignOutErrorBanner: View {
+  let message: String
+
+  var body: some View {
+    Text(message)
+      .font(.caption)
+      .foregroundStyle(.red)
+  }
+}
+
 @MainActor
 @Observable
 final class MailboxWorkCoordinator {
@@ -1396,6 +1406,12 @@ struct AccountView: View {
           },
           destinationContent: { destination, request in
             switch destination {
+            case .accountAndDevices:
+              AccountAndDevicesSettingsView(
+                session: session,
+                snapshot: snapshot,
+                signOut: signOut
+              )
             case .emailAccounts:
               EmailAccountsSettingsView(
                 ewsViewModel: ewsSetupViewModel,
@@ -1862,6 +1878,16 @@ extension AccountView {
               .foregroundStyle(.secondary)
           }
 
+          NavigationLink {
+            AccountAndDevicesSettingsView(
+              session: session,
+              snapshot: snapshot,
+              signOut: signOut
+            )
+          } label: {
+            Label("Account & Devices", systemImage: "person.2")
+          }
+
           CustomCategoryPanel(viewModel: categoryViewModel)
 
           NotificationRulePanel(
@@ -1906,17 +1932,12 @@ extension AccountView {
 
           SmokeView(service: ConvexBackendHealthService())
 
+          if let signOutErrorMessage = session.signOutErrorMessage {
+            SignOutErrorBanner(message: signOutErrorMessage)
+          }
+
           Button("Sign Out", role: .destructive) {
-            session.beginSignOut()
-            ewsSetupViewModel.invalidate()
-            genericMailSetupViewModel.invalidate()
-            Task {
-              await mailActionViewModel.prepareForSignOut()
-              mailboxFreshnessViewModel.cancelAll()
-              mailboxFreshnessViewModel.clearPersistedState()
-              await inboxViewModel.prepareForSignOut()
-              await session.signOut()
-            }
+            signOut()
           }
           .buttonStyle(.bordered)
         }
@@ -1928,6 +1949,19 @@ extension AccountView {
         ToolbarItem(placement: .confirmationAction) {
           Button("Done") { showsAccountSettings = false }
         }
+      }
+    }
+  }
+
+  private func signOut() {
+    Task {
+      await session.signOut {
+        ewsSetupViewModel.invalidate()
+        genericMailSetupViewModel.invalidate()
+        await mailActionViewModel.prepareForSignOut()
+        mailboxFreshnessViewModel.cancelAll()
+        mailboxFreshnessViewModel.clearPersistedState()
+        await inboxViewModel.prepareForSignOut()
       }
     }
   }

@@ -1,6 +1,12 @@
 import Foundation
 import Security
 
+#if canImport(UIKit)
+  import UIKit
+#elseif canImport(AppKit)
+  import AppKit
+#endif
+
 enum TrustedDeviceIdentity {
   private static let service = "dev.unwired.mail.trusted-device"
   private static let account = "device-identifier"
@@ -26,5 +32,34 @@ enum TrustedDeviceIdentity {
     #else
       return "ios"
     #endif
+  }
+
+  static var displayName: String {
+    #if canImport(UIKit)
+      let name = UIDevice.current.name
+    #elseif canImport(AppKit)
+      let name = Host.current().localizedName ?? ""
+    #else
+      let name = ""
+    #endif
+    return normalizedDisplayName(name, platform: platform)
+  }
+
+  static func normalizedDisplayName(_ name: String, platform: String) -> String {
+    let normalizedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+    let fallbackName = platform == "macos" ? "This Mac" : "This Apple Device"
+    guard !normalizedName.isEmpty else {
+      return fallbackName
+    }
+    var remainingUTF16Units = 80
+    let truncatedName = String(
+      normalizedName.prefix { character in
+        let unitCount = String(character).utf16.count
+        guard unitCount <= remainingUTF16Units else { return false }
+        remainingUTF16Units -= unitCount
+        return true
+      }
+    )
+    return truncatedName.isEmpty ? fallbackName : truncatedName
   }
 }

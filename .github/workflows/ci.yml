@@ -18,7 +18,7 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-    runs-on: blacksmith-2vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     outputs:
       apple_matrix: ${{ steps.apple-matrix.outputs.matrix }}
       apple_projects_changed: ${{ steps.apple-matrix.outputs.has-projects }}
@@ -51,7 +51,7 @@ jobs:
             {
               "filter": "unwired_mail",
               "name": "Unwired Mail",
-              "runner": "blacksmith-6vcpu-macos-26",
+              "runner": "macos-26",
               "project": "apps/unwired-mail/unwired-mail.xcodeproj",
               "scheme": "unwired-mail",
               "destination": "platform=iOS Simulator,name=iPhone 17"
@@ -81,7 +81,7 @@ jobs:
   typescript:
     name: TypeScript
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -119,7 +119,7 @@ jobs:
   fallow:
     name: Fallow
     if: github.event_name != 'pull_request' || github.event.pull_request.draft == false
-    runs-on: blacksmith-4vcpu-ubuntu-2404
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v7
