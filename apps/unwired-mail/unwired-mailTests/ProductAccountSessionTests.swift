@@ -1256,7 +1256,19 @@ final class ProductAccountSessionTests: XCTestCase {
   }
 
   func testBootstrapCompletesInterruptedSignOut() async throws {
-    let snapshot = Self.restorableSnapshot
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    let cleanupSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: snapshot.appleUserIdentifier,
+      identityToken: "refreshed-token",
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     _ = try keyMaterialStore.ensureMaterial(
@@ -1269,7 +1281,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
           appleUserIdentifier: snapshot.appleUserIdentifier,
-          identityToken: snapshot.identityToken
+          identityToken: cleanupSnapshot.identityToken
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
@@ -1287,8 +1299,8 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
     )
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(pushUnregisterer.sessions, [cleanupSnapshot])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [cleanupSnapshot])
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
   }
 

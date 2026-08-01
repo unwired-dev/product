@@ -659,9 +659,24 @@ extension ProductAccountSession {
       let snapshot = try sessionStore.load(),
       snapshot.productAccountId == productAccountId
     {
-      try? await devicePushUnregistrationService.unregister(session: snapshot)
-      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
-      try? await unregisterTrustedDeviceForSignOut(snapshot)
+      let cleanupSnapshot: ProductAccountSessionSnapshot
+      if snapshot.identityTokenState() == .active {
+        cleanupSnapshot = snapshot
+      } else {
+        let credential = try await appleSignInService.signIn()
+        guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
+          throw ProductAccountSessionError.differentAppleAccount
+        }
+        cleanupSnapshot = ProductAccountSessionSnapshot(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: credential.identityToken,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      }
+      try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
+      try await mailboxConnectionService.clearLocalConnection(session: cleanupSnapshot)
+      try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
     }
     try sessionStore.clear()
     try productSyncKeyMaterialStore.clear(

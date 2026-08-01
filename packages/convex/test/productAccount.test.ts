@@ -327,7 +327,7 @@ describe('productAccount.connect', () => {
     expect(remainingBindingIds).toStrictEqual(['connection-1']);
   });
 
-  it('deletes Microsoft Graph routes and wakeup state owned by an unregistered device', async () => {
+  it('deletes paginated Microsoft Graph routes and wakeup states owned by an unregistered device', async () => {
     expect.assertions(2);
 
     const t = convexTest(schema, modules);
@@ -346,18 +346,22 @@ describe('productAccount.connect', () => {
         currentDevice.trustedDeviceId,
         otherDevice.trustedDeviceId,
       ]) {
-        const routeId = await ctx.db.insert('mailProviderConnections', {
-          connectedAt: now,
-          lastVerifiedAt: now,
-          productAccountId: currentDevice.productAccountId,
-          provider: 'microsoft-graph',
-          trustedDeviceId,
-          updatedAt: now,
-        });
-        await ctx.db.insert('microsoftGraphWakeupStates', {
-          routeId,
-          scheduledAt: now,
-        });
+        const routeCount =
+          trustedDeviceId === currentDevice.trustedDeviceId ? 21 : 1;
+        for (let index = 0; index < routeCount; index += 1) {
+          const routeId = await ctx.db.insert('mailProviderConnections', {
+            connectedAt: now,
+            lastVerifiedAt: now,
+            productAccountId: currentDevice.productAccountId,
+            provider: 'microsoft-graph',
+            trustedDeviceId,
+            updatedAt: now,
+          });
+          await ctx.db.insert('microsoftGraphWakeupStates', {
+            routeId,
+            scheduledAt: now,
+          });
+        }
       }
     });
 

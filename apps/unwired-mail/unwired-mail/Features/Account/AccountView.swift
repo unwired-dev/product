@@ -5441,8 +5441,11 @@ extension GmailMailActionViewModel {
       uniqueKeysWithValues: knownConnections.enumerated().map { ($1.id, $0) }
     )
     deferredFailures.sort {
-      connectionOrder[$0.connectionId, default: .max]
-        < connectionOrder[$1.connectionId, default: .max]
+      let leftOrder = connectionOrder[$0.connectionId, default: .max]
+      let rightOrder = connectionOrder[$1.connectionId, default: .max]
+      return leftOrder == rightOrder
+        ? Self.failureDescription($0) < Self.failureDescription($1)
+        : leftOrder < rightOrder
     }
     deferredBulkFailures[taskId] = (orderedImmediateFailures + deferredFailures).reduce(into: []) {
       if !$0.contains($1) {
