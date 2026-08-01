@@ -5220,13 +5220,17 @@ extension GmailMailActionViewModel {
     let nonPersistedImmediateFailures = immediateFailures.filter {
       !activeFailureConnectionIds.contains($0.connectionId)
     }
+    let failureContext = (
+      immediate: immediateFailures,
+      nonPersistedImmediate: nonPersistedImmediateFailures
+    )
     pendingActionTasks[taskId] = Task { [weak self] in
       guard let self else { return }
       await resumeDeferredPendingActions(
         action,
         batches: batches,
         taskId: taskId,
-        nonPersistedImmediateFailures: nonPersistedImmediateFailures,
+        failureContext: failureContext,
         onCompleted: onCompleted
       )
       pendingActionTasks[taskId] = nil
@@ -5351,7 +5355,10 @@ extension GmailMailActionViewModel {
     _ action: ProviderMailAction,
     batches: [MailboxBulkActionBatch],
     taskId: UUID,
-    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
+    failureContext: (
+      immediate: [MailboxBulkActionFailure],
+      nonPersistedImmediate: [MailboxBulkActionFailure]
+    ),
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     guard !Task.isCancelled else { return }
@@ -5393,7 +5400,7 @@ extension GmailMailActionViewModel {
         await recordDeferredOutcome(
           outcome,
           taskId: taskId,
-          nonPersistedImmediateFailures: nonPersistedImmediateFailures,
+          failureContext: failureContext,
           onCompleted: onCompleted
         )
       }
@@ -5404,12 +5411,15 @@ extension GmailMailActionViewModel {
   private func recordDeferredOutcome(
     _ outcome: MailboxBulkActionBatchOutcome,
     taskId: UUID,
-    nonPersistedImmediateFailures: [MailboxBulkActionFailure],
+    failureContext: (
+      immediate: [MailboxBulkActionFailure],
+      nonPersistedImmediate: [MailboxBulkActionFailure]
+    ),
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
-    let immediateFailures = nonPersistedImmediateFailures.reduce(
+    let orderedImmediateFailures = failureContext.immediate.reduce(
       into: [MailboxBulkActionFailure]()
     ) {
       if !$0.contains($1) {
@@ -5418,9 +5428,10 @@ extension GmailMailActionViewModel {
     }
     let failures =
       (deferredBulkFailures[taskId] ?? [])
+      + failureContext.nonPersistedImmediate
       + bulkActionResult([outcome]).failures
     var deferredFailures = failures.reduce(into: [MailboxBulkActionFailure]()) {
-      guard !immediateFailures.contains($1), !$0.contains($1) else { return }
+      guard !orderedImmediateFailures.contains($1), !$0.contains($1) else { return }
       $0.append($1)
     }
     let connectionOrder = Dictionary(
@@ -5430,7 +5441,7 @@ extension GmailMailActionViewModel {
       connectionOrder[$0.connectionId, default: .max]
         < connectionOrder[$1.connectionId, default: .max]
     }
-    deferredBulkFailures[taskId] = (immediateFailures + deferredFailures).reduce(into: []) {
+    deferredBulkFailures[taskId] = (orderedImmediateFailures + deferredFailures).reduce(into: []) {
       if !$0.contains($1) {
         $0.append($1)
       }
