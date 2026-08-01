@@ -695,6 +695,25 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("auto-block-percentage.gif"))
   }
 
+  func testSanitizerIgnoresStrippedPositioningWhenResolvingPercentageWidth() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width: 1px">
+          <div style="position: absolute">
+            <img src="https://tracker.example/stripped-position.gif"
+                 style="width: 100%; height: 1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("stripped-position.gif"))
+  }
+
   func testSanitizerResolvesPercentageWidthThroughExplicitBlockSpan() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2163,7 +2182,10 @@ extension MessageHTMLPresentationTests {
   }
 
   func testSanitizerRemovesConstantFunctionZeroOpacityContent() throws {
-    for opacity in ["min(0, 0)", "max(0%, 0)", "clamp(0, 0%, 1)"] {
+    for opacity in [
+      "min(0, 0)", "max(0%, 0)", "clamp(0, 0%, 1)",
+      "min(max(0, 0), 1)",
+    ] {
       let result = try XCTUnwrap(
         MessageHTMLSanitizer.sanitize(
           """

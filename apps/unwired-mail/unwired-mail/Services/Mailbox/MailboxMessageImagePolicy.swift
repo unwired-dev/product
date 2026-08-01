@@ -184,18 +184,6 @@ enum InlineImageDimensionPolicy {
     let declarations = MessageHTMLHiddenStylePatterns.declarations(
       in: (try? element.attr("style")) ?? ""
     )
-    let position = MessageHTMLHiddenStylePatterns.effectiveValue(
-      "position",
-      in: declarations,
-      where: { ["absolute", "fixed", "relative", "static", "sticky"].contains($0) }
-    )
-    guard position.map({ !["absolute", "fixed"].contains($0) }) != false else { return false }
-    let float = MessageHTMLHiddenStylePatterns.effectiveValue(
-      "float",
-      in: declarations,
-      where: { ["inline-end", "inline-start", "left", "none", "right"].contains($0) }
-    )
-    guard float == nil || float == "none" else { return false }
     if let display = MessageHTMLHiddenStylePatterns.effectiveValue(
       "display",
       in: declarations,
