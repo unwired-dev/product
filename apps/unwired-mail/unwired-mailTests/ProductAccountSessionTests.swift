@@ -1488,7 +1488,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
-  func testProductAccountOutboxStoreScopesAttemptsAndClearByProductAccount() throws {
+  func testFileOutboxStoreScopesAttemptsAndClearByProductAccount() throws {
     func attempt(productAccountId: String) -> OutgoingDeliveryAttempt {
       OutgoingDeliveryAttempt(
         attemptCount: 0,
@@ -1515,7 +1515,22 @@ final class ProductAccountSessionTests: XCTestCase {
       )
     }
 
-    let store = ProductAccountOutboxStore()
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("product-account-outbox-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let keyStore = InMemoryProductSyncKeyMaterialStore()
+    _ = try keyStore.ensureMaterial(
+      productAccountId: "product-account-001",
+      allowCreation: true
+    )
+    _ = try keyStore.ensureMaterial(
+      productAccountId: "product-account-002",
+      allowCreation: true
+    )
+    let store = FileOutboxDeliveryStore(
+      keyMaterialStore: keyStore,
+      rootDirectory: rootDirectory
+    )
     let firstAttempt = attempt(productAccountId: "product-account-001")
     let secondAttempt = attempt(productAccountId: "product-account-002")
     try store.save([firstAttempt], productAccountId: "product-account-001")
