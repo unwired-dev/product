@@ -3525,6 +3525,11 @@ private struct ProviderMailActionButtons: View {
   }
 }
 
+private enum MailShellReaderErrorSource {
+  case mailAction
+  case other
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
@@ -3540,6 +3545,7 @@ struct MailShellConversationReader: View {
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
+  @State private var readerErrorSource: MailShellReaderErrorSource?
 
   var body: some View {
     Group {
@@ -3595,10 +3601,12 @@ struct MailShellConversationReader: View {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
                     inboxViewModel.discardLoadedMessageBody(for: message.id)
                     readerErrorMessage = nil
+                    readerErrorSource = nil
                     return true
                   } catch {
                     readerErrorConnectionId = connection.id
                     readerErrorMessage = error.localizedDescription
+                    readerErrorSource = .other
                     return false
                   }
                 },
@@ -3621,6 +3629,7 @@ struct MailShellConversationReader: View {
                     await togglePin(message.id)
                     if let errorMessage = pinViewModel.errorMessage {
                       readerErrorMessage = errorMessage
+                      readerErrorSource = .other
                     }
                   }
                 }
@@ -3742,6 +3751,7 @@ struct MailShellConversationReader: View {
       compositionDraft = nil
       readerErrorConnectionId = nil
       readerErrorMessage = nil
+      readerErrorSource = nil
       mailActionViewModel.clearError()
       pinViewModel.clearError()
     }
@@ -3752,9 +3762,13 @@ struct MailShellConversationReader: View {
       get: { readerErrorMessage != nil },
       set: { isPresented in
         if !isPresented {
+          let clearsMailActionError = readerErrorSource == .mailAction
           readerErrorConnectionId = nil
           readerErrorMessage = nil
-          mailActionViewModel.clearError()
+          readerErrorSource = nil
+          if clearsMailActionError {
+            mailActionViewModel.clearError()
+          }
         }
       }
     )
@@ -3999,6 +4013,7 @@ struct MailShellConversationReader: View {
       guard let errorMessage else { return }
       readerErrorConnectionId = result.failures.first?.connectionId
       readerErrorMessage = errorMessage
+      readerErrorSource = .mailAction
     }
   }
 
@@ -4015,6 +4030,7 @@ struct MailShellConversationReader: View {
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorMessage = mailActionViewModel.errorMessage
       readerErrorConnectionId = mailActionViewModel.pendingFailureConnectionId
+      readerErrorSource = readerErrorMessage == nil ? nil : .mailAction
     }
   }
 
@@ -4024,6 +4040,7 @@ struct MailShellConversationReader: View {
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorConnectionId = nil
       readerErrorMessage = nil
+      readerErrorSource = nil
     }
   }
 
@@ -4036,9 +4053,11 @@ struct MailShellConversationReader: View {
       else { return }
       compositionDraft = .forward(message, body: bodyText)
       readerErrorMessage = nil
+      readerErrorSource = nil
     } catch is CancellationError {
     } catch {
       readerErrorMessage = error.localizedDescription
+      readerErrorSource = .other
     }
   }
 
@@ -4049,6 +4068,7 @@ struct MailShellConversationReader: View {
       connection.authorizationState == .authorized
     else {
       readerErrorMessage = "Authorize the source Mailbox Connection before sending."
+      readerErrorSource = .other
       return false
     }
     let didSend = await mailActionViewModel.send(
@@ -4061,6 +4081,7 @@ struct MailShellConversationReader: View {
     )
     if !didSend {
       readerErrorMessage = mailActionViewModel.errorMessage
+      readerErrorSource = readerErrorMessage == nil ? nil : .mailAction
     }
     return didSend
   }
@@ -5466,7 +5487,7 @@ extension GmailMailActionViewModel {
   private func pruneDeferredBulkFailures() {
     deferredBulkFailures = deferredBulkFailures.reduce(into: [:]) { retained, entry in
       let failures =
-        pendingActionTasks[entry.key] == nil
+        pendingActionTasks[entry.key] == nil && errorMessage == nil
         ? entry.value.filter { activeFailureConnectionIds.contains($0.connectionId) }
         : entry.value
       if !failures.isEmpty {
