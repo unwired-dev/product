@@ -179,7 +179,7 @@ final class ProductAccountSession {
       var mailboxCleanupError: Error?
       if let cleanupSnapshot {
         do {
-          try await clearLocalProductAccountData(
+          try await mailboxConnectionService.clearLocalConnection(
             session: cleanupSnapshot,
             isStillCurrent: {
               !self.signOutSnapshotWasReplaced(snapshot)
@@ -259,7 +259,7 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.save(snapshot)
     do {
-      try await clearLocalProductAccountDataIfProductAccountChanged(
+      try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
@@ -267,24 +267,14 @@ final class ProductAccountSession {
       try? sessionStore.save(existingSnapshot)
       throw error
     }
+    try await clearOutboxIfProductAccountChanged(
+      from: existingSnapshot,
+      to: snapshot
+    )
     await unregisterDeviceIfProductAccountChanged(
       from: existingSnapshot,
       to: snapshot
     )
-  }
-
-  private func clearLocalProductAccountDataIfProductAccountChanged(
-    from existingSnapshot: ProductAccountSessionSnapshot?,
-    to snapshot: ProductAccountSessionSnapshot
-  ) async throws {
-    guard
-      let existingSnapshot,
-      existingSnapshot.productAccountId != snapshot.productAccountId
-    else {
-      return
-    }
-
-    try await clearLocalProductAccountData(session: existingSnapshot)
   }
 
   private func unregisterDeviceIfProductAccountChanged(
@@ -311,6 +301,34 @@ final class ProductAccountSession {
 }
 
 extension ProductAccountSession {
+  fileprivate func clearLocalMailboxConnectionIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
+  }
+
+  fileprivate func clearOutboxIfProductAccountChanged(
+    from existingSnapshot: ProductAccountSessionSnapshot?,
+    to snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    guard
+      let existingSnapshot,
+      existingSnapshot.productAccountId != snapshot.productAccountId
+    else {
+      return
+    }
+
+    try await outboxDeliveryService.clear(session: existingSnapshot)
+  }
+
   fileprivate func clearLocalProductAccountData(
     session: ProductAccountSessionSnapshot,
     isStillCurrent: @escaping @MainActor () -> Bool = { true }
@@ -437,6 +455,7 @@ extension ProductAccountSession {
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await preparation()
+    try await outboxDeliveryService.clear(session: snapshot)
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
       identityToken: identityToken,
@@ -570,7 +589,7 @@ extension ProductAccountSession {
     let previousSnapshot = try? sessionStore.load()
     try sessionStore.save(snapshot)
     do {
-      try await clearLocalProductAccountDataIfProductAccountChanged(
+      try await clearLocalMailboxConnectionIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
       )
@@ -580,6 +599,10 @@ extension ProductAccountSession {
       }
       throw error
     }
+    try await clearOutboxIfProductAccountChanged(
+      from: previousSnapshot,
+      to: snapshot
+    )
     await unregisterDeviceIfProductAccountChanged(
       from: previousSnapshot,
       to: snapshot

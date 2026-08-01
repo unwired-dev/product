@@ -1020,6 +1020,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
     let cleanupGate = SignOutUnregistrationGate()
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1030,6 +1031,7 @@ final class ProductAccountSessionTests: XCTestCase {
       devicePushUnregistrationService: SuspendingDevicePushUnregisterer(gate: cleanupGate),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -1037,6 +1039,7 @@ final class ProductAccountSessionTests: XCTestCase {
     await cleanupGate.waitUntilStarted()
 
     XCTAssertEqual(session.state, .loading)
+    XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
 
     await cleanupGate.release()
     await signOut.value
@@ -1727,6 +1730,7 @@ final class ProductAccountSessionTests: XCTestCase {
     try store.save(oldSnapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
     gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1738,6 +1742,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -1748,6 +1753,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
@@ -2033,6 +2039,7 @@ final class ProductAccountSessionTests: XCTestCase {
     try store.save(oldSnapshot)
     let gmailConnectionService = RecordingGmailProviderConnecting()
     gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -2044,6 +2051,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
+      outboxDeliveryService: outboxCleaner,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -2054,6 +2062,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(try store.load(), oldSnapshot)
     XCTAssertEqual(gmailConnectionService.clearedSessions, [oldSnapshot])
+    XCTAssertTrue(outboxCleaner.clearedSessions.isEmpty)
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
