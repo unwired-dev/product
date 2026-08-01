@@ -134,12 +134,21 @@ extension MessageHTMLHiddenStylePatterns {
     _ value: String,
     fontSizePixels: Double?
   ) -> Bool {
-    if isOnePixelLengthValue(value) { return true }
+    pixelLengthValue(value, fontSizePixels: fontSizePixels).map {
+      abs($0 - 1) < 0.000_000_001
+    } == true
+  }
+
+  static func pixelLengthValue(
+    _ value: String,
+    fontSizePixels: Double?
+  ) -> Double? {
+    if let pixels = pixelLengthValue(value) { return pixels }
     let normalized = value.lowercased()
     guard let fontSizePixels, normalized.hasSuffix("em"),
       let multiplier = Double(normalized.dropLast(2))
-    else { return false }
-    return abs(multiplier * fontSizePixels - 1) < 0.000_000_001
+    else { return nil }
+    return multiplier * fontSizePixels
   }
 
   // swiftlint:disable:next cyclomatic_complexity
@@ -354,7 +363,7 @@ extension MessageHTMLSanitizer {
             ),
             where: MessageHTMLHiddenStylePatterns.isVisibilityValue
           )
-          guard descendantVisibility == "visible" || descendantVisibility == "initial" else {
+          guard ["initial", "revert", "visible"].contains(descendantVisibility) else {
             return false
           }
           return try canPromoteVisibleDescendant(descendant, from: element)
@@ -393,7 +402,7 @@ extension MessageHTMLSanitizer {
         in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
-      if visibility == "visible" || visibility == "initial" { return false }
+      if ["initial", "revert", "visible"].contains(visibility) { return false }
       ancestor = current.parent()
     }
     return true

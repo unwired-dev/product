@@ -4,6 +4,8 @@ import ImageIO
 import SwiftSoup
 
 enum InlineImageDimensionPolicy {
+  private static let initialFontSizePixels = 16.0
+
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
     let fontSizePixels = inheritedFontSizePixels(in: element)
     return MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(
@@ -20,6 +22,7 @@ enum InlineImageDimensionPolicy {
         if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(normalizedFontSize) {
           return pixels
         }
+        if normalizedFontSize == "initial" { return initialFontSizePixels }
         if normalizedFontSize != "inherit" && normalizedFontSize != "unset" { return nil }
       }
       current = candidate.parent()
@@ -29,10 +32,10 @@ enum InlineImageDimensionPolicy {
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
     guard let value = value("min-\(dimension)", in: element) else { return false }
-    if let pixelValue = CSSLengthValuePolicy.absolutePixelLengthValue(value) {
-      return pixelValue > 1
-    }
-    if let pixelValue = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(value) {
+    if let pixelValue = MessageHTMLHiddenStylePatterns.pixelLengthValue(
+      value,
+      fontSizePixels: inheritedFontSizePixels(in: element)
+    ) {
       return pixelValue > 1
     }
     return false

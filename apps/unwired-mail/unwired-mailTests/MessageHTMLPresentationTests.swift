@@ -569,6 +569,28 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
   }
 
+  func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <img src="https://images.example.com/relative-minimum.png"
+             style="font-size: 16px; width: 1px; height: 1px; min-width: 2em; min-height: 2em">
+        <img src="https://tracker.example/initial-font-size.gif"
+             style="font-size: initial; width: .0625em; height: .0625em">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/relative-minimum.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("initial-font-size.gif"))
+  }
+
   func testSanitizerBlocksFontRelativeTrackingPixelWithInheritedFontSize() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1563,6 +1585,7 @@ extension MessageHTMLPresentationTests {
           Hidden preview
           <span style="visibility: visible">Receipt</span>
           <span style="visibility: initial">Initial receipt</span>
+          <span style="visibility: revert">Reverted receipt</span>
           <img src="https://tracker.example/hidden.png">
           <span style="visibility: visible">
             <img src="https://images.example.com/visible.png">
@@ -1575,6 +1598,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
     XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
+    XCTAssertTrue(result.documentHTML.contains("Reverted receipt"))
     XCTAssertFalse(result.documentHTML.contains("tracker.example"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
