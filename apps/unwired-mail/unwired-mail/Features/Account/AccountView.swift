@@ -1889,10 +1889,10 @@ extension AccountView {
   }
 
   private func signOut() {
-    ewsSetupViewModel.invalidate()
-    genericMailSetupViewModel.invalidate()
     Task {
       await session.signOut {
+        ewsSetupViewModel.invalidate()
+        genericMailSetupViewModel.invalidate()
         await mailActionViewModel.prepareForSignOut()
         mailboxFreshnessViewModel.cancelAll()
         mailboxFreshnessViewModel.clearPersistedState()

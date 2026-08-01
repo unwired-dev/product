@@ -643,7 +643,8 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
-    try await resumePendingSignOut()
+    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    try await resumePendingSignOut(resumingExternalCleanup: false)
   }
 
   private func resumePendingSignOut(

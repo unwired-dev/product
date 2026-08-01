@@ -420,11 +420,22 @@ async function deleteOrphanedGmailIdentityBindings(
   productAccountId: Id<'productAccounts'>,
   connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
 ): Promise<void> {
+  const candidateOpaqueConnectionIds = await Promise.all(
+    connections.map(async (connection) => {
+      if (connection.opaqueConnectionId !== undefined) {
+        return connection.opaqueConnectionId;
+      }
+      return connection.providerAccountIdentifier === undefined
+        ? undefined
+        : opaqueGmailConnectionId(
+            productAccountId,
+            connection.providerAccountIdentifier,
+          );
+    }),
+  );
   const opaqueConnectionIds = new Set(
-    connections.flatMap((connection) =>
-      connection.opaqueConnectionId === undefined
-        ? []
-        : [connection.opaqueConnectionId],
+    candidateOpaqueConnectionIds.filter(
+      (opaqueConnectionId) => opaqueConnectionId !== undefined,
     ),
   );
   const legacyRoutes = await legacyGmailRouteSnapshot(ctx, productAccountId);

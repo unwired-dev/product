@@ -1553,7 +1553,8 @@ final class ProductAccountSessionTests: XCTestCase {
   func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
-      identityToken: "token-001",
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
       productAccountId: "productAccountFixtureId",
       trustedDeviceId: "trustedDeviceFixtureId"
     )
@@ -1591,7 +1592,7 @@ final class ProductAccountSessionTests: XCTestCase {
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
-    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
+    XCTAssertEqual(pushUnregisterer.sessions, [])
   }
 
   func testBootstrapRunsOnlyOnceForSharedMultiWindowSession() async {

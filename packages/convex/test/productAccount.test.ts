@@ -485,6 +485,51 @@ describe('productAccount.connect', () => {
   );
   /* oxlint-enable vitest/no-conditional-in-test */
 
+  it('deletes a Gmail identity binding after its final legacy route is removed', async () => {
+    expect.assertions(1);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const providerAccountIdentifier = 'gmail-user-legacy';
+    const opaqueConnectionId = await opaqueGmailConnectionId(
+      currentDevice.productAccountId,
+      providerAccountIdentifier,
+    );
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        providerAccountIdentifier,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('gmailOpaqueIdentityBindings', {
+        identityBindingDigest: 'digest-legacy',
+        opaqueConnectionId,
+        productAccountId: currentDevice.productAccountId,
+        updatedAt: now,
+      });
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    await expect(
+      t.run(async (ctx) =>
+        ctx.db.query('gmailOpaqueIdentityBindings').collect(),
+      ),
+    ).resolves.toStrictEqual([]);
+  });
+
   it('drains over-limit legacy Gmail routes during device unregistration', async () => {
     expect.assertions(1);
 
