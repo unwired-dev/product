@@ -483,13 +483,7 @@ extension MessageHTMLHiddenStylePatterns {
       case "border-width":
         value = borderWidthValues(declaration.value)?[side]
       case sideProperty, "border":
-        let components =
-          declaration.value
-          .split(whereSeparator: \Character.isWhitespace)
-          .map(String.init)
-        value =
-          components.compactMap(normalizedBorderWidthValue).first
-          ?? (components.contains(where: isBorderStyleValue) ? "3px" : nil)
+        value = borderShorthandValues(declaration.value).map { $0.width ?? "3px" }
       default:
         continue
       }
@@ -515,9 +509,7 @@ extension MessageHTMLHiddenStylePatterns {
       case "border-style":
         value = borderStyleValues(declaration.value)?[side]
       case sideProperty, "border":
-        value = declaration.value.split(whereSeparator: \Character.isWhitespace)
-          .map(String.init)
-          .first(where: isBorderStyleValue)
+        value = borderShorthandValues(declaration.value)?.style
       default:
         continue
       }
@@ -585,6 +577,29 @@ extension MessageHTMLHiddenStylePatterns {
     return expandedBoxValues(values)
   }
 
+  private static func borderShorthandValues(_ value: String) -> (width: String?, style: String?)? {
+    let components = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard (1...3).contains(components.count) else { return nil }
+    var width: String?
+    var style: String?
+    var hasColor = false
+    for component in components {
+      if let normalizedWidth = normalizedBorderWidthValue(component) {
+        guard width == nil else { return nil }
+        width = normalizedWidth
+      } else if isBorderStyleValue(component) {
+        guard style == nil else { return nil }
+        style = component
+      } else if isBorderColorValue(component) {
+        guard !hasColor else { return nil }
+        hasColor = true
+      } else {
+        return nil
+      }
+    }
+    return (width, style)
+  }
+
   private static func expandedBoxValues(_ values: [String]) -> [String] {
     switch values.count {
     case 1: return [values[0], values[0], values[0], values[0]]
@@ -613,6 +628,24 @@ extension MessageHTMLHiddenStylePatterns {
   private static func isBorderStyleValue(_ value: String) -> Bool {
     ["dashed", "dotted", "double", "groove", "hidden", "inset", "none", "outset", "ridge", "solid"]
       .contains(value)
+  }
+
+  private static func isBorderColorValue(_ value: String) -> Bool {
+    let namedColors = Set([
+      "aqua", "black", "blue", "currentcolor", "fuchsia", "gray", "green", "lime",
+      "maroon", "navy", "olive", "orange", "purple", "red", "silver", "teal",
+      "transparent", "white", "yellow",
+    ])
+    return namedColors.contains(value)
+      || value.range(
+        of: #"^#(?:[0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$"#,
+        options: .regularExpression
+      ) != nil
+      || value.range(
+        of:
+          #"^(?:color|color-mix|hsl|hsla|hwb|lab|lch|light-dark|oklab|oklch|rgb|rgba|var)\(.+\)$"#,
+        options: .regularExpression
+      ) != nil
   }
 
   private static func isMarginValue(_ value: String) -> Bool {

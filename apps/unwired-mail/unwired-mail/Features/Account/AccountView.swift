@@ -5862,15 +5862,16 @@ final class GmailInboxViewModel {
     defer { loadingMessageBodyCount -= 1 }
     let loadedBody = try await reader.loadMessageBody(message: message, session: session)
     try Task.checkCancellation()
-    let body =
-      if loadedBody.inlineImages.isEmpty {
-        loadedBody
-      } else {
-        try await withRemoteImageAdmissionGate {
-          try Task.checkCancellation()
-          return try retainLoadedInlineImages(loadedBody, for: message.id)
-        }
+    let body: MailboxMessageBody
+    if loadedBody.inlineImages.isEmpty {
+      discardLoadedMessageBodyPresentation(for: message.id)
+      body = loadedBody
+    } else {
+      body = try await withRemoteImageAdmissionGate {
+        try Task.checkCancellation()
+        return try retainLoadedInlineImages(loadedBody, for: message.id)
       }
+    }
     retainLoadedMessageBodyText(body.text, for: message.id)
     return body
   }

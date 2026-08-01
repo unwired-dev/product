@@ -3499,6 +3499,70 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelReleasesImageReservationWhenReloadedBodyHasNoImages() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let firstMessage = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let secondMessage = metadata(
+      messageId: "message-002",
+      threadId: "thread-001",
+      internalDateMilliseconds: 20
+    ).mailboxMetadata(connectionId: firstMessage.connectionId)
+    let imageData = Data(repeating: 1, count: 20 * 1_024 * 1_024)
+    let firstReader = ImmediateMailboxMessageReader(
+      bodies: [
+        firstMessage.id: MailboxMessageBody(
+          text: "First",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "first@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        )
+      ]
+    )
+    let emptyReader = ImmediateMailboxMessageReader(
+      bodies: [firstMessage.id: MailboxMessageBody(text: "Updated")]
+    )
+    let secondReader = ImmediateMailboxMessageReader(
+      bodies: [
+        secondMessage.id: MailboxMessageBody(
+          text: "Second",
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "second@example.com",
+              data: imageData,
+              decodedPixelCount: 1,
+              mimeType: "image/png"
+            )
+          ]
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+
+    _ = try await viewModel.loadMessageBody(firstMessage, using: firstReader)
+    _ = try await viewModel.loadMessageBody(firstMessage, using: emptyReader)
+    let secondBody = try await viewModel.loadMessageBody(secondMessage, using: secondReader)
+
+    XCTAssertEqual(secondBody.inlineImages.map(\.contentID), ["second@example.com"])
+  }
+
+  @MainActor
   func testInboxViewModelSharesImageBudgetAcrossInlineAndRemotePresentations() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(

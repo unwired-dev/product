@@ -2623,6 +2623,30 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("default-border.gif"))
   }
 
+  func testSanitizerIgnoresInvalidBorderShorthandsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="border-left:solid bogus;border-right:solid bogus">
+            <img src="https://images.example/visible.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(result.remoteImageReferences.count, 1)
+    XCTAssertEqual(
+      result.remoteImageReferences.first?.url.absoluteString,
+      "https://images.example/visible.gif"
+    )
+    XCTAssertTrue(result.documentHTML.contains(RemoteMessageContentMarkup.attribute))
+    XCTAssertFalse(result.documentHTML.contains("visible.gif"))
+  }
+
   func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
