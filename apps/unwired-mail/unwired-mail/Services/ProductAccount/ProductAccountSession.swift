@@ -660,7 +660,7 @@ extension ProductAccountSession {
       snapshot.productAccountId == productAccountId
     {
       let cleanupSnapshot: ProductAccountSessionSnapshot
-      if snapshot.identityTokenState() == .active {
+      if snapshot.identityTokenState() != .expired {
         cleanupSnapshot = snapshot
       } else {
         let credential = try await appleSignInService.signIn()
