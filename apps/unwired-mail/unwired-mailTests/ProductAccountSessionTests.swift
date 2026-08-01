@@ -1781,6 +1781,16 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      ]
+    )
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
     XCTAssertEqual(pushUnregisterer.sessions, [])
   }
@@ -1835,6 +1845,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(countingStore.loadCount, 1)
   }
 
+  // swiftlint:disable:next function_body_length
   func testBootstrapClearsRevokedSessionWhenMailboxCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -1877,6 +1888,16 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertNil(try store.loadPendingSignOutProductAccountId())
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      ]
     )
     XCTAssertNil(session.unacknowledgedRecoveryKey)
     XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)

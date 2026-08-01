@@ -633,9 +633,7 @@ extension ProductAccountSession {
       case .notAuthorized:
         do {
           let mailboxCleanupError = try await clearRevokedSession(snapshot)
-          unacknowledgedRecoveryKey = nil
-          unacknowledgedRecoveryKeyMarker = nil
-          unacknowledgedRecoveryAccountId = nil
+          clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
           if let mailboxCleanupError {
             state = .failed(mailboxCleanupError.localizedDescription)
           } else {
@@ -674,6 +672,7 @@ extension ProductAccountSession {
     } catch {
       mailboxCleanupError = error
     }
+    try persistTrustedDeviceUnregistrationRetry(snapshot)
     try await resumePendingSignOut(resumingExternalCleanup: false)
     return mailboxCleanupError
   }
