@@ -66,6 +66,7 @@ final class ProductAccountSession {
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
+  private let outboxDeliveryService: OutboxDeliveryClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
@@ -75,6 +76,7 @@ final class ProductAccountSession {
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
+    outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -83,6 +85,7 @@ final class ProductAccountSession {
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
+    self.outboxDeliveryService = outboxDeliveryService
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
@@ -176,7 +179,7 @@ final class ProductAccountSession {
       var mailboxCleanupError: Error?
       if let cleanupSnapshot {
         do {
-          try await mailboxConnectionService.clearLocalConnection(
+          try await clearLocalProductAccountData(
             session: cleanupSnapshot,
             isStillCurrent: {
               !self.signOutSnapshotWasReplaced(snapshot)
@@ -256,7 +259,7 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.save(snapshot)
     do {
-      try await clearLocalMailboxConnectionIfProductAccountChanged(
+      try await clearLocalProductAccountDataIfProductAccountChanged(
         from: existingSnapshot,
         to: snapshot
       )
@@ -270,7 +273,7 @@ final class ProductAccountSession {
     )
   }
 
-  private func clearLocalMailboxConnectionIfProductAccountChanged(
+  private func clearLocalProductAccountDataIfProductAccountChanged(
     from existingSnapshot: ProductAccountSessionSnapshot?,
     to snapshot: ProductAccountSessionSnapshot
   ) async throws {
@@ -281,7 +284,7 @@ final class ProductAccountSession {
       return
     }
 
-    try await mailboxConnectionService.clearLocalConnection(session: existingSnapshot)
+    try await clearLocalProductAccountData(session: existingSnapshot)
   }
 
   private func unregisterDeviceIfProductAccountChanged(
@@ -304,6 +307,19 @@ final class ProductAccountSession {
     }
 
     return snapshot
+  }
+}
+
+extension ProductAccountSession {
+  fileprivate func clearLocalProductAccountData(
+    session: ProductAccountSessionSnapshot,
+    isStillCurrent: @escaping @MainActor () -> Bool = { true }
+  ) async throws {
+    try await outboxDeliveryService.clear(session: session)
+    try await mailboxConnectionService.clearLocalConnection(
+      session: session,
+      isStillCurrent: isStillCurrent
+    )
   }
 }
 
@@ -554,7 +570,7 @@ extension ProductAccountSession {
     let previousSnapshot = try? sessionStore.load()
     try sessionStore.save(snapshot)
     do {
-      try await clearLocalMailboxConnectionIfProductAccountChanged(
+      try await clearLocalProductAccountDataIfProductAccountChanged(
         from: previousSnapshot,
         to: snapshot
       )
@@ -666,6 +682,7 @@ extension ProductAccountSession {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
+    try await outboxDeliveryService.clear(session: snapshot)
     var mailboxCleanupError: Error?
     do {
       try await mailboxConnectionService.clearLocalConnection(session: snapshot)
@@ -695,7 +712,7 @@ extension ProductAccountSession {
       } else {
         try persistTrustedDeviceUnregistrationRetry(snapshot)
       }
-      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+      try await clearLocalProductAccountData(session: snapshot)
       if snapshot.identityTokenState() == .active {
         try await unregisterTrustedDeviceOrPersistForRetry(snapshot)
       }

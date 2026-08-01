@@ -5104,12 +5104,7 @@ final class GmailMailActionViewModel {
     deferredBulkFailures.removeAll()
     outboxRetryObservationTask?.cancel()
     retryObservationTask?.cancel()
-    do {
-      try await outboxService.clear(session: session)
-      outboxItems = []
-    } catch {
-      errorMessage = error.localizedDescription
-    }
+    outboxItems = []
   }
 
   private func observeOutboxRetries() {
