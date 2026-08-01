@@ -59,9 +59,9 @@ enum RemoteMessageContentMarkup {
         return false
       }
       if [dimension, "max-\(dimension)"].contains(where: { property in
-        InlineImageDimensionPolicy.value(property, in: element).map(
-          MessageHTMLHiddenStylePatterns.isOnePixelLengthValue
-        ) == true
+        InlineImageDimensionPolicy.value(property, in: element).map {
+          InlineImageDimensionPolicy.isOnePixel($0, in: element)
+        } == true
       }) {
         return true
       }

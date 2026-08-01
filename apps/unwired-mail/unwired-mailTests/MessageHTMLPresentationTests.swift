@@ -535,6 +535,8 @@ extension MessageHTMLPresentationTests {
              style="width: calc(2px - 1px); height: calc(3px - 2px)">
         <img src="https://tracker.example/point-one.gif"
              style="width: .75pt; height: .75pt">
+        <img src="https://tracker.example/font-relative-one.gif"
+             style="font-size: 1px; width: 1em; height: 1em">
         <img src="https://images.example.com/minimum-width.png"
              style="width: 1px; height: 1px; min-width: 600px">
         <img src="https://images.example.com/calculated-size.png"
@@ -564,6 +566,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("calculated-one.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("calculated-subtraction.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("point-one.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
   }
 
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
@@ -1536,6 +1539,7 @@ extension MessageHTMLPresentationTests {
         <div style="visibility: hidden">
           Hidden preview
           <span style="visibility: visible">Receipt</span>
+          <span style="visibility: initial">Initial receipt</span>
           <img src="https://tracker.example/hidden.png">
           <span style="visibility: visible">
             <img src="https://images.example.com/visible.png">
@@ -1547,6 +1551,7 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
     XCTAssertFalse(result.documentHTML.contains("tracker.example"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),

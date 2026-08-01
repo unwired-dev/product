@@ -4,6 +4,15 @@ import ImageIO
 import SwiftSoup
 
 enum InlineImageDimensionPolicy {
+  static func isOnePixel(_ value: String, in element: Element) -> Bool {
+    let fontSizePixels = self.value("font-size", in: element)
+      .flatMap(MessageHTMLHiddenStylePatterns.pixelLengthValue)
+    return MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(
+      value,
+      fontSizePixels: fontSizePixels
+    )
+  }
+
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
     guard let value = value("min-\(dimension)", in: element) else { return false }
     if let pixelValue = CSSLengthValuePolicy.absolutePixelLengthValue(value) {

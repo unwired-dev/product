@@ -115,6 +115,23 @@ extension MessageHTMLHiddenStylePatterns {
     } == true
   }
 
+  static func pixelLengthValue(_ value: String) -> Double? {
+    CSSLengthValuePolicy.absolutePixelLengthValue(value)
+      ?? simpleCalculatedPixelLengthValue(value)
+  }
+
+  static func isOnePixelLengthValue(
+    _ value: String,
+    fontSizePixels: Double?
+  ) -> Bool {
+    if isOnePixelLengthValue(value) { return true }
+    let normalized = value.lowercased()
+    guard let fontSizePixels, normalized.hasSuffix("em"),
+      let multiplier = Double(normalized.dropLast(2))
+    else { return false }
+    return abs(multiplier * fontSizePixels - 1) < 0.000_000_001
+  }
+
   // swiftlint:disable:next cyclomatic_complexity
   static func simpleCalculatedPixelLengthValue(_ value: String) -> Double? {
     let normalized = value.lowercased()
@@ -327,7 +344,9 @@ extension MessageHTMLSanitizer {
             ),
             where: MessageHTMLHiddenStylePatterns.isVisibilityValue
           )
-          guard descendantVisibility == "visible" else { return false }
+          guard descendantVisibility == "visible" || descendantVisibility == "initial" else {
+            return false
+          }
           return try canPromoteVisibleDescendant(descendant, from: element)
         }
         for descendant in visibleDescendants {
