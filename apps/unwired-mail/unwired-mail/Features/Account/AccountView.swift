@@ -5446,10 +5446,17 @@ extension GmailMailActionViewModel {
         $0.append($1)
       }
     }
+    let connectionOrder = Dictionary(
+      uniqueKeysWithValues: knownConnections.enumerated().map { ($1.id, $0) }
+    )
+    let orderedFailures = failures.sorted {
+      connectionOrder[$0.connectionId, default: .max]
+        < connectionOrder[$1.connectionId, default: .max]
+    }
     errorMessage =
-      failures.isEmpty
+      orderedFailures.isEmpty
       ? nil
-      : failures.map(Self.failureDescription).joined(separator: "\n")
+      : orderedFailures.map(Self.failureDescription).joined(separator: "\n")
   }
 
   nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
