@@ -21,6 +21,7 @@ enum ProductAccountSessionState: Equatable {
 enum ProductAccountSessionError: LocalizedError, Equatable {
   case differentAppleAccount
   case recoveryNotBackedUp
+  case recoveryKeyUnacknowledged
   case recoveryNotPending
 
   var errorDescription: String? {
@@ -29,6 +30,8 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
       return "Recent authentication must use the current Product Account."
     case .recoveryNotBackedUp:
       return "Back up the Recovery Key before signing out on this device."
+    case .recoveryKeyUnacknowledged:
+      return "Back up the current Recovery Key before replacing it."
     case .recoveryNotPending:
       return "Sign in with Apple before restoring Product Sync with a Recovery Key."
     }
@@ -691,6 +694,12 @@ extension ProductAccountSession {
         ?? (try? sessionStore.load())?.productAccountId
     else {
       throw CancellationError()
+    }
+    let persistedMarker = try sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: productAccountId
+    )
+    guard persistedMarker == nil || persistedMarker?.recoveryKey == recoveryKey else {
+      throw ProductAccountSessionError.recoveryKeyUnacknowledged
     }
     guard
       let material = try productSyncKeyMaterialStore.load(productAccountId: productAccountId)
