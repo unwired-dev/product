@@ -509,8 +509,12 @@ extension MessageHTMLPresentationTests {
              style="width: +0px; height: 1px">
         <img src="https://tracker.example/calculated-one.gif"
              style="width: calc(1px); height: calc(0px + 1px)">
+        <img src="https://tracker.example/calculated-subtraction.gif"
+             style="width: calc(2px - 1px); height: calc(3px - 2px)">
         <img src="https://images.example.com/minimum-width.png"
              style="width: 1px; height: 1px; min-width: 600px">
+        <img src="https://images.example.com/calculated-size.png"
+             style="width: calc(3px - 1px); height: calc(4px - 2px)">
         <img src="https://images.example.com/logo.png"
              style="height: 40px; width: 120px">
         """
@@ -524,6 +528,7 @@ extension MessageHTMLPresentationTests {
       presentation.remoteImageReferences.map(\.url.absoluteString),
       [
         "https://images.example.com/minimum-width.png",
+        "https://images.example.com/calculated-size.png",
         "https://images.example.com/logo.png",
       ]
     )
@@ -533,6 +538,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("signed-one.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("calculated-one.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("calculated-subtraction.gif"))
   }
 
   func testSanitizerDoesNotRetainRemoteImagesInsideOffCanvasWrappers() throws {

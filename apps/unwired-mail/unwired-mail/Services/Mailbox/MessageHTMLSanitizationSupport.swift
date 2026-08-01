@@ -87,6 +87,7 @@ extension MessageHTMLHiddenStylePatterns {
       options: .regularExpression
     ) != nil
       || isCalculatedZeroLengthValue(value)
+      || simpleCalculatedPixelLengthValue(value).map { abs($0) < 0.000_000_001 } == true
   }
 
   static func isOnePixelLengthValue(_ value: String) -> Bool {
@@ -97,20 +98,60 @@ extension MessageHTMLHiddenStylePatterns {
     ) != nil {
       return true
     }
-    guard value.lowercased().hasPrefix("calc("), value.hasSuffix(")") else { return false }
-    let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
-    let zeroTerm =
-      CSSLengthValuePolicy.unsignedZeroPattern
-      + CSSLengthValuePolicy.optionalUnitPattern
-    let signedZeroTerms = "(?:[+-]" + zeroTerm + ")*"
-    let calculatedOnePixelPattern =
-      "(?:" + onePixelPattern + signedZeroTerms
-      + "|[+-]?" + zeroTerm + signedZeroTerms + "\\+" + onePixelPattern
-      + signedZeroTerms + ")"
-    return expression.range(
-      of: "^" + calculatedOnePixelPattern + "$",
-      options: [.regularExpression, .caseInsensitive]
-    ) != nil
+    return simpleCalculatedPixelLengthValue(value).map {
+      abs($0 - 1) < 0.000_000_001
+    } == true
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity
+  static func simpleCalculatedPixelLengthValue(_ value: String) -> Double? {
+    let normalized = value.lowercased()
+    guard normalized.hasPrefix("calc("), normalized.hasSuffix(")") else { return nil }
+    let expression = Array(normalized.dropFirst(5).dropLast().filter { !$0.isWhitespace })
+    guard !expression.isEmpty else { return nil }
+    var index = 0
+    var termCount = 0
+    var total = 0.0
+    while index < expression.count {
+      var sign = 1.0
+      if expression[index] == "+" || expression[index] == "-" {
+        sign = expression[index] == "-" ? -1 : 1
+        index += 1
+      } else if termCount > 0 {
+        return nil
+      }
+      let numberStart = index
+      var hasDigit = false
+      var hasDecimalPoint = false
+      while index < expression.count {
+        if expression[index].isNumber {
+          hasDigit = true
+        } else if expression[index] == ".", !hasDecimalPoint {
+          hasDecimalPoint = true
+        } else {
+          break
+        }
+        index += 1
+      }
+      guard hasDigit,
+        let number = Double(String(expression[numberStart..<index]))
+      else { return nil }
+      let unitStart = index
+      while index < expression.count,
+        expression[index].isLetter || expression[index] == "%"
+      {
+        index += 1
+      }
+      let unit = String(expression[unitStart..<index])
+      let zeroLengthUnits = Set([
+        "", "%", "ch", "cm", "em", "ex", "in", "mm", "pc", "pt", "px", "q", "rem", "vh",
+        "vmax", "vmin", "vw",
+      ])
+      guard unit == "px" || (number == 0 && zeroLengthUnits.contains(unit)) else { return nil }
+      if unit == "px" { total += sign * number }
+      termCount += 1
+    }
+    return total
   }
 
   private static func isCalculatedZeroLengthValue(_ value: String) -> Bool {
