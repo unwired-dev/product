@@ -19,6 +19,7 @@ import {
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
+const microsoftGraphConnectionLimitPerTrustedDevice = 20;
 export const gmailLegacyRouteFallbackLimit = 100;
 const trustedDeviceLimitPerProductAccount = 100;
 const trustedDeviceNameMaximumLength = 80;
@@ -468,6 +469,40 @@ async function deleteGmailConnectionsForTrustedDevice(
   );
 }
 
+async function deleteMicrosoftGraphConnectionsForTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  for (;;) {
+    const page = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('provider', 'microsoft-graph')
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .take(microsoftGraphConnectionLimitPerTrustedDevice);
+    if (page.length === 0) {
+      break;
+    }
+    for (const connection of page) {
+      const wakeupState = await ctx.db
+        .query('microsoftGraphWakeupStates')
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        .withIndex('by_routeId', (q) => q.eq('routeId', connection._id))
+        .unique();
+      if (wakeupState !== null) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.delete(wakeupState._id);
+      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+  }
+}
+
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
@@ -578,6 +613,11 @@ export const unregisterTrustedDevice = mutation({
       throw new Error('Current trusted device required');
     }
     await deleteGmailConnectionsForTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    await deleteMicrosoftGraphConnectionsForTrustedDevice(
       ctx,
       account.productAccountId,
       args.trustedDeviceId,

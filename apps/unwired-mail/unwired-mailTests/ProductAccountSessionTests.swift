@@ -596,7 +596,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
   }
 
-  func testSecondRecoveryKeyCannotReplaceAnUnacknowledgedMarker() async throws {
+  func testRecoveryKeyCanReplaceMarkerForNoLongerCurrentWrapper() async throws {
     let snapshot = Self.restorableSnapshot
     let productAccountId = ProductAccountConnectResponse.preview.productAccountId
     try store.save(snapshot)
@@ -621,14 +621,13 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: productAccountId
     )
 
-    XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("second-key")) {
-      XCTAssertEqual($0 as? ProductAccountSessionError, .recoveryKeyUnacknowledged)
-    }
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "first-key")
+    try session.preserveUnacknowledgedRecoveryKey("second-key")
+
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "second-key")
     let persistedMarker = try store.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
+    XCTAssertEqual(persistedMarker?.recoveryKey, "second-key")
   }
 
   func testSignOutRemainsBlockedWhenRecoveryKeyPersistenceFails() async throws {
@@ -1182,6 +1181,38 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pendingAccountIdAtUnregistration, snapshot.productAccountId)
   }
 
+  func testSignOutPersistsCleanupIntentBeforeProviderAndMailboxCleanup() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    var pendingAccountIdAtPushCleanup: String?
+    var pendingAccountIdAtMailboxCleanup: String?
+    pushUnregisterer.action = {
+      pendingAccountIdAtPushCleanup = try? self.store.loadPendingSignOutProductAccountId()
+    }
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    mailboxConnectionService.clearAction = {
+      pendingAccountIdAtMailboxCleanup = try? self.store.loadPendingSignOutProductAccountId()
+    }
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.signOut()
+
+    XCTAssertEqual(pendingAccountIdAtPushCleanup, snapshot.productAccountId)
+    XCTAssertEqual(pendingAccountIdAtMailboxCleanup, snapshot.productAccountId)
+  }
+
   func testSignOutLeavesPendingCleanupWhenSessionCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -1228,6 +1259,8 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: snapshot.productAccountId,
       allowCreation: true
     )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let productAccountService = RecordingProductAccountService(response: .preview)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
@@ -1235,8 +1268,10 @@ final class ProductAccountSessionTests: XCTestCase {
           identityToken: snapshot.identityToken
         )
       ),
-      productAccountService: PreviewProductAccountService(response: .preview),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
       sessionStore: sessionStore,
+      mailboxConnectionService: mailboxConnectionService,
       productSyncKeyMaterialStore: keyMaterialStore
     )
 
@@ -1248,6 +1283,9 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
     )
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
+    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
   }
 
   func testSignOutPreservesStoredSessionWhenBodyCacheCleanupFails() async throws {
@@ -2287,6 +2325,7 @@ private final class RecordingGmailProviderConnecting:
 {
   var clearedSession: ProductAccountSessionSnapshot?
   var clearedSessions: [ProductAccountSessionSnapshot] = []
+  var clearAction: (() -> Void)?
   var clearError: Error?
 
   func clearLocalConnection(
@@ -2294,6 +2333,7 @@ private final class RecordingGmailProviderConnecting:
   ) async throws {
     clearedSession = session
     clearedSessions.append(session)
+    clearAction?()
     if let clearError {
       throw clearError
     }
@@ -2346,11 +2386,13 @@ private final class RecordingGmailProviderConnecting:
 }
 
 private final class RecordingDevicePushUnregisterer: DevicePushUnregistering {
+  var action: (() -> Void)?
   var error: Error?
   var sessions: [ProductAccountSessionSnapshot] = []
 
   func unregister(session: ProductAccountSessionSnapshot) async throws {
     sessions.append(session)
+    action?()
     if let error {
       throw error
     }

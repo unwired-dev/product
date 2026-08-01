@@ -327,6 +327,55 @@ describe('productAccount.connect', () => {
     expect(remainingBindingIds).toStrictEqual(['connection-1']);
   });
 
+  it('deletes Microsoft Graph routes and wakeup state owned by an unregistered device', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity(appleIdentity);
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const otherDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await t.run(async (ctx) => {
+      const now = Date.now();
+      for (const trustedDeviceId of [
+        currentDevice.trustedDeviceId,
+        otherDevice.trustedDeviceId,
+      ]) {
+        const routeId = await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'microsoft-graph',
+          trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('microsoftGraphWakeupStates', {
+          routeId,
+          scheduledAt: now,
+        });
+      }
+    });
+
+    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
+      deviceIdentifier: 'device-001',
+      trustedDeviceId: currentDevice.trustedDeviceId,
+    });
+
+    const remaining = await t.run(async (ctx) => ({
+      routes: await ctx.db.query('mailProviderConnections').collect(),
+      wakeupStates: await ctx.db.query('microsoftGraphWakeupStates').collect(),
+    }));
+    expect(
+      remaining.routes.map((route) => route.trustedDeviceId),
+    ).toStrictEqual([otherDevice.trustedDeviceId]);
+    expect(remaining.wakeupStates).toHaveLength(1);
+  });
+
   /* oxlint-disable vitest/no-conditional-in-test -- table-driven cases select distinct public skip-path fixtures. */
   it.each([
     'remaining route',

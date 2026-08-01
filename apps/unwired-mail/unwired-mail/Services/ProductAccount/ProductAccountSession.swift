@@ -107,7 +107,7 @@ final class ProductAccountSession {
       clearPendingProductSyncRecovery()
 
       do {
-        try resumePendingSignOut()
+        try await resumePendingSignOut()
         let credential = try await appleSignInService.signIn()
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
@@ -167,6 +167,9 @@ final class ProductAccountSession {
         }
       )
       if let cleanupSnapshot {
+        try sessionStore.savePendingSignOutProductAccountId(
+          cleanupSnapshot.productAccountId
+        )
         // Trusted Device unregistration below removes backend routing even if
         // this best-effort provider-specific push cleanup fails.
         try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
@@ -191,12 +194,9 @@ final class ProductAccountSession {
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
       if let snapshot, let cleanupSnapshot {
-        try sessionStore.savePendingSignOutProductAccountId(
-          snapshot.productAccountId
-        )
         try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
-        try resumePendingSignOut()
+        try await resumePendingSignOut(resumingExternalCleanup: false)
       } else {
         try sessionStore.clear()
       }
@@ -571,7 +571,7 @@ extension ProductAccountSession {
 extension ProductAccountSession {
   // swiftlint:disable:next function_body_length
   private func performBootstrap() async {
-    guard prepareForBootstrap() else { return }
+    guard await prepareForBootstrap() else { return }
     guard let snapshot = try? sessionStore.load() else {
       state = .signedOut
       return
@@ -628,9 +628,9 @@ extension ProductAccountSession {
     }
   }
 
-  private func prepareForBootstrap() -> Bool {
+  private func prepareForBootstrap() async -> Bool {
     do {
-      try resumePendingSignOut()
+      try await resumePendingSignOut()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -641,19 +641,28 @@ extension ProductAccountSession {
   private func clearRevokedSession(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws {
-    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
-    try resumePendingSignOut()
+    try await resumePendingSignOut()
   }
 
-  private func resumePendingSignOut() throws {
+  private func resumePendingSignOut(
+    resumingExternalCleanup: Bool = true
+  ) async throws {
     guard
       let productAccountId =
         try sessionStore.loadPendingSignOutProductAccountId()
     else {
       return
+    }
+    if resumingExternalCleanup,
+      let snapshot = try sessionStore.load(),
+      snapshot.productAccountId == productAccountId
+    {
+      try? await devicePushUnregistrationService.unregister(session: snapshot)
+      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+      try? await unregisterTrustedDeviceForSignOut(snapshot)
     }
     try sessionStore.clear()
     try productSyncKeyMaterialStore.clear(
@@ -706,8 +715,7 @@ extension ProductAccountSession {
     let hasUnacknowledgedCurrentKey =
       persistedMarker.map { marker in
         marker.recoveryKey != recoveryKey
-          && (marker == unacknowledgedRecoveryKeyMarker
-            || marker.recoveryWrappedAccountKey == nil
+          && (marker.recoveryWrappedAccountKey == nil
             || marker.recoveryWrappedAccountKey == material.recoveryWrappedAccountKey)
       } ?? false
     guard !hasUnacknowledgedCurrentKey else {
