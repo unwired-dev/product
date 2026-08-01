@@ -30,28 +30,6 @@ Install TypeScript workspace dependencies:
 pnpm install
 ```
 
-For Linux CI parity against local changes, install and authenticate the
-[Blacksmith CLI](https://docs.blacksmith.sh/blacksmith-testbox/overview), then
-warm the repository's TypeScript Testbox from the repository root:
-
-```sh
-curl -fsSL https://get.blacksmith.sh | sh
-blacksmith auth login
-blacksmith testbox warmup blacksmith-testbox.yml --job typescript
-```
-
-Reuse the returned Testbox ID to sync local changes and run checks in the warm
-CI environment, then stop it when finished:
-
-```sh
-blacksmith testbox run --id <ID> "pnpm install --frozen-lockfile && pnpm lint && pnpm format && pnpm turbo run check-types && pnpm test && pnpm fallow"
-blacksmith testbox stop --id <ID>
-```
-
-Run `blacksmith testbox` from the repository root because it mirrors the current
-working tree with deletion enabled. Testboxes provide the Linux TypeScript
-environment only; Apple lint and Xcode tests still run locally or in macOS CI.
-
 Run the Convex backend development environment:
 
 ```sh
