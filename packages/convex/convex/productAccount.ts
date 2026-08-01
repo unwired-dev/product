@@ -2,6 +2,8 @@ import {
   gmailProviderConnectionStatusValidator,
   productAccountConnectResponseValidator,
   productSyncMaterialInitializedResponseValidator,
+  trustedDeviceUnregistrationResponseValidator,
+  trustedDeviceSummaryValidator,
 } from '@private-email/contracts/productAccount';
 import { v } from 'convex/values';
 
@@ -9,6 +11,7 @@ import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
+import { opaqueGmailConnectionId } from './gmailRouting.js';
 import {
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
@@ -16,9 +19,14 @@ import {
 } from './productAccountAuth.js';
 
 const gmailConnectionLimitPerTrustedDevice = 20;
+const microsoftGraphConnectionLimitPerTrustedDevice = 20;
+export const gmailLegacyRouteFallbackLimit = 100;
+const trustedDeviceLimitPerProductAccount = 100;
+const trustedDeviceNameMaximumLength = 80;
 
 type TrustedDeviceRegistration = Readonly<{
   deviceIdentifier: string;
+  deviceName: string | undefined;
   now: number;
   platform: string;
 }>;
@@ -31,6 +39,54 @@ type GmailConnectionDetails = Readonly<{
   trustedDeviceId: Id<'trustedDevices'>;
   updatedAt: number;
 }>;
+
+function normalizedTrustedDeviceName(displayName: string): string {
+  const normalized = displayName.trim();
+  if (
+    normalized.length === 0 ||
+    normalized.length > trustedDeviceNameMaximumLength
+  ) {
+    throw new Error(
+      `Trusted Device name must be between 1 and ${trustedDeviceNameMaximumLength} characters`,
+    );
+  }
+  return normalized;
+}
+
+function defaultTrustedDeviceName(platform: string): string {
+  switch (platform) {
+    case 'ios': {
+      return 'Apple mobile device';
+    }
+    case 'macos': {
+      return 'Mac';
+    }
+    default: {
+      return 'Apple device';
+    }
+  }
+}
+
+function trustedDeviceSummary(
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable query results.
+  device: Readonly<Doc<'trustedDevices'>>,
+): {
+  displayName: string;
+  id: string;
+  lastSeenAt: number;
+  platform: string;
+  registeredAt: number;
+} {
+  return {
+    displayName:
+      device.displayName ?? defaultTrustedDeviceName(device.platform),
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    id: device._id,
+    lastSeenAt: device.lastSeenAt,
+    platform: device.platform,
+    registeredAt: device.registeredAt,
+  };
+}
 
 function gmailConnectionDetails(
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
@@ -170,6 +226,67 @@ async function upsertProductAccount(
   };
 }
 
+async function registerTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  registration: TrustedDeviceRegistration,
+): Promise<{
+  deviceRegistered: true;
+  trustedDeviceId: Id<'trustedDevices'>;
+}> {
+  const displayName =
+    registration.deviceName === undefined
+      ? undefined
+      : normalizedTrustedDeviceName(registration.deviceName);
+  const devices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', productAccountId),
+    )
+    .take(trustedDeviceLimitPerProductAccount);
+  if (devices.length >= trustedDeviceLimitPerProductAccount) {
+    throw new Error('Trusted Device limit exceeded');
+  }
+  return {
+    deviceRegistered: true,
+    trustedDeviceId: await ctx.db.insert('trustedDevices', {
+      deviceIdentifier: registration.deviceIdentifier,
+      ...(displayName === undefined ? {} : { displayName }),
+      lastSeenAt: registration.now,
+      platform: registration.platform,
+      productAccountId,
+      registeredAt: registration.now,
+    }),
+  };
+}
+
+async function updateTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  existingDevice: Doc<'trustedDevices'>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+  registration: TrustedDeviceRegistration,
+): Promise<{
+  deviceRegistered: false;
+  trustedDeviceId: Id<'trustedDevices'>;
+}> {
+  const displayName =
+    registration.deviceName === undefined
+      ? undefined
+      : normalizedTrustedDeviceName(registration.deviceName);
+  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+  const trustedDeviceId = existingDevice._id;
+  await ctx.db.patch(trustedDeviceId, {
+    ...(existingDevice.displayName === undefined && displayName !== undefined
+      ? { displayName }
+      : {}),
+    lastSeenAt: registration.now,
+  });
+
+  return {
+    deviceRegistered: false,
+    trustedDeviceId,
+  };
+}
+
 async function upsertTrustedDevice(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
   productAccountId: Id<'productAccounts'>,
@@ -188,31 +305,219 @@ async function upsertTrustedDevice(
     .unique();
 
   if (existingDevice === null) {
-    return {
-      deviceRegistered: true,
-      trustedDeviceId: await ctx.db.insert('trustedDevices', {
-        deviceIdentifier: registration.deviceIdentifier,
-        lastSeenAt: registration.now,
-        platform: registration.platform,
-        productAccountId,
-        registeredAt: registration.now,
-      }),
-    };
+    return registerTrustedDevice(ctx, productAccountId, registration);
   }
 
-  // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-  const trustedDeviceId = existingDevice._id;
-  await ctx.db.patch(trustedDeviceId, { lastSeenAt: registration.now });
+  return updateTrustedDevice(ctx, existingDevice, registration);
+}
 
+async function deleteTrustedDeviceHeartbeat(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const heartbeat = await ctx.db
+    .query('devicePushRouteHeartbeats')
+    .withIndex('by_trustedDeviceId', (q) =>
+      q.eq('trustedDeviceId', trustedDeviceId),
+    )
+    .unique();
+  if (heartbeat !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(heartbeat._id);
+  }
+}
+
+async function legacyGmailRouteSnapshot(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+): Promise<
+  Readonly<{
+    complete: boolean;
+    opaqueConnectionIds: ReadonlySet<string>;
+  }>
+> {
+  const connections = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider', (q) =>
+      q.eq('productAccountId', productAccountId).eq('provider', 'gmail'),
+    )
+    .take(gmailLegacyRouteFallbackLimit + 1);
+  const opaqueConnectionIds = await Promise.all(
+    connections
+      .slice(0, gmailLegacyRouteFallbackLimit)
+      .flatMap((connection) =>
+        connection.opaqueConnectionId === undefined &&
+        connection.providerAccountIdentifier !== undefined
+          ? [
+              opaqueGmailConnectionId(
+                productAccountId,
+                connection.providerAccountIdentifier,
+              ),
+            ]
+          : [],
+      ),
+  );
   return {
-    deviceRegistered: false,
-    trustedDeviceId,
+    complete: connections.length <= gmailLegacyRouteFallbackLimit,
+    opaqueConnectionIds: new Set(opaqueConnectionIds),
   };
+}
+
+type GmailIdentityBindingRouteRequest = Readonly<{
+  legacyRoutes: Readonly<{
+    complete: boolean;
+    opaqueConnectionIds: ReadonlySet<string>;
+  }>;
+  opaqueConnectionId: string;
+  productAccountId: Id<'productAccounts'>;
+}>;
+
+function gmailIdentityBindingStillHasRoute(
+  remainingConnectionExists: boolean,
+  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+): boolean {
+  return (
+    remainingConnectionExists ||
+    !request.legacyRoutes.complete ||
+    request.legacyRoutes.opaqueConnectionIds.has(request.opaqueConnectionId)
+  );
+}
+
+async function deleteGmailIdentityBindingIfOrphaned(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  request: GmailIdentityBindingRouteRequest, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex ids are immutable branded strings.
+): Promise<void> {
+  const remainingConnection = await ctx.db
+    .query('mailProviderConnections')
+    .withIndex('by_productAccountId_and_provider_and_opaqueConnectionId', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('provider', 'gmail')
+        .eq('opaqueConnectionId', request.opaqueConnectionId),
+    )
+    .first();
+  if (
+    gmailIdentityBindingStillHasRoute(remainingConnection !== null, request)
+  ) {
+    return;
+  }
+  const identityBinding = await ctx.db
+    .query('gmailOpaqueIdentityBindings')
+    .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+      q
+        .eq('productAccountId', request.productAccountId)
+        .eq('opaqueConnectionId', request.opaqueConnectionId),
+    )
+    .unique();
+  if (identityBinding !== null) {
+    // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+    await ctx.db.delete(identityBinding._id);
+  }
+}
+
+async function deleteOrphanedGmailIdentityBindings(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  connections: ReadonlyArray<Doc<'mailProviderConnections'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents are immutable inputs here.
+): Promise<void> {
+  const candidateOpaqueConnectionIds = await Promise.all(
+    connections.map(async (connection) => {
+      if (connection.opaqueConnectionId !== undefined) {
+        return connection.opaqueConnectionId;
+      }
+      return connection.providerAccountIdentifier === undefined
+        ? undefined
+        : opaqueGmailConnectionId(
+            productAccountId,
+            connection.providerAccountIdentifier,
+          );
+    }),
+  );
+  const opaqueConnectionIds = new Set(
+    candidateOpaqueConnectionIds.filter(
+      (opaqueConnectionId) => opaqueConnectionId !== undefined,
+    ),
+  );
+  const legacyRoutes = await legacyGmailRouteSnapshot(ctx, productAccountId);
+  for (const opaqueConnectionId of opaqueConnectionIds) {
+    await deleteGmailIdentityBindingIfOrphaned(ctx, {
+      legacyRoutes,
+      opaqueConnectionId,
+      productAccountId,
+    });
+  }
+}
+
+async function deleteGmailConnectionsForTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  const deletedConnections: Array<Doc<'mailProviderConnections'>> = [];
+  for (;;) {
+    const page = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('provider', 'gmail')
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .take(gmailConnectionLimitPerTrustedDevice);
+    if (page.length === 0) {
+      break;
+    }
+    for (const connection of page) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+    deletedConnections.push(...page);
+  }
+  await deleteOrphanedGmailIdentityBindings(
+    ctx,
+    productAccountId,
+    deletedConnections,
+  );
+}
+
+async function deleteMicrosoftGraphConnectionsForTrustedDevice(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  productAccountId: Id<'productAccounts'>,
+  trustedDeviceId: Id<'trustedDevices'>,
+): Promise<void> {
+  for (;;) {
+    const page = await ctx.db
+      .query('mailProviderConnections')
+      .withIndex('by_productAccountId_and_provider_and_trustedDeviceId', (q) =>
+        q
+          .eq('productAccountId', productAccountId)
+          .eq('provider', 'microsoft-graph')
+          .eq('trustedDeviceId', trustedDeviceId),
+      )
+      .take(microsoftGraphConnectionLimitPerTrustedDevice);
+    if (page.length === 0) {
+      break;
+    }
+    for (const connection of page) {
+      const wakeupState = await ctx.db
+        .query('microsoftGraphWakeupStates')
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        .withIndex('by_routeId', (q) => q.eq('routeId', connection._id))
+        .unique();
+      if (wakeupState !== null) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.delete(wakeupState._id);
+      }
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(connection._id);
+    }
+  }
 }
 
 export const connect = mutation({
   args: {
     deviceIdentifier: v.string(),
+    deviceName: v.optional(v.string()),
     platform: v.string(),
   },
   handler: async (ctx, args) => {
@@ -232,6 +537,7 @@ export const connect = mutation({
       productAccountId,
       {
         deviceIdentifier: args.deviceIdentifier,
+        deviceName: args.deviceName,
         now,
         platform: args.platform,
       },
@@ -248,6 +554,90 @@ export const connect = mutation({
     };
   },
   returns: productAccountConnectResponseValidator,
+});
+
+export const listTrustedDevices = query({
+  args: {
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    const devices = await ctx.db
+      .query('trustedDevices')
+      .withIndex('by_productAccountId', (q) =>
+        q.eq('productAccountId', account.productAccountId),
+      )
+      .take(trustedDeviceLimitPerProductAccount + 1);
+    if (devices.length > trustedDeviceLimitPerProductAccount) {
+      throw new Error('Trusted Device limit exceeded');
+    }
+    return devices.map(trustedDeviceSummary);
+  },
+  returns: v.array(trustedDeviceSummaryValidator),
+});
+
+export const renameTrustedDevice = mutation({
+  args: {
+    displayName: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceToRenameId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireAuthenticatedTrustedDevice(
+      ctx,
+      args.trustedDeviceId,
+    );
+    await requireTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceToRenameId,
+    );
+    const device = await ctx.db.get(args.trustedDeviceToRenameId);
+    if (device === null) {
+      throw new Error('Trusted device required');
+    }
+    const displayName = normalizedTrustedDeviceName(args.displayName);
+    await ctx.db.patch(args.trustedDeviceToRenameId, { displayName });
+    return trustedDeviceSummary({ ...device, displayName });
+  },
+  returns: trustedDeviceSummaryValidator,
+});
+
+export const unregisterTrustedDevice = mutation({
+  args: {
+    deviceIdentifier: v.string(),
+    trustedDeviceId: v.id('trustedDevices'),
+  },
+  handler: async (ctx, args) => {
+    const account = await requireProductAccount(ctx);
+    const device = await ctx.db.get(args.trustedDeviceId);
+    if (device === null) {
+      return { registered: false };
+    }
+    if (device.productAccountId !== account.productAccountId) {
+      throw new Error('Trusted device required');
+    }
+    if (device.deviceIdentifier !== args.deviceIdentifier) {
+      throw new Error('Current trusted device required');
+    }
+    await deleteGmailConnectionsForTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    await deleteMicrosoftGraphConnectionsForTrustedDevice(
+      ctx,
+      account.productAccountId,
+      args.trustedDeviceId,
+    );
+    await deleteTrustedDeviceHeartbeat(ctx, args.trustedDeviceId);
+    await ctx.db.delete(args.trustedDeviceId);
+    return { registered: false };
+  },
+  returns: trustedDeviceUnregistrationResponseValidator,
 });
 
 export const markProductSyncMaterialInitialized = mutation({

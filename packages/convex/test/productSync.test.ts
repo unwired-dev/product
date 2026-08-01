@@ -202,6 +202,76 @@ describe('productSync encrypted payloads', () => {
     expect(updated.encryptedPayload.ciphertextBase64).toBe('bWVyZ2Vk');
   });
 
+  it('reserves Recovery Key material for the recent-auth mutation', async () => {
+    expect.assertions(3);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const args = {
+      encryptedPayload,
+      payloadIdentifier: 'product-account-recovery-v1',
+      trustedDeviceId: connect.trustedDeviceId,
+    };
+
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayload, args),
+    ).rejects.toThrow('Recovery material requires recent authentication');
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfAbsent, args),
+    ).rejects.toThrow('Recovery material requires recent authentication');
+    await expect(
+      asUser.mutation(api.productSync.putEncryptedPayloadIfUnchanged, {
+        ...args,
+        expectedUpdatedAt: undefined,
+      }),
+    ).rejects.toThrow('Recovery material requires recent authentication');
+  });
+
+  it('replaces Recovery Key material only after recent authentication', async () => {
+    expect.assertions(3);
+
+    const { asUser, connect, t } = await connectAppleDevice();
+    await expect(
+      asUser.mutation(api.productSync.replaceRecoveryMaterialIfUnchanged, {
+        encryptedPayload,
+        expectedUpdatedAt: undefined,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Recent authentication required');
+
+    const staleAuthentication = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000) - 301,
+    });
+    await expect(
+      staleAuthentication.mutation(
+        api.productSync.replaceRecoveryMaterialIfUnchanged,
+        {
+          encryptedPayload,
+          expectedUpdatedAt: undefined,
+          trustedDeviceId: connect.trustedDeviceId,
+        },
+      ),
+    ).rejects.toThrow('Recent authentication required');
+
+    const recentlyAuthenticated = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    await expect(
+      recentlyAuthenticated.mutation(
+        api.productSync.replaceRecoveryMaterialIfUnchanged,
+        {
+          encryptedPayload,
+          expectedUpdatedAt: undefined,
+          trustedDeviceId: connect.trustedDeviceId,
+        },
+      ),
+    ).resolves.toMatchObject({
+      encryptedPayload,
+      payloadIdentifier: 'product-account-recovery-v1',
+    });
+  });
+
   it('paginates encrypted payload listing past the first page', async () => {
     expect.assertions(4);
 

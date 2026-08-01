@@ -15,6 +15,7 @@ export default defineSchema({
     ),
     apnsToken: v.optional(v.string()),
     apnsTokenRegisteredAt: v.optional(v.number()),
+    displayName: v.optional(v.string()),
     gmailPushProofsInvalidatedAt: v.optional(v.number()),
     pushCleanupGeneration: v.optional(v.number()),
     deviceIdentifier: v.string(),
