@@ -200,16 +200,44 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     XCTAssertEqual(
       SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .appearance]
+      [.emailAccounts, .accountAndDevices, .appearance]
     )
     XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts, .application])
     XCTAssertEqual(
       SettingsDestinationRegistry.destinations(in: .accounts),
-      [.emailAccounts]
+      [.emailAccounts, .accountAndDevices]
+    )
+  }
+
+  func testAccountAndDevicesMetadataDrivesNavigationAndSearch() {
+    let destination = SettingsDestination.accountAndDevices
+
+    XCTAssertEqual(destination.group, .accounts)
+    XCTAssertEqual(destination.title, "Account & Devices")
+    XCTAssertEqual(destination.systemImage, "person.2")
+    XCTAssertFalse(destination.isAvailableWhenSignedOut)
+    XCTAssertEqual(
+      destination.searchItems.map(\.title),
+      ["Product Account", "Trusted Devices", "Recovery Key", "Sign Out"]
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.destinations(in: .application),
       [.appearance]
+    )
+  }
+
+  func testAccountAndDevicesAccessibilityDistinguishesDeviceActions() {
+    XCTAssertEqual(
+      AccountAndDevicesAccessibility.currentDevice,
+      "Current Trusted Device"
+    )
+    XCTAssertEqual(
+      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
+      "Rename Desk Mac"
+    )
+    XCTAssertNotEqual(
+      AccountAndDevicesAccessibility.renameDevice("Desk Mac"),
+      AccountAndDevicesAccessibility.renameDevice("Travel iPhone")
     )
   }
 
@@ -371,7 +399,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .appearance]
+      [.emailAccounts, .accountAndDevices, .appearance]
     )
   }
 

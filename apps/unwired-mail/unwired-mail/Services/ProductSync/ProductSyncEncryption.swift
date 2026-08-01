@@ -164,6 +164,17 @@ struct ProductSyncKeyMaterial: Equatable {
     )
   }
 
+  func replacingRecoveryKey() throws -> ProductSyncKeyMaterial {
+    try replacingRecoveryKey(with: Self.randomBytes(count: Self.keyByteCount))
+  }
+
+  func replacingRecoveryKey(with recoveryKeyData: Data) throws -> ProductSyncKeyMaterial {
+    try Self.create(
+      accountKeyData: accountKeyData,
+      recoveryKeyData: recoveryKeyData
+    )
+  }
+
   var snapshot: ProductSyncKeyMaterialSnapshot {
     ProductSyncKeyMaterialSnapshot(
       accountKeyBase64: accountKeyData.base64EncodedString(),
