@@ -1073,12 +1073,14 @@ final class ProductAccountSessionTests: XCTestCase {
       await session.signOut()
     }
     await gmailCleanupGate.waitUntilStarted()
-    await session.signInWithApple()
+    let signInTask = Task { await session.signInWithApple() }
+    await waitForRecoveryOperationWaiter(productAccountId: oldSnapshot.productAccountId)
+    await gmailCleanupGate.release()
+    await signOutTask.value
+    await signInTask.value
     guard case .signedIn(let newSnapshot) = session.state else {
       return XCTFail("Expected concurrent sign-in to complete")
     }
-    await gmailCleanupGate.release()
-    await signOutTask.value
 
     XCTAssertEqual(session.state, .signedIn(newSnapshot))
     XCTAssertEqual(try store.load(), newSnapshot)
