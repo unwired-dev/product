@@ -562,6 +562,29 @@ extension MessageHTMLPresentationTests {
       result.documentHTML.contains(RemoteMessageContentMarkup.attribute + "=\"remote-image-0\""))
   }
 
+  func testSanitizerDoesNotRetainRemoteImagesInsideCalculatedOffCanvasWrappers() throws {
+    for style in ["margin: calc(-9999px)", "text-indent: calc(-9999px)"] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="\(style)">
+            <img src="https://tracker.example/off-canvas.gif">
+          </div>
+          <img src="https://images.example.com/logo.png">
+          """
+        )
+      )
+
+      XCTAssertEqual(
+        result.remoteImageReferences.map(\.url.absoluteString),
+        ["https://images.example.com/logo.png"],
+        style
+      )
+      XCTAssertFalse(result.documentHTML.contains("off-canvas.gif"), style)
+    }
+  }
+
   func testSanitizerRemovesRemoteImagesInsideSignedZeroWrappers() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

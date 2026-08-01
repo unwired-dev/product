@@ -168,6 +168,9 @@ extension MessageHTMLHiddenStylePatterns {
 
   private static func isOffCanvasNegativeLengthValue(_ value: String) -> Bool {
     guard isLengthValue(value, for: "margin") else { return false }
+    if let calculatedValue = simpleCalculatedPixelLengthValue(value) {
+      return calculatedValue <= -100
+    }
     let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
     return Double(numericPrefix).map { $0 <= -100 } == true
   }
