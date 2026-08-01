@@ -1680,10 +1680,10 @@ private struct RecoveryKeyPresentation: View {
     }
 
     private func signOut() {
-      ewsViewModel.invalidate()
-      genericMailViewModel.invalidate()
       Task {
         await session.signOut {
+          ewsViewModel.invalidate()
+          genericMailViewModel.invalidate()
           await mailActionViewModel.prepareForSignOut()
           freshnessViewModel.cancelAll()
           freshnessViewModel.clearPersistedState()
