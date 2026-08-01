@@ -596,7 +596,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "unacknowledged-key")
   }
 
-  func testRecoveryKeyCanReplaceMarkerForNoLongerCurrentWrapper() async throws {
+  func testRecoveryKeyCannotReplaceActiveMarkerForNoLongerCurrentWrapper() async throws {
     let snapshot = Self.restorableSnapshot
     let productAccountId = ProductAccountConnectResponse.preview.productAccountId
     try store.save(snapshot)
@@ -621,13 +621,15 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountId: productAccountId
     )
 
-    try session.preserveUnacknowledgedRecoveryKey("second-key")
+    XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("second-key")) { error in
+      XCTAssertEqual(error as? ProductAccountSessionError, .recoveryKeyUnacknowledged)
+    }
 
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "second-key")
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "first-key")
     let persistedMarker = try store.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    XCTAssertEqual(persistedMarker?.recoveryKey, "second-key")
+    XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
   }
 
   func testSignOutRemainsBlockedWhenRecoveryKeyPersistenceFails() async throws {

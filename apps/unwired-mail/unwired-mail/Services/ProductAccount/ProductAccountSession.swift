@@ -715,7 +715,8 @@ extension ProductAccountSession {
     let hasUnacknowledgedCurrentKey =
       persistedMarker.map { marker in
         marker.recoveryKey != recoveryKey
-          && (marker.recoveryWrappedAccountKey == nil
+          && (marker == unacknowledgedRecoveryKeyMarker
+            || marker.recoveryWrappedAccountKey == nil
             || marker.recoveryWrappedAccountKey == material.recoveryWrappedAccountKey)
       } ?? false
     guard !hasUnacknowledgedCurrentKey else {
