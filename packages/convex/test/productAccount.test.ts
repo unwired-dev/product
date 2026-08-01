@@ -342,27 +342,32 @@ describe('productAccount.connect', () => {
     });
     await t.run(async (ctx) => {
       const now = Date.now();
-      for (const trustedDeviceId of [
-        currentDevice.trustedDeviceId,
-        otherDevice.trustedDeviceId,
-      ]) {
-        const routeCount =
-          trustedDeviceId === currentDevice.trustedDeviceId ? 21 : 1;
-        for (let index = 0; index < routeCount; index += 1) {
-          const routeId = await ctx.db.insert('mailProviderConnections', {
-            connectedAt: now,
-            lastVerifiedAt: now,
-            productAccountId: currentDevice.productAccountId,
-            provider: 'microsoft-graph',
-            trustedDeviceId,
-            updatedAt: now,
-          });
-          await ctx.db.insert('microsoftGraphWakeupStates', {
-            routeId,
-            scheduledAt: now,
-          });
-        }
+      for (let index = 0; index < 21; index += 1) {
+        const routeId = await ctx.db.insert('mailProviderConnections', {
+          connectedAt: now,
+          lastVerifiedAt: now,
+          productAccountId: currentDevice.productAccountId,
+          provider: 'microsoft-graph',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+          updatedAt: now,
+        });
+        await ctx.db.insert('microsoftGraphWakeupStates', {
+          routeId,
+          scheduledAt: now,
+        });
       }
+      const otherRouteId = await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'microsoft-graph',
+        trustedDeviceId: otherDevice.trustedDeviceId,
+        updatedAt: now,
+      });
+      await ctx.db.insert('microsoftGraphWakeupStates', {
+        routeId: otherRouteId,
+        scheduledAt: now,
+      });
     });
 
     await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
