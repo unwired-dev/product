@@ -141,7 +141,7 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func pixelLengthValue(_ value: String) -> Double? {
     CSSLengthValuePolicy.absolutePixelLengthValue(value)
-      ?? simpleCalculatedPixelLengthValue(value)
+      ?? constantCalculatedPixelLengthValue(value)
   }
 
   static func isOnePixelLengthValue(
@@ -221,6 +221,37 @@ extension MessageHTMLHiddenStylePatterns {
     return total
   }
 
+  private static func constantCalculatedPixelLengthValue(_ value: String) -> Double? {
+    if let value = simpleCalculatedPixelLengthValue(value) { return value }
+    let normalized = value.lowercased()
+    guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
+    else { return nil }
+    let function = String(normalized[..<openingParenthesis])
+    guard ["clamp", "max", "min"].contains(function) else { return nil }
+    let argumentsStart = normalized.index(after: openingParenthesis)
+    let argumentsEnd = normalized.index(before: normalized.endIndex)
+    let arguments = normalized[argumentsStart..<argumentsEnd].split(
+      separator: ",",
+      omittingEmptySubsequences: false
+    )
+    var values: [Double] = []
+    for argument in arguments {
+      let argument = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !argument.isEmpty,
+        let value = CSSLengthValuePolicy.absolutePixelLengthValue(argument)
+          ?? simpleCalculatedPixelLengthValue(argument)
+      else { return nil }
+      values.append(value)
+    }
+    switch function {
+    case "min": return values.min()
+    case "max": return values.max()
+    default:
+      guard values.count == 3 else { return nil }
+      return Swift.max(values[0], Swift.min(values[1], values[2]))
+    }
+  }
+
   private static func isCalculatedZeroLengthValue(_ value: String) -> Bool {
     guard value.hasPrefix("calc("), value.hasSuffix(")") else { return false }
     let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
@@ -235,11 +266,8 @@ extension MessageHTMLHiddenStylePatterns {
 
   private static func isOffCanvasNegativeLengthValue(_ value: String) -> Bool {
     guard isLengthValue(value, for: "margin") else { return false }
-    if let calculatedValue = simpleCalculatedPixelLengthValue(value) {
+    if let calculatedValue = pixelLengthValue(value) {
       return calculatedValue <= -100
-    }
-    if let pixelValue = CSSLengthValuePolicy.absolutePixelLengthValue(value) {
-      return pixelValue <= -100
     }
     let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
     return Double(numericPrefix).map { $0 <= -100 } == true
@@ -419,7 +447,7 @@ extension MessageHTMLSanitizer {
             ),
             where: MessageHTMLHiddenStylePatterns.isVisibilityValue
           )
-          guard ["initial", "revert", "visible"].contains(descendantVisibility) else {
+          guard ["initial", "visible"].contains(descendantVisibility) else {
             return false
           }
           return try canPromoteVisibleDescendant(descendant, from: element)
@@ -520,6 +548,7 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
 private final class SourceContentVisitor: NodeVisitor {
   private let cancellationCheck: () throws -> Void
   private var hiddenByDepth: [Bool] = []
+  private var nonRenderingByDepth: [Bool] = []
   private var visitedNodeCount = 0
   var hasText = false
   var hasExplicitlyHiddenText = false
@@ -533,9 +562,11 @@ private final class SourceContentVisitor: NodeVisitor {
     visitedNodeCount += 1
 
     let parentIsHidden = depth > 0 && hiddenByDepth[depth - 1]
+    let parentIsNonRendering = depth > 0 && nonRenderingByDepth[depth - 1]
     if let element = node as? Element {
       if hiddenByDepth.count > depth {
         hiddenByDepth.removeSubrange(depth...)
+        nonRenderingByDepth.removeSubrange(depth...)
       }
       let style = try element.attr("style")
       let declarations = MessageHTMLHiddenStylePatterns.declarations(in: style)
@@ -545,7 +576,11 @@ private final class SourceContentVisitor: NodeVisitor {
         || MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations)
         || MessageHTMLHiddenStylePatterns.isReadableHidden(declarations)
       hiddenByDepth.append(isHidden)
+      nonRenderingByDepth.append(
+        parentIsNonRendering || ["script", "style"].contains(element.tagName())
+      )
     } else if let textNode = node as? TextNode,
+      !parentIsNonRendering,
       MessageHTMLSanitizer.hasReadableText(textNode.getWholeText())
     {
       hasText = true

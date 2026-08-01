@@ -293,6 +293,24 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.documentHTML.contains("data-unwired-remote-image"))
   }
 
+  func testSanitizerIgnoresNonRenderingTextInRemoteImageOnlyMessages() throws {
+    for nonRenderingElement in [
+      "<style>img { display: block; }</style>",
+      "<script>document.body.dataset.loaded = 'true';</script>",
+    ] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          nonRenderingElement + #"<img src="https://images.example.com/receipt.png">"#
+        )
+      )
+
+      XCTAssertEqual(
+        result.remoteImageReferences.map(\.url.absoluteString),
+        ["https://images.example.com/receipt.png"]
+      )
+    }
+  }
+
   func testSanitizerExcludesInvisibleRemoteImagesAndDeduplicatesURLs() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -783,6 +801,8 @@ extension MessageHTMLPresentationTests {
   func testSanitizerDoesNotRetainRemoteImagesInsideCalculatedOffCanvasWrappers() throws {
     for style in [
       "margin: calc(-9999px)", "text-indent: calc(-9999px)", "margin-left: -99in",
+      "margin-left: min(-9999px, -100px)", "margin-left: max(-9999px, -100px)",
+      "margin-left: clamp(-9999px, -500px, -100px)",
     ] {
       let result = try XCTUnwrap(
         MessageHTMLSanitizer.sanitize(
@@ -1702,7 +1722,7 @@ extension MessageHTMLPresentationTests {
           Hidden preview
           <span style="visibility: visible">Receipt</span>
           <span style="visibility: initial">Initial receipt</span>
-          <span style="visibility: revert">Reverted receipt</span>
+          <span style="visibility: revert">Hidden reverted receipt</span>
           <img src="https://tracker.example/hidden.png">
           <span style="visibility: visible">
             <img src="https://images.example.com/visible.png">
@@ -1715,7 +1735,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
     XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
-    XCTAssertTrue(result.documentHTML.contains("Reverted receipt"))
+    XCTAssertFalse(result.documentHTML.contains("Hidden reverted receipt"))
     XCTAssertFalse(result.documentHTML.contains("tracker.example"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
