@@ -6,18 +6,13 @@ import SwiftSoup
 enum InlineImageDimensionPolicy {
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
     guard let value = value("min-\(dimension)", in: element) else { return false }
-    if let pixelValue = simplePixelLengthValue(value) {
+    if let pixelValue = absolutePixelLengthValue(value) {
       return pixelValue > 1
     }
     if let pixelValue = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(value) {
       return pixelValue > 1
     }
-    let isPositiveLength =
-      value.range(
-        of: #"^\+?(?:\d+(?:\.\d*)?|\.\d+)"# + CSSLengthValuePolicy.unitPattern + "$",
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
-    return isPositiveLength && !MessageHTMLHiddenStylePatterns.isZeroLengthValue(value)
+    return false
   }
 
   static func value(_ property: String, in element: Element) -> String? {
@@ -74,10 +69,16 @@ enum InlineImageDimensionPolicy {
     ) != nil
   }
 
-  private static func simplePixelLengthValue(_ value: String) -> Double? {
+  private static func absolutePixelLengthValue(_ value: String) -> Double? {
     let normalized = value.lowercased()
-    guard normalized.hasSuffix("px") else { return nil }
-    return Double(normalized.dropLast(2))
+    let units: [(suffix: String, pixelsPerUnit: Double)] = [
+      ("px", 1), ("in", 96), ("cm", 96 / 2.54), ("mm", 96 / 25.4),
+      ("pc", 16), ("pt", 96 / 72), ("q", 96 / 101.6),
+    ]
+    guard let unit = units.first(where: { normalized.hasSuffix($0.suffix) }),
+      let value = Double(normalized.dropLast(unit.suffix.count))
+    else { return nil }
+    return value * unit.pixelsPerUnit
   }
 }
 

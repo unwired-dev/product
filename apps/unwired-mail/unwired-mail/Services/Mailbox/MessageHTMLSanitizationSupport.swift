@@ -1,6 +1,8 @@
 import Foundation
 import SwiftSoup
 
+// swiftlint:disable file_length
+
 enum CSSLengthValuePolicy {
   static let unitPattern = #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%)"#
   static let optionalUnitPattern = unitPattern + "?"
@@ -281,8 +283,48 @@ extension MessageHTMLSanitizer {
         in: try element.attr("style")
       )
       guard MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations) else { continue }
+      let visibility = MessageHTMLHiddenStylePatterns.effectiveValue(
+        "visibility",
+        in: declarations,
+        where: MessageHTMLHiddenStylePatterns.isVisibilityValue
+      )
+      if visibility == "hidden" || visibility == "collapse" {
+        let visibleDescendants = try element.select("[style]").filter { descendant in
+          guard descendant !== element else { return false }
+          let descendantVisibility = MessageHTMLHiddenStylePatterns.effectiveValue(
+            "visibility",
+            in: MessageHTMLHiddenStylePatterns.declarations(
+              in: try descendant.attr("style")
+            ),
+            where: MessageHTMLHiddenStylePatterns.isVisibilityValue
+          )
+          guard descendantVisibility == "visible" else { return false }
+          return try nearestExplicitVisibilityAncestor(of: descendant, stoppingAt: element)
+            != "visible"
+        }
+        for descendant in visibleDescendants {
+          try element.before(descendant.outerHtml())
+        }
+      }
       try element.remove()
     }
+  }
+
+  private static func nearestExplicitVisibilityAncestor(
+    of element: Element,
+    stoppingAt hiddenAncestor: Element
+  ) throws -> String? {
+    var ancestor = element.parent()
+    while let current = ancestor, current !== hiddenAncestor {
+      let visibility = MessageHTMLHiddenStylePatterns.effectiveValue(
+        "visibility",
+        in: MessageHTMLHiddenStylePatterns.declarations(in: try current.attr("style")),
+        where: MessageHTMLHiddenStylePatterns.isVisibilityValue
+      )
+      if let visibility { return visibility }
+      ancestor = current.parent()
+    }
+    return nil
   }
 
   static func sourceContent(

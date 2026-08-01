@@ -549,6 +549,10 @@ extension MessageHTMLPresentationTests {
              style="width: 1px; height: 1px; min-width: .5px">
         <img src="https://tracker.example/calculated-subpixel-minimum.gif"
              style="width: 1px; height: 1px; min-height: calc(.5px)">
+        <img src="https://tracker.example/subpixel-point-minimum.gif"
+             style="width: 1px; height: 1px; min-width: .5pt">
+        <img src="https://images.example.com/point-minimum.png"
+             style="width: 1px; height: 1px; min-width: 1pt">
         <img src="https://images.example.com/minimum-height.png"
              style="width: 1px; height: 1px; min-height: 600px">
         """
@@ -560,7 +564,10 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertEqual(
       presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/minimum-height.png"]
+      [
+        "https://images.example.com/point-minimum.png",
+        "https://images.example.com/minimum-height.png",
+      ]
     )
     XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
     XCTAssertTrue(presentation.documentHTML.contains("min-height:600px"))
@@ -1489,6 +1496,31 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.documentHTML.contains("Visible text"))
     XCTAssertFalse(result.documentHTML.contains("Hidden text"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
+  func testSanitizerPreservesVisibleDescendantsOfHiddenWrappers() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility: hidden">
+          Hidden preview
+          <span style="visibility: visible">Receipt</span>
+          <img src="https://tracker.example/hidden.png">
+          <span style="visibility: visible">
+            <img src="https://images.example.com/visible.png">
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertFalse(result.documentHTML.contains("Hidden preview"))
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/visible.png"]
