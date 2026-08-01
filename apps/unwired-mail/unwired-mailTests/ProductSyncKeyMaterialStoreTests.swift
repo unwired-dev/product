@@ -340,13 +340,18 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     )
     await viewModel.load(session: session, recentIdentityToken: { "load-token" })
 
+    var markerPersistenceWasAttempted = false
     await viewModel.presentRecoveryKey(
       session: session,
       recentIdentityToken: { "reveal-token" },
       isSessionCurrent: { true },
-      recoveryKeyPublished: { _ in throw CocoaError(.fileWriteUnknown) }
+      recoveryKeyPublished: { _ in
+        markerPersistenceWasAttempted = true
+        throw CocoaError(.fileWriteUnknown)
+      }
     )
 
+    XCTAssertTrue(markerPersistenceWasAttempted)
     XCTAssertNil(viewModel.revealedRecoveryKey)
     XCTAssertNotNil(viewModel.errorMessage)
   }

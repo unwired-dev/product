@@ -644,7 +644,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
   }
 
-  func testSignOutRemainsBlockedWhenRecoveryKeyPersistenceFails() async throws {
+  func testRecoveryKeyPersistenceFailureDoesNotPopulateInMemoryMarker() async throws {
     let snapshot = Self.restorableSnapshot
     let failingStore = ControllableProductAccountSessionStore(snapshot: snapshot)
     let session = ProductAccountSession(
@@ -659,30 +659,18 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
-    guard case .signedIn(let activeSnapshot) = session.state else {
+    guard case .signedIn = session.state else {
       return XCTFail("Expected bootstrap to restore the Product Account")
     }
     failingStore.unacknowledgedRecoveryKeySaveError =
       ProductAccountSessionTestError.sessionSaveFailed
 
     XCTAssertThrowsError(try session.preserveUnacknowledgedRecoveryKey("published-key"))
-    await session.signOut()
 
-    XCTAssertEqual(session.state, .signedIn(activeSnapshot))
-    XCTAssertEqual(session.unacknowledgedRecoveryKey, "published-key")
-    XCTAssertEqual(
-      session.signOutErrorMessage,
-      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
-    )
-
-    try session.acknowledgeRecoveryKey(
-      "published-key",
-      productAccountId: activeSnapshot.productAccountId
-    )
-    await session.signOut()
-
-    XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(session.unacknowledgedRecoveryKey)
+    XCTAssertNil(
+      try failingStore.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
   }
 
   func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {

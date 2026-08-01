@@ -790,13 +790,13 @@ extension ProductAccountSession {
       recoveryKey: recoveryKey,
       recoveryWrappedAccountKey: material.recoveryWrappedAccountKey
     )
-    unacknowledgedRecoveryKey = recoveryKey
-    unacknowledgedRecoveryKeyMarker = marker
-    unacknowledgedRecoveryAccountId = productAccountId
     try sessionStore.saveUnacknowledgedRecoveryKey(
       marker,
       productAccountId: productAccountId
     )
+    unacknowledgedRecoveryKey = recoveryKey
+    unacknowledgedRecoveryKeyMarker = marker
+    unacknowledgedRecoveryAccountId = productAccountId
   }
 
   func acknowledgeRecoveryKey(
