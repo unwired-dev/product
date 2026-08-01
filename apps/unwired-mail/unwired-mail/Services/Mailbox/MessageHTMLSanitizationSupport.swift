@@ -270,14 +270,18 @@ extension MessageHTMLHiddenStylePatterns {
     in element: Element? = nil
   ) -> Bool {
     if element?.tagName().lowercased() != "img",
-      effectiveValue(
+      let textIndent = effectiveValue(
         "text-indent", in: declarations,
         where: {
           isLengthValue($0, for: "text-indent")
         }
-      ).map(isOffCanvasNegativeLengthValue) == true
+      ),
+      isOffCanvasNegativeLengthValue(textIndent)
     {
-      return true
+      guard let textIndentPixels = pixelLengthValue(textIndent) else { return true }
+      if accumulatedPaddingPixels(from: element, side: 3) + textIndentPixels < 0 {
+        return true
+      }
     }
     for side in [0, 3] {
       guard
@@ -285,20 +289,26 @@ extension MessageHTMLHiddenStylePatterns {
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
       guard let marginPixels = pixelLengthValue(margin) else { return true }
-      var ancestor = element?.parent()
-      var paddingPixels = 0.0
-      while let current = ancestor {
-        let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-        if let padding = effectivePaddingValue(side, in: declarations),
-          let pixels = pixelLengthValue(padding)
-        {
-          paddingPixels += pixels
-        }
-        ancestor = current.parent()
+      if accumulatedPaddingPixels(from: element?.parent(), side: side) + marginPixels < 0 {
+        return true
       }
-      if paddingPixels + marginPixels < 0 { return true }
     }
     return false
+  }
+
+  private static func accumulatedPaddingPixels(from element: Element?, side: Int) -> Double {
+    var current = element
+    var paddingPixels = 0.0
+    while let element = current {
+      let declarations = Self.declarations(in: (try? element.attr("style")) ?? "")
+      if let padding = effectivePaddingValue(side, in: declarations),
+        let pixels = pixelLengthValue(padding)
+      {
+        paddingPixels += pixels
+      }
+      current = element.parent()
+    }
+    return paddingPixels
   }
 
   static func constantCalculatedOpacity(_ value: String) -> Double? {

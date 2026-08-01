@@ -927,6 +927,23 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRetainsIndentedRemoteImageOffsetByContainerPadding() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="padding-left:200px;text-indent:-100px">
+          <img src="https://images.example.com/hero.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
   func testSanitizerRetainsOverflowFromZeroSizedContainer() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
