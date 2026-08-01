@@ -227,17 +227,13 @@ final class MessageHTMLPresentationTests: XCTestCase {
     }
   }
 
-  func testSanitizerBlocksRemoteImagesInsideZeroMaximumDimensionWrappers() throws {
+  func testSanitizerBlocksRemoteImagesWithZeroMaximumDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
-        <div style="max-width: 0">
-          <img src="https://tracker.example/width-pixel.gif">
-        </div>
-        <div style="max-height: 0">
-          <img src="https://tracker.example/height-pixel.gif">
-        </div>
+        <img style="max-width: 0" src="https://tracker.example/width-pixel.gif">
+        <img style="max-height: 0" src="https://tracker.example/height-pixel.gif">
         <img src="https://images.example.com/hero.png">
         """
       )
@@ -914,13 +910,45 @@ extension MessageHTMLPresentationTests {
     )
   }
 
-  func testSanitizerRemovesRemoteImagesInsideSignedZeroWrappers() throws {
+  func testSanitizerRetainsRemoteImageOffsetBackIntoViewport() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
-        <div style="max-width: +0px">
-          <img src="https://tracker.example/wrapped.gif">
+        <div style="padding-left: 200px">
+          <img style="margin-left: -100px" src="https://images.example.com/hero.png">
         </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
+  func testSanitizerRetainsOverflowFromZeroSizedContainer() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="width: 0">
+          <img style="width: 600px; height: 100px" src="https://images.example.com/hero.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
+  func testSanitizerRemovesRemoteImagesWithSignedZeroDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img style="max-width: +0px" src="https://tracker.example/wrapped.gif">
         <img src="https://images.example.com/logo.png">
         """
       )
@@ -2183,9 +2211,7 @@ extension MessageHTMLPresentationTests {
         MessageHTMLSanitizer.sanitize(
           """
           <p>Newsletter</p>
-          <div style="\(style)">
-            <img src="https://tracker.example/hidden.png">
-          </div>
+          <img style="\(style)" src="https://tracker.example/hidden.png">
           """
         )
       )
@@ -2199,9 +2225,8 @@ extension MessageHTMLPresentationTests {
       MessageHTMLSanitizer.sanitize(
         """
         <p>Newsletter</p>
-        <div style="max-width: calc(0px + 0px)">
-          <img src="https://tracker.example/hidden.png">
-        </div>
+        <img style="max-width: calc(0px + 0px)"
+             src="https://tracker.example/hidden.png">
         """
       )
     )
@@ -2386,9 +2411,8 @@ extension MessageHTMLPresentationTests {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>Newsletter</p><div style="width:min(0px, 0px)">
-          <img src="https://tracker.example/pixel.gif">
-        </div>
+        <p>Newsletter</p>
+        <img style="width:min(0px, 0px)" src="https://tracker.example/pixel.gif">
         """
       )
     )

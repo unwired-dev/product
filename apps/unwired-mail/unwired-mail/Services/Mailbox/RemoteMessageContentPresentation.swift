@@ -30,7 +30,8 @@ enum MessageHTMLHiddenStylePatterns {
       return true
     }
     let appliesDimensions = element.map(dimensionsApply) != false
-    if appliesDimensions,
+    let dimensionsHideElement = element.map { $0.tagName().lowercased() == "img" } != false
+    if appliesDimensions, dimensionsHideElement,
       ["height", "width"].contains(where: { property in
         effectiveValue(property, in: declarations) { value in
           isLengthValue(value, for: property)
@@ -41,7 +42,7 @@ enum MessageHTMLHiddenStylePatterns {
     {
       return true
     }
-    guard appliesDimensions else { return false }
+    guard appliesDimensions, dimensionsHideElement else { return false }
     return [("max-width", "min-width"), ("max-height", "min-height")].contains { properties in
       let (maximumProperty, minimumProperty) = properties
       guard

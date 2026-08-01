@@ -243,7 +243,10 @@ extension MessageHTMLHiddenStylePatterns {
     return Double(numericPrefix).map { $0 <= -100 } == true
   }
 
-  static func isOffCanvasHidden(_ declarations: [StyleDeclaration]) -> Bool {
+  static func isOffCanvasHidden(
+    _ declarations: [StyleDeclaration],
+    in element: Element? = nil
+  ) -> Bool {
     if effectiveValue(
       "text-indent", in: declarations,
       where: {
@@ -252,9 +255,23 @@ extension MessageHTMLHiddenStylePatterns {
     ).map(isOffCanvasNegativeLengthValue) == true {
       return true
     }
-    return [0, 3].contains { side in
-      effectiveMarginValue(side, in: declarations).map(isOffCanvasNegativeLengthValue) == true
+    for side in [0, 3] {
+      guard
+        let margin = effectiveMarginValue(side, in: declarations),
+        isOffCanvasNegativeLengthValue(margin)
+      else { continue }
+      guard
+        let parent = element?.parent(),
+        let marginPixels = pixelLengthValue(margin),
+        let padding = effectivePaddingValue(
+          side,
+          in: Self.declarations(in: (try? parent.attr("style")) ?? "")
+        ),
+        let paddingPixels = pixelLengthValue(padding)
+      else { return true }
+      if paddingPixels + marginPixels < 0 { return true }
     }
+    return false
   }
 
   static func constantCalculatedOpacity(_ value: String) -> Double? {
@@ -394,9 +411,44 @@ extension MessageHTMLHiddenStylePatterns {
     return effectiveDeclaration?.value
   }
 
+  private static func effectivePaddingValue(
+    _ side: Int,
+    in declarations: [StyleDeclaration]
+  ) -> String? {
+    let sideProperty = ["padding-top", "padding-right", "padding-bottom", "padding-left"][side]
+    var effectiveDeclaration: (value: String, isImportant: Bool)?
+    for declaration in declarations {
+      let value: String?
+      if declaration.property == sideProperty {
+        value = isLengthValue(declaration.value, for: sideProperty) ? declaration.value : nil
+      } else if declaration.property == "padding" {
+        value = paddingValues(declaration.value)?[side]
+      } else {
+        continue
+      }
+      guard let value else { continue }
+      if effectiveDeclaration?.isImportant == true, !declaration.isImportant { continue }
+      effectiveDeclaration = (value, declaration.isImportant)
+    }
+    return effectiveDeclaration?.value
+  }
+
   private static func marginValues(_ value: String) -> [String]? {
     let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
     guard (1...4).contains(values.count), values.allSatisfy(isMarginValue) else { return nil }
+    switch values.count {
+    case 1: return [values[0], values[0], values[0], values[0]]
+    case 2: return [values[0], values[1], values[0], values[1]]
+    case 3: return [values[0], values[1], values[2], values[1]]
+    default: return values
+    }
+  }
+
+  private static func paddingValues(_ value: String) -> [String]? {
+    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard (1...4).contains(values.count),
+      values.allSatisfy({ isLengthValue($0, for: "padding") })
+    else { return nil }
     switch values.count {
     case 1: return [values[0], values[0], values[0], values[0]]
     case 2: return [values[0], values[1], values[0], values[1]]
@@ -589,7 +641,9 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
     let declarations = MessageHTMLHiddenStylePatterns.declarations(
       in: try element.attr("style")
     )
-    let isHidden = parentIsHidden || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations)
+    let isHidden =
+      parentIsHidden
+      || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations, in: element)
     hiddenByDepth.append(isHidden)
     if isHidden && element.hasAttr(RemoteMessageContentMarkup.attribute) {
       try element.removeAttr(RemoteMessageContentMarkup.attribute)
