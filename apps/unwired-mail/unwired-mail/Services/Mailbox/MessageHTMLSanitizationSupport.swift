@@ -24,6 +24,12 @@ enum CSSLengthValuePolicy {
 }
 
 extension MessageHTMLHiddenStylePatterns {
+  private struct CalculatedTerm {
+    let sign: Double
+    let number: Double
+    let unit: String
+  }
+
   static func isReadableHidden(_ declarations: [StyleDeclaration]) -> Bool {
     if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
       return true
@@ -125,7 +131,7 @@ extension MessageHTMLHiddenStylePatterns {
       options: .regularExpression
     ) != nil
       || isCalculatedZeroLengthValue(value)
-      || simpleCalculatedPixelLengthValue(value).map { abs($0) < 0.000_000_001 } == true
+      || pixelLengthValue(value).map { abs($0) < 0.000_000_001 } == true
   }
 
   static func isOnePixelLengthValue(_ value: String) -> Bool {
@@ -170,53 +176,17 @@ extension MessageHTMLHiddenStylePatterns {
     return multiplier * fontSizePixels
   }
 
-  // swiftlint:disable:next cyclomatic_complexity
   static func simpleCalculatedPixelLengthValue(_ value: String) -> Double? {
-    let normalized = value.lowercased()
-    guard normalized.hasPrefix("calc("), normalized.hasSuffix(")") else { return nil }
-    let expression = Array(normalized.dropFirst(5).dropLast().filter { !$0.isWhitespace })
-    guard !expression.isEmpty else { return nil }
-    var index = 0
-    var termCount = 0
+    guard let terms = simpleCalculatedTerms(value) else { return nil }
     var total = 0.0
-    while index < expression.count {
-      var sign = 1.0
-      if expression[index] == "+" || expression[index] == "-" {
-        sign = expression[index] == "-" ? -1 : 1
-        index += 1
-      } else if termCount > 0 {
-        return nil
-      }
-      let numberStart = index
-      var hasDigit = false
-      var hasDecimalPoint = false
-      while index < expression.count {
-        if expression[index].isNumber {
-          hasDigit = true
-        } else if expression[index] == ".", !hasDecimalPoint {
-          hasDecimalPoint = true
-        } else {
-          break
-        }
-        index += 1
-      }
-      guard hasDigit,
-        let number = Double(String(expression[numberStart..<index]))
-      else { return nil }
-      let unitStart = index
-      while index < expression.count,
-        expression[index].isLetter || expression[index] == "%"
-      {
-        index += 1
-      }
-      let unit = String(expression[unitStart..<index])
+    for term in terms {
       let zeroLengthUnits = Set([
         "", "%", "ch", "cm", "em", "ex", "in", "mm", "pc", "pt", "px", "q", "rem", "vh",
         "vmax", "vmin", "vw",
       ])
-      guard unit == "px" || (number == 0 && zeroLengthUnits.contains(unit)) else { return nil }
-      if unit == "px" { total += sign * number }
-      termCount += 1
+      guard term.unit == "px" || (term.number == 0 && zeroLengthUnits.contains(term.unit))
+      else { return nil }
+      if term.unit == "px" { total += term.sign * term.number }
     }
     return total
   }
@@ -288,12 +258,35 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {
-    guard value.hasPrefix("calc("), value.hasSuffix(")") else { return nil }
-    let expression = Array(value.dropFirst(5).dropLast().filter { !$0.isWhitespace })
+    guard let terms = simpleCalculatedTerms(value) else { return nil }
+    guard terms.allSatisfy({ $0.unit.isEmpty || $0.unit == "%" }) else { return nil }
+    return terms.reduce(0) { total, term in
+      total + term.sign * (term.unit == "%" ? term.number / 100 : term.number)
+    }
+  }
+
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
+  private static func simpleCalculatedTerms(
+    _ value: String
+  ) -> [CalculatedTerm]? {
+    let normalized = value.lowercased()
+    guard normalized.hasPrefix("calc("), normalized.hasSuffix(")") else { return nil }
+    let rawExpression = normalized.dropFirst(5).dropLast()
+    var binaryExpression = rawExpression.drop(while: { $0.isWhitespace })
+    if binaryExpression.first == "+" || binaryExpression.first == "-" {
+      binaryExpression = binaryExpression.dropFirst()
+    }
+    guard
+      binaryExpression.range(
+        of: #"(?<=\S)[+-]|[+-](?=\S)"#,
+        options: .regularExpression
+      ) == nil
+    else { return nil }
+    let expression = Array(rawExpression.filter { !$0.isWhitespace })
     guard !expression.isEmpty else { return nil }
     var index = 0
     var termCount = 0
-    var total = 0.0
+    var terms: [CalculatedTerm] = []
     while index < expression.count {
       var sign = 1.0
       if expression[index] == "+" || expression[index] == "-" {
@@ -318,12 +311,22 @@ extension MessageHTMLHiddenStylePatterns {
       guard hasDigit,
         let number = Double(String(expression[numberStart..<index]))
       else { return nil }
-      let isPercentage = index < expression.count && expression[index] == "%"
-      if isPercentage { index += 1 }
-      total += sign * (isPercentage ? number / 100 : number)
+      let unitStart = index
+      while index < expression.count,
+        expression[index].isLetter || expression[index] == "%"
+      {
+        index += 1
+      }
+      terms.append(
+        CalculatedTerm(
+          sign: sign,
+          number: number,
+          unit: String(expression[unitStart..<index])
+        )
+      )
       termCount += 1
     }
-    return total
+    return terms
   }
 
   private static func isCSSFunctionValue(_ value: String) -> Bool {
@@ -436,7 +439,8 @@ extension MessageHTMLSanitizer {
         (visibility == "hidden" || visibility == "collapse")
         && !element.hasAttr("hidden")
         && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
-        && !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations)
+        && !MessageHTMLHiddenStylePatterns.isPresentationHidden(
+          nonVisibilityDeclarations, in: element)
         && !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
       if isHiddenOnlyByVisibility {
         let visibleDescendants = try styledDescendants.filter { descendant in
@@ -473,7 +477,7 @@ extension MessageHTMLSanitizer {
     let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
     guard !element.hasAttr("hidden"),
       !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
-      !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations),
+      !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations, in: element),
       !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
     else { return false }
 
@@ -483,7 +487,8 @@ extension MessageHTMLSanitizer {
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       guard !current.hasAttr("hidden"),
         !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
-        !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations),
+        !MessageHTMLHiddenStylePatterns.isPresentationHidden(
+          nonVisibilityDeclarations, in: current),
         !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
       else { return false }
       let visibility = MessageHTMLHiddenStylePatterns.effectiveValue(
@@ -491,7 +496,7 @@ extension MessageHTMLSanitizer {
         in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
-      if ["initial", "revert", "visible"].contains(visibility) { return false }
+      if ["initial", "visible"].contains(visibility) { return false }
       ancestor = current.parent()
     }
     return true

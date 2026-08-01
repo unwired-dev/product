@@ -5,6 +5,7 @@ import SwiftSoup
 
 enum InlineImageDimensionPolicy {
   private static let maximumResolutionDepth = 32
+  private static let maximumResolutionWork = 256
 
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
     let fontSizePixels = inheritedFontSizePixels(in: element)
@@ -19,11 +20,13 @@ enum InlineImageDimensionPolicy {
     dimension: String,
     in element: Element
   ) -> Bool {
-    resolvedDimensionPixels(
+    var remainingWork = maximumResolutionWork
+    return resolvedDimensionPixels(
       value,
       dimension: dimension,
       in: element,
-      remainingDepth: maximumResolutionDepth
+      remainingDepth: maximumResolutionDepth,
+      remainingWork: &remainingWork
     ).map { abs($0 - 1) < 0.000_000_001 } == true
   }
 
@@ -31,9 +34,11 @@ enum InlineImageDimensionPolicy {
     _ value: String,
     dimension: String,
     in element: Element,
-    remainingDepth: Int
+    remainingDepth: Int,
+    remainingWork: inout Int
   ) -> Double? {
-    guard remainingDepth > 0 else { return nil }
+    guard remainingDepth > 0, remainingWork > 0 else { return nil }
+    remainingWork -= 1
     if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
       value,
       fontSizePixels: inheritedFontSizePixels(in: element)
@@ -47,7 +52,8 @@ enum InlineImageDimensionPolicy {
       let containingPixels = resolvedUsedDimensionPixels(
         dimension: dimension,
         in: parent,
-        remainingDepth: remainingDepth - 1
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
       )
     else { return nil }
     return containingPixels * percentage / 100
@@ -56,14 +62,16 @@ enum InlineImageDimensionPolicy {
   private static func resolvedUsedDimensionPixels(
     dimension: String,
     in element: Element,
-    remainingDepth: Int
+    remainingDepth: Int,
+    remainingWork: inout Int
   ) -> Double? {
     guard let declaredValue = value(dimension, in: element),
       var pixels = resolvedDimensionPixels(
         declaredValue,
         dimension: dimension,
         in: element,
-        remainingDepth: remainingDepth
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
       )
     else { return nil }
     if let maximumValue = value("max-\(dimension)", in: element),
@@ -71,7 +79,8 @@ enum InlineImageDimensionPolicy {
         maximumValue,
         dimension: dimension,
         in: element,
-        remainingDepth: remainingDepth
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
       )
     {
       pixels = min(pixels, maximumPixels)
@@ -81,7 +90,8 @@ enum InlineImageDimensionPolicy {
         minimumValue,
         dimension: dimension,
         in: element,
-        remainingDepth: remainingDepth
+        remainingDepth: remainingDepth,
+        remainingWork: &remainingWork
       )
     {
       pixels = max(pixels, minimumPixels)
@@ -141,7 +151,6 @@ enum InlineImageDimensionPolicy {
       return inheritedPixels * percentage / 100
     }
     guard normalized.hasSuffix("em"),
-      !normalized.hasSuffix("rem"),
       let multiplier = Double(normalized.dropLast(2))
     else { return nil }
     return inheritedPixels * multiplier

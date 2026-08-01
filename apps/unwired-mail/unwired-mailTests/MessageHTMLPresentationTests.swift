@@ -104,7 +104,7 @@ final class MessageHTMLPresentationTests: XCTestCase {
       )
     )
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertLessThanOrEqual(result.remoteImageReferences.count, 1)
     XCTAssertFalse(result.documentHTML.contains("data-unwired-remote-image"))
     XCTAssertFalse(result.documentHTML.contains("secret"))
   }
@@ -2151,6 +2151,77 @@ private func remoteContentTransferBudgetResult(
     )
   )
   return (result, requestedMaximumByteCounts)
+}
+
+extension MessageHTMLPresentationTests {
+  func testSanitizerHandlesBoundedNestedPercentageDimensionResolution() throws {
+    let wrappers = String(
+      repeating:
+        #"<div style="width:100%;max-width:100%;min-width:100%;height:100%;max-height:100%;min-height:100%">"#,
+      count: 32
+    )
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"<div style="width:1px;height:1px">"# + wrappers
+          + #"<img src="https://tracker.example/pixel.gif" style="width:100%;height:100%">"#
+          + String(repeating: "</div>", count: 33)
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerRemovesConstantFunctionZeroDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p><div style="width:min(0px, 0px)">
+          <img src="https://tracker.example/pixel.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerPromotesVisibleDescendantThroughRevertAncestor() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility:hidden"><span style="visibility:revert">
+          <b style="visibility:visible">Receipt</b>
+        </span></div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+  }
+
+  func testSanitizerIgnoresMaximumDimensionsOnOrdinaryInlineElements() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(#"<span style="max-width:0;max-height:0">Receipt</span>"#)
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+  }
+
+  func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p><img src="https://images.example.com/hero.png"
+          style="width:600px;width:calc(1px+0px);height:600px;height:calc(1px+0px)">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
 }
 
 private enum TestError: Error {

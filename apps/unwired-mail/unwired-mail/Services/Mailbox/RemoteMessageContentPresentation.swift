@@ -19,7 +19,10 @@ enum MessageHTMLHiddenStylePatterns {
     ) != nil
   }
 
-  static func isPresentationHidden(_ declarations: [StyleDeclaration]) -> Bool {
+  static func isPresentationHidden(
+    _ declarations: [StyleDeclaration],
+    in element: Element? = nil
+  ) -> Bool {
     if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
       return true
     }
@@ -30,6 +33,7 @@ enum MessageHTMLHiddenStylePatterns {
     }) {
       return true
     }
+    guard element.map(maximumDimensionsApply) != false else { return false }
     return [("max-width", "min-width"), ("max-height", "min-height")].contains { properties in
       let (maximumProperty, minimumProperty) = properties
       guard
@@ -47,6 +51,22 @@ enum MessageHTMLHiddenStylePatterns {
         })
       return minimum.map(isPositiveLengthValue) != true
     }
+  }
+
+  private static func maximumDimensionsApply(to element: Element) -> Bool {
+    if let display = InlineImageDimensionPolicy.value("display", in: element)?.lowercased() {
+      let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
+      if display == "contents" || components == ["inline"]
+        || Set(components) == Set(["inline", "flow"])
+      {
+        return false
+      }
+      return true
+    }
+    return ![
+      "a", "b", "cite", "code", "em", "i", "q", "s", "small", "span", "strike",
+      "strong", "sub", "sup", "u",
+    ].contains(element.tagName().lowercased())
   }
 
   private static func isPositiveLengthValue(_ value: String) -> Bool {

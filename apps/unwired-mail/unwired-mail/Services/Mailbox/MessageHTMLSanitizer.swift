@@ -91,7 +91,7 @@ extension MessageHTMLSanitizer {
       let declarations = MessageHTMLHiddenStylePatterns.declarations(
         in: try element.attr("style")
       )
-      guard MessageHTMLHiddenStylePatterns.isPresentationHidden(declarations) else {
+      guard MessageHTMLHiddenStylePatterns.isPresentationHidden(declarations, in: element) else {
         continue
       }
       try element.remove()
