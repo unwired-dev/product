@@ -640,6 +640,10 @@ final class ProductAccountSessionTests: XCTestCase {
   func testSignOutRefusesUnacknowledgedRecoveryKeyAfterSessionRecreation() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let appleSignInService = PreviewAppleSignInService(
       credential: AppleSignInCredential(
         appleUserIdentifier: snapshot.appleUserIdentifier,
@@ -653,9 +657,16 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     try firstSession.preserveUnacknowledgedRecoveryKey("unacknowledged-key")
 
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
     let relaunchedSession = ProductAccountSession(
       appleSignInService: appleSignInService,
-      productAccountService: PreviewProductAccountService(response: .preview),
+      productAccountService: PreviewProductAccountService(response: response),
       sessionStore: store,
       productSyncKeyMaterialStore: keyMaterialStore
     )
@@ -674,6 +685,62 @@ final class ProductAccountSessionTests: XCTestCase {
       "unacknowledged-key",
       productAccountId: snapshot.productAccountId
     )
+    XCTAssertNil(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
+  }
+
+  func testLegacyRecoveryKeyRemainsVisibleAndBlocksSignOutAfterRelaunch() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    try store.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: "legacy-key",
+        recoveryWrappedAccountKey: nil
+      ),
+      productAccountId: snapshot.productAccountId
+    )
+    let response = ProductAccountConnectResponse(
+      accountCreated: false,
+      deviceRegistered: true,
+      productSyncMaterialInitialized: true,
+      productAccountId: snapshot.productAccountId,
+      trustedDeviceId: snapshot.trustedDeviceId
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: response),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "legacy-key")
+
+    await session.signOut()
+
+    XCTAssertEqual(session.state, .signedIn(snapshot))
+    XCTAssertEqual(session.unacknowledgedRecoveryKey, "legacy-key")
+    XCTAssertEqual(
+      session.signOutErrorMessage,
+      ProductAccountSessionError.recoveryNotBackedUp.localizedDescription
+    )
+
+    try session.acknowledgeRecoveryKey(
+      "legacy-key",
+      productAccountId: snapshot.productAccountId
+    )
+    XCTAssertNil(session.unacknowledgedRecoveryKey)
     XCTAssertNil(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
     )

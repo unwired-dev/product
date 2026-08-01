@@ -442,11 +442,9 @@ extension ProductAccountSession {
       if recoveryKeyMarker.recoveryWrappedAccountKey == nil
         || recoveryKeyMarker.recoveryWrappedAccountKey == material?.recoveryWrappedAccountKey
       {
-        if recoveryKeyMarker.recoveryWrappedAccountKey != nil {
-          unacknowledgedRecoveryKey = recoveryKeyMarker.recoveryKey
-          unacknowledgedRecoveryKeyMarker = recoveryKeyMarker
-          unacknowledgedRecoveryAccountId = snapshot.productAccountId
-        }
+        unacknowledgedRecoveryKey = recoveryKeyMarker.recoveryKey
+        unacknowledgedRecoveryKeyMarker = recoveryKeyMarker
+        unacknowledgedRecoveryAccountId = snapshot.productAccountId
         throw ProductAccountSessionError.recoveryNotBackedUp
       }
       try? sessionStore.clearUnacknowledgedRecoveryKey(
@@ -726,7 +724,8 @@ extension ProductAccountSession {
     guard
       persistedRecoveryKey == nil
         || (persistedRecoveryKey?.recoveryKey == recoveryKey
-          && persistedRecoveryKey?.recoveryWrappedAccountKey == currentWrapper)
+          && (persistedRecoveryKey?.recoveryWrappedAccountKey == nil
+            || persistedRecoveryKey?.recoveryWrappedAccountKey == currentWrapper))
     else { return }
     if persistedRecoveryKey?.recoveryKey == recoveryKey {
       try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
@@ -759,13 +758,14 @@ extension ProductAccountSession {
     let currentWrapper = try? productSyncKeyMaterialStore.load(
       productAccountId: productAccountId
     )?.recoveryWrappedAccountKey
-    guard marker?.recoveryWrappedAccountKey == currentWrapper,
-      marker?.recoveryWrappedAccountKey != nil
+    guard let marker,
+      marker.recoveryWrappedAccountKey == nil
+        || marker.recoveryWrappedAccountKey == currentWrapper
     else {
       clearUnacknowledgedRecoveryKeyInMemory(productAccountId: productAccountId)
       return
     }
-    unacknowledgedRecoveryKey = marker?.recoveryKey
+    unacknowledgedRecoveryKey = marker.recoveryKey
     unacknowledgedRecoveryKeyMarker = marker
     unacknowledgedRecoveryAccountId = productAccountId
   }
