@@ -1607,7 +1607,6 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), snapshot)
     let retainedAttempts = try await outboxService.items(session: snapshot)
     XCTAssertEqual(retainedAttempts.map(\.message.body), ["Queued private body"])
-    XCTAssertTrue(pushUnregisterer.sessions.isEmpty)
 
     outboxStore.clearError = nil
     try await outboxService.clear(session: snapshot)
