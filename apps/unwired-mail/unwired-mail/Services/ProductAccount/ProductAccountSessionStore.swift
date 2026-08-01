@@ -56,11 +56,11 @@ protocol ProductAccountSessionPersisting {
     productAccountId: String
   ) throws
   func clearUnacknowledgedRecoveryKey(productAccountId: String) throws
-  func loadPendingTrustedDeviceUnregistration() throws -> PendingTrustedDeviceUnregistration?
+  func loadPendingTrustedDeviceUnregistrations() throws -> [PendingTrustedDeviceUnregistration]
   func savePendingTrustedDeviceUnregistration(
     _ unregistration: PendingTrustedDeviceUnregistration
   ) throws
-  func clearPendingTrustedDeviceUnregistration() throws
+  func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws
   func loadPendingSignOutProductAccountId() throws -> String?
   func savePendingSignOutProductAccountId(_ productAccountId: String) throws
   func clearPendingSignOutProductAccountId() throws
@@ -173,7 +173,9 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     )
   }
 
-  func loadPendingTrustedDeviceUnregistration() throws -> PendingTrustedDeviceUnregistration? {
+  func loadPendingTrustedDeviceUnregistrations() throws
+    -> [PendingTrustedDeviceUnregistration]
+  {
     guard
       let rawValue = try KeychainStore.readString(
         service: service,
@@ -181,15 +183,43 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       ),
       let data = rawValue.data(using: .utf8)
     else {
-      return nil
+      return []
     }
-    return try JSONDecoder().decode(PendingTrustedDeviceUnregistration.self, from: data)
+    if let unregistrations = try? JSONDecoder().decode(
+      [PendingTrustedDeviceUnregistration].self,
+      from: data
+    ) {
+      return unregistrations
+    }
+    return [try JSONDecoder().decode(PendingTrustedDeviceUnregistration.self, from: data)]
   }
 
   func savePendingTrustedDeviceUnregistration(
     _ unregistration: PendingTrustedDeviceUnregistration
   ) throws {
-    let data = try JSONEncoder().encode(unregistration)
+    var unregistrations = try loadPendingTrustedDeviceUnregistrations()
+    unregistrations.removeAll { $0.trustedDeviceId == unregistration.trustedDeviceId }
+    unregistrations.append(unregistration)
+    try savePendingTrustedDeviceUnregistrations(unregistrations)
+  }
+
+  func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws {
+    var unregistrations = try loadPendingTrustedDeviceUnregistrations()
+    unregistrations.removeAll { $0.trustedDeviceId == trustedDeviceId }
+    if unregistrations.isEmpty {
+      try KeychainStore.delete(
+        service: service,
+        account: "pending-trusted-device-unregistration"
+      )
+    } else {
+      try savePendingTrustedDeviceUnregistrations(unregistrations)
+    }
+  }
+
+  private func savePendingTrustedDeviceUnregistrations(
+    _ unregistrations: [PendingTrustedDeviceUnregistration]
+  ) throws {
+    let data = try JSONEncoder().encode(unregistrations)
     guard let rawValue = String(data: data, encoding: .utf8) else {
       throw KeychainStoreError.unexpectedData
     }
@@ -198,13 +228,6 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       service: service,
       account: "pending-trusted-device-unregistration",
       accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-    )
-  }
-
-  func clearPendingTrustedDeviceUnregistration() throws {
-    try KeychainStore.delete(
-      service: service,
-      account: "pending-trusted-device-unregistration"
     )
   }
 
@@ -235,7 +258,8 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
 #if DEBUG || TESTING
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingSignOutProductAccountId: String?
-    private var pendingTrustedDeviceUnregistration: PendingTrustedDeviceUnregistration?
+    private var pendingTrustedDeviceUnregistrations: [String: PendingTrustedDeviceUnregistration] =
+      [:]
     private var snapshot: ProductAccountSessionSnapshot?
     private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
 
@@ -268,18 +292,20 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       unacknowledgedRecoveryKeys[productAccountId] = nil
     }
 
-    func loadPendingTrustedDeviceUnregistration() throws -> PendingTrustedDeviceUnregistration? {
-      pendingTrustedDeviceUnregistration
+    func loadPendingTrustedDeviceUnregistrations() throws
+      -> [PendingTrustedDeviceUnregistration]
+    {
+      Array(pendingTrustedDeviceUnregistrations.values)
     }
 
     func savePendingTrustedDeviceUnregistration(
       _ unregistration: PendingTrustedDeviceUnregistration
     ) throws {
-      pendingTrustedDeviceUnregistration = unregistration
+      pendingTrustedDeviceUnregistrations[unregistration.trustedDeviceId] = unregistration
     }
 
-    func clearPendingTrustedDeviceUnregistration() throws {
-      pendingTrustedDeviceUnregistration = nil
+    func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws {
+      pendingTrustedDeviceUnregistrations[trustedDeviceId] = nil
     }
 
     func loadPendingSignOutProductAccountId() throws -> String? {

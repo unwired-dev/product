@@ -109,6 +109,7 @@ final class ProductAccountSession {
       do {
         try await resumePendingSignOut()
         let credential = try await appleSignInService.signIn()
+        await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
         )
@@ -644,7 +645,6 @@ extension ProductAccountSession {
   private func prepareForBootstrap() async -> Bool {
     do {
       try await resumePendingSignOut()
-      await resumePendingTrustedDeviceUnregistration()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -692,7 +692,7 @@ extension ProductAccountSession {
       }
       try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
       try await mailboxConnectionService.clearLocalConnection(session: cleanupSnapshot)
-      try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
+      try await unregisterTrustedDeviceOrPersistForRetry(cleanupSnapshot)
     }
     try sessionStore.clear()
     try productSyncKeyMaterialStore.clear(
@@ -704,15 +704,14 @@ extension ProductAccountSession {
     try sessionStore.clearPendingSignOutProductAccountId()
   }
 
-  private func resumePendingTrustedDeviceUnregistration() async {
-    guard let unregistration = try? sessionStore.loadPendingTrustedDeviceUnregistration() else {
+  private func resumePendingTrustedDeviceUnregistrations(
+    using credential: AppleSignInCredential
+  ) async {
+    guard let unregistrations = try? sessionStore.loadPendingTrustedDeviceUnregistrations() else {
       return
     }
-    do {
-      let credential = try await appleSignInService.signIn()
-      guard credential.appleUserIdentifier == unregistration.appleUserIdentifier else {
-        throw ProductAccountSessionError.differentAppleAccount
-      }
+    for unregistration in unregistrations
+    where unregistration.appleUserIdentifier == credential.appleUserIdentifier {
       let cleanupSnapshot = ProductAccountSessionSnapshot(
         appleUserIdentifier: unregistration.appleUserIdentifier,
         identityToken: credential.identityToken,
@@ -722,10 +721,14 @@ extension ProductAccountSession {
         productAccountId: unregistration.productAccountId,
         trustedDeviceId: unregistration.trustedDeviceId
       )
-      try await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
-      try sessionStore.clearPendingTrustedDeviceUnregistration()
-    } catch {
-      return
+      do {
+        try await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
+        try sessionStore.clearPendingTrustedDeviceUnregistration(
+          trustedDeviceId: unregistration.trustedDeviceId
+        )
+      } catch {
+        continue
+      }
     }
   }
 
