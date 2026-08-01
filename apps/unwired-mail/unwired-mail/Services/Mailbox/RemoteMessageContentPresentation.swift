@@ -23,7 +23,10 @@ enum MessageHTMLHiddenStylePatterns {
     _ declarations: [StyleDeclaration],
     in element: Element? = nil
   ) -> Bool {
-    if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
+    let display = effectiveValue("display", in: declarations, where: isDisplayValue)
+    if display == "none"
+      || (display == "contents" && element?.tagName().lowercased() == "img")
+    {
       return true
     }
     let appliesDimensions = element.map(dimensionsApply) != false

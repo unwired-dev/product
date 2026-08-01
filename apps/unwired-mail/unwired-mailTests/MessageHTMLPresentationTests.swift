@@ -680,6 +680,25 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("constrained-percentage.gif"))
   }
 
+  func testSanitizerResolvesPercentageWidthThroughAutoSizedBlock() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width: 1px">
+          <div>
+            <img src="https://tracker.example/auto-block-percentage.gif"
+                 style="width: 100%; height: 1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("auto-block-percentage.gif"))
+  }
+
   func testSanitizerParsesSpacedImportantImageDimensions() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1846,6 +1865,28 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDoesNotPromoteVisibleDescendantsOfCollapsedTableRows() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <table>
+          <tr style="visibility: collapse">
+            <td>
+              <span style="visibility: visible">
+                <img src="https://tracker.example/collapsed-row.png">
+              </span>
+            </td>
+          </tr>
+        </table>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("collapsed-row.png"))
+  }
+
   func testSanitizerRemovesHiddenBranchesInsidePromotedVisibleSubtrees() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2337,6 +2378,20 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
     XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
+  }
+
+  func testSanitizerTreatsDisplayContentsImagesAsHidden() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/display-contents.png" style="display: contents">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("display-contents.png"))
   }
 
   func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {

@@ -477,7 +477,7 @@ extension MessageHTMLSanitizer {
       )
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       let isHiddenOnlyByVisibility =
-        (visibility == "hidden" || visibility == "collapse")
+        visibility == "hidden"
         && !element.hasAttr("hidden")
         && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
         && !MessageHTMLHiddenStylePatterns.isPresentationHidden(

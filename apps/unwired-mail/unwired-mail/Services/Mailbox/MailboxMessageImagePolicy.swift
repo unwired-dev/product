@@ -60,12 +60,19 @@ enum InlineImageDimensionPolicy {
     guard normalized.hasSuffix("%"),
       let percentage = Double(normalized.dropLast()),
       let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth),
-      let containingPixels = resolvedUsedDimensionPixels(
-        dimension: dimension,
-        in: parent,
-        remainingDepth: remainingDepth - 1,
-        remainingWork: &remainingWork
-      )
+      let containingPixels =
+        resolvedUsedDimensionPixels(
+          dimension: dimension,
+          in: parent,
+          remainingDepth: remainingDepth - 1,
+          remainingWork: &remainingWork
+        )
+        ?? (dimension == "width"
+          ? resolvedAutoNormalFlowBlockWidth(
+            in: parent,
+            remainingDepth: remainingDepth - 1,
+            remainingWork: &remainingWork
+          ) : nil)
     else { return nil }
     return containingPixels * percentage / 100
   }
@@ -108,6 +115,59 @@ enum InlineImageDimensionPolicy {
       pixels = max(pixels, minimumPixels)
     }
     return pixels
+  }
+
+  private static func resolvedAutoNormalFlowBlockWidth(
+    in element: Element,
+    remainingDepth: Int,
+    remainingWork: inout Int
+  ) -> Double? {
+    guard hasAutoNormalFlowBlockWidth(element),
+      let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth)
+    else { return nil }
+    return resolvedUsedDimensionPixels(
+      dimension: "width",
+      in: parent,
+      remainingDepth: remainingDepth - 1,
+      remainingWork: &remainingWork
+    )
+  }
+
+  private static func hasAutoNormalFlowBlockWidth(_ element: Element) -> Bool {
+    if let declaredWidth = value("width", in: element),
+      !["auto", "initial", "revert", "revert-layer", "unset"].contains(declaredWidth.lowercased())
+    {
+      return false
+    }
+    let declarations = MessageHTMLHiddenStylePatterns.declarations(
+      in: (try? element.attr("style")) ?? ""
+    )
+    let position = MessageHTMLHiddenStylePatterns.effectiveValue(
+      "position",
+      in: declarations,
+      where: { ["absolute", "fixed", "relative", "static", "sticky"].contains($0) }
+    )
+    guard position.map({ !["absolute", "fixed"].contains($0) }) != false else { return false }
+    let float = MessageHTMLHiddenStylePatterns.effectiveValue(
+      "float",
+      in: declarations,
+      where: { ["inline-end", "inline-start", "left", "none", "right"].contains($0) }
+    )
+    guard float == nil || float == "none" else { return false }
+    if let display = MessageHTMLHiddenStylePatterns.effectiveValue(
+      "display",
+      in: declarations,
+      where: MessageHTMLHiddenStylePatterns.isDisplayValue
+    ) {
+      let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
+      return ["block", "flow-root", "list-item"].contains(display)
+        || components.first == "block"
+    }
+    return [
+      "address", "article", "aside", "blockquote", "dd", "div", "dl", "dt", "fieldset",
+      "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
+      "header", "hgroup", "hr", "main", "nav", "ol", "p", "pre", "section", "ul",
+    ].contains(element.tagName().lowercased())
   }
 
   private static func containingBlockAncestor(
