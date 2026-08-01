@@ -835,6 +835,30 @@ extension MessageHTMLPresentationTests {
     }
   }
 
+  func testSanitizerRetainsRemoteImagesInsideNonOffsettingNegativeMargins() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="margin-right: -100px">
+          <img src="https://images.example.com/right-margin.png">
+        </div>
+        <div style="margin-bottom: -100px">
+          <img src="https://images.example.com/bottom-margin.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      [
+        "https://images.example.com/right-margin.png",
+        "https://images.example.com/bottom-margin.png",
+      ]
+    )
+  }
+
   func testSanitizerRemovesRemoteImagesInsideSignedZeroWrappers() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1778,6 +1802,21 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerStripsCommentsBeforeSplittingStyleDeclarations() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="display:/*;*/none">
+          <img src="https://tracker.example/comment-delimiter.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
   func testSanitizerPreservesVisibleDescendantsOfHiddenWrappers() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1968,6 +2007,23 @@ extension MessageHTMLPresentationTests {
     )
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerRemovesConstantFunctionZeroOpacityContent() throws {
+    for opacity in ["min(0, 0)", "max(0%, 0)", "clamp(0, 0%, 1)"] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="opacity: \(opacity)">
+            <img src="https://tracker.example/hidden.png">
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, opacity)
+    }
   }
 
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
@@ -2281,6 +2337,23 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
     XCTAssertTrue(result.documentHTML.contains("Initial receipt"))
+  }
+
+  func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:1px;height:1px">
+          <span style="display:initial">
+            <img src="https://tracker.example/pixel.gif" style="width:100%;height:100%">
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
   func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {

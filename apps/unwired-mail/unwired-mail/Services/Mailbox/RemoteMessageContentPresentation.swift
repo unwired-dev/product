@@ -12,7 +12,7 @@ enum MessageHTMLHiddenStylePatterns {
     guard let opacity = effectiveValue("opacity", in: declarations, where: isOpacityValue) else {
       return false
     }
-    if let calculatedOpacity = simpleCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }
+    if let calculatedOpacity = constantCalculatedOpacity(opacity) { return calculatedOpacity <= 0 }
     return opacity.range(
       of: #"^(?:\+?(?:0+(?:\.0*)?|\.0+)|-(?:\d+(?:\.\d*)?|\.\d+))(?:%)?$"#,
       options: .regularExpression
@@ -56,7 +56,7 @@ enum MessageHTMLHiddenStylePatterns {
     }
   }
 
-  private static func dimensionsApply(to element: Element) -> Bool {
+  static func dimensionsApply(to element: Element) -> Bool {
     if let display = InlineImageDimensionPolicy.value("display", in: element)?.lowercased() {
       if ["initial", "unset"].contains(display) { return false }
       if display == "inherit" {

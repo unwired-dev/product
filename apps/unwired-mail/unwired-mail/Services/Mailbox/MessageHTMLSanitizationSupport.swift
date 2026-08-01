@@ -66,7 +66,7 @@ extension MessageHTMLHiddenStylePatterns {
     value.range(
       of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:%)?$"#,
       options: .regularExpression
-    ) != nil || simpleCalculatedOpacity(value) != nil || isCSSWideKeyword(value)
+    ) != nil || constantCalculatedOpacity(value) != nil || isCSSWideKeyword(value)
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
@@ -252,9 +252,45 @@ extension MessageHTMLHiddenStylePatterns {
     ).map(isOffCanvasNegativeLengthValue) == true {
       return true
     }
-    return (0..<4).contains { side in
+    return [0, 3].contains { side in
       effectiveMarginValue(side, in: declarations).map(isOffCanvasNegativeLengthValue) == true
     }
+  }
+
+  static func constantCalculatedOpacity(_ value: String) -> Double? {
+    if let value = simpleCalculatedOpacity(value) { return value }
+    let normalized = value.lowercased()
+    guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
+    else { return nil }
+    let function = String(normalized[..<openingParenthesis])
+    guard ["clamp", "max", "min"].contains(function) else { return nil }
+    let argumentsStart = normalized.index(after: openingParenthesis)
+    let argumentsEnd = normalized.index(before: normalized.endIndex)
+    let arguments = normalized[argumentsStart..<argumentsEnd].split(
+      separator: ",",
+      omittingEmptySubsequences: false
+    )
+    var values: [Double] = []
+    for argument in arguments {
+      let argument = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !argument.isEmpty, let value = opacityValue(argument) else { return nil }
+      values.append(value)
+    }
+    switch function {
+    case "min": return values.min()
+    case "max": return values.max()
+    default:
+      guard values.count == 3 else { return nil }
+      return Swift.max(values[0], Swift.min(values[1], values[2]))
+    }
+  }
+
+  private static func opacityValue(_ value: String) -> Double? {
+    if let calculated = simpleCalculatedOpacity(value) { return calculated }
+    if value.hasSuffix("%"), let percentage = Double(value.dropLast()) {
+      return percentage / 100
+    }
+    return Double(value)
   }
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {
@@ -378,16 +414,16 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func declarations(in style: String) -> [StyleDeclaration] {
-    style.split(separator: ";").compactMap { declaration in
+    let normalizedStyle = style.replacingOccurrences(
+      of: #"/\*[\s\S]*?\*/"#,
+      with: " ",
+      options: .regularExpression
+    )
+    return normalizedStyle.split(separator: ";").compactMap { declaration in
       let components = declaration.split(separator: ":", maxSplits: 1)
       guard components.count == 2 else { return nil }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-      value = value.replacingOccurrences(
-        of: #"/\*[\s\S]*?\*/"#,
-        with: " ",
-        options: .regularExpression
-      ).trimmingCharacters(in: .whitespacesAndNewlines)
       let importantPattern = #"!\s*(?:/\*[\s\S]*?\*/\s*)*important\s*$"#
       let importantRange = value.range(
         of: importantPattern,

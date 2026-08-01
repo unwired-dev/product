@@ -120,15 +120,7 @@ enum InlineImageDimensionPolicy {
   }
 
   private static func isOrdinaryInlineBox(_ element: Element) -> Bool {
-    if let display = value("display", in: element)?.lowercased() {
-      let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
-      return display == "contents" || components == ["inline"]
-        || Set(components) == Set(["inline", "flow"])
-    }
-    return [
-      "a", "b", "cite", "code", "em", "i", "q", "s", "small", "span", "strike",
-      "strong", "sub", "sup", "u",
-    ].contains(element.tagName().lowercased())
+    !MessageHTMLHiddenStylePatterns.dimensionsApply(to: element)
   }
 
   private static func inheritedFontSizePixels(
