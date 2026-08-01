@@ -2604,6 +2604,25 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerAccountsForDefaultBorderWidthsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="border-left:solid;border-right:solid">
+            <img src="https://tracker.example/default-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("default-border.gif"))
+  }
+
   func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

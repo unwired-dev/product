@@ -6128,17 +6128,20 @@ final class GmailInboxViewModel {
       let (byteCount, byteCountOverflowed) = image.data.count.multipliedReportingOverflow(
         by: occurrenceCount
       )
+      let (pixelCount, pixelCountOverflowed) = image.decodedPixelCount
+        .multipliedReportingOverflow(by: occurrenceCount)
       guard
         !byteCountOverflowed,
+        !pixelCountOverflowed,
         byteCount <= remainingByteCount,
-        image.decodedPixelCount <= remainingPixelCount
+        pixelCount <= remainingPixelCount
       else {
         return false
       }
       remainingByteCount -= byteCount
-      remainingPixelCount -= image.decodedPixelCount
+      remainingPixelCount -= pixelCount
       retainedByteCount += byteCount
-      retainedPixelCount += image.decodedPixelCount
+      retainedPixelCount += pixelCount
       return true
     }
     loadedInlineImageByteCounts[messageId] = retainedByteCount

@@ -9,7 +9,8 @@ enum InlineImageDimensionPolicy {
   private static let maximumResolutionWork = 8_192
 
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
-    let fontSizePixels = inheritedFontSizePixels(in: element)
+    var remainingWork = maximumResolutionWork
+    let fontSizePixels = inheritedFontSizePixels(in: element, remainingWork: &remainingWork)
     return MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(
       value,
       fontSizePixels: fontSizePixels
@@ -53,7 +54,7 @@ enum InlineImageDimensionPolicy {
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(value) { return 0 }
     if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
       value,
-      fontSizePixels: inheritedFontSizePixels(in: element)
+      fontSizePixels: inheritedFontSizePixels(in: element, remainingWork: &remainingWork)
     ) {
       return pixels
     }
@@ -147,7 +148,7 @@ enum InlineImageDimensionPolicy {
     )
     pixels -= MessageHTMLHiddenStylePatterns.horizontalInsetPixels(
       in: declarations,
-      fontSizePixels: inheritedFontSizePixels(in: element)
+      fontSizePixels: inheritedFontSizePixels(in: element, remainingWork: &remainingWork)
     )
     pixels = max(0, pixels)
     if let maximumValue = value("max-width", in: element),
@@ -215,12 +216,18 @@ enum InlineImageDimensionPolicy {
 
   private static func inheritedFontSizePixels(
     in element: Element,
-    remainingDepth: Int = maximumResolutionDepth
+    remainingDepth: Int = maximumResolutionDepth,
+    remainingWork: inout Int
   ) -> Double? {
-    guard remainingDepth > 0 else { return nil }
+    guard remainingDepth > 0, remainingWork > 0 else { return nil }
+    remainingWork -= 1
     guard let fontSize = value("font-size", in: element) else {
       return element.parent().flatMap {
-        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+        inheritedFontSizePixels(
+          in: $0,
+          remainingDepth: remainingDepth - 1,
+          remainingWork: &remainingWork
+        )
       } ?? CSSLengthValuePolicy.initialFontSizePixels
     }
     let normalized = fontSize.lowercased()
@@ -233,12 +240,20 @@ enum InlineImageDimensionPolicy {
     if normalized == "initial" { return CSSLengthValuePolicy.initialFontSizePixels }
     if normalized == "inherit" || normalized == "unset" {
       return element.parent().flatMap {
-        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+        inheritedFontSizePixels(
+          in: $0,
+          remainingDepth: remainingDepth - 1,
+          remainingWork: &remainingWork
+        )
       } ?? CSSLengthValuePolicy.initialFontSizePixels
     }
     let inheritedPixels =
       element.parent().flatMap {
-        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+        inheritedFontSizePixels(
+          in: $0,
+          remainingDepth: remainingDepth - 1,
+          remainingWork: &remainingWork
+        )
       } ?? CSSLengthValuePolicy.initialFontSizePixels
     if normalized.hasSuffix("%"), let percentage = Double(normalized.dropLast()) {
       return inheritedPixels * percentage / 100

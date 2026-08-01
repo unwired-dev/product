@@ -483,11 +483,13 @@ extension MessageHTMLHiddenStylePatterns {
       case "border-width":
         value = borderWidthValues(declaration.value)?[side]
       case sideProperty, "border":
-        value =
-          declaration.value.split(whereSeparator: \Character.isWhitespace)
+        let components =
+          declaration.value
+          .split(whereSeparator: \Character.isWhitespace)
           .map(String.init)
-          .compactMap(normalizedBorderWidthValue)
-          .first
+        value =
+          components.compactMap(normalizedBorderWidthValue).first
+          ?? (components.contains(where: isBorderStyleValue) ? "3px" : nil)
       default:
         continue
       }

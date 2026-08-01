@@ -4203,6 +4203,71 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelChargesRepeatedInlineImagesToSharedPixelBudget() async throws {
+    let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
+    let message = metadata(
+      messageId: "message-001",
+      threadId: "thread-001",
+      internalDateMilliseconds: 10
+    ).mailboxMetadata(
+      connectionId: connection.mailboxConnection(
+        productAccountId: session.productAccountId, authorizationState: .authorized
+      ).id
+    )
+    let repeatedImageHTML = String(
+      repeating: #"<img src="cid:repeated@example.com">"#,
+      count: 2
+    )
+    let reader = ImmediateMailboxMessageReader(
+      bodies: [
+        message.id: MailboxMessageBody(
+          text: "Body",
+          html: repeatedImageHTML,
+          inlineImages: [
+            MailboxMessageInlineImage(
+              contentID: "repeated@example.com",
+              data: Data([1]),
+              decodedPixelCount: 16 * 1_024 * 1_024,
+              mimeType: "image/png"
+            )
+          ]
+        )
+      ]
+    )
+    let viewModel = GmailInboxViewModel(
+      service: service,
+      searchService: service,
+      session: session
+    )
+    let originalHTML = SanitizedMessageHTML(
+      documentHTML: #"<html><body><img data-unwired-remote-image="remote-image-0"></body></html>"#,
+      remoteImageReferences: [
+        RemoteMessageImageReference(
+          identifier: "remote-image-0",
+          url: try XCTUnwrap(URL(string: "https://images.example.com/hero.png"))
+        )
+      ]
+    )
+
+    _ = try await viewModel.loadMessageBody(message, using: reader)
+    let result = try await viewModel.loadRemoteMessageContent(
+      originalHTML,
+      for: message.id
+    ) { _, _, maximumPixelCount in
+      XCTAssertEqual(maximumPixelCount, 0)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: originalHTML,
+        loadedByteCount: 1,
+        loadedImageCount: 1,
+        loadedPixelCount: 1
+      )
+    }
+
+    XCTAssertEqual(result.loadedImageCount, 0)
+  }
+
+  @MainActor
   func testInboxViewModelIgnoresSanitizedAwayInlineImageOccurrencesInByteBudget() async throws {
     let service = DelayedMailboxSwitchingService(messagesByProviderAccountIdentifier: [:])
     let firstMessage = metadata(
