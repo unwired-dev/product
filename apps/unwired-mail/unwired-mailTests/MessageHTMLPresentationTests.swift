@@ -2582,6 +2582,101 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:1px;height:1px">
+          <img src="https://tracker.example/inherited.gif"
+               style="width:inherit;height:inherit">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("inherited.gif"))
+  }
+
+  func testSanitizerAccountsForFontRelativeInsetsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:33px">
+          <div style="font-size:16px;padding:0 1em">
+            <img src="https://tracker.example/font-relative-inset.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("font-relative-inset.gif"))
+  }
+
+  func testSanitizerAccountsForKeywordBorderWidthsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:11px">
+          <div style="border-left:thick solid;border-right:thick solid">
+            <img src="https://tracker.example/keyword-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("keyword-border.gif"))
+  }
+
+  func testSanitizerIgnoresInactiveBorderWidthsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:601px">
+          <div style="border-left-width:300px;border-right-width:300px">
+            <img src="https://images.example.com/inactive-border.png"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/inactive-border.png"]
+    )
+  }
+
+  func testSanitizerIgnoresInvalidNegativePaddingOverride() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:301px">
+          <div style="padding-left:300px;padding-left:-300px">
+            <img src="https://tracker.example/negative-padding.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("negative-padding.gif"))
+  }
+
   func testSanitizerIncludesAncestorPaddingWhenEvaluatingNegativeOffsets() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

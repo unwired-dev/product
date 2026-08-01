@@ -58,6 +58,14 @@ enum InlineImageDimensionPolicy {
       return pixels
     }
     let normalized = value.lowercased()
+    if normalized == "inherit", let parent = element.parent() {
+      return resolvedUsedDimensionPixels(
+        dimension: dimension,
+        in: parent,
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
+      )
+    }
     guard normalized.hasSuffix("%"),
       let percentage = Double(normalized.dropLast()),
       let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth),
@@ -137,17 +145,10 @@ enum InlineImageDimensionPolicy {
     let declarations = MessageHTMLHiddenStylePatterns.declarations(
       in: (try? element.attr("style")) ?? ""
     )
-    for side in [1, 3] {
-      for inset in [
-        MessageHTMLHiddenStylePatterns.effectiveMarginValue(side, in: declarations),
-        MessageHTMLHiddenStylePatterns.effectivePaddingValue(side, in: declarations),
-        MessageHTMLHiddenStylePatterns.effectiveBorderWidthValue(side, in: declarations),
-      ] {
-        if let inset, let insetPixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(inset) {
-          pixels -= insetPixels
-        }
-      }
-    }
+    pixels -= MessageHTMLHiddenStylePatterns.horizontalInsetPixels(
+      in: declarations,
+      fontSizePixels: inheritedFontSizePixels(in: element)
+    )
     pixels = max(0, pixels)
     if let maximumValue = value("max-width", in: element),
       let maximumPixels = resolvedDimensionPixels(

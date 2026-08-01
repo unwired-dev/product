@@ -457,7 +457,7 @@ extension MessageHTMLHiddenStylePatterns {
     for declaration in declarations {
       let value: String?
       if declaration.property == sideProperty {
-        value = isLengthValue(declaration.value, for: sideProperty) ? declaration.value : nil
+        value = isPaddingValue(declaration.value) ? declaration.value : nil
       } else if declaration.property == "padding" {
         value = paddingValues(declaration.value)?[side]
       } else {
@@ -481,16 +481,15 @@ extension MessageHTMLHiddenStylePatterns {
       let value: String?
       switch declaration.property {
       case "\(sideProperty)-width":
-        value =
-          isLengthValue(declaration.value, for: "border-width")
-          ? declaration.value
-          : nil
+        value = normalizedBorderWidthValue(declaration.value)
       case "border-width":
-        value = paddingValues(declaration.value)?[side]
+        value = borderWidthValues(declaration.value)?[side]
       case sideProperty, "border":
-        value = declaration.value.split(whereSeparator: \Character.isWhitespace)
+        value =
+          declaration.value.split(whereSeparator: \Character.isWhitespace)
           .map(String.init)
-          .first { isLengthValue($0, for: "border-width") }
+          .compactMap(normalizedBorderWidthValue)
+          .first
       default:
         continue
       }
@@ -499,6 +498,60 @@ extension MessageHTMLHiddenStylePatterns {
       effectiveDeclaration = (value, declaration.isImportant)
     }
     return effectiveDeclaration?.value
+  }
+
+  static func effectiveBorderStyleValue(
+    _ side: Int,
+    in declarations: [StyleDeclaration]
+  ) -> String? {
+    let sideName = ["top", "right", "bottom", "left"][side]
+    let sideProperty = "border-\(sideName)"
+    var effectiveDeclaration: (value: String, isImportant: Bool)?
+    for declaration in declarations {
+      let value: String?
+      switch declaration.property {
+      case "\(sideProperty)-style":
+        value = isBorderStyleValue(declaration.value) ? declaration.value : nil
+      case "border-style":
+        value = borderStyleValues(declaration.value)?[side]
+      case sideProperty, "border":
+        value = declaration.value.split(whereSeparator: \Character.isWhitespace)
+          .map(String.init)
+          .first(where: isBorderStyleValue)
+      default:
+        continue
+      }
+      guard let value else { continue }
+      if effectiveDeclaration?.isImportant == true, !declaration.isImportant { continue }
+      effectiveDeclaration = (value, declaration.isImportant)
+    }
+    return effectiveDeclaration?.value
+  }
+
+  static func horizontalInsetPixels(
+    in declarations: [StyleDeclaration],
+    fontSizePixels: Double?
+  ) -> Double {
+    var pixels = 0.0
+    for side in [1, 3] {
+      for inset in [
+        effectiveMarginValue(side, in: declarations),
+        effectivePaddingValue(side, in: declarations),
+      ] {
+        if let inset, let insetPixels = pixelLengthValue(inset, fontSizePixels: fontSizePixels) {
+          pixels += insetPixels
+        }
+      }
+      if effectiveBorderStyleValue(side, in: declarations).map({
+        !["hidden", "none"].contains($0)
+      }) == true,
+        let borderWidth = effectiveBorderWidthValue(side, in: declarations),
+        let borderPixels = pixelLengthValue(borderWidth, fontSizePixels: fontSizePixels)
+      {
+        pixels += borderPixels
+      }
+    }
+    return pixels
   }
 
   private static func marginValues(_ value: String) -> [String]? {
@@ -514,15 +567,52 @@ extension MessageHTMLHiddenStylePatterns {
 
   private static func paddingValues(_ value: String) -> [String]? {
     let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
-    guard (1...4).contains(values.count),
-      values.allSatisfy({ isLengthValue($0, for: "padding") })
-    else { return nil }
+    guard (1...4).contains(values.count), values.allSatisfy(isPaddingValue) else { return nil }
+    return expandedBoxValues(values)
+  }
+
+  private static func borderWidthValues(_ value: String) -> [String]? {
+    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard (1...4).contains(values.count) else { return nil }
+    let normalizedValues = values.compactMap(normalizedBorderWidthValue)
+    guard normalizedValues.count == values.count else { return nil }
+    return expandedBoxValues(normalizedValues)
+  }
+
+  private static func borderStyleValues(_ value: String) -> [String]? {
+    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard (1...4).contains(values.count), values.allSatisfy(isBorderStyleValue) else { return nil }
+    return expandedBoxValues(values)
+  }
+
+  private static func expandedBoxValues(_ values: [String]) -> [String] {
     switch values.count {
     case 1: return [values[0], values[0], values[0], values[0]]
     case 2: return [values[0], values[1], values[0], values[1]]
     case 3: return [values[0], values[1], values[2], values[1]]
     default: return values
     }
+  }
+
+  private static func isPaddingValue(_ value: String) -> Bool {
+    guard isLengthValue(value, for: "padding") else { return false }
+    if let pixels = pixelLengthValue(value) { return pixels >= 0 }
+    let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
+    return Double(numericPrefix).map { $0 >= 0 } ?? true
+  }
+
+  private static func normalizedBorderWidthValue(_ value: String) -> String? {
+    switch value {
+    case "thin": return "1px"
+    case "medium": return "3px"
+    case "thick": return "5px"
+    default: return isLengthValue(value, for: "border-width") ? value : nil
+    }
+  }
+
+  private static func isBorderStyleValue(_ value: String) -> Bool {
+    ["dashed", "dotted", "double", "groove", "hidden", "inset", "none", "outset", "ridge", "solid"]
+      .contains(value)
   }
 
   private static func isMarginValue(_ value: String) -> Bool {
