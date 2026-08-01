@@ -234,25 +234,25 @@ struct RemoteMessageContentLoader {
   private let maximumLoadDuration: TimeInterval
   private let maximumTotalByteCount: Int
   private let maximumTotalPixelCount: Int
-  private let now: () -> Date
+  private let monotonicTime: () -> TimeInterval
 
   init(
     maximumLoadDuration: TimeInterval = 30,
     maximumTotalByteCount: Int = MailboxMessageImagePolicy.maximumTotalByteCount,
     maximumTotalPixelCount: Int = MailboxMessageImagePolicy.maximumTotalPixelCount,
-    now: @escaping () -> Date = Date.init,
+    monotonicTime: @escaping () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
     fetch: Fetch? = nil
   ) {
     self.fetch = fetch
     self.maximumLoadDuration = maximumLoadDuration
     self.maximumTotalByteCount = maximumTotalByteCount
     self.maximumTotalPixelCount = maximumTotalPixelCount
-    self.now = now
+    self.monotonicTime = monotonicTime
   }
 
   // swiftlint:disable:next function_body_length
   func load(_ html: SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult {
-    let deadline = now().addingTimeInterval(maximumLoadDuration)
+    let deadline = monotonicTime() + maximumLoadDuration
     let sessionConfiguration = RemoteMessageContentSession.makeConfiguration()
     var progress = RemoteMessageContentLoadProgress()
     let occurrenceCounts = RemoteMessageContentMarkup.occurrenceCounts(in: html)
@@ -264,7 +264,7 @@ struct RemoteMessageContentLoader {
       guard let occurrenceCount = occurrenceCounts[reference.identifier], occurrenceCount > 0 else {
         continue
       }
-      let remainingLoadDuration = deadline.timeIntervalSince(now())
+      let remainingLoadDuration = deadline - monotonicTime()
       guard remainingLoadDuration > 0,
         progress.attemptedImageCount < MailboxMessageImagePolicy.maximumImageAttemptCount
       else {

@@ -4,7 +4,7 @@ import ImageIO
 import SwiftSoup
 
 enum InlineImageDimensionPolicy {
-  private static let initialFontSizePixels = 16.0
+  private static let maximumResolutionDepth = 32
 
   static func isOnePixel(_ value: String, in element: Element) -> Bool {
     let fontSizePixels = inheritedFontSizePixels(in: element)
@@ -19,34 +19,77 @@ enum InlineImageDimensionPolicy {
     dimension: String,
     in element: Element
   ) -> Bool {
-    if isOnePixel(value, in: element) { return true }
+    resolvedDimensionPixels(
+      value,
+      dimension: dimension,
+      in: element,
+      remainingDepth: maximumResolutionDepth
+    ).map { abs($0 - 1) < 0.000_000_001 } == true
+  }
+
+  private static func resolvedDimensionPixels(
+    _ value: String,
+    dimension: String,
+    in element: Element,
+    remainingDepth: Int
+  ) -> Double? {
+    guard remainingDepth > 0 else { return nil }
+    if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
+      value,
+      fontSizePixels: inheritedFontSizePixels(in: element)
+    ) {
+      return pixels
+    }
     let normalized = value.lowercased()
     guard normalized.hasSuffix("%"),
       let percentage = Double(normalized.dropLast()),
       let parent = element.parent(),
       let containingValue = self.value(dimension, in: parent),
-      let containingPixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
+      let containingPixels = resolvedDimensionPixels(
         containingValue,
-        fontSizePixels: inheritedFontSizePixels(in: parent)
+        dimension: dimension,
+        in: parent,
+        remainingDepth: remainingDepth - 1
       )
-    else { return false }
-    return abs((containingPixels * percentage / 100) - 1) < 0.000_000_001
+    else { return nil }
+    return containingPixels * percentage / 100
   }
 
-  private static func inheritedFontSizePixels(in element: Element) -> Double? {
-    var current: Element? = element
-    while let candidate = current {
-      if let fontSize = value("font-size", in: candidate) {
-        let normalizedFontSize = fontSize.lowercased()
-        if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(normalizedFontSize) {
-          return pixels
-        }
-        if normalizedFontSize == "initial" { return initialFontSizePixels }
-        if normalizedFontSize != "inherit" && normalizedFontSize != "unset" { return nil }
-      }
-      current = candidate.parent()
+  private static func inheritedFontSizePixels(
+    in element: Element,
+    remainingDepth: Int = maximumResolutionDepth
+  ) -> Double? {
+    guard remainingDepth > 0 else { return nil }
+    guard let fontSize = value("font-size", in: element) else {
+      return element.parent().flatMap {
+        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+      } ?? CSSLengthValuePolicy.initialFontSizePixels
     }
-    return nil
+    let normalized = fontSize.lowercased()
+    if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
+      normalized,
+      fontSizePixels: nil
+    ) {
+      return pixels
+    }
+    if normalized == "initial" { return CSSLengthValuePolicy.initialFontSizePixels }
+    if normalized == "inherit" || normalized == "unset" {
+      return element.parent().flatMap {
+        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+      } ?? CSSLengthValuePolicy.initialFontSizePixels
+    }
+    let inheritedPixels =
+      element.parent().flatMap {
+        inheritedFontSizePixels(in: $0, remainingDepth: remainingDepth - 1)
+      } ?? CSSLengthValuePolicy.initialFontSizePixels
+    if normalized.hasSuffix("%"), let percentage = Double(normalized.dropLast()) {
+      return inheritedPixels * percentage / 100
+    }
+    guard normalized.hasSuffix("em"),
+      !normalized.hasSuffix("rem"),
+      let multiplier = Double(normalized.dropLast(2))
+    else { return nil }
+    return inheritedPixels * multiplier
   }
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {

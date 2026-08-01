@@ -71,7 +71,9 @@ enum RemoteMessageContentPolicy {
       components?.port = nil
     }
     let equivalentURL = components?.url ?? url
-    return URL(string: normalizedPercentEscapes(equivalentURL.absoluteString)) ?? equivalentURL
+    let percentNormalizedURL =
+      URL(string: normalizedPercentEscapes(equivalentURL.absoluteString)) ?? equivalentURL
+    return percentNormalizedURL.standardized
   }
 
   private static func normalizedPercentEscapes(_ value: String) -> String {

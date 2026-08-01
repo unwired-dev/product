@@ -410,6 +410,29 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDeduplicatesNormalizedURLDotSegments() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="https://tracker.example/a/../pixel" alt="Literal dot segments">
+        <img src="https://tracker.example/a/%2e%2e/pixel" alt="Encoded dot segments">
+        <img src="https://tracker.example/pixel" alt="Normalized path">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://tracker.example/pixel"]
+    )
+    XCTAssertEqual(
+      result.documentHTML.components(
+        separatedBy: #"data-unwired-remote-image="remote-image-0""#
+      ).count - 1,
+      3
+    )
+  }
+
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(
@@ -569,6 +592,24 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
   }
 
+  func testSanitizerBlocksRootFontRelativeTrackingPixel() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/root-font-relative-one.gif"
+             style="width: .0625rem; height: .0625rem">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertTrue(presentation.remoteImageReferences.isEmpty)
+    XCTAssertFalse(presentation.documentHTML.contains("root-font-relative-one.gif"))
+  }
+
   func testSanitizerResolvesPercentageTrackingPixelsAgainstContainingBlock() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -576,6 +617,12 @@ extension MessageHTMLPresentationTests {
         <div style="width: 1px; height: 1px">
           <img src="https://tracker.example/percentage.gif"
                style="width: 100%; height: 100%">
+        </div>
+        <div style="width: 1px; height: 1px">
+          <div style="width: 100%; height: 100%">
+            <img src="https://tracker.example/nested-percentage.gif"
+                 style="width: 100%; height: 100%">
+          </div>
         </div>
         <div style="width: 600px; height: 400px">
           <img src="https://images.example.com/hero.png"
@@ -593,6 +640,7 @@ extension MessageHTMLPresentationTests {
       ["https://images.example.com/hero.png"]
     )
     XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("nested-percentage.gif"))
   }
 
   func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
@@ -625,6 +673,12 @@ extension MessageHTMLPresentationTests {
           <img src="https://tracker.example/inherited-font-relative-one.gif"
                style="width: 1em; height: 1em">
         </div>
+        <div style="font-size: 2em">
+          <div style="font-size: 50%">
+            <img src="https://tracker.example/nested-font-relative-one.gif"
+                 style="width: .0625em; height: .0625em">
+          </div>
+        </div>
         <img src="https://images.example.com/logo.png" style="height: 40px; width: 120px">
         """
     )
@@ -638,6 +692,7 @@ extension MessageHTMLPresentationTests {
       ["https://images.example.com/logo.png"]
     )
     XCTAssertFalse(presentation.documentHTML.contains("inherited-font-relative-one.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("nested-font-relative-one.gif"))
   }
 
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
@@ -1124,7 +1179,7 @@ extension MessageHTMLPresentationTests {
   }
 
   func testRemoteContentLoaderStopsAtAggregateDeadline() async throws {
-    var currentDate = Date(timeIntervalSinceReferenceDate: 0)
+    var currentTime: TimeInterval = 0
     let references = try (0..<2).map {
       RemoteMessageImageReference(
         identifier: "remote-image-\($0)",
@@ -1137,11 +1192,11 @@ extension MessageHTMLPresentationTests {
     var requestedURLs: [URL] = []
     let loader = RemoteMessageContentLoader(
       maximumLoadDuration: 30,
-      now: { currentDate },
+      monotonicTime: { currentTime },
       fetch: { request, _ in
         requestedURLs.append(try XCTUnwrap(request.url))
         XCTAssertEqual(request.timeoutInterval, 30)
-        currentDate.addTimeInterval(31)
+        currentTime += 31
         throw URLError(.timedOut)
       }
     )
@@ -1591,11 +1646,15 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/visible.png">
         </div>
         <div style="visibility: hidden !important; visibility: visible">Hidden text</div>
+        <div style="visibility: hidden!important; visibility: visible ! important">
+          Visible spaced important text
+        </div>
         """
       )
     )
 
     XCTAssertTrue(result.documentHTML.contains("Visible text"))
+    XCTAssertTrue(result.documentHTML.contains("Visible spaced important text"))
     XCTAssertFalse(result.documentHTML.contains("Hidden text"))
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
@@ -1780,6 +1839,21 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRemovesConstantCalculatedZeroOpacityContent() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="opacity: calc(1 - 1)">
+          <img src="https://tracker.example/hidden.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
     for style in [
       "display: none; display: block",
@@ -1814,6 +1888,14 @@ extension MessageHTMLPresentationTests {
     XCTAssertNil(
       try MessageHTMLSanitizer.sanitize(
         #"<div style="display: none; display: none block">Hidden text</div>"#
+      )
+    )
+  }
+
+  func testSanitizerIgnoresStandaloneFlowDisplayOverride() throws {
+    XCTAssertNil(
+      try MessageHTMLSanitizer.sanitize(
+        #"<div style="display: none; display: flow">Hidden text</div>"#
       )
     )
   }

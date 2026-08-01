@@ -4,6 +4,7 @@ import SwiftSoup
 // swiftlint:disable file_length
 
 enum CSSLengthValuePolicy {
+  static let initialFontSizePixels = 16.0
   static let unitPattern = #"(?:ch|cm|em|ex|in|mm|pc|pt|px|q|rem|vh|vmax|vmin|vw|%)"#
   static let optionalUnitPattern = unitPattern + "?"
   static let unsignedZeroPattern = #"(?:0+(?:\.0*)?|\.0+)"#
@@ -64,7 +65,7 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isDisplayValue(_ value: String) -> Bool {
     let singleKeywords = Set([
-      "block", "contents", "flex", "flow", "flow-root", "grid", "inline", "inline-block",
+      "block", "contents", "flex", "flow-root", "grid", "inline", "inline-block",
       "inline-flex", "inline-grid", "inline-table", "list-item", "none", "ruby",
       "ruby-base", "ruby-base-container", "ruby-text", "ruby-text-container", "run-in",
       "table", "table-caption", "table-cell", "table-column", "table-column-group",
@@ -158,6 +159,11 @@ extension MessageHTMLHiddenStylePatterns {
   ) -> Double? {
     if let pixels = pixelLengthValue(value) { return pixels }
     let normalized = value.lowercased()
+    if normalized.hasSuffix("rem"),
+      let multiplier = Double(normalized.dropLast(3))
+    {
+      return multiplier * CSSLengthValuePolicy.initialFontSizePixels
+    }
     guard let fontSizePixels, normalized.hasSuffix("em"),
       let multiplier = Double(normalized.dropLast(2))
     else { return nil }
@@ -255,7 +261,41 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {
     guard value.hasPrefix("calc("), value.hasSuffix(")") else { return nil }
-    return Double(value.dropFirst(5).dropLast().trimmingCharacters(in: .whitespacesAndNewlines))
+    let expression = Array(value.dropFirst(5).dropLast().filter { !$0.isWhitespace })
+    guard !expression.isEmpty else { return nil }
+    var index = 0
+    var termCount = 0
+    var total = 0.0
+    while index < expression.count {
+      var sign = 1.0
+      if expression[index] == "+" || expression[index] == "-" {
+        sign = expression[index] == "-" ? -1 : 1
+        index += 1
+      } else if termCount > 0 {
+        return nil
+      }
+      let numberStart = index
+      var hasDigit = false
+      var hasDecimalPoint = false
+      while index < expression.count {
+        if expression[index].isNumber {
+          hasDigit = true
+        } else if expression[index] == ".", !hasDecimalPoint {
+          hasDecimalPoint = true
+        } else {
+          break
+        }
+        index += 1
+      }
+      guard hasDigit,
+        let number = Double(String(expression[numberStart..<index]))
+      else { return nil }
+      let isPercentage = index < expression.count && expression[index] == "%"
+      if isPercentage { index += 1 }
+      total += sign * (isPercentage ? number / 100 : number)
+      termCount += 1
+    }
+    return total
   }
 
   private static func isCSSFunctionValue(_ value: String) -> Bool {
@@ -312,17 +352,20 @@ extension MessageHTMLHiddenStylePatterns {
       guard components.count == 2 else { return nil }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
       var value = components[1].trimmingCharacters(in: .whitespacesAndNewlines)
-      let importantSuffix = "!important"
-      let isImportant = value.lowercased().hasSuffix(importantSuffix)
-      if isImportant {
-        value.removeLast(importantSuffix.count)
+      let importantPattern = #"!\s*(?:/\*[\s\S]*?\*/\s*)*important\s*$"#
+      let importantRange = value.range(
+        of: importantPattern,
+        options: [.regularExpression, .caseInsensitive]
+      )
+      if let importantRange {
+        value.removeSubrange(importantRange)
         value = value.trimmingCharacters(in: .whitespacesAndNewlines)
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
       return StyleDeclaration(
         property: property,
         value: value.lowercased(),
-        isImportant: isImportant
+        isImportant: importantRange != nil
       )
     }
   }
