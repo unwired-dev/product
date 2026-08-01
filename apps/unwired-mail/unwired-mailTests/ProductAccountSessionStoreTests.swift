@@ -38,8 +38,12 @@ final class ProductAccountSessionStoreTests: XCTestCase {
   }
 
   func testUnacknowledgedRecoveryKeysAreScopedToTheProductAccount() throws {
+    let recoveryKey = UnacknowledgedRecoveryKey(
+      recoveryKey: "first-account-key",
+      recoveryWrappedAccountKey: try ProductSyncKeyMaterial.create().recoveryWrappedAccountKey
+    )
     try store.saveUnacknowledgedRecoveryKey(
-      "first-account-key",
+      recoveryKey,
       productAccountId: "first-product-account"
     )
 
@@ -49,7 +53,7 @@ final class ProductAccountSessionStoreTests: XCTestCase {
     try store.clearUnacknowledgedRecoveryKey(productAccountId: "second-product-account")
     XCTAssertEqual(
       try store.loadUnacknowledgedRecoveryKey(productAccountId: "first-product-account"),
-      "first-account-key"
+      recoveryKey
     )
   }
 

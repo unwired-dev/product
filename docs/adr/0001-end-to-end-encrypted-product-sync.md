@@ -1,6 +1,6 @@
 # End-to-end encrypted product sync
 
-An unacknowledged publication of the opaque Recovery Key wrapper leaves the corresponding Recovery Key in the local Keychain and blocks sign-out across app launches until its presentation is explicitly acknowledged.
+An unacknowledged publication of the opaque Recovery Key wrapper leaves the corresponding Recovery Key and its exact encrypted wrapper identity in the device-only local Keychain and blocks sign-out across app launches until that matching key presentation is explicitly acknowledged. A rejected or superseded wrapper cannot make its preserved key appear current, and interactive sheet dismissal does not acknowledge the key.
 
 The product uses its own account system and backend to sync product-owned email organization data across a user's Apple devices. We will make this sync end-to-end encrypted so the backend can transport and store synced data, but cannot read synced categories or message-category assignments. This preserves the privacy promise while accepting additional complexity in trusted device enrollment, account recovery, support, and sync conflict handling.
 

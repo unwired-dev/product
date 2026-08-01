@@ -34,12 +34,21 @@ struct ProductAccountSessionSnapshot: Codable, Equatable {
   }
 }
 
+struct UnacknowledgedRecoveryKey: Codable, Equatable {
+  let recoveryKey: String
+  let recoveryWrappedAccountKey: ProductSyncEncryptedPayload?
+}
+
 protocol ProductAccountSessionPersisting {
   func load() throws -> ProductAccountSessionSnapshot?
   func save(_ snapshot: ProductAccountSessionSnapshot) throws
   func clear() throws
-  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String?
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws
+    -> UnacknowledgedRecoveryKey?
+  func saveUnacknowledgedRecoveryKey(
+    _ recoveryKey: UnacknowledgedRecoveryKey,
+    productAccountId: String
+  ) throws
   func clearUnacknowledgedRecoveryKey(productAccountId: String) throws
   func loadPendingSignOutProductAccountId() throws -> String?
   func savePendingSignOutProductAccountId(_ productAccountId: String) throws
@@ -108,16 +117,38 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     try KeychainStore.delete(service: service, account: "session")
   }
 
-  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
-    try KeychainStore.readString(
-      service: service,
-      account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws
+    -> UnacknowledgedRecoveryKey?
+  {
+    guard
+      let rawValue = try KeychainStore.readString(
+        service: service,
+        account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId)
+      )
+    else {
+      return nil
+    }
+    if let data = rawValue.data(using: .utf8),
+      let recoveryKey = try? JSONDecoder().decode(UnacknowledgedRecoveryKey.self, from: data)
+    {
+      return recoveryKey
+    }
+    return UnacknowledgedRecoveryKey(
+      recoveryKey: rawValue,
+      recoveryWrappedAccountKey: nil
     )
   }
 
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
+  func saveUnacknowledgedRecoveryKey(
+    _ recoveryKey: UnacknowledgedRecoveryKey,
+    productAccountId: String
+  ) throws {
+    let data = try JSONEncoder().encode(recoveryKey)
+    guard let rawValue = String(data: data, encoding: .utf8) else {
+      throw KeychainStoreError.unexpectedData
+    }
     try KeychainStore.writeString(
-      recoveryKey,
+      rawValue,
       service: service,
       account: unacknowledgedRecoveryKeyAccount(productAccountId: productAccountId),
       accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
@@ -142,7 +173,8 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
     try KeychainStore.writeString(
       productAccountId,
       service: service,
-      account: "pending-sign-out-product-account"
+      account: "pending-sign-out-product-account",
+      accessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
     )
   }
 
@@ -158,7 +190,7 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
   final class InMemoryProductAccountSessionStore: ProductAccountSessionPersisting {
     private var pendingSignOutProductAccountId: String?
     private var snapshot: ProductAccountSessionSnapshot?
-    private var unacknowledgedRecoveryKeys: [String: String] = [:]
+    private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
 
     func load() throws -> ProductAccountSessionSnapshot? {
       snapshot
@@ -172,11 +204,16 @@ struct KeychainProductAccountSessionStore: ProductAccountSessionPersisting {
       snapshot = nil
     }
 
-    func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
+    func loadUnacknowledgedRecoveryKey(productAccountId: String) throws
+      -> UnacknowledgedRecoveryKey?
+    {
       unacknowledgedRecoveryKeys[productAccountId]
     }
 
-    func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
+    func saveUnacknowledgedRecoveryKey(
+      _ recoveryKey: UnacknowledgedRecoveryKey,
+      productAccountId: String
+    ) throws {
       unacknowledgedRecoveryKeys[productAccountId] = recoveryKey
     }
 

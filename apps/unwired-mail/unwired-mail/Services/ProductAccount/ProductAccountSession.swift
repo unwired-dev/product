@@ -56,6 +56,7 @@ final class ProductAccountSession {
   @ObservationIgnored private var signOutTask: Task<Void, Never>?
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
   @ObservationIgnored private var unacknowledgedRecoveryAccountId: String?
+  @ObservationIgnored private var unacknowledgedRecoveryKeyMarker: UnacknowledgedRecoveryKey?
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
@@ -97,6 +98,7 @@ final class ProductAccountSession {
     let coordinatedProductAccountId =
       currentSignedInSnapshot()?.productAccountId
       ?? (try? sessionStore.load())?.productAccountId
+      ?? pendingProductSyncRecovery?.response.productAccountId
     await withProductAccountOperation(productAccountId: coordinatedProductAccountId) {
       state = .loading
       clearPendingProductSyncRecovery()
@@ -425,22 +427,34 @@ extension ProductAccountSession {
   private func verifyProductSyncRecoveryIsBackedUp(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws -> String {
-    if let recoveryKey = try
+    let recoveryKeyMarker =
+      try
       (unacknowledgedRecoveryAccountId == snapshot.productAccountId
-      ? unacknowledgedRecoveryKey
+      ? unacknowledgedRecoveryKeyMarker
       : nil)
       ?? sessionStore.loadUnacknowledgedRecoveryKey(
         productAccountId: snapshot.productAccountId
       )
-    {
-      unacknowledgedRecoveryKey = recoveryKey
-      unacknowledgedRecoveryAccountId = snapshot.productAccountId
-      throw ProductAccountSessionError.recoveryNotBackedUp
-    }
-    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
     let material = try productSyncKeyMaterialStore.load(
       productAccountId: snapshot.productAccountId
     )
+    if let recoveryKeyMarker {
+      if recoveryKeyMarker.recoveryWrappedAccountKey == nil
+        || recoveryKeyMarker.recoveryWrappedAccountKey == material?.recoveryWrappedAccountKey
+      {
+        if recoveryKeyMarker.recoveryWrappedAccountKey != nil {
+          unacknowledgedRecoveryKey = recoveryKeyMarker.recoveryKey
+          unacknowledgedRecoveryKeyMarker = recoveryKeyMarker
+          unacknowledgedRecoveryAccountId = snapshot.productAccountId
+        }
+        throw ProductAccountSessionError.recoveryNotBackedUp
+      }
+      try? sessionStore.clearUnacknowledgedRecoveryKey(
+        productAccountId: snapshot.productAccountId
+      )
+      clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
+    }
+    let identityToken = try await identityTokenForRecoveryCheck(snapshot)
     guard
       try await productAccountService.productSyncRecoveryIsBackedUp(
         identityToken: identityToken,
@@ -599,6 +613,7 @@ extension ProductAccountSession {
         do {
           try await clearRevokedSession(snapshot)
           unacknowledgedRecoveryKey = nil
+          unacknowledgedRecoveryKeyMarker = nil
           unacknowledgedRecoveryAccountId = nil
           state = .signedOut
         } catch {
@@ -679,10 +694,20 @@ extension ProductAccountSession {
     else {
       throw CancellationError()
     }
+    guard
+      let material = try productSyncKeyMaterialStore.load(productAccountId: productAccountId)
+    else {
+      throw ProductSyncKeyMaterialStoreError.recoveryRequired
+    }
+    let marker = UnacknowledgedRecoveryKey(
+      recoveryKey: recoveryKey,
+      recoveryWrappedAccountKey: material.recoveryWrappedAccountKey
+    )
     unacknowledgedRecoveryKey = recoveryKey
+    unacknowledgedRecoveryKeyMarker = marker
     unacknowledgedRecoveryAccountId = productAccountId
     try sessionStore.saveUnacknowledgedRecoveryKey(
-      recoveryKey,
+      marker,
       productAccountId: productAccountId
     )
   }
@@ -695,24 +720,66 @@ extension ProductAccountSession {
     let persistedRecoveryKey = try sessionStore.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    guard persistedRecoveryKey == nil || persistedRecoveryKey == recoveryKey else { return }
-    if persistedRecoveryKey == recoveryKey {
+    let currentWrapper = try productSyncKeyMaterialStore.load(
+      productAccountId: productAccountId
+    )?.recoveryWrappedAccountKey
+    guard
+      persistedRecoveryKey == nil
+        || (persistedRecoveryKey?.recoveryKey == recoveryKey
+          && persistedRecoveryKey?.recoveryWrappedAccountKey == currentWrapper)
+    else { return }
+    if persistedRecoveryKey?.recoveryKey == recoveryKey {
       try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
     }
-    if unacknowledgedRecoveryAccountId == productAccountId,
-      unacknowledgedRecoveryKey == recoveryKey
-    {
-      unacknowledgedRecoveryKey = nil
-      unacknowledgedRecoveryAccountId = nil
-    }
+    clearUnacknowledgedRecoveryKeyInMemory(
+      recoveryKey: recoveryKey,
+      productAccountId: productAccountId
+    )
+  }
+
+  func rejectUnacknowledgedRecoveryKey(
+    _ recoveryKey: String,
+    productAccountId: String
+  ) throws {
+    let persistedRecoveryKey = try sessionStore.loadUnacknowledgedRecoveryKey(
+      productAccountId: productAccountId
+    )
+    guard persistedRecoveryKey?.recoveryKey == recoveryKey else { return }
+    try sessionStore.clearUnacknowledgedRecoveryKey(productAccountId: productAccountId)
+    clearUnacknowledgedRecoveryKeyInMemory(
+      recoveryKey: recoveryKey,
+      productAccountId: productAccountId
+    )
   }
 
   private func loadUnacknowledgedRecoveryKey(productAccountId: String) {
-    unacknowledgedRecoveryKey = try? sessionStore.loadUnacknowledgedRecoveryKey(
+    let marker = try? sessionStore.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    unacknowledgedRecoveryAccountId =
-      unacknowledgedRecoveryKey == nil ? nil : productAccountId
+    let currentWrapper = try? productSyncKeyMaterialStore.load(
+      productAccountId: productAccountId
+    )?.recoveryWrappedAccountKey
+    guard marker?.recoveryWrappedAccountKey == currentWrapper,
+      marker?.recoveryWrappedAccountKey != nil
+    else {
+      clearUnacknowledgedRecoveryKeyInMemory(productAccountId: productAccountId)
+      return
+    }
+    unacknowledgedRecoveryKey = marker?.recoveryKey
+    unacknowledgedRecoveryKeyMarker = marker
+    unacknowledgedRecoveryAccountId = productAccountId
+  }
+
+  private func clearUnacknowledgedRecoveryKeyInMemory(
+    recoveryKey: String? = nil,
+    productAccountId: String
+  ) {
+    guard unacknowledgedRecoveryAccountId == productAccountId,
+      recoveryKey == nil || unacknowledgedRecoveryKey == recoveryKey
+    else { return }
+    unacknowledgedRecoveryKey = nil
+    unacknowledgedRecoveryKeyMarker = nil
+    unacknowledgedRecoveryAccountId = nil
   }
 
   func sharedMailboxFreshnessViewModel(

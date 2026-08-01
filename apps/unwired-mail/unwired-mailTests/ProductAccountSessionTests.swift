@@ -679,6 +679,38 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testRelaunchDoesNotPresentRecoveryKeyBoundToDifferentWrapper() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let rejectedMaterial = try ProductSyncKeyMaterial.create()
+    try store.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: rejectedMaterial.recoveryKey.rawValue,
+        recoveryWrappedAccountKey: rejectedMaterial.recoveryWrappedAccountKey
+      ),
+      productAccountId: snapshot.productAccountId
+    )
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertNil(session.unacknowledgedRecoveryKey)
+  }
+
   func testAcknowledgingOlderRecoveryKeyDoesNotClearNewerKey() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -688,6 +720,10 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncMaterialInitialized: true,
       productAccountId: snapshot.productAccountId,
       trustedDeviceId: snapshot.trustedDeviceId
+    )
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
     )
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -711,7 +747,8 @@ final class ProductAccountSessionTests: XCTestCase {
 
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "newer-key")
     XCTAssertEqual(
-      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId),
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)?
+        .recoveryKey,
       "newer-key"
     )
   }
@@ -1340,7 +1377,10 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     try store.save(snapshot)
     try store.saveUnacknowledgedRecoveryKey(
-      "unacknowledged-key",
+      UnacknowledgedRecoveryKey(
+        recoveryKey: "unacknowledged-key",
+        recoveryWrappedAccountKey: nil
+      ),
       productAccountId: snapshot.productAccountId
     )
     _ = try keyMaterialStore.ensureMaterial(
@@ -1659,6 +1699,61 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertFalse(session.requiresProductSyncRecovery)
     XCTAssertNil(try store.load())
+  }
+
+  func testRestartedSignInWaitsForPendingRecoveryRestoration() async throws {
+    let original = try ProductSyncKeyMaterial.create()
+    let productAccountService = RecordingProductAccountService(response: .resumed)
+    productAccountService.recoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: original.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    let restoreGate = BootstrapRestoreGate()
+    let appleSignInService = SequencedSuspendingAppleSignInService(
+      credentials: [
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "initial-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "restore-token"
+        ),
+        AppleSignInCredential(
+          appleUserIdentifier: "apple-user-001",
+          identityToken: "restart-token"
+        ),
+      ],
+      suspendedCallIndex: 1,
+      gate: restoreGate
+    )
+    let session = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.signInWithApple()
+
+    let restore = Task {
+      await session.restoreProductSyncMaterial(recoveryKey: original.recoveryKey.rawValue)
+    }
+    await restoreGate.waitUntilStarted()
+    let restartedSignIn = Task { await session.signInWithApple() }
+    await waitForRecoveryOperationWaiter(
+      productAccountId: ProductAccountConnectResponse.resumed.productAccountId
+    )
+
+    await restoreGate.release()
+    await restore.value
+    await restartedSignIn.value
+
+    guard case .signedIn(let snapshot) = session.state else {
+      return XCTFail("Expected restarted sign-in to complete after recovery")
+    }
+    XCTAssertEqual(snapshot.identityToken, "restart-token")
+    XCTAssertFalse(session.requiresProductSyncRecovery)
   }
 
   func testSameDeviceIncompleteInitialBootstrapCreatesMissingMaterial() async {
@@ -1995,7 +2090,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
 
   private var pendingSignOutProductAccountId: String?
   private var snapshot: ProductAccountSessionSnapshot?
-  private var unacknowledgedRecoveryKeys: [String: String] = [:]
+  private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
 
   init(snapshot: ProductAccountSessionSnapshot? = nil) {
     self.snapshot = snapshot
@@ -2026,11 +2121,16 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
     snapshot = nil
   }
 
-  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws -> String? {
+  func loadUnacknowledgedRecoveryKey(productAccountId: String) throws
+    -> UnacknowledgedRecoveryKey?
+  {
     unacknowledgedRecoveryKeys[productAccountId]
   }
 
-  func saveUnacknowledgedRecoveryKey(_ recoveryKey: String, productAccountId: String) throws {
+  func saveUnacknowledgedRecoveryKey(
+    _ recoveryKey: UnacknowledgedRecoveryKey,
+    productAccountId: String
+  ) throws {
     if let unacknowledgedRecoveryKeySaveError {
       throw unacknowledgedRecoveryKeySaveError
     }

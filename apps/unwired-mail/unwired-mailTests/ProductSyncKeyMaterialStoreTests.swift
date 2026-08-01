@@ -464,10 +464,11 @@ final class AccountAndDevicesServiceTests: XCTestCase {
   func testRecoveryKeyAcknowledgementFailureUsesAccountAndDevicesError() {
     let viewModel = AccountAndDevicesViewModel()
 
-    viewModel.acknowledgeRecoveryKey {
+    let acknowledged = viewModel.acknowledgeRecoveryKey {
       throw CocoaError(.fileWriteUnknown)
     }
 
+    XCTAssertFalse(acknowledged)
     XCTAssertNotNil(viewModel.errorMessage)
   }
 

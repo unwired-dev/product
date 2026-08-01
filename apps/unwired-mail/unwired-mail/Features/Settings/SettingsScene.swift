@@ -1063,12 +1063,15 @@ final class AccountAndDevicesViewModel {
     revealedRecoveryKey = nil
   }
 
-  func acknowledgeRecoveryKey(using acknowledgement: () throws -> Void) {
+  @discardableResult
+  func acknowledgeRecoveryKey(using acknowledgement: () throws -> Void) -> Bool {
     do {
       try acknowledgement()
       errorMessage = nil
+      return true
     } catch {
       errorMessage = error.localizedDescription
+      return false
     }
   }
 
@@ -1095,7 +1098,7 @@ struct AccountAndDevicesSettingsView: View {
   @State private var confirmsCurrentRecoveryReplacement = false
 
   private func rejectRecoveryKey(_ recoveryKey: String) throws {
-    try session.acknowledgeRecoveryKey(
+    try session.rejectUnacknowledgedRecoveryKey(
       recoveryKey,
       productAccountId: snapshot.productAccountId
     )
@@ -1306,23 +1309,25 @@ struct AccountAndDevicesSettingsView: View {
         get: { viewModel.revealedRecoveryKey != nil },
         set: { isPresented in
           if !isPresented {
-            let recoveryKey = viewModel.revealedRecoveryKey
             viewModel.hideRecoveryKey()
-            if let recoveryKey {
-              viewModel.acknowledgeRecoveryKey {
-                try session.acknowledgeRecoveryKey(
-                  recoveryKey,
-                  productAccountId: snapshot.productAccountId
-                )
-              }
-            }
           }
         }
       )
     ) {
       RecoveryKeyPresentation(
-        recoveryKey: viewModel.revealedRecoveryKey ?? ""
+        recoveryKey: viewModel.revealedRecoveryKey ?? "",
+        acknowledge: {
+          guard let recoveryKey = viewModel.revealedRecoveryKey else { return }
+          let acknowledged = viewModel.acknowledgeRecoveryKey {
+            try session.acknowledgeRecoveryKey(
+              recoveryKey,
+              productAccountId: snapshot.productAccountId
+            )
+          }
+          if acknowledged { viewModel.hideRecoveryKey() }
+        }
       )
+      .interactiveDismissDisabled()
     }
   }
 }
@@ -1432,7 +1437,7 @@ extension AccountAndDevicesSettingsView {
 
 private struct RecoveryKeyPresentation: View {
   let recoveryKey: String
-  @Environment(\.dismiss) private var dismiss
+  let acknowledge: () -> Void
 
   var body: some View {
     NavigationStack {
@@ -1454,7 +1459,7 @@ private struct RecoveryKeyPresentation: View {
       .navigationTitle("Recovery Key")
       .toolbar {
         ToolbarItem(placement: .confirmationAction) {
-          Button("Done") { dismiss() }
+          Button("Done", action: acknowledge)
         }
       }
     }
