@@ -632,11 +632,15 @@ extension ProductAccountSession {
       switch error {
       case .notAuthorized:
         do {
-          try await clearRevokedSession(snapshot)
+          let mailboxCleanupError = try await clearRevokedSession(snapshot)
           unacknowledgedRecoveryKey = nil
           unacknowledgedRecoveryKeyMarker = nil
           unacknowledgedRecoveryAccountId = nil
-          state = .signedOut
+          if let mailboxCleanupError {
+            state = .failed(mailboxCleanupError.localizedDescription)
+          } else {
+            state = .signedOut
+          }
         } catch {
           state = .failed(error.localizedDescription)
         }
@@ -660,12 +664,18 @@ extension ProductAccountSession {
 
   private func clearRevokedSession(
     _ snapshot: ProductAccountSessionSnapshot
-  ) async throws {
+  ) async throws -> Error? {
     try sessionStore.savePendingSignOutProductAccountId(
       snapshot.productAccountId
     )
-    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    var mailboxCleanupError: Error?
+    do {
+      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    } catch {
+      mailboxCleanupError = error
+    }
     try await resumePendingSignOut(resumingExternalCleanup: false)
+    return mailboxCleanupError
   }
 
   private func resumePendingSignOut(

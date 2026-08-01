@@ -1835,7 +1835,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(countingStore.loadCount, 1)
   }
 
-  func testBootstrapPreservesStoredSessionWhenRevokedBodyCacheCleanupFails() async throws {
+  func testBootstrapClearsRevokedSessionWhenMailboxCleanupFails() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
       identityToken: "token-001",
@@ -1843,6 +1843,17 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: "trustedDeviceFixtureId"
     )
     try store.save(snapshot)
+    try store.saveUnacknowledgedRecoveryKey(
+      UnacknowledgedRecoveryKey(
+        recoveryKey: "unacknowledged-key",
+        recoveryWrappedAccountKey: nil
+      ),
+      productAccountId: snapshot.productAccountId
+    )
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
     let gmailConnectionService = RecordingGmailProviderConnecting()
     gmailConnectionService.clearError = ProductAccountSessionTestError.gmailCleanupFailed
     let session = ProductAccountSession(
@@ -1855,10 +1866,20 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.bootstrap()
 
-    guard case .failed = session.state else {
-      return XCTFail("Expected failed state")
-    }
-    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.gmailCleanupFailed.localizedDescription)
+    )
+    XCTAssertNil(try store.load())
+    XCTAssertNil(
+      try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertNil(try store.loadPendingSignOutProductAccountId())
+    XCTAssertNil(
+      try store.loadUnacknowledgedRecoveryKey(productAccountId: snapshot.productAccountId)
+    )
+    XCTAssertNil(session.unacknowledgedRecoveryKey)
+    XCTAssertEqual(gmailConnectionService.clearedSession, snapshot)
   }
 
   func testBootstrapClearsPreviousGmailTokensWhenProductAccountChanges() async throws {
