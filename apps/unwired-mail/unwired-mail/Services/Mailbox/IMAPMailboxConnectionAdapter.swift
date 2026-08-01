@@ -2333,6 +2333,35 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
+    try await adapter(for: connection.id).performTracked(
+      action,
+      sourceProviderMailboxId: sourceProviderMailboxId,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection: MailboxConnection
+  ) async {
+    guard let adapter = try? adapter(for: connection.id) else { return }
+    await adapter.releasePendingActionSelection(selection, connection: connection)
+  }
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -2428,6 +2457,22 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
   ) async -> [MailboxProviderActionFailureDetail]? {
     await (try? adapter(for: connection.id))?.pendingActionFailureDetails(
       action,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    await (try? adapter(for: connection.id))?.pendingActionFailureLookup(
+      action,
+      selection: selection,
       messages: messages,
       connection: connection,
       session: session

@@ -404,6 +404,16 @@ struct MailboxProviderActionFailureDetail: Equatable, Sendable {
   let messageIds: [StableProviderMessageIdentity]
 }
 
+struct MailboxProviderActionSelection: Equatable, Sendable {
+  let pendingActionIds: Set<UUID>
+}
+
+struct MailboxProviderActionFailureLookup: Equatable, Sendable {
+  let coversSelectedMessageIds: Bool
+  let details: [MailboxProviderActionFailureDetail]
+  let matchedPendingActionIds: Set<UUID>
+}
+
 struct MailboxConnectionCapabilities: Equatable, Sendable {
   let canCategorizeHistorical: Bool
   let canForward: Bool
@@ -1384,6 +1394,22 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws
 
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection?
+
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection: MailboxConnection
+  ) async
+
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
@@ -1450,6 +1476,17 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async -> [MailboxProviderActionFailureDetail]?
 
+  /// Associates failures with the selected action and message IDs. A complete lookup with no
+  /// details means those Pending Provider Actions did not fail; an incomplete lookup may use a
+  /// connection-level resume or retry error as fallback evidence.
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup?
+
   func waitForPendingActionRetries(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot
@@ -1480,6 +1517,33 @@ extension MailboxProviderMailActing {
   ) async throws -> MailboxDeliveryStatus {
     .unknown
   }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
+    try await perform(
+      action,
+      sourceProviderMailboxId: sourceProviderMailboxId,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: targetProviderStateIds,
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    return nil
+  }
+
+  func releasePendingActionSelection(
+    _: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {}
 
   // swiftlint:disable:next function_parameter_count
   func perform(
@@ -1586,6 +1650,28 @@ extension MailboxProviderMailActing {
     session _: ProductAccountSessionSnapshot
   ) async -> [MailboxProviderActionFailureDetail]? {
     nil
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection _: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    guard
+      let details = await pendingActionFailureDetails(
+        action,
+        messages: messages,
+        connection: connection,
+        session: session
+      )
+    else { return nil }
+    return MailboxProviderActionFailureLookup(
+      coversSelectedMessageIds: false,
+      details: details,
+      matchedPendingActionIds: []
+    )
   }
 
   func waitForPendingActionRetries(
@@ -2771,15 +2857,39 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
     connection: MailboxConnection,
     session: ProductAccountSessionSnapshot
   ) async throws {
+    let selection = try await performTracked(
+      action,
+      sourceProviderMailboxId: sourceProviderMailboxId,
+      targetProviderMailboxId: targetProviderMailboxId,
+      targetProviderStateIds: [],
+      messages: messages,
+      connection: connection,
+      session: session
+    )
+    if let selection {
+      await pendingActionService.releaseSelection(selection)
+    }
+  }
+
+  // swiftlint:disable:next function_parameter_count
+  func performTracked(
+    _ action: ProviderMailAction,
+    sourceProviderMailboxId: String?,
+    targetProviderMailboxId: String?,
+    targetProviderStateIds _: Set<String>,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async throws -> MailboxProviderActionSelection? {
     do {
       _ = try gmailConnection(connection, session: session, requiresAuthorization: false)
-      try await pendingActionGate.withSharedLock(connection.id) {
+      return try await pendingActionGate.withSharedLock(connection.id) {
         try await ensureConnectionIsActive(
           connection.id,
           authorizationGeneration: connection.authorizationGeneration,
           session: session
         )
-        try await pendingActionService.enqueue(
+        return try await pendingActionService.enqueue(
           action,
           sourceProviderMailboxId: sourceProviderMailboxId,
           targetProviderMailboxId: targetProviderMailboxId,
@@ -2794,6 +2904,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+  }
+
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    await pendingActionService.releaseSelection(selection)
   }
 
   func resumePendingActions(
@@ -2877,6 +2994,22 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
   ) async -> [MailboxProviderActionFailureDetail]? {
     try? await pendingActionService.failureDetails(
       action,
+      messageIds: Set(messages.map(\.providerMessageId)),
+      connection: connection,
+      session: session
+    )
+  }
+
+  func pendingActionFailureLookup(
+    _ action: ProviderMailAction,
+    selection: MailboxProviderActionSelection?,
+    messages: [MailboxMessageMetadata],
+    connection: MailboxConnection,
+    session: ProductAccountSessionSnapshot
+  ) async -> MailboxProviderActionFailureLookup? {
+    try? await pendingActionService.failureLookup(
+      action,
+      selectedActionIds: selection?.pendingActionIds,
       messageIds: Set(messages.map(\.providerMessageId)),
       connection: connection,
       session: session
