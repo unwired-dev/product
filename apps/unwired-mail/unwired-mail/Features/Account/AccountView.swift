@@ -2215,7 +2215,13 @@ private struct MailboxBulkActionBatchOutcome: Sendable {
   let errorDescription: String?
   let failureDetails: [MailboxProviderActionFailureDetail]?
   let messages: [MailboxMessageMetadata]
+  let selection: MailboxProviderActionSelection?
   let wasEnqueued: Bool
+}
+
+private struct MailboxTrackedBulkActionBatch: Sendable {
+  let batch: MailboxBulkActionBatch
+  let selection: MailboxProviderActionSelection?
 }
 
 private enum UnifiedMailboxPhaseResult: Sendable {
@@ -3519,6 +3525,11 @@ private struct ProviderMailActionButtons: View {
   }
 }
 
+private enum MailShellReaderErrorSource {
+  case mailAction
+  case other
+}
+
 // swiftlint:disable:next type_body_length
 struct MailShellConversationReader: View {
   let connections: [MailboxConnection]
@@ -3534,6 +3545,7 @@ struct MailShellConversationReader: View {
   @State private var compositionDraft: MailShellCompositionDraft?
   @State private var readerErrorConnectionId: MailboxConnectionId?
   @State private var readerErrorMessage: String?
+  @State private var readerErrorSource: MailShellReaderErrorSource?
 
   var body: some View {
     Group {
@@ -3589,10 +3601,12 @@ struct MailShellConversationReader: View {
                     try messageReader.removeCachedMessageBody(message: message, session: session)
                     inboxViewModel.discardLoadedMessageBody(for: message.id)
                     readerErrorMessage = nil
+                    readerErrorSource = nil
                     return true
                   } catch {
                     readerErrorConnectionId = connection.id
                     readerErrorMessage = error.localizedDescription
+                    readerErrorSource = .other
                     return false
                   }
                 },
@@ -3615,6 +3629,7 @@ struct MailShellConversationReader: View {
                     await togglePin(message.id)
                     if let errorMessage = pinViewModel.errorMessage {
                       readerErrorMessage = errorMessage
+                      readerErrorSource = .other
                     }
                   }
                 }
@@ -3736,6 +3751,7 @@ struct MailShellConversationReader: View {
       compositionDraft = nil
       readerErrorConnectionId = nil
       readerErrorMessage = nil
+      readerErrorSource = nil
       mailActionViewModel.clearError()
       pinViewModel.clearError()
     }
@@ -3746,8 +3762,13 @@ struct MailShellConversationReader: View {
       get: { readerErrorMessage != nil },
       set: { isPresented in
         if !isPresented {
+          let clearsMailActionError = readerErrorSource == .mailAction
           readerErrorConnectionId = nil
           readerErrorMessage = nil
+          readerErrorSource = nil
+          if clearsMailActionError {
+            mailActionViewModel.clearError()
+          }
         }
       }
     )
@@ -3992,6 +4013,7 @@ struct MailShellConversationReader: View {
       guard let errorMessage else { return }
       readerErrorConnectionId = result.failures.first?.connectionId
       readerErrorMessage = errorMessage
+      readerErrorSource = .mailAction
     }
   }
 
@@ -4008,6 +4030,7 @@ struct MailShellConversationReader: View {
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorMessage = mailActionViewModel.errorMessage
       readerErrorConnectionId = mailActionViewModel.pendingFailureConnectionId
+      readerErrorSource = readerErrorMessage == nil ? nil : .mailAction
     }
   }
 
@@ -4017,6 +4040,7 @@ struct MailShellConversationReader: View {
       _ = await inboxViewModel.reloadLocal(connection: connection)
       readerErrorConnectionId = nil
       readerErrorMessage = nil
+      readerErrorSource = nil
     }
   }
 
@@ -4029,9 +4053,11 @@ struct MailShellConversationReader: View {
       else { return }
       compositionDraft = .forward(message, body: bodyText)
       readerErrorMessage = nil
+      readerErrorSource = nil
     } catch is CancellationError {
     } catch {
       readerErrorMessage = error.localizedDescription
+      readerErrorSource = .other
     }
   }
 
@@ -4042,6 +4068,7 @@ struct MailShellConversationReader: View {
       connection.authorizationState == .authorized
     else {
       readerErrorMessage = "Authorize the source Mailbox Connection before sending."
+      readerErrorSource = .other
       return false
     }
     let didSend = await mailActionViewModel.send(
@@ -4054,6 +4081,7 @@ struct MailShellConversationReader: View {
     )
     if !didSend {
       readerErrorMessage = mailActionViewModel.errorMessage
+      readerErrorSource = readerErrorMessage == nil ? nil : .mailAction
     }
     return didSend
   }
@@ -5154,16 +5182,22 @@ extension GmailMailActionViewModel {
     if !activeFailures.isEmpty {
       deferredBulkFailures[operationId] = activeFailures
     }
-    updateBulkActionErrorMessage(adding: result.failures)
-    let deferredBatches: [MailboxBulkActionBatch] = outcomes.compactMap { outcome in
+    updateBulkActionErrorMessage(
+      adding: result.failures,
+      includesDeferredFailures: errorMessage != nil
+    )
+    let deferredBatches: [MailboxTrackedBulkActionBatch] = outcomes.compactMap { outcome in
       guard
         outcome.wasEnqueued,
         outcome.deferredPendingAction
       else { return nil }
-      return batches[outcome.batchIndex]
+      return MailboxTrackedBulkActionBatch(
+        batch: batches[outcome.batchIndex],
+        selection: outcome.selection
+      )
     }
     if !deferredBatches.isEmpty {
-      startDeferredPendingActions(
+      await startDeferredPendingActions(
         action,
         batches: deferredBatches,
         taskId: operationId,
@@ -5176,22 +5210,30 @@ extension GmailMailActionViewModel {
 
   private func startDeferredPendingActions(
     _ action: ProviderMailAction,
-    batches: [MailboxBulkActionBatch],
+    batches: [MailboxTrackedBulkActionBatch],
     taskId: UUID,
     immediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
-  ) {
-    guard !isPreparingForSignOut, !Task.isCancelled else { return }
+  ) async {
+    guard !isPreparingForSignOut, !Task.isCancelled else {
+      await Self.releaseSelections(batches, service: service)
+      return
+    }
     deferredBulkFailures[taskId] = immediateFailures
     let nonPersistedImmediateFailures = immediateFailures.filter {
       !activeFailureConnectionIds.contains($0.connectionId)
     }
+    let service = self.service
     pendingActionTasks[taskId] = Task { [weak self] in
-      guard let self else { return }
+      guard let self else {
+        await Self.releaseSelections(batches, service: service)
+        return
+      }
       await resumeDeferredPendingActions(
         action,
         batches: batches,
         taskId: taskId,
+        immediateFailures: immediateFailures,
         nonPersistedImmediateFailures: nonPersistedImmediateFailures,
         onCompleted: onCompleted
       )
@@ -5255,7 +5297,7 @@ extension GmailMailActionViewModel {
       @escaping @MainActor @Sendable (MailboxConnection) -> Bool
   ) async -> MailboxBulkActionBatchOutcome {
     do {
-      try await service.perform(
+      let selection = try await service.performTracked(
         action,
         sourceProviderMailboxId: batch.sourceProviderMailboxId,
         targetProviderMailboxId: batch.targetProviderMailboxId,
@@ -5274,6 +5316,7 @@ extension GmailMailActionViewModel {
           deferredPendingAction: true,
           errorDescription: nil,
           failureDetails: nil,
+          selection: selection,
           wasEnqueued: true
         )
       }
@@ -5286,19 +5329,27 @@ extension GmailMailActionViewModel {
         connection: batch.connection,
         session: session
       )
-      let failureDetails = await service.pendingActionFailureDetails(
+      let failureLookup = await service.pendingActionFailureLookup(
         action,
+        selection: selection,
         messages: batch.messages,
         connection: batch.connection,
         session: session
+      )
+      if let selection {
+        await service.releasePendingActionSelection(selection, connection: batch.connection)
+      }
+      let failureEvidence = Self.bulkActionFailureEvidence(
+        failureLookup,
+        connectionErrors: [resumeError, retryError]
       )
       return bulkActionOutcome(
         batch,
         index: batchIndex,
         deferredPendingAction: false,
-        errorDescription: failureDetails?.isEmpty != false
-          ? combinedErrorDescription([resumeError, retryError]) : nil,
-        failureDetails: failureDetails,
+        errorDescription: failureEvidence.errorDescription,
+        failureDetails: failureEvidence.details,
+        selection: selection,
         wasEnqueued: true
       )
     } catch {
@@ -5308,25 +5359,32 @@ extension GmailMailActionViewModel {
         deferredPendingAction: false,
         errorDescription: error.localizedDescription,
         failureDetails: nil,
+        selection: nil,
         wasEnqueued: false
       )
     }
   }
 
+  // swiftlint:disable:next function_body_length function_parameter_count
   private func resumeDeferredPendingActions(
     _ action: ProviderMailAction,
-    batches: [MailboxBulkActionBatch],
+    batches: [MailboxTrackedBulkActionBatch],
     taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
     nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
-    guard !Task.isCancelled else { return }
+    guard !Task.isCancelled else {
+      await Self.releaseSelections(batches, service: service)
+      return
+    }
     _ = await withTaskGroup(
       of: MailboxBulkActionBatchOutcome.self,
       returning: [MailboxBulkActionBatchOutcome].self
     ) { group in
-      for (batchIndex, batch) in batches.enumerated() {
+      for (batchIndex, trackedBatch) in batches.enumerated() {
         group.addTask { [service, session] in
+          let batch = trackedBatch.batch
           let resumeError = await service.resumePendingActions(
             connection: batch.connection,
             session: session
@@ -5335,19 +5393,27 @@ extension GmailMailActionViewModel {
             connection: batch.connection,
             session: session
           )
-          let failureDetails = await service.pendingActionFailureDetails(
+          let failureLookup = await service.pendingActionFailureLookup(
             action,
+            selection: trackedBatch.selection,
             messages: batch.messages,
             connection: batch.connection,
             session: session
+          )
+          if let selection = trackedBatch.selection {
+            await service.releasePendingActionSelection(selection, connection: batch.connection)
+          }
+          let failureEvidence = Self.bulkActionFailureEvidence(
+            failureLookup,
+            connectionErrors: [resumeError, retryError]
           )
           return Self.bulkActionOutcome(
             batch,
             index: batchIndex,
             deferredPendingAction: true,
-            errorDescription: failureDetails?.isEmpty != false
-              ? Self.combinedErrorDescription([resumeError, retryError]) : nil,
-            failureDetails: failureDetails,
+            errorDescription: failureEvidence.errorDescription,
+            failureDetails: failureEvidence.details,
+            selection: trackedBatch.selection,
             wasEnqueued: true
           )
         }
@@ -5359,6 +5425,7 @@ extension GmailMailActionViewModel {
         await recordDeferredOutcome(
           outcome,
           taskId: taskId,
+          immediateFailures: immediateFailures,
           nonPersistedImmediateFailures: nonPersistedImmediateFailures,
           onCompleted: onCompleted
         )
@@ -5367,34 +5434,65 @@ extension GmailMailActionViewModel {
     }
   }
 
+  nonisolated private static func releaseSelections(
+    _ batches: [MailboxTrackedBulkActionBatch],
+    service: MailboxProviderMailActing
+  ) async {
+    for batch in batches {
+      if let selection = batch.selection {
+        await service.releasePendingActionSelection(selection, connection: batch.batch.connection)
+      }
+    }
+  }
+
   private func recordDeferredOutcome(
     _ outcome: MailboxBulkActionBatchOutcome,
     taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
     nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     await refreshFailureConnections(knownConnections)
+    let previousOperationFailures = deferredBulkFailures[taskId] ?? []
     pruneDeferredBulkFailures()
+    let operationFailures = previousOperationFailures.filter {
+      !immediateFailures.contains($0) || activeFailureConnectionIds.contains($0.connectionId)
+    }
     let failures =
-      (deferredBulkFailures[taskId] ?? [])
+      operationFailures
       + nonPersistedImmediateFailures
       + bulkActionResult([outcome]).failures
-    deferredBulkFailures[taskId] = failures.reduce(into: []) {
+    let uniqueFailures = failures.reduce(into: [MailboxBulkActionFailure]()) {
       if !$0.contains($1) {
         $0.append($1)
       }
     }
+    let retainedImmediateFailures = immediateFailures.filter { uniqueFailures.contains($0) }
+    let connectionOrder = Dictionary(
+      uniqueKeysWithValues: knownConnections.enumerated().map { ($0.element.id, $0.offset) }
+    )
+    let deferredFailures = uniqueFailures.enumerated().filter {
+      !immediateFailures.contains($0.element)
+    }.sorted {
+      let firstOrder = connectionOrder[$0.element.connectionId] ?? Int.max
+      let secondOrder = connectionOrder[$1.element.connectionId] ?? Int.max
+      return firstOrder == secondOrder ? $0.offset < $1.offset : firstOrder < secondOrder
+    }.map(\.element)
+    deferredBulkFailures[taskId] = retainedImmediateFailures + deferredFailures
     updateBulkActionErrorMessage()
     guard !Task.isCancelled else { return }
     await onCompleted(outcome.connection)
   }
 
   private func pruneDeferredBulkFailures() {
-    deferredBulkFailures = deferredBulkFailures.compactMapValues { failures in
-      let activeFailures = failures.filter {
-        activeFailureConnectionIds.contains($0.connectionId)
+    deferredBulkFailures = deferredBulkFailures.reduce(into: [:]) { retained, entry in
+      let failures =
+        pendingActionTasks[entry.key] == nil && errorMessage == nil
+        ? entry.value.filter { activeFailureConnectionIds.contains($0.connectionId) }
+        : entry.value
+      if !failures.isEmpty {
+        retained[entry.key] = failures
       }
-      return activeFailures.isEmpty ? nil : activeFailures
     }
   }
 
@@ -5403,9 +5501,13 @@ extension GmailMailActionViewModel {
   }
 
   private func updateBulkActionErrorMessage(
-    adding failures: [MailboxBulkActionFailure] = []
+    adding failures: [MailboxBulkActionFailure] = [],
+    includesDeferredFailures: Bool = true
   ) {
-    let failures = (deferredBulkFailures.values.flatMap { $0 } + failures).reduce(
+    let retainedFailures =
+      includesDeferredFailures
+      ? deferredBulkFailures.values.flatMap { $0 } : []
+    let failures = (retainedFailures + failures).reduce(
       into: [MailboxBulkActionFailure]()
     ) {
       if !$0.contains($1) {
@@ -5427,6 +5529,16 @@ extension GmailMailActionViewModel {
     return descriptions.isEmpty ? nil : descriptions.joined(separator: "\n")
   }
 
+  nonisolated private static func bulkActionFailureEvidence(
+    _ lookup: MailboxProviderActionFailureLookup?,
+    connectionErrors: [String?]
+  ) -> (errorDescription: String?, details: [MailboxProviderActionFailureDetail]?) {
+    let connectionError =
+      lookup?.coversSelectedMessageIds == true
+      ? nil : combinedErrorDescription(connectionErrors)
+    return (connectionError, connectionError == nil ? lookup?.details : nil)
+  }
+
   // swiftlint:disable:next function_parameter_count
   nonisolated private static func bulkActionOutcome(
     _ batch: MailboxBulkActionBatch,
@@ -5434,6 +5546,7 @@ extension GmailMailActionViewModel {
     deferredPendingAction: Bool,
     errorDescription: String?,
     failureDetails: [MailboxProviderActionFailureDetail]?,
+    selection: MailboxProviderActionSelection?,
     wasEnqueued: Bool
   ) -> MailboxBulkActionBatchOutcome {
     MailboxBulkActionBatchOutcome(
@@ -5443,6 +5556,7 @@ extension GmailMailActionViewModel {
       errorDescription: errorDescription,
       failureDetails: failureDetails,
       messages: batch.messages,
+      selection: selection,
       wasEnqueued: wasEnqueued
     )
   }
