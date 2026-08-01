@@ -6,7 +6,7 @@ import SwiftSoup
 enum InlineImageDimensionPolicy {
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
     guard let value = value("min-\(dimension)", in: element) else { return false }
-    if let pixelValue = absolutePixelLengthValue(value) {
+    if let pixelValue = CSSLengthValuePolicy.absolutePixelLengthValue(value) {
       return pixelValue > 1
     }
     if let pixelValue = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(value) {
@@ -69,17 +69,6 @@ enum InlineImageDimensionPolicy {
     ) != nil
   }
 
-  private static func absolutePixelLengthValue(_ value: String) -> Double? {
-    let normalized = value.lowercased()
-    let units: [(suffix: String, pixelsPerUnit: Double)] = [
-      ("px", 1), ("in", 96), ("cm", 96 / 2.54), ("mm", 96 / 25.4),
-      ("pc", 16), ("pt", 96 / 72), ("q", 96 / 101.6),
-    ]
-    guard let unit = units.first(where: { normalized.hasSuffix($0.suffix) }),
-      let value = Double(normalized.dropLast(unit.suffix.count))
-    else { return nil }
-    return value * unit.pixelsPerUnit
-  }
 }
 
 struct RemoteMessageContentAdmission {

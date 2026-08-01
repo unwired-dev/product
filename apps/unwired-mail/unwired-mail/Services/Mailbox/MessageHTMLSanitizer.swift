@@ -29,7 +29,7 @@ enum MessageHTMLSanitizer {
     var remoteImageReferences = try RemoteMessageContentMarkup.recordReferences(
       in: sourceDocument
     )
-    try removePreCleanHiddenElements(from: sourceDocument)
+    try removePreCleanHiddenElements(from: sourceDocument, cancellationCheck: cancellationCheck)
     let documents = try cleanedDocuments(
       from: sourceDocument,
       cancellationCheck: cancellationCheck

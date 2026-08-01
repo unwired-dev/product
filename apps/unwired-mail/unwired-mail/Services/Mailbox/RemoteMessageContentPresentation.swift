@@ -23,11 +23,37 @@ enum MessageHTMLHiddenStylePatterns {
     if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
       return true
     }
-    return ["height", "width", "max-width", "max-height"].contains { property in
+    if ["height", "width"].contains(where: { property in
       effectiveValue(property, in: declarations) { value in
         isLengthValue(value, for: property)
       }.map(isZeroLengthValue) == true
+    }) {
+      return true
     }
+    return [("max-width", "min-width"), ("max-height", "min-height")].contains { properties in
+      let (maximumProperty, minimumProperty) = properties
+      guard
+        effectiveValue(
+          maximumProperty, in: declarations,
+          where: {
+            isLengthValue($0, for: maximumProperty)
+          }
+        ).map(isZeroLengthValue) == true
+      else { return false }
+      let minimum = effectiveValue(
+        minimumProperty, in: declarations,
+        where: {
+          isLengthValue($0, for: minimumProperty)
+        })
+      return minimum.map(isPositiveLengthValue) != true
+    }
+  }
+
+  private static func isPositiveLengthValue(_ value: String) -> Bool {
+    if let pixels = CSSLengthValuePolicy.absolutePixelLengthValue(value) { return pixels > 0 }
+    if let pixels = simpleCalculatedPixelLengthValue(value) { return pixels > 0 }
+    let numericPrefix = value.prefix { "0123456789+.".contains($0) }
+    return Double(numericPrefix).map { $0 > 0 } == true
   }
 }
 
@@ -45,10 +71,10 @@ enum RemoteMessageContentPolicy {
       components?.port = nil
     }
     let equivalentURL = components?.url ?? url
-    return URL(string: normalizedPercentEscapeCasing(equivalentURL.absoluteString)) ?? equivalentURL
+    return URL(string: normalizedPercentEscapes(equivalentURL.absoluteString)) ?? equivalentURL
   }
 
-  private static func normalizedPercentEscapeCasing(_ value: String) -> String {
+  private static func normalizedPercentEscapes(_ value: String) -> String {
     var normalized = ""
     var index = value.startIndex
     while index < value.endIndex {
@@ -69,11 +95,23 @@ enum RemoteMessageContentPolicy {
         break
       }
 
-      normalized.append("%")
-      normalized.append(contentsOf: value[firstDigit...secondDigit].uppercased())
+      let digits = String(value[firstDigit...secondDigit])
+      if let byte = UInt8(digits, radix: 16), isUnreservedURLByte(byte) {
+        normalized.unicodeScalars.append(UnicodeScalar(byte))
+      } else {
+        normalized.append("%")
+        normalized.append(contentsOf: digits.uppercased())
+      }
       index = value.index(after: secondDigit)
     }
     return normalized
+  }
+
+  private static func isUnreservedURLByte(_ byte: UInt8) -> Bool {
+    (byte >= 0x41 && byte <= 0x5A)
+      || (byte >= 0x61 && byte <= 0x7A)
+      || (byte >= 0x30 && byte <= 0x39)
+      || [0x2D, 0x2E, 0x5F, 0x7E].contains(byte)
   }
 
   static func isLoadableHTTPSURL(_ url: URL?) -> Bool {

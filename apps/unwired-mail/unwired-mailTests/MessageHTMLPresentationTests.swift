@@ -388,6 +388,28 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDeduplicatesPercentEncodedUnreservedCharacters() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="https://images.example.com/%70ixel.png" alt="Encoded path">
+        <img src="https://images.example.com/pixel.png" alt="Literal path">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/pixel.png"]
+    )
+    XCTAssertEqual(
+      result.documentHTML.components(
+        separatedBy: #"data-unwired-remote-image="remote-image-0""#
+      ).count - 1,
+      2
+    )
+  }
+
   func testPresentationResolvesNormalizedCIDImagesIntoLocalData() throws {
     let imageData = Data([0x89, 0x50, 0x4E, 0x47])
     let body = MailboxMessageBody(
@@ -511,6 +533,8 @@ extension MessageHTMLPresentationTests {
              style="width: calc(1px); height: calc(0px + 1px)">
         <img src="https://tracker.example/calculated-subtraction.gif"
              style="width: calc(2px - 1px); height: calc(3px - 2px)">
+        <img src="https://tracker.example/point-one.gif"
+             style="width: .75pt; height: .75pt">
         <img src="https://images.example.com/minimum-width.png"
              style="width: 1px; height: 1px; min-width: 600px">
         <img src="https://images.example.com/calculated-size.png"
@@ -539,6 +563,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("calculated-one.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("calculated-subtraction.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("point-one.gif"))
   }
 
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
@@ -595,7 +620,9 @@ extension MessageHTMLPresentationTests {
   }
 
   func testSanitizerDoesNotRetainRemoteImagesInsideCalculatedOffCanvasWrappers() throws {
-    for style in ["margin: calc(-9999px)", "text-indent: calc(-9999px)"] {
+    for style in [
+      "margin: calc(-9999px)", "text-indent: calc(-9999px)", "margin-left: -99in",
+    ] {
       let result = try XCTUnwrap(
         MessageHTMLSanitizer.sanitize(
           """
@@ -1528,20 +1555,49 @@ extension MessageHTMLPresentationTests {
   }
 
   func testSanitizerDoesNotPromoteVisibleDescendantsOfOtherwiseHiddenWrappers() throws {
+    for intermediateAttribute in [
+      #"style="display: none""#,
+      #"style="opacity: 0""#,
+      #"style="width: 0""#,
+      #"style="margin-left: -9999px""#,
+      "hidden",
+    ] {
+      let result = try XCTUnwrap(
+        MessageHTMLSanitizer.sanitize(
+          """
+          <p>Newsletter</p>
+          <div style="visibility: hidden">
+            <div \(intermediateAttribute)>
+              <span style="visibility: visible">
+                <img src="https://tracker.example/hidden.png">
+              </span>
+            </div>
+          </div>
+          """
+        )
+      )
+
+      XCTAssertTrue(result.remoteImageReferences.isEmpty, intermediateAttribute)
+    }
+  }
+
+  func testSanitizerHonorsPositiveMinimumOverZeroMaximum() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
-        <p>Newsletter</p>
-        <div style="display: none; visibility: hidden">
-          <span style="visibility: visible">
-            <img src="https://tracker.example/hidden.png">
-          </span>
+        <div style="max-width: 0; min-width: 600px">
+          Receipt
+          <img src="https://images.example.com/receipt.png">
         </div>
         """
       )
     )
 
-    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/receipt.png"]
+    )
   }
 
   func testSanitizerIgnoresInvalidVisibilityAndOpacityOverrides() throws {

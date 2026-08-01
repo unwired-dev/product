@@ -8,6 +8,18 @@ enum CSSLengthValuePolicy {
   static let optionalUnitPattern = unitPattern + "?"
   static let unsignedZeroPattern = #"(?:0+(?:\.0*)?|\.0+)"#
   static let zeroLengthPattern = #"[+-]?"# + unsignedZeroPattern + optionalUnitPattern
+
+  static func absolutePixelLengthValue(_ value: String) -> Double? {
+    let normalized = value.lowercased()
+    let units: [(suffix: String, pixelsPerUnit: Double)] = [
+      ("px", 1), ("in", 96), ("cm", 96 / 2.54), ("mm", 96 / 25.4),
+      ("pc", 16), ("pt", 96 / 72), ("q", 96 / 101.6),
+    ]
+    guard let unit = units.first(where: { normalized.hasSuffix($0.suffix) }),
+      let number = Double(normalized.dropLast(unit.suffix.count))
+    else { return nil }
+    return number * unit.pixelsPerUnit
+  }
 }
 
 extension MessageHTMLHiddenStylePatterns {
@@ -93,11 +105,9 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func isOnePixelLengthValue(_ value: String) -> Bool {
-    let onePixelPattern = #"\+?0*1(?:\.0*)?px"#
-    if value.range(
-      of: "^" + onePixelPattern + "$",
-      options: [.regularExpression, .caseInsensitive]
-    ) != nil {
+    if CSSLengthValuePolicy.absolutePixelLengthValue(value).map({
+      abs($0 - 1) < 0.000_000_001
+    }) == true {
       return true
     }
     return simpleCalculatedPixelLengthValue(value).map {
@@ -172,6 +182,9 @@ extension MessageHTMLHiddenStylePatterns {
     guard isLengthValue(value, for: "margin") else { return false }
     if let calculatedValue = simpleCalculatedPixelLengthValue(value) {
       return calculatedValue <= -100
+    }
+    if let pixelValue = CSSLengthValuePolicy.absolutePixelLengthValue(value) {
+      return pixelValue <= -100
     }
     let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
     return Double(numericPrefix).map { $0 <= -100 } == true
@@ -277,12 +290,22 @@ extension MessageHTMLSanitizer {
     try NodeTraversor(OffCanvasRemoteImageMarkerVisitor()).traverse(document)
   }
 
-  static func removePreCleanHiddenElements(from document: Document) throws {
+  static func removePreCleanHiddenElements(
+    from document: Document,
+    cancellationCheck: () throws -> Void
+  ) throws {
+    var elementsInRemovedSubtrees = Set<ObjectIdentifier>()
     for element in try document.select("[style]") {
+      if elementsInRemovedSubtrees.contains(ObjectIdentifier(element)) { continue }
+      try cancellationCheck()
       let declarations = MessageHTMLHiddenStylePatterns.declarations(
         in: try element.attr("style")
       )
       guard MessageHTMLHiddenStylePatterns.isPreCleanHidden(declarations) else { continue }
+      let styledDescendants = try element.select("[style]").filter { $0 !== element }
+      for descendant in styledDescendants {
+        elementsInRemovedSubtrees.insert(ObjectIdentifier(descendant))
+      }
       let visibility = MessageHTMLHiddenStylePatterns.effectiveValue(
         "visibility",
         in: declarations,
@@ -291,12 +314,12 @@ extension MessageHTMLSanitizer {
       let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
       let isHiddenOnlyByVisibility =
         (visibility == "hidden" || visibility == "collapse")
+        && !element.hasAttr("hidden")
         && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
         && !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations)
         && !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
       if isHiddenOnlyByVisibility {
-        let visibleDescendants = try element.select("[style]").filter { descendant in
-          guard descendant !== element else { return false }
+        let visibleDescendants = try styledDescendants.filter { descendant in
           let descendantVisibility = MessageHTMLHiddenStylePatterns.effectiveValue(
             "visibility",
             in: MessageHTMLHiddenStylePatterns.declarations(
@@ -305,8 +328,7 @@ extension MessageHTMLSanitizer {
             where: MessageHTMLHiddenStylePatterns.isVisibilityValue
           )
           guard descendantVisibility == "visible" else { return false }
-          return try nearestExplicitVisibilityAncestor(of: descendant, stoppingAt: element)
-            != "visible"
+          return try canPromoteVisibleDescendant(descendant, from: element)
         }
         for descendant in visibleDescendants {
           try element.before(descendant.outerHtml())
@@ -316,21 +338,36 @@ extension MessageHTMLSanitizer {
     }
   }
 
-  private static func nearestExplicitVisibilityAncestor(
-    of element: Element,
-    stoppingAt hiddenAncestor: Element
-  ) throws -> String? {
+  private static func canPromoteVisibleDescendant(
+    _ element: Element,
+    from hiddenAncestor: Element
+  ) throws -> Bool {
+    let declarations = MessageHTMLHiddenStylePatterns.declarations(in: try element.attr("style"))
+    let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
+    guard !element.hasAttr("hidden"),
+      !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
+      !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations),
+      !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
+    else { return false }
+
     var ancestor = element.parent()
     while let current = ancestor, current !== hiddenAncestor {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(in: try current.attr("style"))
+      let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
+      guard !current.hasAttr("hidden"),
+        !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations),
+        !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations),
+        !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
+      else { return false }
       let visibility = MessageHTMLHiddenStylePatterns.effectiveValue(
         "visibility",
-        in: MessageHTMLHiddenStylePatterns.declarations(in: try current.attr("style")),
+        in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
-      if let visibility { return visibility }
+      if visibility == "visible" { return false }
       ancestor = current.parent()
     }
-    return nil
+    return true
   }
 
   static func sourceContent(
