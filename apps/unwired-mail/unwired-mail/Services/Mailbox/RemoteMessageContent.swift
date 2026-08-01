@@ -276,7 +276,7 @@ struct RemoteMessageContentLoader {
       )
       let remainingPixelCount =
         (maximumTotalPixelCount - progress.loadedPixelCount) / occurrenceCount
-      guard maximumResponseByteCount > 0, remainingPixelCount > 0 else { break }
+      guard maximumResponseByteCount > 0, remainingPixelCount > 0 else { continue }
       progress.attemptedImageCount += 1
       progress.attemptedIdentifiers.insert(reference.identifier)
       guard

@@ -157,22 +157,23 @@ enum InlineImageDimensionPolicy {
   }
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
-    guard let value = value("min-\(dimension)", in: element) else { return false }
-    if let pixelValue = MessageHTMLHiddenStylePatterns.pixelLengthValue(
-      value,
-      fontSizePixels: inheritedFontSizePixels(in: element)
-    ) {
-      return pixelValue > 1
-    }
-    return false
+    resolvedMinimumPixels(dimension, in: element).map { $0 > 1 } == true
   }
 
   static func hasPositiveMinimum(_ dimension: String, in element: Element) -> Bool {
-    guard let value = value("min-\(dimension)", in: element) else { return false }
-    return MessageHTMLHiddenStylePatterns.pixelLengthValue(
+    resolvedMinimumPixels(dimension, in: element).map { $0 > 0 } == true
+  }
+
+  private static func resolvedMinimumPixels(_ dimension: String, in element: Element) -> Double? {
+    guard let value = value("min-\(dimension)", in: element) else { return nil }
+    var remainingWork = maximumResolutionWork
+    return resolvedDimensionPixels(
       value,
-      fontSizePixels: inheritedFontSizePixels(in: element)
-    ).map { $0 > 0 } == true
+      dimension: dimension,
+      in: element,
+      remainingDepth: maximumResolutionDepth,
+      remainingWork: &remainingWork
+    )
   }
 
   static func value(_ property: String, in element: Element) -> String? {

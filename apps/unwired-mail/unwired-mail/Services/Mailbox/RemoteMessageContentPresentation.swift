@@ -26,14 +26,17 @@ enum MessageHTMLHiddenStylePatterns {
     if effectiveValue("display", in: declarations, where: isDisplayValue) == "none" {
       return true
     }
-    if ["height", "width"].contains(where: { property in
-      effectiveValue(property, in: declarations) { value in
-        isLengthValue(value, for: property)
-      }.map(isZeroLengthValue) == true
-    }) {
+    let appliesDimensions = element.map(dimensionsApply) != false
+    if appliesDimensions,
+      ["height", "width"].contains(where: { property in
+        effectiveValue(property, in: declarations) { value in
+          isLengthValue(value, for: property)
+        }.map(isZeroLengthValue) == true
+      })
+    {
       return true
     }
-    guard element.map(maximumDimensionsApply) != false else { return false }
+    guard appliesDimensions else { return false }
     return [("max-width", "min-width"), ("max-height", "min-height")].contains { properties in
       let (maximumProperty, minimumProperty) = properties
       guard
@@ -53,7 +56,7 @@ enum MessageHTMLHiddenStylePatterns {
     }
   }
 
-  private static func maximumDimensionsApply(to element: Element) -> Bool {
+  private static func dimensionsApply(to element: Element) -> Bool {
     if let display = InlineImageDimensionPolicy.value("display", in: element)?.lowercased() {
       let components = display.split(whereSeparator: \Character.isWhitespace).map(String.init)
       if display == "contents" || components == ["inline"]

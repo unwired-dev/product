@@ -656,6 +656,10 @@ extension MessageHTMLPresentationTests {
           <img src="https://images.example.com/hero.png"
                style="width: 100%; height: 100%">
         </div>
+        <div style="width: 600px; height: 400px">
+          <img src="https://images.example.com/percentage-minimum.png"
+               style="width: 0; min-width: 100%; height: 40px">
+        </div>
         """
     )
 
@@ -665,7 +669,10 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertEqual(
       presentation.remoteImageReferences.map(\.url.absoluteString),
-      ["https://images.example.com/hero.png"]
+      [
+        "https://images.example.com/hero.png",
+        "https://images.example.com/percentage-minimum.png",
+      ]
     )
     XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("nested-percentage.gif"))
@@ -1308,6 +1315,54 @@ extension MessageHTMLPresentationTests {
       result.html.documentHTML.components(separatedBy: "src=\"data:image/png;base64,").count - 1,
       5
     )
+  }
+
+  func testRemoteContentLoaderSkipsOverBudgetReferenceAndLoadsLaterImage() async throws {
+    let references = try (0..<2).map {
+      RemoteMessageImageReference(
+        identifier: "remote-image-\($0)",
+        url: try XCTUnwrap(URL(string: "https://images.example.com/image-\($0).png"))
+      )
+    }
+    let presentation = SanitizedMessageHTML(
+      documentHTML: """
+        <img data-unwired-remote-image="remote-image-0">
+        <img data-unwired-remote-image="remote-image-0">
+        <img data-unwired-remote-image="remote-image-1">
+        """,
+      remoteImageReferences: references
+    )
+    let png = try XCTUnwrap(
+      Data(
+        base64Encoded:
+          "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+      )
+    )
+    var requestedURLs: [URL] = []
+    let loader = RemoteMessageContentLoader(
+      maximumTotalPixelCount: 1,
+      fetch: { request, _ in
+        let url = try XCTUnwrap(request.url)
+        requestedURLs.append(url)
+        return (
+          png,
+          try XCTUnwrap(
+            HTTPURLResponse(
+              url: url,
+              statusCode: 200,
+              httpVersion: nil,
+              headerFields: ["Content-Type": "image/png"]
+            )
+          )
+        )
+      }
+    )
+
+    let result = try await loader.load(presentation)
+
+    XCTAssertEqual(requestedURLs, [references[1].url])
+    XCTAssertEqual(result.loadedImageCount, 1)
+    XCTAssertEqual(result.html.remoteImageReferences, [references[0]])
   }
 
   func testRemoteContentSessionUsesEphemeralCookieFreeStorage() {
@@ -2202,6 +2257,14 @@ extension MessageHTMLPresentationTests {
   func testSanitizerIgnoresMaximumDimensionsOnOrdinaryInlineElements() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(#"<span style="max-width:0;max-height:0">Receipt</span>"#)
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+  }
+
+  func testSanitizerIgnoresDimensionsOnOrdinaryInlineElements() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(#"<p>Order <span style="width:0;height:0">Receipt</span></p>"#)
     )
 
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
