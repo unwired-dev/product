@@ -74,11 +74,17 @@ final class ProductAccountSessionTests: XCTestCase {
       allowCreation: true
     )
     let session = ProductAccountSession(
-      appleSignInService: PreviewAppleSignInService(
-        credential: AppleSignInCredential(
-          appleUserIdentifier: "apple-user-002",
-          identityToken: "token-002"
-        )
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: oldSnapshot.appleUserIdentifier,
+            identityToken: "refreshed-old-token"
+          ),
+          AppleSignInCredential(
+            appleUserIdentifier: "apple-user-002",
+            identityToken: "token-002"
+          ),
+        ]
       ),
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
@@ -882,6 +888,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  // swiftlint:disable:next function_body_length
   func testSignOutCompletesWhenTrustedDeviceUnregistrationFails() async throws {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
@@ -908,6 +915,37 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
     XCTAssertEqual(gmailConnectionService.clearedSessions, [snapshot])
+    XCTAssertEqual(
+      try store.loadPendingTrustedDeviceUnregistration(),
+      PendingTrustedDeviceUnregistration(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
+
+    productAccountService.unregisterError = nil
+    let relaunchedSession = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      mailboxConnectionService: gmailConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await relaunchedSession.bootstrap()
+
+    XCTAssertEqual(relaunchedSession.state, .signedOut)
+    XCTAssertNil(try store.loadPendingTrustedDeviceUnregistration())
+    XCTAssertEqual(
+      productAccountService.unregisteredTrustedDeviceIds,
+      [snapshot.trustedDeviceId, snapshot.trustedDeviceId]
+    )
   }
 
   func testSignOutExitsSignedInStateBeforeSharedCleanup() async throws {
@@ -1217,6 +1255,29 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pendingAccountIdAtMailboxCleanup, snapshot.productAccountId)
   }
 
+  func testSignOutPersistsCleanupIntentBeforePreparation() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: PreviewProductAccountService(response: .preview),
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    var pendingAccountIdDuringPreparation: String?
+
+    await session.signOut {
+      pendingAccountIdDuringPreparation = try? self.store.loadPendingSignOutProductAccountId()
+    }
+
+    XCTAssertEqual(pendingAccountIdDuringPreparation, snapshot.productAccountId)
+  }
+
   func testSignOutLeavesPendingCleanupWhenSessionCleanupFails() async throws {
     let snapshot = Self.restorableSnapshot
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
@@ -1302,6 +1363,31 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(pushUnregisterer.sessions, [cleanupSnapshot])
     XCTAssertEqual(mailboxConnectionService.clearedSessions, [cleanupSnapshot])
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+  }
+
+  func testBootstrapRefreshesUnverifiableTokenForInterruptedSignOut() async throws {
+    let snapshot = Self.restorableSnapshot
+    let refreshedToken = "refreshed-token"
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: refreshedToken
+        )
+      ),
+      devicePushUnregistrationService: pushUnregisterer,
+      productAccountService: productAccountService,
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, [refreshedToken])
   }
 
   func testSignOutPreservesStoredSessionWhenBodyCacheCleanupFails() async throws {
@@ -2272,6 +2358,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   var unacknowledgedRecoveryKeySaveError: Error?
 
   private var pendingSignOutProductAccountId: String?
+  private var pendingTrustedDeviceUnregistration: PendingTrustedDeviceUnregistration?
   private var snapshot: ProductAccountSessionSnapshot?
   private var unacknowledgedRecoveryKeys: [String: UnacknowledgedRecoveryKey] = [:]
 
@@ -2322,6 +2409,20 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
 
   func clearUnacknowledgedRecoveryKey(productAccountId: String) throws {
     unacknowledgedRecoveryKeys[productAccountId] = nil
+  }
+
+  func loadPendingTrustedDeviceUnregistration() throws -> PendingTrustedDeviceUnregistration? {
+    pendingTrustedDeviceUnregistration
+  }
+
+  func savePendingTrustedDeviceUnregistration(
+    _ unregistration: PendingTrustedDeviceUnregistration
+  ) throws {
+    pendingTrustedDeviceUnregistration = unregistration
+  }
+
+  func clearPendingTrustedDeviceUnregistration() throws {
+    pendingTrustedDeviceUnregistration = nil
   }
 
   func loadPendingSignOutProductAccountId() throws -> String? {

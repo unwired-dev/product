@@ -167,9 +167,6 @@ final class ProductAccountSession {
         }
       )
       if let cleanupSnapshot {
-        try sessionStore.savePendingSignOutProductAccountId(
-          cleanupSnapshot.productAccountId
-        )
         // Trusted Device unregistration below removes backend routing even if
         // this best-effort provider-specific push cleanup fails.
         try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
@@ -194,7 +191,7 @@ final class ProductAccountSession {
       }
       guard !signOutSnapshotWasReplaced(snapshot) else { return }
       if let snapshot, let cleanupSnapshot {
-        try? await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
+        try await unregisterTrustedDeviceOrPersistForRetry(cleanupSnapshot)
         guard !signOutSnapshotWasReplaced(snapshot) else { return }
         try await resumePendingSignOut(resumingExternalCleanup: false)
       } else {
@@ -221,6 +218,22 @@ final class ProductAccountSession {
       identityToken: snapshot.identityToken,
       trustedDeviceId: snapshot.trustedDeviceId
     )
+  }
+
+  private func unregisterTrustedDeviceOrPersistForRetry(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    do {
+      try await unregisterTrustedDeviceForSignOut(snapshot)
+    } catch {
+      try sessionStore.savePendingTrustedDeviceUnregistration(
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      )
+    }
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(
@@ -399,6 +412,7 @@ extension ProductAccountSession {
       return nil
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     await preparation()
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
@@ -630,6 +644,7 @@ extension ProductAccountSession {
   private func prepareForBootstrap() async -> Bool {
     do {
       try await resumePendingSignOut()
+      await resumePendingTrustedDeviceUnregistration()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -661,7 +676,7 @@ extension ProductAccountSession {
       snapshot.productAccountId == productAccountId
     {
       let cleanupSnapshot: ProductAccountSessionSnapshot
-      if snapshot.identityTokenState() != .expired {
+      if snapshot.identityTokenState() == .active {
         cleanupSnapshot = snapshot
       } else {
         let credential = try await appleSignInService.signIn()
@@ -687,6 +702,31 @@ extension ProductAccountSession {
       productAccountId: productAccountId
     )
     try sessionStore.clearPendingSignOutProductAccountId()
+  }
+
+  private func resumePendingTrustedDeviceUnregistration() async {
+    guard let unregistration = try? sessionStore.loadPendingTrustedDeviceUnregistration() else {
+      return
+    }
+    do {
+      let credential = try await appleSignInService.signIn()
+      guard credential.appleUserIdentifier == unregistration.appleUserIdentifier else {
+        throw ProductAccountSessionError.differentAppleAccount
+      }
+      let cleanupSnapshot = ProductAccountSessionSnapshot(
+        appleUserIdentifier: unregistration.appleUserIdentifier,
+        identityToken: credential.identityToken,
+        identityTokenExpiresAt: AppleIdentityToken.expirationDate(
+          from: credential.identityToken
+        ),
+        productAccountId: unregistration.productAccountId,
+        trustedDeviceId: unregistration.trustedDeviceId
+      )
+      try await unregisterTrustedDeviceForSignOut(cleanupSnapshot)
+      try sessionStore.clearPendingTrustedDeviceUnregistration()
+    } catch {
+      return
+    }
   }
 
   func recentIdentityToken(
