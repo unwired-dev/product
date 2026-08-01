@@ -1405,6 +1405,11 @@ protocol MailboxProviderMailActing {
     session: ProductAccountSessionSnapshot
   ) async throws -> MailboxProviderActionSelection?
 
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection: MailboxConnection
+  ) async
+
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,
@@ -1534,6 +1539,11 @@ extension MailboxProviderMailActing {
     )
     return nil
   }
+
+  func releasePendingActionSelection(
+    _: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {}
 
   // swiftlint:disable:next function_parameter_count
   func perform(
@@ -2894,6 +2904,13 @@ struct GmailMailboxConnectionAdapter: MailboxConnectionAdapter {
       }
       throw MailboxConnectionAdapterError.connectionRemoved
     }
+  }
+
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    await pendingActionService.releaseSelection(selection)
   }
 
   func resumePendingActions(

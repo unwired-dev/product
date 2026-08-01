@@ -581,6 +581,7 @@ actor PendingProviderActionService {
 
   func releaseSelection(_ selection: MailboxProviderActionSelection) {
     activeSelectionActionIds.subtract(selection.pendingActionIds)
+    pruneReconciledActionEvidence()
   }
 
   // swiftlint:disable:next function_body_length
@@ -659,6 +660,10 @@ actor PendingProviderActionService {
         productAccountId: action.productAccountId
       )
     }
+    pruneReconciledActionEvidence()
+  }
+
+  private func pruneReconciledActionEvidence() {
     while reconciledActionEvidence.count > Self.maximumReconciledActionEvidenceCount {
       guard
         let evictionIndex = reconciledActionEvidenceOrder.firstIndex(where: {

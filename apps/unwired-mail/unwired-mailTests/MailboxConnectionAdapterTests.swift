@@ -5698,6 +5698,31 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertNil(viewModel.errorMessage)
   }
 
+  func testMailActionViewModelReleasesSelectionAfterIncompleteFailureLookup() async {
+    let connection = mailShellConnection(
+      emailAddress: "first@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let resumeStarted = expectation(description: "pending actions resume")
+    let selectionReleased = expectation(description: "selection released")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumeStarted,
+      selectionReleased: selectionReleased
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [mailShellBulkActionBatch(connection: connection, suffix: "first", receivedAt: 200)]
+    )
+
+    await fulfillment(of: [resumeStarted, selectionReleased], timeout: 1)
+    XCTAssertEqual(result?.succeededConnectionIds, [connection.id])
+    let releasedSelectionCount = await service.releasedSelectionCount()
+    XCTAssertEqual(releasedSelectionCount, 1)
+  }
+
   func testMailActionViewModelLeavesBulkActionsEnqueuedDuringHistoricalBackfill() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
@@ -6303,6 +6328,54 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
   }
 
+  func testMailActionViewModelKeepsUndismissedDeferredFailureAfterSuccess() async {
+    let failedConnection = mailShellConnection(
+      emailAddress: "failed@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let successfulConnection = mailShellConnection(
+      emailAddress: "successful@example.com",
+      providerAccountIdentifier: "gmail-user-002",
+      productAccountId: session.productAccountId
+    )
+    let resumesStarted = expectation(description: "pending actions resume")
+    resumesStarted.expectedFulfillmentCount = 2
+    let deferredCompletion = expectation(description: "deferred completion recorded")
+    let service = DeferredBulkResumeService(
+      resumeStarted: resumesStarted,
+      resumeError: "The provider connection failed.",
+      resumeErrorConnectionId: failedConnection.id,
+      failedConnectionId: failedConnection.id
+    )
+    let viewModel = GmailMailActionViewModel(service: service, session: session)
+
+    _ = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(connection: failedConnection, suffix: "failed", receivedAt: 200)
+      ],
+      deferredPendingActionConnectionIds: [failedConnection.id],
+      onDeferredCompletion: { _ in deferredCompletion.fulfill() }
+    )
+    await fulfillment(of: [deferredCompletion], timeout: 1)
+
+    let result = await viewModel.performBulk(
+      .archive,
+      batches: [
+        mailShellBulkActionBatch(
+          connection: successfulConnection,
+          suffix: "successful",
+          receivedAt: 100
+        )
+      ]
+    )
+
+    await fulfillment(of: [resumesStarted], timeout: 1)
+    XCTAssertEqual(result?.succeededConnectionIds, [successfulConnection.id])
+    XCTAssertTrue(viewModel.errorMessage?.contains("failed@example.com") ?? false)
+  }
+
   func testMailActionViewModelDoesNotResurfaceDismissedDeferredFailureAfterSuccess() async {
     let failedConnection = mailShellConnection(
       emailAddress: "failed@example.com",
@@ -6479,7 +6552,9 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await viewModel.prepareForSignOut()
 
     let resumeWasCancelled = await service.resumeWasCancelled()
+    let releasedSelectionCount = await service.releasedSelectionCount()
     XCTAssertTrue(resumeWasCancelled)
+    XCTAssertEqual(releasedSelectionCount, 1)
   }
 
   func testMailActionViewModelCancelsSingleActionContinuationsBeforeSignOut() async {
@@ -8623,12 +8698,14 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
   private let gatedResumeConnectionId: MailboxConnectionId?
   private let performFailureConnectionId: MailboxConnectionId?
   private var recordedResumeCount = 0
+  private var recordedReleasedSelectionCount = 0
   private let resumeGate: AdapterLifecycleOperationGate?
   private let resumeError: String?
   private let resumeErrorConnectionId: MailboxConnectionId?
   private let resumeStarted: XCTestExpectation
   private let selectedFailureDetails: [MailboxProviderActionFailureDetail]?
   private let selectedFailureDetailsConnectionId: MailboxConnectionId?
+  private let selectionReleased: XCTestExpectation?
   private let trackedSelection = MailboxProviderActionSelection(pendingActionIds: [UUID()])
   private var recordedResumeWasCancelled = false
   private let suspendsResumeUntilCancelled: Bool
@@ -8645,6 +8722,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     gatedResumeConnectionId: MailboxConnectionId? = nil,
     selectedFailureDetails: [MailboxProviderActionFailureDetail]? = nil,
     selectedFailureDetailsConnectionId: MailboxConnectionId? = nil,
+    selectionReleased: XCTestExpectation? = nil,
     suspendsResumeUntilCancelled: Bool = false
   ) {
     self.blockedConnectionIds = blockedConnectionIds
@@ -8660,6 +8738,7 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     self.resumeStarted = resumeStarted
     self.selectedFailureDetails = selectedFailureDetails
     self.selectedFailureDetailsConnectionId = selectedFailureDetailsConnectionId
+    self.selectionReleased = selectionReleased
     self.suspendsResumeUntilCancelled = suspendsResumeUntilCancelled
   }
 
@@ -8743,6 +8822,15 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
     )
   }
 
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    guard selection == trackedSelection else { return }
+    recordedReleasedSelectionCount += 1
+    selectionReleased?.fulfill()
+  }
+
   func blockedPendingActionConnectionIds(
     connections: [MailboxConnection],
     session _: ProductAccountSessionSnapshot
@@ -8759,6 +8847,10 @@ private actor DeferredBulkResumeService: MailboxProviderMailActing {
 
   func resumeCount() -> Int {
     recordedResumeCount
+  }
+
+  func releasedSelectionCount() -> Int {
+    recordedReleasedSelectionCount
   }
 
   func resumeWasCancelled() -> Bool {

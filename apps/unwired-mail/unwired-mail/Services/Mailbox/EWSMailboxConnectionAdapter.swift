@@ -2313,6 +2313,13 @@ struct EWSMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    await pendingActionService.releaseSelection(selection)
+  }
+
   func perform(
     _ action: ProviderMailAction,
     targetProviderMailboxId: String?,

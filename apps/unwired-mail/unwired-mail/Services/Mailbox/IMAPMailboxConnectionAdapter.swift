@@ -2354,6 +2354,14 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     )
   }
 
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection: MailboxConnection
+  ) async {
+    guard let adapter = try? adapter(for: connection.id) else { return }
+    await adapter.releasePendingActionSelection(selection, connection: connection)
+  }
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot

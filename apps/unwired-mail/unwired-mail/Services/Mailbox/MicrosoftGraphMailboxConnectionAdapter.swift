@@ -3317,6 +3317,13 @@ struct MicrosoftGraphMailboxConnectionAdapter: MailboxConnectionAdapter {
     }
   }
 
+  func releasePendingActionSelection(
+    _ selection: MailboxProviderActionSelection,
+    connection _: MailboxConnection
+  ) async {
+    await pendingActionService.releaseSelection(selection)
+  }
+
   func resumePendingActions(
     connections: [MailboxConnection],
     session: ProductAccountSessionSnapshot

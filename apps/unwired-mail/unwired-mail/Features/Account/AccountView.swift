@@ -5160,7 +5160,10 @@ extension GmailMailActionViewModel {
     if !activeFailures.isEmpty {
       deferredBulkFailures[operationId] = activeFailures
     }
-    updateBulkActionErrorMessage(adding: result.failures, includesDeferredFailures: false)
+    updateBulkActionErrorMessage(
+      adding: result.failures,
+      includesDeferredFailures: result.failures.isEmpty && errorMessage != nil
+    )
     let deferredBatches: [MailboxTrackedBulkActionBatch] = outcomes.compactMap { outcome in
       guard
         outcome.wasEnqueued,
@@ -5172,7 +5175,7 @@ extension GmailMailActionViewModel {
       )
     }
     if !deferredBatches.isEmpty {
-      startDeferredPendingActions(
+      await startDeferredPendingActions(
         action,
         batches: deferredBatches,
         taskId: operationId,
@@ -5189,18 +5192,26 @@ extension GmailMailActionViewModel {
     taskId: UUID,
     immediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
-  ) {
-    guard !isPreparingForSignOut, !Task.isCancelled else { return }
+  ) async {
+    guard !isPreparingForSignOut, !Task.isCancelled else {
+      await Self.releaseSelections(batches, service: service)
+      return
+    }
     deferredBulkFailures[taskId] = immediateFailures
     let nonPersistedImmediateFailures = immediateFailures.filter {
       !activeFailureConnectionIds.contains($0.connectionId)
     }
+    let service = self.service
     pendingActionTasks[taskId] = Task { [weak self] in
-      guard let self else { return }
+      guard let self else {
+        await Self.releaseSelections(batches, service: service)
+        return
+      }
       await resumeDeferredPendingActions(
         action,
         batches: batches,
         taskId: taskId,
+        immediateFailures: immediateFailures,
         nonPersistedImmediateFailures: nonPersistedImmediateFailures,
         onCompleted: onCompleted
       )
@@ -5303,6 +5314,9 @@ extension GmailMailActionViewModel {
         connection: batch.connection,
         session: session
       )
+      if let selection {
+        await service.releasePendingActionSelection(selection, connection: batch.connection)
+      }
       let failureEvidence = Self.bulkActionFailureEvidence(
         failureLookup,
         connectionErrors: [resumeError, retryError]
@@ -5329,15 +5343,19 @@ extension GmailMailActionViewModel {
     }
   }
 
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next function_body_length function_parameter_count
   private func resumeDeferredPendingActions(
     _ action: ProviderMailAction,
     batches: [MailboxTrackedBulkActionBatch],
     taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
     nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
-    guard !Task.isCancelled else { return }
+    guard !Task.isCancelled else {
+      await Self.releaseSelections(batches, service: service)
+      return
+    }
     _ = await withTaskGroup(
       of: MailboxBulkActionBatchOutcome.self,
       returning: [MailboxBulkActionBatchOutcome].self
@@ -5360,6 +5378,9 @@ extension GmailMailActionViewModel {
             connection: batch.connection,
             session: session
           )
+          if let selection = trackedBatch.selection {
+            await service.releasePendingActionSelection(selection, connection: batch.connection)
+          }
           let failureEvidence = Self.bulkActionFailureEvidence(
             failureLookup,
             connectionErrors: [resumeError, retryError]
@@ -5382,6 +5403,7 @@ extension GmailMailActionViewModel {
         await recordDeferredOutcome(
           outcome,
           taskId: taskId,
+          immediateFailures: immediateFailures,
           nonPersistedImmediateFailures: nonPersistedImmediateFailures,
           onCompleted: onCompleted
         )
@@ -5390,24 +5412,51 @@ extension GmailMailActionViewModel {
     }
   }
 
+  nonisolated private static func releaseSelections(
+    _ batches: [MailboxTrackedBulkActionBatch],
+    service: MailboxProviderMailActing
+  ) async {
+    for batch in batches {
+      if let selection = batch.selection {
+        await service.releasePendingActionSelection(selection, connection: batch.batch.connection)
+      }
+    }
+  }
+
   private func recordDeferredOutcome(
     _ outcome: MailboxBulkActionBatchOutcome,
     taskId: UUID,
+    immediateFailures: [MailboxBulkActionFailure],
     nonPersistedImmediateFailures: [MailboxBulkActionFailure],
     onCompleted: @escaping @Sendable (MailboxConnection) async -> Void
   ) async {
     await refreshFailureConnections(knownConnections)
-    let operationFailures = deferredBulkFailures[taskId] ?? []
+    let previousOperationFailures = deferredBulkFailures[taskId] ?? []
     pruneDeferredBulkFailures()
+    let operationFailures = previousOperationFailures.filter {
+      !immediateFailures.contains($0) || activeFailureConnectionIds.contains($0.connectionId)
+    }
     let failures =
       operationFailures
       + nonPersistedImmediateFailures
       + bulkActionResult([outcome]).failures
-    deferredBulkFailures[taskId] = failures.reduce(into: []) {
+    let uniqueFailures = failures.reduce(into: [MailboxBulkActionFailure]()) {
       if !$0.contains($1) {
         $0.append($1)
       }
     }
+    let retainedImmediateFailures = immediateFailures.filter { uniqueFailures.contains($0) }
+    let connectionOrder = Dictionary(
+      uniqueKeysWithValues: knownConnections.enumerated().map { ($0.element.id, $0.offset) }
+    )
+    let deferredFailures = uniqueFailures.enumerated().filter {
+      !immediateFailures.contains($0.element)
+    }.sorted {
+      let firstOrder = connectionOrder[$0.element.connectionId] ?? Int.max
+      let secondOrder = connectionOrder[$1.element.connectionId] ?? Int.max
+      return firstOrder == secondOrder ? $0.offset < $1.offset : firstOrder < secondOrder
+    }.map(\.element)
+    deferredBulkFailures[taskId] = retainedImmediateFailures + deferredFailures
     updateBulkActionErrorMessage()
     guard !Task.isCancelled else { return }
     await onCompleted(outcome.connection)
