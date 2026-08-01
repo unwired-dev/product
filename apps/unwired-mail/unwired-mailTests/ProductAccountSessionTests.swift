@@ -1387,16 +1387,10 @@ final class ProductAccountSessionTests: XCTestCase {
   func testBootstrapCompletesInterruptedSignOut() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
-      identityToken: "expired-token",
-      identityTokenExpiresAt: .distantPast,
+      identityToken: "active-token",
+      identityTokenExpiresAt: .distantFuture,
       productAccountId: Self.restorableSnapshot.productAccountId,
       trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
-    )
-    let cleanupSnapshot = ProductAccountSessionSnapshot(
-      appleUserIdentifier: snapshot.appleUserIdentifier,
-      identityToken: "refreshed-token",
-      productAccountId: snapshot.productAccountId,
-      trustedDeviceId: snapshot.trustedDeviceId
     )
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
@@ -1410,7 +1404,7 @@ final class ProductAccountSessionTests: XCTestCase {
       appleSignInService: PreviewAppleSignInService(
         credential: AppleSignInCredential(
           appleUserIdentifier: snapshot.appleUserIdentifier,
-          identityToken: cleanupSnapshot.identityToken
+          identityToken: snapshot.identityToken
         )
       ),
       devicePushUnregistrationService: pushUnregisterer,
@@ -1428,24 +1422,19 @@ final class ProductAccountSessionTests: XCTestCase {
       try keyMaterialStore.load(productAccountId: snapshot.productAccountId)
     )
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertEqual(pushUnregisterer.sessions, [cleanupSnapshot])
-    XCTAssertEqual(mailboxConnectionService.clearedSessions, [cleanupSnapshot])
+    XCTAssertEqual(pushUnregisterer.sessions, [snapshot])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
     XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
   }
 
-  func testBootstrapRefreshesUnverifiableTokenForInterruptedSignOut() async throws {
+  func testBootstrapDoesNotPromptForInterruptedSignOutWithUnverifiableToken() async throws {
     let snapshot = Self.restorableSnapshot
-    let refreshedToken = "refreshed-token"
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    let appleSignInService = RevokedAppleSignInService()
     let productAccountService = RecordingProductAccountService(response: .preview)
     let session = ProductAccountSession(
-      appleSignInService: PreviewAppleSignInService(
-        credential: AppleSignInCredential(
-          appleUserIdentifier: snapshot.appleUserIdentifier,
-          identityToken: refreshedToken
-        )
-      ),
+      appleSignInService: appleSignInService,
       devicePushUnregistrationService: pushUnregisterer,
       productAccountService: productAccountService,
       sessionStore: sessionStore,
@@ -1453,9 +1442,22 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
+    let signInCallCount = await appleSignInService.signInCallCount
 
     XCTAssertEqual(session.state, .signedOut)
-    XCTAssertEqual(productAccountService.unregistrationIdentityTokens, [refreshedToken])
+    XCTAssertEqual(signInCallCount, 0)
+    XCTAssertNil(try sessionStore.load())
+    XCTAssertEqual(
+      try sessionStore.loadPendingTrustedDeviceUnregistrations(),
+      [
+        PendingTrustedDeviceUnregistration(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          productAccountId: snapshot.productAccountId,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+      ]
+    )
+    XCTAssertTrue(productAccountService.unregistrationIdentityTokens.isEmpty)
   }
 
   func testBootstrapRetainsRetryWhenInterruptedSignOutUnregistrationFails() async throws {

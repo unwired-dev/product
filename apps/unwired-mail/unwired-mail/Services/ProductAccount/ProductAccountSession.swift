@@ -227,14 +227,20 @@ final class ProductAccountSession {
     do {
       try await unregisterTrustedDeviceForSignOut(snapshot)
     } catch {
-      try sessionStore.savePendingTrustedDeviceUnregistration(
-        PendingTrustedDeviceUnregistration(
-          appleUserIdentifier: snapshot.appleUserIdentifier,
-          productAccountId: snapshot.productAccountId,
-          trustedDeviceId: snapshot.trustedDeviceId
-        )
-      )
+      try persistTrustedDeviceUnregistrationRetry(snapshot)
     }
+  }
+
+  private func persistTrustedDeviceUnregistrationRetry(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) throws {
+    try sessionStore.savePendingTrustedDeviceUnregistration(
+      PendingTrustedDeviceUnregistration(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
+    )
   }
 
   private func shouldCreateProductSyncMaterialAfterSignIn(
@@ -675,24 +681,15 @@ extension ProductAccountSession {
       let snapshot = try sessionStore.load(),
       snapshot.productAccountId == productAccountId
     {
-      let cleanupSnapshot: ProductAccountSessionSnapshot
       if snapshot.identityTokenState() == .active {
-        cleanupSnapshot = snapshot
+        try? await devicePushUnregistrationService.unregister(session: snapshot)
       } else {
-        let credential = try await appleSignInService.signIn()
-        guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
-          throw ProductAccountSessionError.differentAppleAccount
-        }
-        cleanupSnapshot = ProductAccountSessionSnapshot(
-          appleUserIdentifier: snapshot.appleUserIdentifier,
-          identityToken: credential.identityToken,
-          productAccountId: snapshot.productAccountId,
-          trustedDeviceId: snapshot.trustedDeviceId
-        )
+        try persistTrustedDeviceUnregistrationRetry(snapshot)
       }
-      try? await devicePushUnregistrationService.unregister(session: cleanupSnapshot)
-      try await mailboxConnectionService.clearLocalConnection(session: cleanupSnapshot)
-      try await unregisterTrustedDeviceOrPersistForRetry(cleanupSnapshot)
+      try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+      if snapshot.identityTokenState() == .active {
+        try await unregisterTrustedDeviceOrPersistForRetry(snapshot)
+      }
     }
     try sessionStore.clear()
     try productSyncKeyMaterialStore.clear(
