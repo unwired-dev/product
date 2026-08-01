@@ -618,7 +618,7 @@ final class ProductAccountSessionTests: XCTestCase {
     }
     XCTAssertEqual(session.unacknowledgedRecoveryKey, "first-key")
     let persistedMarker = try store.loadUnacknowledgedRecoveryKey(
-      productAccountId: snapshot.productAccountId
+      productAccountId: ProductAccountConnectResponse.preview.productAccountId
     )
     XCTAssertEqual(persistedMarker?.recoveryKey, "first-key")
   }
