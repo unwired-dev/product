@@ -60,7 +60,7 @@ enum RemoteMessageContentMarkup {
       }
       if [dimension, "max-\(dimension)"].contains(where: { property in
         InlineImageDimensionPolicy.value(property, in: element).map {
-          InlineImageDimensionPolicy.isOnePixel($0, in: element)
+          InlineImageDimensionPolicy.isOnePixel($0, dimension: dimension, in: element)
         } == true
       }) {
         return true

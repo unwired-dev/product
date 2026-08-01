@@ -191,7 +191,7 @@ extension MessageHTMLSanitizer {
         if styleValue.range(
           of: zeroDimensionPattern,
           options: [.regularExpression, .caseInsensitive]
-        ) != nil {
+        ) != nil, !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element) {
           return true
         }
         continue
@@ -200,15 +200,15 @@ extension MessageHTMLSanitizer {
       if value.trimmingCharacters(in: .whitespacesAndNewlines).range(
         of: zeroDimensionPattern,
         options: [.regularExpression, .caseInsensitive]
-      ) != nil {
+      ) != nil, !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element) {
         return true
       }
     }
-    for property in ["max-width", "max-height"]
-    where InlineImageDimensionPolicy.value(property, in: element)?.range(
+    for dimension in ["width", "height"]
+    where InlineImageDimensionPolicy.value("max-\(dimension)", in: element)?.range(
       of: zeroDimensionPattern,
       options: [.regularExpression, .caseInsensitive]
-    ) != nil {
+    ) != nil && !InlineImageDimensionPolicy.hasPositiveMinimum(dimension, in: element) {
       return true
     }
     return false

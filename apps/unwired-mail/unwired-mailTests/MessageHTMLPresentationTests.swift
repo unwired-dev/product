@@ -569,6 +569,32 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("font-relative-one.gif"))
   }
 
+  func testSanitizerResolvesPercentageTrackingPixelsAgainstContainingBlock() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <div style="width: 1px; height: 1px">
+          <img src="https://tracker.example/percentage.gif"
+               style="width: 100%; height: 100%">
+        </div>
+        <div style="width: 600px; height: 400px">
+          <img src="https://images.example.com/hero.png"
+               style="width: 100%; height: 100%">
+        </div>
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
+  }
+
   func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -1606,6 +1632,33 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRemovesHiddenBranchesInsidePromotedVisibleSubtrees() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="visibility: hidden">
+          <span style="visibility: visible">
+            Receipt
+            <span style="visibility: hidden">
+              Hidden details
+              <img src="https://tracker.example/hidden.png">
+            </span>
+            <img src="https://images.example.com/visible.png">
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertFalse(result.documentHTML.contains("Hidden details"))
+    XCTAssertFalse(result.documentHTML.contains("tracker.example"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerPromotesOnlyTopmostExplicitlyVisibleDescendant() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1669,6 +1722,22 @@ extension MessageHTMLPresentationTests {
     )
 
     XCTAssertTrue(result.documentHTML.contains("Receipt"))
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/receipt.png"]
+    )
+  }
+
+  func testSanitizerHonorsPositiveMinimumOnZeroMaximumImage() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="https://images.example.com/receipt.png"
+             style="max-width: 0; min-width: 600px">
+        """
+      )
+    )
+
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/receipt.png"]
@@ -1739,6 +1808,14 @@ extension MessageHTMLPresentationTests {
         style
       )
     }
+  }
+
+  func testSanitizerIgnoresInvalidCompoundDisplayOverride() throws {
+    XCTAssertNil(
+      try MessageHTMLSanitizer.sanitize(
+        #"<div style="display: none; display: none block">Hidden text</div>"#
+      )
+    )
   }
 
   func testSanitizerPreservesVisibleContentWithInvalidZeroLengthOverride() throws {

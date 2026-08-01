@@ -63,17 +63,30 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
-    let keywords = Set([
+    let singleKeywords = Set([
       "block", "contents", "flex", "flow", "flow-root", "grid", "inline", "inline-block",
       "inline-flex", "inline-grid", "inline-table", "list-item", "none", "ruby",
       "ruby-base", "ruby-base-container", "ruby-text", "ruby-text-container", "run-in",
       "table", "table-caption", "table-cell", "table-column", "table-column-group",
       "table-footer-group", "table-header-group", "table-row", "table-row-group",
     ])
-    return isCSSWideKeyword(value)
-      || value.split(whereSeparator: \Character.isWhitespace).allSatisfy {
-        keywords.contains(String($0))
-      }
+    let values = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    if values.count == 1 {
+      return isCSSWideKeyword(value) || singleKeywords.contains(value)
+    }
+    guard Set(values).count == values.count else { return false }
+    let outside = Set(["block", "inline", "run-in"])
+    let inside = Set(["flow", "flow-root", "table", "flex", "grid", "ruby"])
+    let outsideValues = values.filter(outside.contains)
+    let insideValues = values.filter(inside.contains)
+    let hasListItem = values.contains("list-item")
+    guard outsideValues.count <= 1, insideValues.count <= 1,
+      values.count == outsideValues.count + insideValues.count + (hasListItem ? 1 : 0)
+    else { return false }
+    if hasListItem {
+      return insideValues.isEmpty || ["flow", "flow-root"].contains(insideValues[0])
+    }
+    return !outsideValues.isEmpty && !insideValues.isEmpty
   }
 
   static func isLengthValue(_ value: String, for property: String) -> Bool {
@@ -369,7 +382,12 @@ extension MessageHTMLSanitizer {
           return try canPromoteVisibleDescendant(descendant, from: element)
         }
         for descendant in visibleDescendants {
-          try element.before(descendant.outerHtml())
+          let promotedDocument = try SwiftSoup.parseBodyFragment(descendant.outerHtml())
+          try removePreCleanHiddenElements(
+            from: promotedDocument,
+            cancellationCheck: cancellationCheck
+          )
+          try element.before(promotedDocument.body()?.html() ?? "")
         }
       }
       try element.remove()

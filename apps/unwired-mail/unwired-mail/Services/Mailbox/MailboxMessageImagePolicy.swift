@@ -14,6 +14,25 @@ enum InlineImageDimensionPolicy {
     )
   }
 
+  static func isOnePixel(
+    _ value: String,
+    dimension: String,
+    in element: Element
+  ) -> Bool {
+    if isOnePixel(value, in: element) { return true }
+    let normalized = value.lowercased()
+    guard normalized.hasSuffix("%"),
+      let percentage = Double(normalized.dropLast()),
+      let parent = element.parent(),
+      let containingValue = self.value(dimension, in: parent),
+      let containingPixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
+        containingValue,
+        fontSizePixels: inheritedFontSizePixels(in: parent)
+      )
+    else { return false }
+    return abs((containingPixels * percentage / 100) - 1) < 0.000_000_001
+  }
+
   private static func inheritedFontSizePixels(in element: Element) -> Double? {
     var current: Element? = element
     while let candidate = current {
@@ -39,6 +58,14 @@ enum InlineImageDimensionPolicy {
       return pixelValue > 1
     }
     return false
+  }
+
+  static func hasPositiveMinimum(_ dimension: String, in element: Element) -> Bool {
+    guard let value = value("min-\(dimension)", in: element) else { return false }
+    return MessageHTMLHiddenStylePatterns.pixelLengthValue(
+      value,
+      fontSizePixels: inheritedFontSizePixels(in: element)
+    ).map { $0 > 0 } == true
   }
 
   static func value(_ property: String, in element: Element) -> String? {
