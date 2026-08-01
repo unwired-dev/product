@@ -1527,6 +1527,23 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerDoesNotPromoteVisibleDescendantsOfOtherwiseHiddenWrappers() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="display: none; visibility: hidden">
+          <span style="visibility: visible">
+            <img src="https://tracker.example/hidden.png">
+          </span>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
   func testSanitizerIgnoresInvalidVisibilityAndOpacityOverrides() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

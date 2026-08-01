@@ -288,7 +288,13 @@ extension MessageHTMLSanitizer {
         in: declarations,
         where: MessageHTMLHiddenStylePatterns.isVisibilityValue
       )
-      if visibility == "hidden" || visibility == "collapse" {
+      let nonVisibilityDeclarations = declarations.filter { $0.property != "visibility" }
+      let isHiddenOnlyByVisibility =
+        (visibility == "hidden" || visibility == "collapse")
+        && !MessageHTMLHiddenStylePatterns.isPreCleanHidden(nonVisibilityDeclarations)
+        && !MessageHTMLHiddenStylePatterns.isPresentationHidden(nonVisibilityDeclarations)
+        && !MessageHTMLHiddenStylePatterns.isReadableHidden(nonVisibilityDeclarations)
+      if isHiddenOnlyByVisibility {
         let visibleDescendants = try element.select("[style]").filter { descendant in
           guard descendant !== element else { return false }
           let descendantVisibility = MessageHTMLHiddenStylePatterns.effectiveValue(
