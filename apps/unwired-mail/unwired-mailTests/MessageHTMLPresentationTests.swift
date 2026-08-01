@@ -2437,6 +2437,35 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerRemovesNestedConstantFunctionZeroDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img style="width:calc(min(0px, 0px))" src="https://tracker.example/pixel.gif">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+  }
+
+  func testSanitizerDoesNotApplyTextIndentToRemoteImageBox() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img style="text-indent:-100px" src="https://images.example.com/visible.png">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerPromotesVisibleDescendantThroughRevertAncestor() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(

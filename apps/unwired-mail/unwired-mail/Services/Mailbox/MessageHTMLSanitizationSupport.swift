@@ -194,29 +194,55 @@ extension MessageHTMLHiddenStylePatterns {
     return total
   }
 
-  private static func constantCalculatedPixelLengthValue(_ value: String) -> Double? {
+  private static func constantCalculatedPixelLengthValue(
+    _ value: String,
+    remainingDepth: Int = 16
+  ) -> Double? {
+    guard remainingDepth > 0 else { return nil }
     if let value = simpleCalculatedPixelLengthValue(value) { return value }
     let normalized = value.lowercased()
     guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
     else { return nil }
     let function = String(normalized[..<openingParenthesis])
-    guard ["clamp", "max", "min"].contains(function) else { return nil }
+    guard ["calc", "clamp", "max", "min"].contains(function) else { return nil }
     let argumentsStart = normalized.index(after: openingParenthesis)
     let argumentsEnd = normalized.index(before: normalized.endIndex)
-    let arguments = normalized[argumentsStart..<argumentsEnd].split(
-      separator: ",",
-      omittingEmptySubsequences: false
-    )
+    guard let arguments = calculatedArguments(normalized[argumentsStart..<argumentsEnd])
+    else { return nil }
     var values: [Double] = []
     for argument in arguments {
       let argument = argument.trimmingCharacters(in: .whitespacesAndNewlines)
       guard !argument.isEmpty,
         let value = CSSLengthValuePolicy.absolutePixelLengthValue(argument)
           ?? simpleCalculatedPixelLengthValue(argument)
+          ?? constantCalculatedPixelLengthValue(argument, remainingDepth: remainingDepth - 1)
       else { return nil }
       values.append(value)
     }
+    return constantFunctionValue(function, values: values)
+  }
+
+  private static func calculatedArguments(_ expression: Substring) -> [String]? {
+    var arguments = [""]
+    var depth = 0
+    for character in expression {
+      if character == "(" { depth += 1 }
+      if character == ")" { depth -= 1 }
+      guard depth >= 0 else { return nil }
+      if character == ",", depth == 0 {
+        arguments.append("")
+      } else {
+        arguments[arguments.count - 1].append(character)
+      }
+    }
+    return depth == 0 ? arguments : nil
+  }
+
+  private static func constantFunctionValue(_ function: String, values: [Double]) -> Double? {
     switch function {
+    case "calc":
+      guard values.count == 1 else { return nil }
+      return values[0]
     case "min": return values.min()
     case "max": return values.max()
     default:
@@ -243,12 +269,14 @@ extension MessageHTMLHiddenStylePatterns {
     _ declarations: [StyleDeclaration],
     in element: Element? = nil
   ) -> Bool {
-    if effectiveValue(
-      "text-indent", in: declarations,
-      where: {
-        isLengthValue($0, for: "text-indent")
-      }
-    ).map(isOffCanvasNegativeLengthValue) == true {
+    if element?.tagName().lowercased() != "img",
+      effectiveValue(
+        "text-indent", in: declarations,
+        where: {
+          isLengthValue($0, for: "text-indent")
+        }
+      ).map(isOffCanvasNegativeLengthValue) == true
+    {
       return true
     }
     for side in [0, 3] {
