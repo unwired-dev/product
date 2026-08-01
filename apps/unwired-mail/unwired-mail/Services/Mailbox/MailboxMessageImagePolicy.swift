@@ -6,16 +6,18 @@ import SwiftSoup
 enum InlineImageDimensionPolicy {
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
     guard let value = value("min-\(dimension)", in: element) else { return false }
+    if let pixelValue = simplePixelLengthValue(value) {
+      return pixelValue > 1
+    }
+    if let pixelValue = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(value) {
+      return pixelValue > 1
+    }
     let isPositiveLength =
       value.range(
         of: #"^\+?(?:\d+(?:\.\d*)?|\.\d+)"# + CSSLengthValuePolicy.unitPattern + "$",
         options: [.regularExpression, .caseInsensitive]
       ) != nil
-      || MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(value).map { $0 > 0 }
-        == true
-    let isOnePixel = MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(value)
-    return isPositiveLength && !isOnePixel
-      && !MessageHTMLHiddenStylePatterns.isZeroLengthValue(value)
+    return isPositiveLength && !MessageHTMLHiddenStylePatterns.isZeroLengthValue(value)
   }
 
   static func value(_ property: String, in element: Element) -> String? {
@@ -70,6 +72,12 @@ enum InlineImageDimensionPolicy {
         + CSSLengthValuePolicy.unitPattern + ")$",
       options: .regularExpression
     ) != nil
+  }
+
+  private static func simplePixelLengthValue(_ value: String) -> Double? {
+    let normalized = value.lowercased()
+    guard normalized.hasSuffix("px") else { return nil }
+    return Double(normalized.dropLast(2))
   }
 }
 

@@ -272,18 +272,7 @@ extension MessageHTMLHiddenStylePatterns {
 
 extension MessageHTMLSanitizer {
   static func removeOffCanvasRemoteImageMarkers(from document: Document) throws {
-    for element in try document.select("[style]") {
-      let declarations = MessageHTMLHiddenStylePatterns.declarations(
-        in: try element.attr("style")
-      )
-      guard MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations) else { continue }
-      if element.hasAttr(RemoteMessageContentMarkup.attribute) {
-        try element.removeAttr(RemoteMessageContentMarkup.attribute)
-      }
-      for descendant in try element.select("[\(RemoteMessageContentMarkup.attribute)]") {
-        try descendant.removeAttr(RemoteMessageContentMarkup.attribute)
-      }
-    }
+    try NodeTraversor(OffCanvasRemoteImageMarkerVisitor()).traverse(document)
   }
 
   static func removePreCleanHiddenElements(from document: Document) throws {
@@ -320,6 +309,28 @@ extension MessageHTMLSanitizer {
         && scalar.properties.generalCategory != .format
     }
   }
+}
+
+private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
+  private var hiddenByDepth: [Bool] = []
+
+  func head(_ node: Node, _ depth: Int) throws {
+    guard let element = node as? Element else { return }
+    if hiddenByDepth.count > depth {
+      hiddenByDepth.removeSubrange(depth...)
+    }
+    let parentIsHidden = depth > 0 && hiddenByDepth[depth - 1]
+    let declarations = MessageHTMLHiddenStylePatterns.declarations(
+      in: try element.attr("style")
+    )
+    let isHidden = parentIsHidden || MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations)
+    hiddenByDepth.append(isHidden)
+    if isHidden && element.hasAttr(RemoteMessageContentMarkup.attribute) {
+      try element.removeAttr(RemoteMessageContentMarkup.attribute)
+    }
+  }
+
+  func tail(_: Node, _: Int) throws {}
 }
 
 private final class SourceContentVisitor: NodeVisitor {

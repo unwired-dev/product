@@ -260,8 +260,8 @@ extension MessageHTMLSanitizer {
         "border-top-style", "border-top-width", "border-width", "display", "font-family",
         "font-size", "font-style", "font-weight", "height", "letter-spacing", "line-height",
         "margin", "margin-bottom", "margin-left", "margin-right", "margin-top", "max-height",
-        "max-width", "min-width", "padding", "padding-bottom", "padding-left", "padding-right",
-        "padding-top",
+        "max-width", "min-height", "min-width", "padding", "padding-bottom", "padding-left",
+        "padding-right", "padding-top",
         "text-align", "text-decoration", "text-indent", "text-transform", "vertical-align",
         "white-space", "width", "word-break", "word-wrap"
       )

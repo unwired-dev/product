@@ -541,6 +541,31 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("calculated-subtraction.gif"))
   }
 
+  func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <img src="https://tracker.example/subpixel-minimum.gif"
+             style="width: 1px; height: 1px; min-width: .5px">
+        <img src="https://tracker.example/calculated-subpixel-minimum.gif"
+             style="width: 1px; height: 1px; min-height: calc(.5px)">
+        <img src="https://images.example.com/minimum-height.png"
+             style="width: 1px; height: 1px; min-height: 600px">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/minimum-height.png"]
+    )
+    XCTAssertFalse(presentation.documentHTML.contains("tracker.example"))
+    XCTAssertTrue(presentation.documentHTML.contains("min-height:600px"))
+  }
+
   func testSanitizerDoesNotRetainRemoteImagesInsideOffCanvasWrappers() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -839,6 +864,45 @@ extension MessageHTMLPresentationTests {
       XCTAssertEqual(receivedByteCount, PartialFailureURLProtocol.data.count)
     } catch {
       XCTFail("Expected a counted transfer failure, got \(error)")
+    }
+  }
+
+  func testRemoteContentDataDelegateReportsOverflowingChunkBytes() async throws {
+    PartialFailureURLProtocol.startSignal.reset()
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [PartialFailureURLProtocol.self]
+    let delegate = RemoteMessageContentDataDelegate(maximumByteCount: 5)
+    let request = URLRequest(
+      url: try XCTUnwrap(URL(string: "https://images.example.com/oversized.png"))
+    )
+    let load = Task {
+      try await delegate.load(request, configuration: configuration)
+    }
+    await PartialFailureURLProtocol.startSignal.waitUntilStarted()
+    let session = URLSession(configuration: .ephemeral)
+    let dataTask = session.dataTask(with: request)
+    let response = try XCTUnwrap(
+      HTTPURLResponse(
+        url: try XCTUnwrap(request.url),
+        statusCode: 200,
+        httpVersion: nil,
+        headerFields: ["Content-Type": "image/png"]
+      )
+    )
+    delegate.urlSession(session, dataTask: dataTask, didReceive: response) { disposition in
+      XCTAssertEqual(disposition, .allow)
+    }
+    delegate.urlSession(session, dataTask: dataTask, didReceive: Data(repeating: 0, count: 4))
+    delegate.urlSession(session, dataTask: dataTask, didReceive: Data(repeating: 0, count: 3))
+    session.invalidateAndCancel()
+
+    do {
+      _ = try await load.value
+      XCTFail("Expected the transfer to exceed the byte limit")
+    } catch RemoteMessageContentError.responseTooLarge(let receivedByteCount) {
+      XCTAssertEqual(receivedByteCount, 7)
+    } catch {
+      XCTFail("Expected a counted response-too-large failure, got \(error)")
     }
   }
 

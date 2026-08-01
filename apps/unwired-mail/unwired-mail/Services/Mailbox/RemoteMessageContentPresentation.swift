@@ -158,19 +158,20 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
   }
 
   func urlSession(_: URLSession, dataTask _: URLSessionDataTask, didReceive chunk: Data) {
-    let action: (exceedsLimit: Bool, task: URLSessionDataTask?) = lock.withLock {
-      guard data.count <= maximumByteCount - chunk.count else {
-        return (true, self.task)
+    let action: (receivedByteCount: Int?, task: URLSessionDataTask?) = lock.withLock {
+      let (receivedByteCount, overflow) = data.count.addingReportingOverflow(chunk.count)
+      guard !overflow, receivedByteCount <= maximumByteCount else {
+        return (overflow ? Int.max : receivedByteCount, self.task)
       }
       data.append(chunk)
-      return (false, nil)
+      return (nil, nil)
     }
-    if action.exceedsLimit {
+    if let receivedByteCount = action.receivedByteCount {
       action.task?.cancel()
       finish(
         .failure(
           RemoteMessageContentError.responseTooLarge(
-            receivedByteCount: maximumByteCount
+            receivedByteCount: receivedByteCount
           )
         )
       )
