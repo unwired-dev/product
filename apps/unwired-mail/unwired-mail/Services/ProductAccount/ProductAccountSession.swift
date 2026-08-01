@@ -698,13 +698,19 @@ extension ProductAccountSession {
     let persistedMarker = try sessionStore.loadUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
-    guard persistedMarker == nil || persistedMarker?.recoveryKey == recoveryKey else {
-      throw ProductAccountSessionError.recoveryKeyUnacknowledged
-    }
     guard
       let material = try productSyncKeyMaterialStore.load(productAccountId: productAccountId)
     else {
       throw ProductSyncKeyMaterialStoreError.recoveryRequired
+    }
+    let hasUnacknowledgedCurrentKey =
+      persistedMarker.map { marker in
+        marker.recoveryKey != recoveryKey
+          && (marker.recoveryWrappedAccountKey == nil
+            || marker.recoveryWrappedAccountKey == material.recoveryWrappedAccountKey)
+      } ?? false
+    guard !hasUnacknowledgedCurrentKey else {
+      throw ProductAccountSessionError.recoveryKeyUnacknowledged
     }
     let marker = UnacknowledgedRecoveryKey(
       recoveryKey: recoveryKey,
