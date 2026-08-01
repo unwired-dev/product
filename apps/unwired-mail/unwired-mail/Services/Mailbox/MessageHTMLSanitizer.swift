@@ -39,6 +39,7 @@ enum MessageHTMLSanitizer {
     try removeHiddenElements(from: [presentationDocument, readableDocument])
     try removeReadableHiddenElements(from: readableDocument)
     try removePresentationHiddenElements(from: presentationDocument)
+    try removeOffCanvasRemoteImageMarkers(from: presentationDocument)
     remoteImageReferences = try RemoteMessageContentMarkup.retainedReferences(
       remoteImageReferences,
       in: presentationDocument

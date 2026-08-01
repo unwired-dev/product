@@ -11,11 +11,7 @@ enum InlineImageDimensionPolicy {
         of: #"^\+?(?:\d+(?:\.\d*)?|\.\d+)"# + CSSLengthValuePolicy.unitPattern + "$",
         options: [.regularExpression, .caseInsensitive]
       ) != nil
-    let isOnePixel =
-      value.range(
-        of: #"^\+?0*1(?:\.0*)?px$"#,
-        options: [.regularExpression, .caseInsensitive]
-      ) != nil
+    let isOnePixel = MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(value)
     return isPositiveLength && !isOnePixel
       && !MessageHTMLHiddenStylePatterns.isZeroLengthValue(value)
   }
@@ -59,6 +55,11 @@ enum InlineImageDimensionPolicy {
       "auto", "fit-content", "inherit", "initial", "max-content", "min-content",
       "revert", "revert-layer", "stretch", "unset",
     ].contains(normalized) {
+      return true
+    }
+    if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
+      || MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(normalized)
+    {
       return true
     }
     return normalized.range(

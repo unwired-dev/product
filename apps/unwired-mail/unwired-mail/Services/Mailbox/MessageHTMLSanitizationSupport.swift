@@ -20,17 +20,7 @@ extension MessageHTMLHiddenStylePatterns {
     }) {
       return true
     }
-    if effectiveValue(
-      "text-indent", in: declarations,
-      where: {
-        isLengthValue($0, for: "text-indent")
-      }
-    ).map(isOffCanvasNegativeLengthValue) == true {
-      return true
-    }
-    return (0..<4).contains { side in
-      effectiveMarginValue(side, in: declarations).map(isOffCanvasNegativeLengthValue) == true
-    }
+    return isOffCanvasHidden(declarations)
   }
 
   static func effectiveValue(
@@ -99,6 +89,30 @@ extension MessageHTMLHiddenStylePatterns {
       || isCalculatedZeroLengthValue(value)
   }
 
+  static func isOnePixelLengthValue(_ value: String) -> Bool {
+    let onePixelPattern = #"\+?0*1(?:\.0*)?px"#
+    if value.range(
+      of: "^" + onePixelPattern + "$",
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil {
+      return true
+    }
+    guard value.lowercased().hasPrefix("calc("), value.hasSuffix(")") else { return false }
+    let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
+    let zeroTerm =
+      CSSLengthValuePolicy.unsignedZeroPattern
+      + CSSLengthValuePolicy.optionalUnitPattern
+    let signedZeroTerms = "(?:[+-]" + zeroTerm + ")*"
+    let calculatedOnePixelPattern =
+      "(?:" + onePixelPattern + signedZeroTerms
+      + "|[+-]?" + zeroTerm + signedZeroTerms + "\\+" + onePixelPattern
+      + signedZeroTerms + ")"
+    return expression.range(
+      of: "^" + calculatedOnePixelPattern + "$",
+      options: [.regularExpression, .caseInsensitive]
+    ) != nil
+  }
+
   private static func isCalculatedZeroLengthValue(_ value: String) -> Bool {
     guard value.hasPrefix("calc("), value.hasSuffix(")") else { return false }
     let expression = value.dropFirst(5).dropLast().filter { !$0.isWhitespace }
@@ -115,6 +129,20 @@ extension MessageHTMLHiddenStylePatterns {
     guard isLengthValue(value, for: "margin") else { return false }
     let numericPrefix = value.prefix { "0123456789+-.".contains($0) }
     return Double(numericPrefix).map { $0 <= -100 } == true
+  }
+
+  static func isOffCanvasHidden(_ declarations: [StyleDeclaration]) -> Bool {
+    if effectiveValue(
+      "text-indent", in: declarations,
+      where: {
+        isLengthValue($0, for: "text-indent")
+      }
+    ).map(isOffCanvasNegativeLengthValue) == true {
+      return true
+    }
+    return (0..<4).contains { side in
+      effectiveMarginValue(side, in: declarations).map(isOffCanvasNegativeLengthValue) == true
+    }
   }
 
   static func simpleCalculatedOpacity(_ value: String) -> Double? {
@@ -199,6 +227,21 @@ extension MessageHTMLHiddenStylePatterns {
 }
 
 extension MessageHTMLSanitizer {
+  static func removeOffCanvasRemoteImageMarkers(from document: Document) throws {
+    for element in try document.select("[style]") {
+      let declarations = MessageHTMLHiddenStylePatterns.declarations(
+        in: try element.attr("style")
+      )
+      guard MessageHTMLHiddenStylePatterns.isOffCanvasHidden(declarations) else { continue }
+      if element.hasAttr(RemoteMessageContentMarkup.attribute) {
+        try element.removeAttr(RemoteMessageContentMarkup.attribute)
+      }
+      for descendant in try element.select("[\(RemoteMessageContentMarkup.attribute)]") {
+        try descendant.removeAttr(RemoteMessageContentMarkup.attribute)
+      }
+    }
+  }
+
   static func removePreCleanHiddenElements(from document: Document) throws {
     for element in try document.select("[style]") {
       let declarations = MessageHTMLHiddenStylePatterns.declarations(

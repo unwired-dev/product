@@ -507,6 +507,8 @@ extension MessageHTMLPresentationTests {
              style="width: +1px; height: +1px">
         <img src="https://tracker.example/signed-zero.gif"
              style="width: +0px; height: 1px">
+        <img src="https://tracker.example/calculated-one.gif"
+             style="width: calc(1px); height: calc(0px + 1px)">
         <img src="https://images.example.com/minimum-width.png"
              style="width: 1px; height: 1px; min-width: 600px">
         <img src="https://images.example.com/logo.png"
@@ -530,6 +532,28 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("max-height.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("signed-one.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("signed-zero.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("calculated-one.gif"))
+  }
+
+  func testSanitizerDoesNotRetainRemoteImagesInsideOffCanvasWrappers() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="margin-left: -9999px">
+          <img src="https://tracker.example/off-canvas.gif">
+        </div>
+        <img src="https://images.example.com/logo.png">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/logo.png"]
+    )
+    XCTAssertFalse(
+      result.documentHTML.contains(RemoteMessageContentMarkup.attribute + "=\"remote-image-0\""))
   }
 
   func testSanitizerRemovesRemoteImagesInsideSignedZeroWrappers() throws {
