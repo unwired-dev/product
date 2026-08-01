@@ -44,15 +44,49 @@ enum InlineImageDimensionPolicy {
     guard normalized.hasSuffix("%"),
       let percentage = Double(normalized.dropLast()),
       let parent = containingBlockAncestor(of: element, remainingDepth: remainingDepth),
-      let containingValue = self.value(dimension, in: parent),
-      let containingPixels = resolvedDimensionPixels(
-        containingValue,
+      let containingPixels = resolvedUsedDimensionPixels(
         dimension: dimension,
         in: parent,
         remainingDepth: remainingDepth - 1
       )
     else { return nil }
     return containingPixels * percentage / 100
+  }
+
+  private static func resolvedUsedDimensionPixels(
+    dimension: String,
+    in element: Element,
+    remainingDepth: Int
+  ) -> Double? {
+    guard let declaredValue = value(dimension, in: element),
+      var pixels = resolvedDimensionPixels(
+        declaredValue,
+        dimension: dimension,
+        in: element,
+        remainingDepth: remainingDepth
+      )
+    else { return nil }
+    if let maximumValue = value("max-\(dimension)", in: element),
+      let maximumPixels = resolvedDimensionPixels(
+        maximumValue,
+        dimension: dimension,
+        in: element,
+        remainingDepth: remainingDepth
+      )
+    {
+      pixels = min(pixels, maximumPixels)
+    }
+    if let minimumValue = value("min-\(dimension)", in: element),
+      let minimumPixels = resolvedDimensionPixels(
+        minimumValue,
+        dimension: dimension,
+        in: element,
+        remainingDepth: remainingDepth
+      )
+    {
+      pixels = max(pixels, minimumPixels)
+    }
+    return pixels
   }
 
   private static func containingBlockAncestor(
@@ -134,35 +168,11 @@ enum InlineImageDimensionPolicy {
 
   static func value(_ property: String, in element: Element) -> String? {
     guard let style = try? element.attr("style") else { return nil }
-    var normalValue: String?
-    var importantValue: String?
-    for declaration in style.split(separator: ";") {
-      let parts = declaration.split(separator: ":", maxSplits: 1)
-      guard parts.count == 2,
-        parts[0].trimmingCharacters(in: .whitespacesAndNewlines)
-          .caseInsensitiveCompare(property) == .orderedSame
-      else {
-        continue
-      }
-      let rawValue = parts[1].trimmingCharacters(in: .whitespacesAndNewlines)
-      let isImportant =
-        rawValue.range(
-          of: #"\s*!important\s*$"#,
-          options: [.regularExpression, .caseInsensitive]
-        ) != nil
-      let value = rawValue.replacingOccurrences(
-        of: #"\s*!important\s*$"#,
-        with: "",
-        options: [.regularExpression, .caseInsensitive]
-      )
-      guard isValidValue(value) else { continue }
-      if isImportant {
-        importantValue = value
-      } else {
-        normalValue = value
-      }
-    }
-    return importantValue ?? normalValue
+    return MessageHTMLHiddenStylePatterns.effectiveValue(
+      property.lowercased(),
+      in: MessageHTMLHiddenStylePatterns.declarations(in: style),
+      where: isValidValue
+    )
   }
 
   private static func isValidValue(_ value: String) -> Bool {

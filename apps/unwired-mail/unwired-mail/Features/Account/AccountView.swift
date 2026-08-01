@@ -35,16 +35,16 @@ private actor RemoteMessageContentLoadGate {
     await acquire(maximumWaitDuration: nil)
   }
 
-  func acquire(maximumWaitDuration: TimeInterval) async -> Bool {
+  func acquire(maximumWaitDuration: Duration) async -> Bool {
     await acquire(maximumWaitDuration: Optional(maximumWaitDuration))
   }
 
-  private func acquire(maximumWaitDuration: TimeInterval?) async -> Bool {
+  private func acquire(maximumWaitDuration: Duration?) async -> Bool {
     guard isAcquired else {
       isAcquired = true
       return true
     }
-    if let maximumWaitDuration, maximumWaitDuration <= 0 { return false }
+    if let maximumWaitDuration, maximumWaitDuration <= .zero { return false }
     let waiterId = UUID()
     return await withTaskCancellationHandler {
       await withCheckedContinuation { continuation in
@@ -55,7 +55,7 @@ private actor RemoteMessageContentLoadGate {
         waiters.append(Waiter(continuation: continuation, id: waiterId))
         guard let maximumWaitDuration else { return }
         Task {
-          try? await Task.sleep(for: .seconds(maximumWaitDuration))
+          try? await Task.sleep(for: maximumWaitDuration)
           self.cancelWaiter(waiterId)
         }
       }
@@ -5846,8 +5846,9 @@ final class GmailInboxViewModel {
         -> RemoteMessageContentLoadResult
     )? = nil
   ) async throws -> RemoteMessageContentLoadResult {
-    let deadline = Date.now.addingTimeInterval(maximumLoadDuration)
-    let maximumWaitDuration = deadline.timeIntervalSinceNow
+    let clock = ContinuousClock()
+    let deadline = clock.now.advanced(by: .seconds(maximumLoadDuration))
+    let maximumWaitDuration = clock.now.duration(to: deadline)
     guard
       await remoteMessageContentLoadGate.acquire(
         maximumWaitDuration: maximumWaitDuration
@@ -5862,8 +5863,8 @@ final class GmailInboxViewModel {
     }
     do {
       try Task.checkCancellation()
-      let remainingLoadDuration = deadline.timeIntervalSinceNow
-      guard remainingLoadDuration > 0 else {
+      let remainingDuration = clock.now.duration(to: deadline)
+      guard remainingDuration > .zero else {
         await remoteMessageContentLoadGate.release()
         return RemoteMessageContentLoadResult(
           failedImageCount: html.remoteImageReferences.count,
@@ -5871,6 +5872,10 @@ final class GmailInboxViewModel {
           loadedImageCount: 0
         )
       }
+      let durationComponents = remainingDuration.components
+      let remainingLoadDuration =
+        Double(durationComponents.seconds)
+        + Double(durationComponents.attoseconds) / 1_000_000_000_000_000_000
       let requestedMaximumByteCount =
         Self.maximumLoadedInlineImageByteCount - loadedInlineImageByteCount
         - loadedRemoteImageByteCount

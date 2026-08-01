@@ -630,6 +630,10 @@ extension MessageHTMLPresentationTests {
                  style="width: 100%; height: 100%">
           </span>
         </div>
+        <div style="width: 600px; max-width: 1px; height: 1px">
+          <img src="https://tracker.example/constrained-percentage.gif"
+               style="width: 100%; height: 100%">
+        </div>
         <div style="width: 600px; height: 400px">
           <img src="https://images.example.com/hero.png"
                style="width: 100%; height: 100%">
@@ -648,6 +652,27 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("percentage.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("nested-percentage.gif"))
     XCTAssertFalse(presentation.documentHTML.contains("inline-ancestor-percentage.gif"))
+    XCTAssertFalse(presentation.documentHTML.contains("constrained-percentage.gif"))
+  }
+
+  func testSanitizerParsesSpacedImportantImageDimensions() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <img src="https://images.example.com/spaced-important.png"
+             style="width: 1px !important; width: 600px ! important;
+                    height: 1px !important; height: 400px ! important">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/spaced-important.png"]
+    )
   }
 
   func testSanitizerResolvesRelativeImageDimensionsUsingInitialAndExplicitFontSizes() throws {
