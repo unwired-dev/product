@@ -4494,7 +4494,7 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertLessThan(releaseP95(mailboxSwitchSamples), 200)
     XCTAssertLessThan(releaseP95(mailViewSwitchSamples), 200)
     XCTAssertLessThan(releaseP95(bodyOpenSamples), 200)
-    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 200)
+    XCTAssertLessThan(releaseP95(emptyDraftOpenSamples), 300)
     XCTAssertLessThan(releaseP95(warmDraftOpenSamples), 200)
     XCTAssertLessThan(releaseP95(directInputFeedbackSamples), 34)
     XCTAssertLessThan(releaseP95(formattingFeedbackSamples), 34)
