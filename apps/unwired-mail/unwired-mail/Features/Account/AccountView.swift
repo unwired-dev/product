@@ -5409,11 +5409,28 @@ extension GmailMailActionViewModel {
   ) async {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
+    let immediateFailures = nonPersistedImmediateFailures.reduce(
+      into: [MailboxBulkActionFailure]()
+    ) {
+      if !$0.contains($1) {
+        $0.append($1)
+      }
+    }
     let failures =
       (deferredBulkFailures[taskId] ?? [])
-      + nonPersistedImmediateFailures
       + bulkActionResult([outcome]).failures
-    deferredBulkFailures[taskId] = failures.reduce(into: []) {
+    var deferredFailures = failures.reduce(into: [MailboxBulkActionFailure]()) {
+      guard !immediateFailures.contains($1), !$0.contains($1) else { return }
+      $0.append($1)
+    }
+    let connectionOrder = Dictionary(
+      uniqueKeysWithValues: knownConnections.enumerated().map { ($1.id, $0) }
+    )
+    deferredFailures.sort {
+      connectionOrder[$0.connectionId, default: .max]
+        < connectionOrder[$1.connectionId, default: .max]
+    }
+    deferredBulkFailures[taskId] = (immediateFailures + deferredFailures).reduce(into: []) {
       if !$0.contains($1) {
         $0.append($1)
       }
@@ -5446,17 +5463,10 @@ extension GmailMailActionViewModel {
         $0.append($1)
       }
     }
-    let connectionOrder = Dictionary(
-      uniqueKeysWithValues: knownConnections.enumerated().map { ($1.id, $0) }
-    )
-    let orderedFailures = failures.sorted {
-      connectionOrder[$0.connectionId, default: .max]
-        < connectionOrder[$1.connectionId, default: .max]
-    }
     errorMessage =
-      orderedFailures.isEmpty
+      failures.isEmpty
       ? nil
-      : orderedFailures.map(Self.failureDescription).joined(separator: "\n")
+      : failures.map(Self.failureDescription).joined(separator: "\n")
   }
 
   nonisolated private static func combinedErrorDescription(_ errors: [String?]) -> String? {
