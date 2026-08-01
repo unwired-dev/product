@@ -5419,7 +5419,10 @@ extension GmailMailActionViewModel {
   ) async {
     await refreshFailureConnections(knownConnections)
     pruneDeferredBulkFailures()
-    let orderedImmediateFailures = failureContext.immediate.reduce(
+    let orderedImmediateFailures = failureContext.immediate.filter {
+      activeFailureConnectionIds.contains($0.connectionId)
+        || failureContext.nonPersistedImmediate.contains($0)
+    }.reduce(
       into: [MailboxBulkActionFailure]()
     ) {
       if !$0.contains($1) {
