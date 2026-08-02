@@ -2463,6 +2463,10 @@ final class GmailPushRelayServiceTests: XCTestCase {
 
     XCTAssertTrue(store.isEnabled(productAccountId: "account-a"))
     XCTAssertFalse(store.isEnabled(productAccountId: "account-b"))
+
+    store.clear(productAccountId: "account-a")
+
+    XCTAssertNil(defaults.object(forKey: "generic-notification-fallback.account-a"))
   }
 
   func testGmailWakeupDoesNotPersistAfterSessionChangesDuringSync() async throws {

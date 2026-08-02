@@ -22,7 +22,14 @@ protocol GenericNotificationFallbackPersisting {
   func setEnabled(_ isEnabled: Bool, productAccountId: String)
 }
 
-struct UserDefaultsFallbackStore: GenericNotificationFallbackPersisting {
+protocol GenericNotificationFallbackClearing {
+  func clear(productAccountId: String)
+}
+
+struct UserDefaultsFallbackStore:
+  GenericNotificationFallbackPersisting,
+  GenericNotificationFallbackClearing
+{
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -35,6 +42,10 @@ struct UserDefaultsFallbackStore: GenericNotificationFallbackPersisting {
 
   func setEnabled(_ isEnabled: Bool, productAccountId: String) {
     defaults.set(isEnabled, forKey: key(productAccountId: productAccountId))
+  }
+
+  func clear(productAccountId: String) {
+    defaults.removeObject(forKey: key(productAccountId: productAccountId))
   }
 
   private func key(productAccountId: String) -> String {

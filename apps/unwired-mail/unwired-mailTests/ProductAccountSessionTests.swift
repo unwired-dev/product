@@ -2581,6 +2581,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let gmailConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
     let freshnessStore = RecordingMailboxSyncSuccessStore()
+    let fallbackStore = RecordingFallbackClearer()
     let connectionId = MailboxConnectionId(
       providerMailboxIdentity: StableProviderMailboxIdentity(
         providerId: .gmail,
@@ -2598,6 +2599,7 @@ final class ProductAccountSessionTests: XCTestCase {
     let session = ProductAccountSession(
       appleSignInService: RevokedAppleSignInService(),
       devicePushUnregistrationService: pushUnregisterer,
+      genericNotificationFallbackStore: fallbackStore,
       productAccountService: PreviewProductAccountService(response: .preview),
       sessionStore: store,
       mailboxConnectionService: gmailConnectionService,
@@ -2648,6 +2650,7 @@ final class ProductAccountSessionTests: XCTestCase {
       )
     )
     XCTAssertTrue(bodyPrefetchWasCancelled)
+    XCTAssertEqual(fallbackStore.clearedProductAccountIds, [snapshot.productAccountId])
   }
 
   func testBootstrapPreservesRevokedSessionWhenOutboxCleanupFails() async throws {
@@ -3530,6 +3533,14 @@ private final class RecordingMailboxSyncSuccessStore: MailboxSyncSuccessPersisti
     connectionId: MailboxConnectionId
   ) {
     dates["\(productAccountId).\(connectionId.rawValue)"] = date
+  }
+}
+
+private final class RecordingFallbackClearer: GenericNotificationFallbackClearing {
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) {
+    clearedProductAccountIds.append(productAccountId)
   }
 }
 

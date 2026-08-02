@@ -85,6 +85,7 @@ final class ProductAccountSession {
   private var isSigningOut = false
   private let appleSignInService: AppleSignInPerforming
   private let devicePushUnregistrationService: DevicePushUnregistering
+  private let genericNotificationFallbackStore: GenericNotificationFallbackClearing
   private let productAccountService: ProductAccountConnecting
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
@@ -96,6 +97,8 @@ final class ProductAccountSession {
     appleSignInService: AppleSignInPerforming,
     devicePushUnregistrationService: DevicePushUnregistering =
       DevicePushUnregistrationService(),
+    genericNotificationFallbackStore: GenericNotificationFallbackClearing =
+      UserDefaultsFallbackStore(),
     productAccountService: ProductAccountConnecting = ConvexProductAccountService(),
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
@@ -106,6 +109,7 @@ final class ProductAccountSession {
   ) {
     self.appleSignInService = appleSignInService
     self.devicePushUnregistrationService = devicePushUnregistrationService
+    self.genericNotificationFallbackStore = genericNotificationFallbackStore
     self.productAccountService = productAccountService
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
@@ -1030,6 +1034,7 @@ extension ProductAccountSession {
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
     )
+    genericNotificationFallbackStore.clear(productAccountId: productAccountId)
     try sessionStore.clearUnacknowledgedRecoveryKey(
       productAccountId: productAccountId
     )
