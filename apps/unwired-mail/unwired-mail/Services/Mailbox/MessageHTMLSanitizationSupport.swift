@@ -99,7 +99,11 @@ extension MessageHTMLHiddenStylePatterns {
     return !outsideValues.isEmpty && !insideValues.isEmpty
   }
 
-  static func isLengthValue(_ value: String, for property: String) -> Bool {
+  static func isLengthValue(
+    _ value: String,
+    for property: String,
+    remainingDepth: Int = 16
+  ) -> Bool {
     if value.range(
       of: #"^[+-]?(?:\d+(?:\.\d*)?|\.\d+)"#
         + CSSLengthValuePolicy.optionalUnitPattern + "$",
@@ -124,7 +128,8 @@ extension MessageHTMLHiddenStylePatterns {
     case "none":
       return ["max-height", "max-width"].contains(property)
     default:
-      return isCSSWideKeyword(value) || isValidLengthFunctionValue(value)
+      return isCSSWideKeyword(value)
+        || isValidLengthFunctionValue(value, remainingDepth: remainingDepth - 1)
     }
   }
 
@@ -340,16 +345,23 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func precedingInlineFlowPixels(before element: Element?) -> Double? {
-    var sibling = try? element?.previousElementSibling()
+    var sibling = element?.previousSibling()
     while let current = sibling {
-      let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-      let display = effectiveValue("display", in: declarations, where: isDisplayValue)
-      if display == "contents" || display?.hasPrefix("inline") == true
-        || !dimensionsApply(to: current)
+      if let textNode = current as? TextNode,
+        !textNode.getWholeText().trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
       {
         return nil
       }
-      sibling = try? current.previousElementSibling()
+      if let current = current as? Element {
+        let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+        let display = effectiveValue("display", in: declarations, where: isDisplayValue)
+        if display == "contents" || display?.hasPrefix("inline") == true
+          || !dimensionsApply(to: current)
+        {
+          return nil
+        }
+      }
+      sibling = current.previousSibling()
     }
     return 0
   }
@@ -395,7 +407,12 @@ extension MessageHTMLHiddenStylePatterns {
     guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
     else { return nil }
     let function = String(normalized[..<openingParenthesis])
-    if function == "var" { return validVariableOpacityFallback(normalized) }
+    if function == "var" {
+      return validVariableOpacityFallback(
+        normalized,
+        remainingDepth: remainingDepth - 1
+      )
+    }
     guard ["calc", "clamp", "max", "min"].contains(function) else { return nil }
     let argumentsStart = normalized.index(after: openingParenthesis)
     let argumentsEnd = normalized.index(before: normalized.endIndex)
@@ -421,7 +438,11 @@ extension MessageHTMLHiddenStylePatterns {
       ?? constantCalculatedOpacity(value, remainingDepth: remainingDepth)
   }
 
-  private static func validVariableOpacityFallback(_ value: String) -> Double? {
+  private static func validVariableOpacityFallback(
+    _ value: String,
+    remainingDepth: Int
+  ) -> Double? {
+    guard remainingDepth > 0 else { return nil }
     let normalized = value.lowercased()
     guard normalized.hasPrefix("var("), normalized.hasSuffix(")") else { return nil }
     let argumentsStart = normalized.index(normalized.startIndex, offsetBy: 4)
@@ -434,7 +455,7 @@ extension MessageHTMLHiddenStylePatterns {
       ) != nil
     else { return nil }
     let fallback = arguments[1].trimmingCharacters(in: .whitespacesAndNewlines)
-    return opacityValue(fallback, remainingDepth: 15)
+    return opacityValue(fallback, remainingDepth: remainingDepth)
   }
 
   static func opacityNumberValue(_ value: String) -> Double? {
@@ -531,8 +552,13 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   // swiftlint:disable:next function_body_length
-  private static func isValidLengthFunctionValue(_ value: String) -> Bool {
-    guard isCSSFunctionValue(value), let openingParenthesis = value.firstIndex(of: "(") else {
+  private static func isValidLengthFunctionValue(
+    _ value: String,
+    remainingDepth: Int
+  ) -> Bool {
+    guard remainingDepth > 0, isCSSFunctionValue(value),
+      let openingParenthesis = value.firstIndex(of: "(")
+    else {
       return false
     }
     let function = String(value[..<openingParenthesis])
@@ -561,7 +587,8 @@ extension MessageHTMLHiddenStylePatterns {
       return arguments.count == 1
         && isLengthValue(
           arguments[0].trimmingCharacters(in: .whitespacesAndNewlines),
-          for: "width"
+          for: "width",
+          remainingDepth: remainingDepth - 1
         )
     }
     guard
@@ -923,7 +950,7 @@ extension MessageHTMLHiddenStylePatterns {
       with: " ",
       options: .regularExpression
     )
-    return normalizedStyle.split(separator: ";").compactMap { declaration in
+    return splitStyleDeclarations(normalizedStyle).compactMap { declaration in
       let components = declaration.split(separator: ":", maxSplits: 1)
       guard components.count == 2 else { return nil }
       let property = components[0].trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
@@ -944,6 +971,35 @@ extension MessageHTMLHiddenStylePatterns {
         isImportant: importantRange != nil
       )
     }
+  }
+
+  private static func splitStyleDeclarations(_ style: String) -> [String] {
+    var declarations: [String] = []
+    var declaration = ""
+    var quote: Character?
+    var isEscaped = false
+    for character in style {
+      if isEscaped {
+        declaration.append(character)
+        isEscaped = false
+      } else if character == "\\" {
+        declaration.append(character)
+        isEscaped = true
+      } else if let activeQuote = quote {
+        declaration.append(character)
+        if character == activeQuote { quote = nil }
+      } else if character == "\"" || character == "'" {
+        declaration.append(character)
+        quote = character
+      } else if character == ";" {
+        declarations.append(declaration)
+        declaration = ""
+      } else {
+        declaration.append(character)
+      }
+    }
+    declarations.append(declaration)
+    return declarations
   }
 
   struct StyleDeclaration {

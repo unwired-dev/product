@@ -184,14 +184,15 @@ extension MessageHTMLSanitizer {
   }
 
   static func hasZeroDimension(_ element: Element) -> Bool {
-    let zeroDimensionPattern =
-      #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
+    let zeroDimensionPattern = #"^[+-]?(?:0+(?:\.0*)?|\.0+)(?:[a-z%]+)?$"#
     for attribute in ["width", "height"] {
       if let styleValue = InlineImageDimensionPolicy.value(attribute, in: element) {
         if styleValue.range(
           of: zeroDimensionPattern,
           options: [.regularExpression, .caseInsensitive]
-        ) != nil, !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element) {
+        ) != nil || InlineImageDimensionPolicy.hasZeroUsedDimension(attribute, in: element),
+          !InlineImageDimensionPolicy.hasPositiveMinimum(attribute, in: element)
+        {
           return true
         }
         continue

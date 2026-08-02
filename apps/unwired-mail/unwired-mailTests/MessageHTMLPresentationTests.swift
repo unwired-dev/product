@@ -822,6 +822,21 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(presentation.documentHTML.contains("nested-font-relative-one.gif"))
   }
 
+  func testSanitizerBlocksFontRelativeTrackingPixelWithUnitlessZeroFontSize() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/unitless-zero-font.gif"
+             style="font-size:0;width:1em;height:1em">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("unitless-zero-font.gif"))
+  }
+
   func testSanitizerRequiresMinimumDimensionsToExceedOnePixel() throws {
     let body = MailboxMessageBody(
       text: "Newsletter",
@@ -2345,6 +2360,56 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("variable-opacity.gif"))
   }
 
+  func testSanitizerBoundsNestedVariableOpacityFallbacks() throws {
+    let opacity = (0..<1_000).reduce("0") { value, _ in "var(--missing,\(value))" }
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="opacity:\(opacity)">
+          <img src="https://images.example.com/deep-opacity.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/deep-opacity.png"]
+    )
+  }
+
+  func testSanitizerBoundsNestedFitContentDimensions() throws {
+    let dimension = (0..<1_000).reduce("1px") { value, _ in "fit-content(\(value))" }
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/deep-fit-content.gif"
+             style="width:0;width:\(dimension);height:0;height:\(dimension)">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("deep-fit-content.gif"))
+  }
+
+  func testSanitizerDoesNotParseDeclarationsInsideQuotedStyleValues() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img style='font-family:"x;display:none;y"'
+             src="https://images.example.com/quoted-semicolon.png">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/quoted-semicolon.png"]
+    )
+  }
+
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
     for style in [
       "display: none; display: block",
@@ -3024,6 +3089,22 @@ extension MessageHTMLPresentationTests {
     XCTAssertEqual(
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/visible-inline-offset.png"]
+    )
+  }
+
+  func testSanitizerRetainsImageOffsetByPrecedingTextFlow() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div>Order summary<img src="https://images.example.com/visible-text-offset.png"
+             style="margin-left:-100px"></div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible-text-offset.png"]
     )
   }
 

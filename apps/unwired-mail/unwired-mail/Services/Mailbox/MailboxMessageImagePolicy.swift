@@ -42,6 +42,16 @@ enum InlineImageDimensionPolicy {
     ).map { abs($0 - 1) < 0.000_000_001 } == true
   }
 
+  static func hasZeroUsedDimension(_ dimension: String, in element: Element) -> Bool {
+    var remainingWork = maximumResolutionWork
+    return resolvedUsedDimensionPixels(
+      dimension: dimension,
+      in: element,
+      remainingDepth: maximumResolutionDepth,
+      remainingWork: &remainingWork
+    ).map { abs($0) < 0.000_000_001 } == true
+  }
+
   private static func resolvedDimensionPixels(
     _ value: String,
     dimension: String,
@@ -236,6 +246,7 @@ enum InlineImageDimensionPolicy {
       } ?? CSSLengthValuePolicy.initialFontSizePixels
     }
     let normalized = fontSize.lowercased()
+    if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized) { return 0 }
     if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(
       normalized,
       fontSizePixels: nil
