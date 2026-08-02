@@ -775,7 +775,7 @@ final class MailboxFreshnessViewModel {
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
     snapshotIsAuthoritative: @escaping () -> Bool = { true },
-    revalidateTrustedDevice: @escaping () async -> Void = {},
+    revalidateTrustedDevice: @escaping () async -> Bool = { true },
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionCurrent(session) {
@@ -785,7 +785,7 @@ final class MailboxFreshnessViewModel {
         return
       }
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
-      await revalidateTrustedDevice()
+      guard await revalidateTrustedDevice() else { return }
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
@@ -1330,7 +1330,7 @@ struct AccountView: View {
         openSettings: { openSettings($0) },
         refreshMailboxes: {
           Task {
-            await session.revalidateTrustedDeviceAfterForegrounding()
+            guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
             guard session.isCurrentSessionIdentity(snapshot) else { return }
             await synchronizeMailboxesFully()
           }
@@ -1383,7 +1383,7 @@ struct AccountView: View {
         selection: mailShellSelection,
         session: snapshot,
         revalidateTrustedDevice: {
-          await session.revalidateTrustedDeviceAfterForegrounding()
+          guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
           return session.isCurrentSessionIdentity(snapshot)
         },
         categoryChoices: MessageCategoryChoice.available(
@@ -1544,7 +1544,7 @@ struct AccountView: View {
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
-        await session.revalidateTrustedDeviceAfterForegrounding()
+        guard await session.revalidateTrustedDeviceAfterForegrounding() else { return }
         guard session.isCurrentSessionIdentity(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
@@ -1775,7 +1775,7 @@ extension AccountView {
   }
 
   private func sendNewMessage(_ draft: MailShellCompositionDraft) async -> Bool {
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    guard await session.revalidateTrustedDeviceAfterForegrounding() else { return false }
     guard session.isCurrentSessionIdentity(snapshot) else { return false }
     guard
       let connectionId = draft.connectionId,
@@ -3716,7 +3716,11 @@ struct MailShellConversationReader: View {
                   isPinned: pinViewModel.pinnedMessageIds.contains(message.id),
                   isUpdatingPin: pinViewModel.isUpdating(message.id),
                   loadBody: {
-                    try await inboxViewModel.loadMessageBody(message, using: messageReader)
+                    guard await revalidateTrustedDevice() else { throw CancellationError() }
+                    return try await inboxViewModel.loadMessageBody(
+                      message,
+                      using: messageReader
+                    )
                   },
                   loadRemoteContent: {
                     try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)

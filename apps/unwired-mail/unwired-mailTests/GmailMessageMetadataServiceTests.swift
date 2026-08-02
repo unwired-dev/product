@@ -2136,7 +2136,10 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
 
     await fixture.viewModel.pollWhileActive(
       connections: { fixture.connections },
-      revalidateTrustedDevice: { trustedDeviceRevalidationCount += 1 },
+      revalidateTrustedDevice: {
+        trustedDeviceRevalidationCount += 1
+        return true
+      },
       didSynchronize: {}
     )
 
@@ -2145,6 +2148,21 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     XCTAssertEqual(receivedDurations, [.seconds(300), .seconds(300)])
     XCTAssertEqual(trustedDeviceRevalidationCount, 1)
     XCTAssertEqual(syncCallCount, fixture.connections.count)
+  }
+
+  @MainActor
+  func testMailboxFreshnessActivePollSkipsSyncWhenRevalidationFails() async {
+    let sleeper = OneShotMailboxPollSleeper()
+    let fixture = makeMailboxFreshnessFixture(sleep: sleeper.sleep)
+
+    await fixture.viewModel.pollWhileActive(
+      connections: { fixture.connections },
+      revalidateTrustedDevice: { false },
+      didSynchronize: {}
+    )
+
+    let syncCallCount = await fixture.service.syncCallCount()
+    XCTAssertEqual(syncCallCount, 0)
   }
 
   @MainActor

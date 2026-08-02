@@ -2308,8 +2308,9 @@ final class ProductAccountSessionTests: XCTestCase {
       return XCTFail("Expected bootstrap to sign in")
     }
 
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
+    XCTAssertFalse(revalidated)
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
@@ -2347,8 +2348,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
+    XCTAssertFalse(revalidated)
     XCTAssertEqual(session.state, .signedIn(snapshot))
     XCTAssertEqual(try store.load(), snapshot)
     XCTAssertEqual(
@@ -2393,7 +2395,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    _ = await session.revalidateTrustedDeviceAfterForegrounding()
 
     guard case .signedIn(let refreshedSnapshot) = session.state else {
       return XCTFail("Expected the re-registered device to remain signed in")
@@ -2439,7 +2441,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
     let signInCallCount = await appleSignInService.signInCallCount
     let restoreSessionCallCount = await appleSignInService.restoreSessionCallCount
@@ -2449,6 +2451,7 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService.connectIdentityTokens,
       ["expired-token", "fresh-token"]
     )
+    XCTAssertTrue(revalidated)
     XCTAssertTrue(session.isCurrentSessionIdentity(expiredSnapshot))
     XCTAssertFalse(session.isCurrent(expiredSnapshot))
   }
@@ -2489,8 +2492,9 @@ final class ProductAccountSessionTests: XCTestCase {
     )
 
     await session.bootstrap()
-    await session.revalidateTrustedDeviceAfterForegrounding()
+    let revalidated = await session.revalidateTrustedDeviceAfterForegrounding()
 
+    XCTAssertFalse(revalidated)
     XCTAssertEqual(productAccountService.connectIdentityTokens, ["expired-token"])
     guard case .signedIn(let currentSnapshot) = session.state else {
       return XCTFail("Expected the original Product Account session to remain signed in")

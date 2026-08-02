@@ -106,10 +106,10 @@ final class ProductAccountSession {
     await task.value
   }
 
-  func revalidateTrustedDeviceAfterForegrounding() async {
-    guard let snapshot = currentSignedInSnapshot(), !isSigningOut else { return }
-    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
-      guard isCurrent(snapshot) else { return }
+  func revalidateTrustedDeviceAfterForegrounding() async -> Bool {
+    guard let snapshot = currentSignedInSnapshot(), !isSigningOut else { return false }
+    return await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard isCurrent(snapshot) else { return false }
       do {
         let credential = try await foregroundRevalidationCredential(snapshot)
         guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
@@ -135,9 +135,10 @@ final class ProductAccountSession {
           productAccountId: response.productAccountId,
           trustedDeviceId: response.trustedDeviceId
         )
-        guard isCurrent(snapshot) else { return }
+        guard isCurrent(snapshot) else { return false }
         try sessionStore.save(refreshedSnapshot)
         state = .signedIn(refreshedSnapshot)
+        return isCurrentSessionIdentity(snapshot)
       } catch ProductAccountServiceError.trustedDeviceRevoked {
         do {
           let mailboxCleanupError = try await clearRevokedSession(
@@ -149,8 +150,10 @@ final class ProductAccountSession {
         } catch {
           state = .failed(error.localizedDescription)
         }
+        return false
       } catch {
         // A transient foreground connectivity failure must not destroy an otherwise valid session.
+        return false
       }
     }
   }
@@ -560,21 +563,22 @@ extension ProductAccountSession {
     }
   }
 
-  private func withProductAccountOperation(
+  private func withProductAccountOperation<Result>(
     productAccountId: String?,
-    operation: () async -> Void
-  ) async {
+    operation: () async -> Result
+  ) async -> Result {
     if let productAccountId {
       await productAccountRecoveryOperationGate.acquire(
         productAccountId: productAccountId
       )
     }
-    await operation()
+    let result = await operation()
     if let productAccountId {
       await productAccountRecoveryOperationGate.release(
         productAccountId: productAccountId
       )
     }
+    return result
   }
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
@@ -1192,7 +1196,7 @@ extension ProductAccountSession {
       service: service,
       session: snapshot,
       revalidateTrustedDevice: {
-        await self.revalidateTrustedDeviceAfterForegrounding()
+        guard await self.revalidateTrustedDeviceAfterForegrounding() else { return false }
         return self.isCurrentSessionIdentity(snapshot)
       }
     )
