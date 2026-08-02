@@ -53,6 +53,7 @@ jobs:
               "name": "Unwired Mail",
               "runner": "macos-26",
               "project": "apps/unwired-mail/unwired-mail.xcodeproj",
+              "package_resolved": "apps/unwired-mail/unwired-mail.xcodeproj/project.xcworkspace/xcshareddata/swiftpm/Package.resolved",
               "scheme": "unwired-mail",
               "destination": "platform=iOS Simulator,name=iPhone 17"
             }
@@ -137,10 +138,14 @@ jobs:
       fail-fast: false
       matrix: ${{ fromJSON(needs.changes.outputs.apple_matrix) }}
     runs-on: ${{ matrix.runner }}
-    timeout-minutes: 15
+    timeout-minutes: 10
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+
+      - name: Read Xcode version
+        id: xcode-version
+        run: echo "key=$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)" >> "$GITHUB_OUTPUT"
 
       - name: Restore Homebrew cache
         uses: actions/cache@v6
@@ -150,14 +155,33 @@ jobs:
           restore-keys: |
             homebrew-${{ runner.os }}-
 
+      - name: Restore Swift package cache
+        uses: actions/cache@v6
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/SourcePackages
+          key: apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ hashFiles(matrix.package_resolved) }}
+          restore-keys: |
+            apple-spm-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
+
+      - name: Restore Xcode DerivedData cache
+        uses: actions/cache@v6
+        with:
+          path: .xcode-cache/${{ matrix.scheme }}/DerivedData
+          key: apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-${{ github.sha }}
+          restore-keys: |
+            apple-derived-data-${{ runner.os }}-${{ runner.arch }}-${{ steps.xcode-version.outputs.key }}-${{ matrix.scheme }}-
+
       - name: Install Apple lint tools
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
           brew install mise swift-format
           mise trust .mise.toml
           mise install swiftlint
+          mise bin-paths swiftlint >> "$GITHUB_PATH"
 
       - name: Swift format and lint
-        run: mise exec -- zsh scripts/check-apple-lint.zsh
+        run: zsh scripts/check-apple-lint.zsh
 
       - name: Boot iPhone simulator
         run: |
@@ -165,4 +189,11 @@ jobs:
           xcrun simctl bootstatus 'iPhone 17' -b
 
       - name: Test
-        run: xcodebuild test -project '${{ matrix.project }}' -scheme '${{ matrix.scheme }}' -destination '${{ matrix.destination }}' -parallel-testing-enabled NO
+        run: |
+          xcodebuild test \
+            -project '${{ matrix.project }}' \
+            -scheme '${{ matrix.scheme }}' \
+            -destination '${{ matrix.destination }}' \
+            -derivedDataPath '.xcode-cache/${{ matrix.scheme }}/DerivedData' \
+            -clonedSourcePackagesDirPath '.xcode-cache/${{ matrix.scheme }}/SourcePackages' \
+            -parallel-testing-enabled NO
