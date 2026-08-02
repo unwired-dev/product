@@ -2318,9 +2318,14 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
-  func testStaleSyncCallbackDoesNotCommitReturnedProviderData() async throws {
+  func testStaleInitialSyncDoesNotCommitCursorBeforeSnapshotAndCanRetry() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages["inbox-id|recent-delta"] = MicrosoftGraphMetadataPage(
+      messages: [],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/recent-delta")
+    )
     client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
       messages: [graphMessage(1)],
       nextLink: nil,
@@ -2352,6 +2357,20 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
         connectionId: connection.id
       )
     )
+
+    client.metadataPageDidLoad = nil
+    shouldPersist = true
+    let retried = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { shouldPersist }
+    )
+
+    XCTAssertTrue(retried.hasInitialMailboxAvailability)
+    XCTAssertTrue(retried.messages.contains { $0.providerMessageId == "immutable-message-1" })
   }
 
   func testPushRegistrationRoutesOnlyOpaqueMetadataAndCoalescesRenewal() async throws {
@@ -3418,11 +3437,8 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     try validate(accessToken)
     requestedRecentDeltaFolderIds.append(folder.id)
     requestedRecentDeltaCutoffs.append(receivedAfterMilliseconds)
-    let page =
-      pages["\(folder.id)|recent-delta"]
+    return pages["\(folder.id)|recent-delta"]
       ?? MicrosoftGraphMetadataPage(messages: [], nextLink: nil, deltaLink: nil)
-    metadataPageDidLoad?()
-    return page
   }
 
   func loadMetadataPage(

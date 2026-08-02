@@ -2101,7 +2101,8 @@ struct MicrosoftGraphMetadataService {
       connection: connection,
       productAccountId: productAccountId,
       accessToken: accessToken,
-      shouldPersist: shouldPersist
+      shouldPersist: shouldPersist,
+      persistPages: false
     )
     for index in state.folders.indices {
       var continuation: URL?
@@ -2204,7 +2205,8 @@ struct MicrosoftGraphMetadataService {
     productAccountId: String,
     accessToken: String,
     shouldPersist: () -> Bool,
-    startIfNeeded: Bool = true
+    startIfNeeded: Bool = true,
+    persistPages: Bool = true
   ) async throws {
     guard
       let inboxIndex = state.folders.firstIndex(where: { $0.folder.role == .inbox }),
@@ -2233,13 +2235,15 @@ struct MicrosoftGraphMetadataService {
       guard shouldPersist() else { throw CancellationError() }
       state.recentInboxNextLink = page.nextLink
       state.recentInboxDeltaLink = page.deltaLink ?? state.recentInboxDeltaLink
-      try store.savePage(
-        page.messages,
-        folderId: state.folders[inboxIndex].folder.id,
-        state: state,
-        productAccountId: productAccountId,
-        connectionId: connection.id
-      )
+      if persistPages {
+        try store.savePage(
+          page.messages,
+          folderId: state.folders[inboxIndex].folder.id,
+          state: state,
+          productAccountId: productAccountId,
+          connectionId: connection.id
+        )
+      }
       continuation = page.nextLink
     } while continuation != nil
   }
