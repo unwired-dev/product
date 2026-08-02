@@ -1403,6 +1403,110 @@ final class MicrosoftGraphMailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(refreshed.messages.contains { $0.providerMessageId == "immutable-message-3" })
   }
 
+  func testRecentInboxDeltaRemovesCachedMessageWhileBackfillRemainsIncomplete() async throws {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: (1...50).reversed().map { graphMessage($0) },
+      nextLink: URL(string: "https://graph.microsoft.test/inbox/history-page-2"),
+      deltaLink: nil
+    )
+    let recentDelta = "https://graph.microsoft.test/inbox/recent-delta-1"
+    client.pages["inbox-id|recent-delta"] = MicrosoftGraphMetadataPage(
+      messages: [],
+      nextLink: nil,
+      deltaLink: URL(string: recentDelta)
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    XCTAssertTrue(initial.messages.contains { $0.providerMessageId == "immutable-message-1" })
+    client.pages[pageKey(folderId: "inbox-id", continuation: recentDelta)] =
+      MicrosoftGraphMetadataPage(
+        messages: [graphMessage(1, removed: true)],
+        nextLink: nil,
+        deltaLink: URL(string: "https://graph.microsoft.test/inbox/recent-delta-2")
+      )
+
+    let refreshed = try await adapter.syncRecentInbox(
+      connection: connection,
+      includingHistoryCandidates: false,
+      session: session,
+      sinceHistoryId: nil,
+      throughHistoryId: nil,
+      shouldPersist: { true }
+    )
+
+    XCTAssertFalse(refreshed.historicalMetadataBackfillIsComplete)
+    XCTAssertFalse(refreshed.messages.contains { $0.providerMessageId == "immutable-message-1" })
+    XCTAssertEqual(client.requestedRecentDeltaFolderIds, ["inbox-id"])
+    XCTAssertEqual(client.requestedRecentDeltaCutoffs, [connection.connectedAt])
+    XCTAssertEqual(client.requestedContinuations.last, recentDelta)
+  }
+
+  func testRecentInboxDeltaBaselineDoesNotRemoveMessagesMissingFromItsBoundedPage()
+    async throws
+  {
+    let client = RecordingMicrosoftGraphClient()
+    client.folders = [graphFolder(id: "inbox-id", wellKnownName: "inbox")]
+    client.pages[pageKey(folderId: "inbox-id")] = MicrosoftGraphMetadataPage(
+      messages: (1...50).reversed().map { graphMessage($0) },
+      nextLink: URL(string: "https://graph.microsoft.test/inbox/history-page-2"),
+      deltaLink: nil
+    )
+    client.pages["inbox-id|recent-delta"] = MicrosoftGraphMetadataPage(
+      messages: [graphMessage(50)],
+      nextLink: nil,
+      deltaLink: URL(string: "https://graph.microsoft.test/inbox/recent-delta")
+    )
+    let adapter = try authorizedAdapter(client: client)
+    let connections = try await adapter.loadConnections(session: session)
+    let connection = try XCTUnwrap(connections.first)
+
+    let initial = try await adapter.syncInbox(connection: connection, session: session)
+
+    XCTAssertFalse(initial.historicalMetadataBackfillIsComplete)
+    XCTAssertEqual(initial.messages.count, 50)
+    XCTAssertTrue(initial.messages.contains { $0.providerMessageId == "immutable-message-1" })
+  }
+
+  func testRecentInboxDeltaRequestUsesConnectionBoundaryFilter() async throws {
+    var capturedRequest: URLRequest?
+    let session = ConvexClientTesting.makeSession { request in
+      capturedRequest = request
+      return (
+        HTTPURLResponse(
+          url: try XCTUnwrap(request.url),
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!,
+        Data(#"{"value":[]}"#.utf8)
+      )
+    }
+    let client = URLSessionMicrosoftGraphClient(session: session)
+
+    _ = try await client.loadRecentDeltaMetadataPage(
+      folder: graphFolder(id: "inbox-id", wellKnownName: "inbox"),
+      receivedAfterMilliseconds: 0,
+      pageSize: 50,
+      accessToken: "provider-access"
+    )
+
+    let request = try XCTUnwrap(capturedRequest)
+    XCTAssertEqual(request.url?.path, "/v1.0/me/mailFolders/inbox-id/messages/delta")
+    let queryItems = try XCTUnwrap(
+      URLComponents(url: try XCTUnwrap(request.url), resolvingAgainstBaseURL: false)?.queryItems
+    )
+    XCTAssertEqual(
+      queryItems.first { $0.name == "$filter" }?.value,
+      "receivedDateTime ge 1970-01-01T00:00:00Z"
+    )
+  }
+
   func testInitialAvailabilityFindsNewerMessagesAfterFirstFolderHasFifty() async throws {
     let client = RecordingMicrosoftGraphClient()
     client.folders = [
@@ -3128,7 +3232,8 @@ private func graphMessage(
   _ number: Int,
   conversationId: String? = nil,
   folderId: String = "inbox-id",
-  isRead: Bool = false
+  isRead: Bool = false,
+  removed: Bool = false
 ) -> MicrosoftGraphProviderMessage {
   MicrosoftGraphProviderMessage(
     ccRecipients: [],
@@ -3141,6 +3246,7 @@ private func graphMessage(
     receivedDateTime: ISO8601DateFormatter().string(
       from: Date(timeIntervalSince1970: 1_781_200_000 + Double(number))
     ),
+    removed: removed,
     replyTo: [],
     subject: "Message \(number)",
     bodyPreview: "Preview \(number)",
@@ -3226,6 +3332,8 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
   var pages: [String: MicrosoftGraphMetadataPage] = [:]
   var rejectedAccessTokens: Set<String> = []
   var requestedContinuations: [String?] = []
+  var requestedRecentDeltaCutoffs: [Int64] = []
+  var requestedRecentDeltaFolderIds: [String] = []
   var requestedRecentFolderIds: [String] = []
   var deliveryStatuses: [String: MailboxDeliveryStatus] = [:]
   var moves: [Move] = []
@@ -3256,6 +3364,20 @@ private final class RecordingMicrosoftGraphClient: MicrosoftGraphClient {
     try validate(accessToken)
     requestedRecentFolderIds.append(folder.id)
     return pages["\(folder.id)|recent"]
+      ?? MicrosoftGraphMetadataPage(messages: [], nextLink: nil, deltaLink: nil)
+  }
+
+  func loadRecentDeltaMetadataPage(
+    folder: MicrosoftGraphFolder,
+    receivedAfterMilliseconds: Int64,
+    pageSize _: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage {
+    accessTokens.append(accessToken)
+    try validate(accessToken)
+    requestedRecentDeltaFolderIds.append(folder.id)
+    requestedRecentDeltaCutoffs.append(receivedAfterMilliseconds)
+    return pages["\(folder.id)|recent-delta"]
       ?? MicrosoftGraphMetadataPage(messages: [], nextLink: nil, deltaLink: nil)
   }
 

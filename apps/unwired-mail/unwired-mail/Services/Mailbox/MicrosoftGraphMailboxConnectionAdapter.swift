@@ -557,6 +557,12 @@ protocol MicrosoftGraphClient {
     pageSize: Int,
     accessToken: String
   ) async throws -> MicrosoftGraphMetadataPage
+  func loadRecentDeltaMetadataPage(
+    folder: MicrosoftGraphFolder,
+    receivedAfterMilliseconds: Int64,
+    pageSize: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage
   func loadMetadataPage(
     folder: MicrosoftGraphFolder,
     continuationURL: URL?,
@@ -735,6 +741,31 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       messages: response.value.map(\.providerMessage),
       nextLink: nil,
       deltaLink: nil
+    )
+  }
+
+  func loadRecentDeltaMetadataPage(
+    folder: MicrosoftGraphFolder,
+    receivedAfterMilliseconds: Int64,
+    pageSize: Int,
+    accessToken: String
+  ) async throws -> MicrosoftGraphMetadataPage {
+    let response: GraphMessagePageResponse = try await get(
+      try metadataURL(
+        folder: folder,
+        pageSize: pageSize,
+        receivedAfterMilliseconds: receivedAfterMilliseconds
+      ),
+      accessToken: accessToken,
+      preferences: [
+        #"IdType="ImmutableId""#,
+        "odata.maxpagesize=\(pageSize)",
+      ]
+    )
+    return MicrosoftGraphMetadataPage(
+      messages: response.value.map(\.providerMessage),
+      nextLink: try response.nextLink.map(safeContinuationURL),
+      deltaLink: try response.deltaLink.map(safeContinuationURL)
     )
   }
 
@@ -992,7 +1023,11 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
     }
   }
 
-  private func metadataURL(folder: MicrosoftGraphFolder, pageSize: Int) throws -> URL {
+  private func metadataURL(
+    folder: MicrosoftGraphFolder,
+    pageSize: Int,
+    receivedAfterMilliseconds: Int64? = nil
+  ) throws -> URL {
     var components = URLComponents(
       url: try graphURL(
         pathComponents: ["me", "mailFolders", folder.id, "messages", "delta"]
@@ -1009,6 +1044,18 @@ struct URLSessionMicrosoftGraphClient: MicrosoftGraphClient {
       URLQueryItem(name: "$top", value: String(pageSize)),
       URLQueryItem(name: "$orderby", value: "receivedDateTime desc"),
     ]
+    if let receivedAfterMilliseconds {
+      components.queryItems?.append(
+        URLQueryItem(
+          name: "$filter",
+          value:
+            "receivedDateTime ge "
+            + ISO8601DateFormatter().string(
+              from: Date(timeIntervalSince1970: Double(receivedAfterMilliseconds) / 1_000)
+            )
+        )
+      )
+    }
     return try requiredURL(components)
   }
 
@@ -1358,17 +1405,23 @@ struct MicrosoftGraphMetadataSyncState: Codable, Equatable, Sendable {
   var folders: [MicrosoftGraphFolderSyncState]
   var hasInitialMailboxAvailability: Bool
   var initialCrawlMessageIdsByFolderId: [String: Set<String>]?
+  var recentInboxDeltaLink: URL?
+  var recentInboxNextLink: URL?
   var seededMessageIdsByFolderId: [String: Set<String>]?
 
   init(
     folders: [MicrosoftGraphFolderSyncState],
     hasInitialMailboxAvailability: Bool,
     initialCrawlMessageIdsByFolderId: [String: Set<String>]? = nil,
+    recentInboxDeltaLink: URL? = nil,
+    recentInboxNextLink: URL? = nil,
     seededMessageIdsByFolderId: [String: Set<String>]? = nil
   ) {
     self.folders = folders
     self.hasInitialMailboxAvailability = hasInitialMailboxAvailability
     self.initialCrawlMessageIdsByFolderId = initialCrawlMessageIdsByFolderId
+    self.recentInboxDeltaLink = recentInboxDeltaLink
+    self.recentInboxNextLink = recentInboxNextLink
     self.seededMessageIdsByFolderId = seededMessageIdsByFolderId
   }
 
@@ -1897,19 +1950,12 @@ struct MicrosoftGraphMetadataService {
       }
       guard state.historicalMetadataBackfillIsComplete else {
         if state.folders[0].deltaLink == nil {
-          let recentInboxPage = try await client.loadMetadataPage(
-            folder: state.folders[0].folder,
-            continuationURL: nil,
-            pageSize: Self.initialPageSize,
-            accessToken: accessToken
-          )
-          guard shouldPersist() else { throw CancellationError() }
-          try store.savePage(
-            recentInboxPage.messages,
-            folderId: state.folders[0].folder.id,
-            state: state,
+          try await syncRecentInboxDelta(
+            state: &state,
+            connection: connection,
             productAccountId: productAccountId,
-            connectionId: connection.id
+            accessToken: accessToken,
+            shouldPersist: shouldPersist
           )
         }
         return try load(connection: connection, productAccountId: productAccountId)
@@ -2089,6 +2135,15 @@ struct MicrosoftGraphMetadataService {
         connectionId: connection.id
       )
     }
+    if !state.historicalMetadataBackfillIsComplete {
+      try await syncRecentInboxDelta(
+        state: &state,
+        connection: connection,
+        productAccountId: productAccountId,
+        accessToken: accessToken,
+        shouldPersist: shouldPersist
+      )
+    }
     state.hasInitialMailboxAvailability = true
     try store.savePage(
       [],
@@ -2121,6 +2176,8 @@ struct MicrosoftGraphMetadataService {
       },
       hasInitialMailboxAvailability: state.hasInitialMailboxAvailability,
       initialCrawlMessageIdsByFolderId: state.initialCrawlMessageIdsByFolderId,
+      recentInboxDeltaLink: state.recentInboxDeltaLink,
+      recentInboxNextLink: state.recentInboxNextLink,
       seededMessageIdsByFolderId: state.seededMessageIdsByFolderId
     )
     try store.savePage(
@@ -2131,6 +2188,50 @@ struct MicrosoftGraphMetadataService {
       connectionId: connectionId
     )
     return updatedState
+  }
+
+  private func syncRecentInboxDelta(
+    state: inout MicrosoftGraphMetadataSyncState,
+    connection: MailboxConnection,
+    productAccountId: String,
+    accessToken: String,
+    shouldPersist: () -> Bool
+  ) async throws {
+    guard
+      let inboxIndex = state.folders.firstIndex(where: { $0.folder.role == .inbox }),
+      state.folders[inboxIndex].deltaLink == nil
+    else { return }
+    var continuation = state.recentInboxNextLink ?? state.recentInboxDeltaLink
+    repeat {
+      try Task.checkCancellation()
+      let page: MicrosoftGraphMetadataPage
+      if let continuation {
+        page = try await client.loadMetadataPage(
+          folder: state.folders[inboxIndex].folder,
+          continuationURL: continuation,
+          pageSize: Self.initialPageSize,
+          accessToken: accessToken
+        )
+      } else {
+        page = try await client.loadRecentDeltaMetadataPage(
+          folder: state.folders[inboxIndex].folder,
+          receivedAfterMilliseconds: connection.connectedAt,
+          pageSize: Self.initialPageSize,
+          accessToken: accessToken
+        )
+      }
+      guard shouldPersist() else { throw CancellationError() }
+      state.recentInboxNextLink = page.nextLink
+      state.recentInboxDeltaLink = page.deltaLink ?? state.recentInboxDeltaLink
+      try store.savePage(
+        page.messages,
+        folderId: state.folders[inboxIndex].folder.id,
+        state: state,
+        productAccountId: productAccountId,
+        connectionId: connection.id
+      )
+      continuation = page.nextLink
+    } while continuation != nil
   }
 
   private func refreshedState(
