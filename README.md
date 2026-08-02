@@ -182,21 +182,22 @@ Convex client files are excluded from review.
 
 Codex can close the feedback loop with the repository-local
 [`babysit-pr`](.agents/skills/babysit-pr/SKILL.md) skill. Create a scheduled task
-in the implementation chat, select this project with an isolated worktree, and
-run it at a short interval such as every 10 minutes. Give it one pull request:
+in Work, select this project with an isolated worktree, and run it at the
+shortest supported interval:
 
 ```text
-Use $babysit-pr for https://github.com/unwired-dev/product/pull/<number>.
-Keep monitoring until the pull request is merged or closed.
+Use $babysit-pr to sweep every open same-repository pull request in
+unwired-dev/product.
 ```
 
-The task accepts only same-repository, non-draft pull requests authored by the
-Gipity GitHub App, represented by the API as either `gipity-bot[bot]` or
-`app/gipity-bot`. It inspects failures and trusted unresolved reviews, makes at
-most one validated fix commit per run, pushes with the GitHub App identity, and
-resolves only the threads addressed by that commit. It never merges or approves
-the pull request. The machine running the task must have the GitHub integration,
-`gh`, `gipity-gh`, and `gipity-git` configured.
+The task includes drafts and PRs without review threads, but ignores fork heads.
+For each PR it first merges the actual base into a stale or conflicted head,
+then handles unresolved review threads and attributable GitHub Actions failures.
+It pushes with the GitHub App identity, resolves only conclusively handled
+threads, requests Codex review after draft-branch writes, and cleans up every
+temporary process, Simulator, XCTest clone, and PR worktree it creates. It never
+merges or approves a pull request and never triggers CodeRabbit. The runner must
+have the GitHub integration, `gh`, `gipity-gh`, and `gipity-git` configured.
 
 ## Release Notes
 

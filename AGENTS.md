@@ -189,8 +189,9 @@ Use the single-context domain layout. See `docs/agents/domain.md`.
 
 ### Pull request babysitting
 
-Use `.agents/skills/babysit-pr` to monitor a bot-authored pull request, repair
-current CI failures and trusted review feedback, push fixes as
-`gipity-bot[bot]`, and resolve only the threads addressed by those fixes. Run
-recurring babysitting tasks in an isolated worktree. The workflow must never
-merge or approve a pull request.
+Use `.agents/skills/babysit-pr` to sweep every open same-repository pull request,
+including drafts. Synchronize stale or conflicted branches before review or CI
+work, repair actionable feedback and attributable GitHub Actions failures, push
+as `gipity-bot[bot]`, and resolve only conclusively handled threads. The
+workflow must isolate and clean up per-PR worktrees and must never merge or
+approve a pull request.
