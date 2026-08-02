@@ -2292,6 +2292,23 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerLetsUnresolvedVariableOpacityOverrideHiddenDeclaration() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="opacity:0;opacity:var(--missing)">
+          <img src="https://images.example.com/variable-opacity.png">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/variable-opacity.png"]
+    )
+  }
+
   func testSanitizerRemovesConstantCalculatedZeroOpacityContent() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2851,6 +2868,25 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("named-border.gif"))
   }
 
+  func testSanitizerAccountsForFunctionalBorderColorsInPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:7px">
+          <div style="border-left:solid rgb(0 0 0);border-right:solid rgb(0 0 0)">
+            <img src="https://tracker.example/functional-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("functional-border.gif"))
+  }
+
   func testSanitizerAccountsForSystemBorderColorsInPercentageDimensions() throws {
     for color in ["accentcolor", "canvastext", "linktext"] {
       let result = try XCTUnwrap(
@@ -3092,6 +3128,23 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRetainsImageOffsetByDefaultInlineReplacedFlow() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <img src="cid:hero" width="200"><img
+          src="https://images.example.com/visible-replaced-offset.png"
+          style="margin-left:-100px">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible-replaced-offset.png"]
+    )
+  }
+
   func testSanitizerRetainsImageOffsetByPrecedingTextFlow() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -3142,6 +3195,21 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("malformed-width.gif"))
     XCTAssertFalse(result.documentHTML.contains("malformed-height.gif"))
+  }
+
+  func testSanitizerRejectsNegativeDimensionOverrides() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/negative-dimensions.gif"
+             style="width:1px;width:-1px;height:1px;height:-1px">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("negative-dimensions.gif"))
   }
 
   func testSanitizerResolvesNestedAutoWidthsForPercentageDimensions() throws {

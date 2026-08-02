@@ -319,10 +319,18 @@ enum InlineImageDimensionPolicy {
     }
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
       || MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(normalized)
-      || MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(normalized) != nil
-      || MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: "width")
     {
       return true
+    }
+    if let pixels = MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(normalized) {
+      return pixels >= 0
+    }
+    if MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: "width") {
+      if let pixels = MessageHTMLHiddenStylePatterns.pixelLengthValue(normalized) {
+        return pixels >= 0
+      }
+      let numericPrefix = normalized.prefix { "0123456789+-.".contains($0) }
+      return Double(numericPrefix).map { $0 >= 0 } ?? true
     }
     return normalized.range(
       of: "^(?:" + CSSLengthValuePolicy.zeroLengthPattern + #"|\+?(?:\d+(?:\.\d*)?|\.\d+)"#

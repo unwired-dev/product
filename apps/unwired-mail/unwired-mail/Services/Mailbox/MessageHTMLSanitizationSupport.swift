@@ -69,7 +69,22 @@ extension MessageHTMLHiddenStylePatterns {
 
   static func isOpacityValue(_ value: String) -> Bool {
     opacityNumberValue(value) != nil || constantCalculatedOpacity(value) != nil
-      || isCSSWideKeyword(value)
+      || isValidVariableOpacity(value) || isCSSWideKeyword(value)
+  }
+
+  private static func isValidVariableOpacity(_ value: String) -> Bool {
+    guard value.hasPrefix("var("), value.hasSuffix(")") else { return false }
+    let argumentsStart = value.index(value.startIndex, offsetBy: 4)
+    let argumentsEnd = value.index(before: value.endIndex)
+    guard let arguments = calculatedArguments(value[argumentsStart..<argumentsEnd]),
+      [1, 2].contains(arguments.count),
+      arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).range(
+        of: #"^--[a-z0-9_-]+$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    else { return false }
+    return arguments.count == 1
+      || !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
   }
 
   static func isDisplayValue(_ value: String) -> Bool {
@@ -357,6 +372,7 @@ extension MessageHTMLHiddenStylePatterns {
         let display = effectiveValue("display", in: declarations, where: isDisplayValue)
         if display == "contents" || display?.hasPrefix("inline") == true
           || !dimensionsApply(to: current)
+          || isDefaultInlineReplacedElement(current, display: display)
         {
           return nil
         }
@@ -364,6 +380,15 @@ extension MessageHTMLHiddenStylePatterns {
       sibling = current.previousSibling()
     }
     return 0
+  }
+
+  private static func isDefaultInlineReplacedElement(_ element: Element, display: String?) -> Bool {
+    guard display == nil else { return false }
+    return [
+      "audio", "button", "canvas", "embed", "iframe", "img", "input", "object", "select",
+      "textarea", "video",
+    ]
+    .contains(element.tagName().lowercased())
   }
 
   static func precedingFlowHeightPixels(
@@ -775,7 +800,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func borderShorthandValues(_ value: String) -> (width: String?, style: String?)? {
-    let components = value.split(whereSeparator: \Character.isWhitespace).map(String.init)
+    guard let components = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...3).contains(components.count) else { return nil }
     var width: String?
     var style: String?
@@ -795,6 +820,33 @@ extension MessageHTMLHiddenStylePatterns {
       }
     }
     return (width, style)
+  }
+
+  private static func whitespaceSeparatedCSSComponents(_ value: String) -> [String]? {
+    var components: [String] = []
+    var component = ""
+    var parenthesisDepth = 0
+
+    for character in value {
+      if character == "(" {
+        component.append(character)
+        parenthesisDepth += 1
+      } else if character == ")" {
+        guard parenthesisDepth > 0 else { return nil }
+        component.append(character)
+        parenthesisDepth -= 1
+      } else if character.isWhitespace, parenthesisDepth == 0 {
+        if !component.isEmpty {
+          components.append(component)
+          component = ""
+        }
+      } else {
+        component.append(character)
+      }
+    }
+    guard parenthesisDepth == 0 else { return nil }
+    if !component.isEmpty { components.append(component) }
+    return components
   }
 
   private static func expandedBoxValues(_ values: [String]) -> [String] {
