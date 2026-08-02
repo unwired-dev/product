@@ -85,6 +85,36 @@ async function insertPayload(
   return payload;
 }
 
+async function preparePayloadWrite(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
+  // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
+  args: Readonly<{
+    encryptedPayload: EncryptedProductSyncPayload['encryptedPayload'];
+    payloadIdentifier: string;
+    trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
+  }>,
+): Promise<{
+  existingPayload: Doc<'encryptedProductSyncPayloads'> | null;
+  productAccountId: Doc<'encryptedProductSyncPayloads'>['productAccountId'];
+}> {
+  const account = await requireProductAccount(ctx);
+  const { productAccountId } = account;
+  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
+  const requiredKeyEpoch =
+    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
+  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
+    throw new Error('Product Sync key rotation required');
+  }
+  return {
+    existingPayload: await findPayload(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    ),
+    productAccountId,
+  };
+}
+
 async function writePayload(
   ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex context is generated mutable framework state.
   // oxlint-disable-next-line typescript/prefer-readonly-parameter-types -- Encrypted payloads are generated mutable contract types.
@@ -97,18 +127,9 @@ async function writePayload(
     payload: Readonly<Doc<'encryptedProductSyncPayloads'>>, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex documents contain generated mutable fields.
   ) => Promise<EncryptedProductSyncPayload>,
 ): Promise<EncryptedProductSyncPayload> {
-  const account = await requireProductAccount(ctx);
-  const { productAccountId } = account;
-  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-  const requiredKeyEpoch =
-    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
-  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
-    throw new Error('Product Sync key rotation required');
-  }
-  const existingPayload = await findPayload(
+  const { existingPayload, productAccountId } = await preparePayloadWrite(
     ctx,
-    productAccountId,
-    args.payloadIdentifier,
+    args,
   );
   if (existingPayload !== null) {
     return onExisting(existingPayload);
@@ -214,18 +235,9 @@ async function writeEncryptedPayloadIfUnchanged(
     trustedDeviceId: Doc<'encryptedProductSyncPayloads'>['trustedDeviceId'];
   }>,
 ): Promise<EncryptedProductSyncPayload> {
-  const account = await requireProductAccount(ctx);
-  const { productAccountId } = account;
-  await requireTrustedDevice(ctx, productAccountId, args.trustedDeviceId);
-  const requiredKeyEpoch =
-    account.productSyncPendingKeyEpoch ?? account.productSyncKeyEpoch ?? 1;
-  if (args.encryptedPayload.keyVersion !== requiredKeyEpoch) {
-    throw new Error('Product Sync key rotation required');
-  }
-  const existingPayload = await findPayload(
+  const { existingPayload, productAccountId } = await preparePayloadWrite(
     ctx,
-    productAccountId,
-    args.payloadIdentifier,
+    args,
   );
   if (existingPayload === null) {
     if (args.expectedUpdatedAt !== undefined) {
