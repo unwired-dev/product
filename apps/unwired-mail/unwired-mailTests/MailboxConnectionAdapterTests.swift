@@ -38,6 +38,18 @@ private let adapterMessage = adapterGmailMessage.mailboxMetadata(
   connectionId: adapterConnectionId
 )
 
+private let adapterOutgoingMessage = OutgoingMessage(
+  body: "Queued private body",
+  recipient: "reader@example.com",
+  subject: "Queued message"
+)
+
+private let adapterOtherOutgoingMessage = OutgoingMessage(
+  body: "Other queued private body",
+  recipient: "other-reader@example.com",
+  subject: "Other queued message"
+)
+
 @MainActor
 final class MailboxConnectionAdapterTests: XCTestCase {
   private let session = ProductAccountSessionSnapshot(
@@ -1169,8 +1181,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     XCTAssertTrue(definitionSyncService.removedConnectionIds.isEmpty)
   }
 
+  // swiftlint:disable:next function_body_length
   func testGmailAdapterRemovesConnectionEverywhereAfterLocalCleanup() async throws {
     let connectionService = RecordingAdapterConnectionService()
+    let outboxStore = AdapterOutboxStore()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: outboxStore
+    )
     let definitionSyncService = RecordingAdapterDefinitionSyncService(
       snapshot: MailboxConnectionSyncSnapshot(
         connections: [
@@ -1187,15 +1205,101 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     let adapter = GmailMailboxConnectionAdapter(
       connectionService: connectionService,
       definitionSyncService: definitionSyncService,
-      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+      outboxService: outboxService
     )
     let connections = try await adapter.loadConnections(session: session)
     let connection = try XCTUnwrap(connections.first)
+    let otherConnection = GmailProviderConnectionStatus(
+      connectedAt: connection.connectedAt,
+      emailAddress: "other@example.com",
+      lastVerifiedAt: connection.lastVerifiedAt,
+      provider: "gmail",
+      providerAccountIdentifier: "gmail-user-002",
+      trustedDeviceId: session.trustedDeviceId,
+      updatedAt: connection.updatedAt
+    ).mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    _ = try await outboxService.enqueue(
+      adapterOutgoingMessage,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    _ = try await outboxService.enqueue(
+      adapterOtherOutgoingMessage,
+      connection: otherConnection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
 
     try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
 
+    let remainingAttempts = try await outboxService.items(session: session)
     XCTAssertEqual(connectionService.clearedConnection?.providerAccountIdentifier, "gmail-user-001")
     XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
+    XCTAssertEqual(remainingAttempts.map(\.connectionId), [otherConnection.id])
+
+    try await outboxService.clear(session: session)
+  }
+
+  func testGmailRemovalReportsOutboxCleanupFailureBeforeClearingAuthorization() async throws {
+    let connection = RecordingAdapterConnectionService.status.mailboxConnection(
+      productAccountId: session.productAccountId,
+      authorizationState: .authorized
+    )
+    let connectionService = RecordingAdapterConnectionService()
+    let definitionSyncService = RecordingAdapterDefinitionSyncService(
+      snapshot: MailboxConnectionSyncSnapshot(
+        connections: [connection.definition],
+        defaultSendingConnectionId: connection.id,
+        removedConnectionIds: [],
+        updatedAt: connection.updatedAt
+      )
+    )
+    let outboxStore = AdapterOutboxStore()
+    let outboxService = OutboxDeliveryService(
+      handoffDelayNanoseconds: 60_000_000_000,
+      store: outboxStore
+    )
+    _ = try await outboxService.enqueue(
+      adapterOutgoingMessage,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in },
+      reconcile: { _, _ in .notSent }
+    )
+    outboxStore.saveError = AdapterTestError.unavailable
+    let adapter = GmailMailboxConnectionAdapter(
+      connectionService: connectionService,
+      definitionSyncService: definitionSyncService,
+      outboxService: outboxService
+    )
+
+    do {
+      try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+      XCTFail("Expected Outbox cleanup failure")
+    } catch is AdapterTestError {
+    }
+
+    let retainedConnectionIds = try await outboxService.items(session: session)
+      .map(\.connectionId)
+    XCTAssertNil(connectionService.clearedConnection)
+    XCTAssertEqual(definitionSyncService.removedConnectionIds, [connection.id])
+    XCTAssertEqual(retainedConnectionIds, [connection.id])
+
+    outboxStore.saveError = nil
+    try await adapter.removeMailboxConnectionEverywhere(connection, session: session)
+
+    XCTAssertEqual(
+      connectionService.clearedConnection?.providerAccountIdentifier,
+      "gmail-user-001"
+    )
+    let remainingAttempts = try await outboxService.items(session: session)
+    XCTAssertTrue(remainingAttempts.isEmpty)
   }
 
   func testGmailAdapterRemovesTokenlessDeviceConnectionEverywhere() async throws {
@@ -8524,6 +8628,7 @@ private final class BlockingAdapterPendingActionStore: PendingProviderActionPers
 
 private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sendable {
   private var attempts: [OutgoingDeliveryAttempt] = []
+  var saveError: Error?
   private(set) var saveCallCount = 0
 
   func load(productAccountId: String) throws -> [OutgoingDeliveryAttempt] {
@@ -8535,6 +8640,7 @@ private final class AdapterOutboxStore: OutboxDeliveryPersisting, @unchecked Sen
     productAccountId _: String
   ) throws {
     saveCallCount += 1
+    if let saveError { throw saveError }
     self.attempts = attempts
   }
 }
