@@ -257,6 +257,7 @@ private struct MessageAttachmentRow: View {
         return
       }
       do {
+        let writePermit = store.makeWritePermit(connectionId: messageId.connectionId)
         if trigger == .automatic {
           guard await AutomaticAttachmentDownloadCoordinator.shared.acquire() else { return }
         }
@@ -277,7 +278,8 @@ private struct MessageAttachmentRow: View {
           try store.save(
             data,
             attachment: attachment,
-            messageId: messageId
+            messageId: messageId,
+            writePermit: writePermit
           )
         }.value
         errorMessage = nil
@@ -305,6 +307,13 @@ private struct MessageAttachmentRow: View {
 }
 
 struct DownloadedAttachmentStore: @unchecked Sendable {
+  struct WritePermit: Sendable {
+    fileprivate let connectionGeneration: Int
+    fileprivate let connectionKey: String
+    fileprivate let rootGeneration: Int
+    fileprivate let rootKey: String
+  }
+
   private struct StoredFile {
     let date: Date
     let size: Int
@@ -313,6 +322,8 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
 
   static let maximumStoredByteCount = 250 * 1_024 * 1_024
   private static let mutationLock = NSLock()
+  private static var connectionGenerations: [String: Int] = [:]
+  private static var rootGenerations: [String: Int] = [:]
 
   private let fileManager: FileManager
   private let maximumStoredByteCount: Int
@@ -334,10 +345,19 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
   func save(
     _ data: Data,
     attachment: MailboxMessageAttachment,
-    messageId: StableProviderMessageIdentity
+    messageId: StableProviderMessageIdentity,
+    writePermit: WritePermit? = nil
   ) throws -> URL {
     Self.mutationLock.lock()
     defer { Self.mutationLock.unlock() }
+    if let writePermit {
+      guard writePermit.rootKey == rootKey,
+        writePermit.connectionKey == connectionKey(messageId.connectionId),
+        writePermit.rootGeneration == Self.rootGenerations[rootKey, default: 0],
+        writePermit.connectionGeneration
+          == Self.connectionGenerations[writePermit.connectionKey, default: 0]
+      else { throw CancellationError() }
+    }
     let destination = destinationURL(attachment: attachment, messageId: messageId)
     let directory = destination.deletingLastPathComponent()
     try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -348,6 +368,18 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     var protectedDestination = destination
     try protectedDestination.setResourceValues(resourceValues)
     return destination
+  }
+
+  func makeWritePermit(connectionId: MailboxConnectionId) -> WritePermit {
+    Self.mutationLock.lock()
+    defer { Self.mutationLock.unlock() }
+    let connectionKey = connectionKey(connectionId)
+    return WritePermit(
+      connectionGeneration: Self.connectionGenerations[connectionKey, default: 0],
+      connectionKey: connectionKey,
+      rootGeneration: Self.rootGenerations[rootKey, default: 0],
+      rootKey: rootKey
+    )
   }
 
   func existingURL(
@@ -361,6 +393,8 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
   func clear(connectionId: MailboxConnectionId) throws {
     Self.mutationLock.lock()
     defer { Self.mutationLock.unlock() }
+    let key = connectionKey(connectionId)
+    Self.connectionGenerations[key, default: 0] += 1
     let directory = connectionDirectory(connectionId)
     guard fileManager.fileExists(atPath: directory.path) else { return }
     try fileManager.removeItem(at: directory)
@@ -369,6 +403,7 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
   func clearAll() throws {
     Self.mutationLock.lock()
     defer { Self.mutationLock.unlock() }
+    Self.rootGenerations[rootKey, default: 0] += 1
     guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
     try fileManager.removeItem(at: rootDirectory)
   }
@@ -382,16 +417,34 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     let directory = connectionDirectory(messageId.connectionId)
       .appendingPathComponent(digest, isDirectory: true)
     let pathComponent = URL(fileURLWithPath: attachment.filename).lastPathComponent
-    let filename =
+    let displayFilename =
       pathComponent.isEmpty || pathComponent == "." || pathComponent == ".."
       ? "Attachment" : pathComponent
+    let filename = persistedFilename(displayFilename)
     return directory.appendingPathComponent(filename)
+  }
+
+  private func persistedFilename(_ filename: String) -> String {
+    guard filename.utf8.count > 200 else { return filename }
+    let digest = SHA256.hash(data: Data(filename.utf8))
+      .map { String(format: "%02x", $0) }.joined()
+    let pathExtension = URL(fileURLWithPath: filename).pathExtension
+    let suffix = pathExtension.utf8.count <= 32 && !pathExtension.isEmpty ? ".\(pathExtension)" : ""
+    return "Attachment-\(digest)\(suffix)"
   }
 
   private func connectionDirectory(_ connectionId: MailboxConnectionId) -> URL {
     let digest = SHA256.hash(data: Data(connectionId.rawValue.utf8))
       .map { String(format: "%02x", $0) }.joined()
     return rootDirectory.appendingPathComponent(digest, isDirectory: true)
+  }
+
+  private var rootKey: String {
+    rootDirectory.standardizedFileURL.path
+  }
+
+  private func connectionKey(_ connectionId: MailboxConnectionId) -> String {
+    "\(rootKey):\(connectionDirectory(connectionId).lastPathComponent)"
   }
 
   private func makeRoom(for byteCount: Int, excluding destination: URL) throws {
@@ -418,7 +471,9 @@ struct DownloadedAttachmentStore: @unchecked Sendable {
     for file in files.sorted(by: { $0.date < $1.date })
     where storedByteCount + byteCount > maximumStoredByteCount {
       try fileManager.removeItem(at: file.url)
-      NotificationCenter.default.post(name: .downloadedAttachmentStoreDidEvict, object: nil)
+      Task { @MainActor in
+        NotificationCenter.default.post(name: .downloadedAttachmentStoreDidEvict, object: nil)
+      }
       storedByteCount -= file.size
     }
   }

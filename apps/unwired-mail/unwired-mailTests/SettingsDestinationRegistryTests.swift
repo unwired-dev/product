@@ -514,6 +514,76 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertNotNil(store.existingURL(attachment: visibleAttachment, messageId: secondMessageId))
   }
 
+  func testDownloadedAttachmentStoreRejectsWriteStartedBeforeConnectionClear() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    let messageId = StableProviderMessageIdentity(
+      connectionId: connectionId,
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "private.pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+    let writePermit = store.makeWritePermit(connectionId: connectionId)
+
+    try store.clear(connectionId: connectionId)
+
+    XCTAssertThrowsError(
+      try store.save(
+        Data("PDF".utf8),
+        attachment: attachment,
+        messageId: messageId,
+        writePermit: writePermit
+      )
+    ) { error in
+      XCTAssertTrue(error is CancellationError)
+    }
+    XCTAssertNil(store.existingURL(attachment: attachment, messageId: messageId))
+  }
+
+  func testDownloadedAttachmentStoreBoundsPersistedFilename() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let messageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "private@example.com"
+        )
+      ),
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: String(repeating: "a", count: 300) + ".pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+
+    let savedURL = try store.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+
+    XCTAssertLessThanOrEqual(savedURL.lastPathComponent.utf8.count, 255)
+    XCTAssertEqual(savedURL.pathExtension, "pdf")
+    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+  }
+
   // swiftlint:disable:next function_body_length
   func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
