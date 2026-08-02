@@ -1889,7 +1889,9 @@ extension AccountView {
   }
 
   private func signOut() {
+    mailActionViewModel.beginPreparingForSignOut()
     Task {
+      await mailActionViewModel.waitForPendingSend()
       await session.signOut {
         ewsSetupViewModel.invalidate()
         genericMailSetupViewModel.invalidate()
@@ -1897,6 +1899,9 @@ extension AccountView {
         mailboxFreshnessViewModel.cancelAll()
         mailboxFreshnessViewModel.clearPersistedState()
         await inboxViewModel.prepareForSignOut()
+      }
+      if session.signOutErrorMessage != nil {
+        mailActionViewModel.cancelPreparingForSignOut()
       }
     }
   }
@@ -4757,6 +4762,8 @@ final class GmailMailActionViewModel {
   private var knownConnections: [MailboxConnection] = []
   private var deferredBulkFailures: [UUID: [MailboxBulkActionFailure]] = [:]
   private var isPreparingForSignOut = false
+  private var isSending = false
+  private var sendCompletionWaiters: [CheckedContinuation<Void, Never>] = []
   private let outboxService: OutboxDeliveryService
   private var pendingActionTasks: [UUID: Task<Void, Never>] = [:]
   private var outboxRetryObservationTask: Task<Void, Never>?
@@ -4952,11 +4959,21 @@ final class GmailMailActionViewModel {
     sourceMessage: MailboxMessageMetadata? = nil,
     connection: MailboxConnection
   ) async -> Bool {
+    guard !isPreparingForSignOut else { return false }
     guard connection.capabilities.canSend else { return false }
     guard !recipient.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return false }
     guard !isPerformingAction else { return false }
     isPerformingAction = true
-    defer { isPerformingAction = false }
+    isSending = true
+    defer {
+      isPerformingAction = false
+      isSending = false
+      let waiters = sendCompletionWaiters
+      sendCompletionWaiters.removeAll()
+      for waiter in waiters {
+        waiter.resume()
+      }
+    }
 
     do {
       let selectedSourceMessage =
@@ -5091,8 +5108,24 @@ final class GmailMailActionViewModel {
     }
   }
 
-  func prepareForSignOut() async {
+  func beginPreparingForSignOut() {
     isPreparingForSignOut = true
+  }
+
+  func cancelPreparingForSignOut() {
+    isPreparingForSignOut = false
+  }
+
+  func waitForPendingSend() async {
+    guard isSending else { return }
+    await withCheckedContinuation { continuation in
+      sendCompletionWaiters.append(continuation)
+    }
+  }
+
+  func prepareForSignOut() async {
+    beginPreparingForSignOut()
+    await waitForPendingSend()
     let pendingTasks = Array(pendingActionTasks.values)
     for task in pendingTasks {
       task.cancel()

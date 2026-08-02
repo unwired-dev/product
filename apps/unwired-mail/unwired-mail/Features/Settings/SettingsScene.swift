@@ -1680,7 +1680,9 @@ private struct RecoveryKeyPresentation: View {
     }
 
     private func signOut() {
+      mailActionViewModel.beginPreparingForSignOut()
       Task {
+        await mailActionViewModel.waitForPendingSend()
         await session.signOut {
           ewsViewModel.invalidate()
           genericMailViewModel.invalidate()
@@ -1691,6 +1693,9 @@ private struct RecoveryKeyPresentation: View {
             productAccountId: snapshot.productAccountId
           )
           await inboxViewModel.prepareForSignOut()
+        }
+        if session.signOutErrorMessage != nil {
+          mailActionViewModel.cancelPreparingForSignOut()
         }
       }
     }

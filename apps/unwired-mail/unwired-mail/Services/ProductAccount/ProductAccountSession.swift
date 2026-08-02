@@ -110,6 +110,7 @@ final class ProductAccountSession {
       clearPendingProductSyncRecovery()
 
       do {
+        try await resumePendingOutboxCleanup()
         try await resumePendingSignOut()
         let credential = try await appleSignInService.signIn()
         await resumePendingTrustedDeviceUnregistrations(using: credential)
@@ -329,8 +330,9 @@ extension ProductAccountSession {
     do {
       try await outboxDeliveryService.clear(session: existingSnapshot)
     } catch {
-      try? sessionStore.save(existingSnapshot)
-      throw error
+      try sessionStore.savePendingOutboxCleanupProductAccountId(
+        existingSnapshot.productAccountId
+      )
     }
   }
 
@@ -459,7 +461,12 @@ extension ProductAccountSession {
     }
     let identityToken = try await verifyProductSyncRecoveryIsBackedUp(snapshot)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
-    try await outboxDeliveryService.clear(session: snapshot)
+    do {
+      try await outboxDeliveryService.clear(session: snapshot)
+    } catch {
+      try? sessionStore.clearPendingSignOutProductAccountId()
+      throw error
+    }
     await preparation()
     return ProductAccountSessionSnapshot(
       appleUserIdentifier: snapshot.appleUserIdentifier,
@@ -696,6 +703,7 @@ extension ProductAccountSession {
 
   private func prepareForBootstrap() async -> Bool {
     do {
+      try await resumePendingOutboxCleanup()
       try await resumePendingSignOut()
       return true
     } catch {
@@ -753,6 +761,17 @@ extension ProductAccountSession {
       productAccountId: productAccountId
     )
     try sessionStore.clearPendingSignOutProductAccountId()
+  }
+
+  private func resumePendingOutboxCleanup() async throws {
+    guard
+      let productAccountId =
+        try sessionStore.loadPendingOutboxCleanupProductAccountId()
+    else {
+      return
+    }
+    try await outboxDeliveryService.clear(productAccountId: productAccountId)
+    try sessionStore.clearPendingOutboxCleanupProductAccountId()
   }
 
   private func resumePendingTrustedDeviceUnregistrations(

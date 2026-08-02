@@ -70,6 +70,7 @@ protocol OutboxDeliveryPersisting {
 
 protocol OutboxDeliveryClearing {
   func clear(session: ProductAccountSessionSnapshot) async throws
+  func clear(productAccountId: String) async throws
 }
 
 extension OutboxDeliveryPersisting {
@@ -599,9 +600,13 @@ actor OutboxDeliveryService {
   }
 
   func clear(session: ProductAccountSessionSnapshot) throws {
-    try store.clear(productAccountId: session.productAccountId)
+    try clear(productAccountId: session.productAccountId)
+  }
+
+  func clear(productAccountId: String) throws {
+    try store.clear(productAccountId: productAccountId)
     for attemptId in retryTasks.keys.filter({
-      retryTaskProductAccountIds[$0] == session.productAccountId
+      retryTaskProductAccountIds[$0] == productAccountId
     }) {
       retryTasks.removeValue(forKey: attemptId)?.cancel()
       retryTaskTokens.removeValue(forKey: attemptId)
@@ -609,7 +614,7 @@ actor OutboxDeliveryService {
       retryTaskProductAccountIds.removeValue(forKey: attemptId)
     }
     for attemptId in inFlightRetryTasks.keys.filter({
-      inFlightRetryTaskProductAccountIds[$0] == session.productAccountId
+      inFlightRetryTaskProductAccountIds[$0] == productAccountId
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
