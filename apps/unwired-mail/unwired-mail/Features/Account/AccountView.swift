@@ -1433,6 +1433,8 @@ struct AccountView: View {
               )
             case .appearance:
               AppearanceSettingsView()
+            case .privacyAndData:
+              PrivacyDataSettingsView(connections: gmailViewModel.connections)
             default:
               EmptyView()
             }
@@ -4244,6 +4246,7 @@ private struct MailShellConversationMessage: View {
         Divider()
         MailShellMessageBody(
           clearSignal: clearBodySignal,
+          connectionId: message.connectionId,
           onDisplay: markBodyDisplayed,
           onDismiss: markBodyHidden,
           onRelease: releaseBodyPresentation,
@@ -4296,6 +4299,7 @@ private struct MailShellConversationMessage: View {
 
 struct MailShellMessageBody: View {
   let clearSignal: UUID?
+  let connectionId: MailboxConnectionId?
   let load: () async throws -> MailboxMessageBody
   let onDisplay: () -> Void
   let onDismiss: () -> Void
@@ -4311,6 +4315,7 @@ struct MailShellMessageBody: View {
 
   init(
     clearSignal: UUID? = nil,
+    connectionId: MailboxConnectionId? = nil,
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
@@ -4323,6 +4328,7 @@ struct MailShellMessageBody: View {
     load: @escaping () async throws -> MailboxMessageBody
   ) {
     self.clearSignal = clearSignal
+    self.connectionId = connectionId
     self.load = load
     self.onDisplay = onDisplay
     self.onDismiss = onDismiss
@@ -4335,6 +4341,7 @@ struct MailShellMessageBody: View {
     Group {
       if let loadedContent {
         MailShellMessageContent(
+          connectionId: connectionId,
           loadedContent: loadedContent,
           loadRemoteContent: loadRemoteContent,
           onRenderingFailure: {
@@ -4428,6 +4435,7 @@ private struct MailShellLoadedMessageContent {
 }
 
 private struct MailShellMessageContent: View {
+  let connectionId: MailboxConnectionId?
   let loadedContent: MailShellLoadedMessageContent
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onRenderingFailure: () -> Void
@@ -4438,6 +4446,7 @@ private struct MailShellMessageContent: View {
     switch loadedContent.presentation {
     case .html(let html):
       MessageHTMLView(
+        connectionId: connectionId,
         html: html,
         onRenderingFailure: onRenderingFailure,
         loadRemoteContent: loadRemoteContent

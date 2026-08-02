@@ -200,7 +200,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     XCTAssertEqual(
       SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .accountAndDevices, .appearance]
+      [.emailAccounts, .accountAndDevices, .appearance, .privacyAndData]
     )
     XCTAssertEqual(SettingsDestinationRegistry.implementedGroups, [.accounts, .application])
     XCTAssertEqual(
@@ -222,7 +222,93 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.destinations(in: .application),
-      [.appearance]
+      [.appearance, .privacyAndData]
+    )
+  }
+
+  @MainActor
+  func testMessageContentPreferencesPersistDeviceLocalPoliciesAndConnectionOverrides() {
+    let suiteName = "MessageContentPreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    let preferences = MessageContentPreferences(defaults: defaults)
+
+    XCTAssertEqual(preferences.remoteContentPolicy, .ask)
+    XCTAssertEqual(preferences.attachmentDownloadPolicy, .onDemand)
+    XCTAssertNil(preferences.remoteContentOverride(for: connectionId))
+
+    preferences.remoteContentPolicy = .alwaysLoad
+    preferences.attachmentDownloadPolicy = .wifi
+    preferences.setRemoteContentOverride(.never, for: connectionId)
+
+    let restored = MessageContentPreferences(defaults: defaults)
+    XCTAssertEqual(restored.remoteContentPolicy, .alwaysLoad)
+    XCTAssertEqual(restored.attachmentDownloadPolicy, .wifi)
+    XCTAssertEqual(restored.remoteContentOverride(for: connectionId), .never)
+    XCTAssertEqual(restored.remoteContentPolicy(for: connectionId), .never)
+
+    restored.setRemoteContentOverride(nil, for: connectionId)
+    XCTAssertEqual(restored.remoteContentPolicy(for: connectionId), .alwaysLoad)
+  }
+
+  @MainActor
+  func testMessageContentPreferencesFailClosedForInvalidStoredPolicies() {
+    let suiteName = "InvalidMessageContentPreferencesTests.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    defaults.set(
+      "invalid", forKey: MessageContentPreferences.StorageKey.remoteContentPolicy.rawValue)
+    defaults.set(
+      "invalid",
+      forKey: MessageContentPreferences.StorageKey.attachmentDownloadPolicy.rawValue
+    )
+    defaults.set(
+      [connectionId.rawValue: "invalid"],
+      forKey: MessageContentPreferences.StorageKey.remoteContentOverrides.rawValue
+    )
+
+    let preferences = MessageContentPreferences(defaults: defaults)
+
+    XCTAssertEqual(preferences.remoteContentPolicy(for: connectionId), .ask)
+    XCTAssertEqual(preferences.attachmentDownloadPolicy, .onDemand)
+    XCTAssertNil(preferences.remoteContentOverride(for: connectionId))
+  }
+
+  func testAttachmentDownloadPolicyHonorsCurrentNetwork() {
+    XCTAssertFalse(AttachmentDownloadPolicy.onDemand.allowsAutomaticDownload(on: .wifi))
+    XCTAssertTrue(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .wifi))
+    XCTAssertFalse(AttachmentDownloadPolicy.wifi.allowsAutomaticDownload(on: .cellular))
+    XCTAssertTrue(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .cellular))
+    XCTAssertFalse(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .offline))
+  }
+
+  func testPrivacyAndDataMetadataDrivesSignedOutNavigationAndSearch() {
+    let destination = SettingsDestination.privacyAndData
+
+    XCTAssertEqual(destination.group, .application)
+    XCTAssertEqual(destination.title, "Privacy & Data")
+    XCTAssertEqual(destination.systemImage, "hand.raised")
+    XCTAssertTrue(destination.isAvailableWhenSignedOut)
+    XCTAssertEqual(
+      destination.searchItems.map(\.title),
+      ["Remote Message Content", "Connection Overrides", "Attachment Downloads"]
+    )
+    XCTAssertEqual(
+      SettingsDestinationRegistry.search(matching: "tracking pixels", isSignedIn: false)
+        .map(\.route),
+      [destination.route]
     )
   }
 
@@ -399,7 +485,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.implementedDestinations,
-      [.emailAccounts, .accountAndDevices, .appearance]
+      [.emailAccounts, .accountAndDevices, .appearance, .privacyAndData]
     )
   }
 
@@ -591,7 +677,7 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     )
     XCTAssertEqual(
       SettingsDestinationRegistry.destinations(in: .application, isSignedIn: false),
-      [.appearance]
+      [.appearance, .privacyAndData]
     )
   }
 

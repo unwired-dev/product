@@ -239,6 +239,24 @@ enum SettingsDestination: String, CaseIterable, Identifiable {
         ),
         SettingsSearchItem(title: "Increased Contrast", route: .appearance(.increasedContrast)),
       ]
+    case .privacyAndData:
+      return [
+        SettingsSearchItem(
+          title: "Remote Message Content",
+          keywords: ["Remote images", "Tracking Pixels", "IP address"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Connection Overrides",
+          keywords: ["Mailbox Connection"],
+          route: route
+        ),
+        SettingsSearchItem(
+          title: "Attachment Downloads",
+          keywords: ["On Demand", "Wi-Fi", "Always"],
+          route: route
+        ),
+      ]
     default:
       return []
     }
@@ -519,6 +537,7 @@ enum SettingsDestinationRegistry {
     .emailAccounts,
     .accountAndDevices,
     .appearance,
+    .privacyAndData,
   ]
 
   static var implementedGroups: [SettingsGroup] {
@@ -1484,6 +1503,8 @@ private struct RecoveryKeyPresentation: View {
             destinationContent: { destination, request in
               if destination == .appearance {
                 AppearanceSettingsView(navigationRequest: request)
+              } else if destination == .privacyAndData {
+                PrivacyDataSettingsView(connections: [])
               }
             }
           )
@@ -1501,6 +1522,8 @@ private struct RecoveryKeyPresentation: View {
             destinationContent: { destination, request in
               if destination == .appearance {
                 AppearanceSettingsView(navigationRequest: request)
+              } else if destination == .privacyAndData {
+                PrivacyDataSettingsView(connections: [])
               }
             }
           )
@@ -1642,6 +1665,8 @@ private struct RecoveryKeyPresentation: View {
             )
           case .appearance:
             AppearanceSettingsView(navigationRequest: request)
+          case .privacyAndData:
+            PrivacyDataSettingsView(connections: gmailViewModel.connections)
           default:
             EmptyView()
           }

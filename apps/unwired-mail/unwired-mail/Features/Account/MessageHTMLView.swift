@@ -115,12 +115,15 @@ enum MessageHTMLDocument {
 }
 
 struct MessageHTMLView: View {
+  let connectionId: MailboxConnectionId?
   let html: SanitizedMessageHTML
   let onRenderingFailure: () -> Void
   private let loadRemoteContent:
     (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
 
   @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
+  @Environment(MessageContentPreferences.self) private var messageContentPreferences:
+    MessageContentPreferences?
   @Environment(\.colorScheme) private var colorScheme
   @Environment(\.colorSchemeContrast) private var colorSchemeContrast
   @Environment(\.openURL) private var openURL
@@ -128,6 +131,7 @@ struct MessageHTMLView: View {
   @State private var remoteContent = RemoteMessageContentPresentation()
 
   init(
+    connectionId: MailboxConnectionId? = nil,
     html: SanitizedMessageHTML,
     onRenderingFailure: @escaping () -> Void,
     loadRemoteContent:
@@ -136,6 +140,7 @@ struct MessageHTMLView: View {
         try await RemoteMessageContentLoader().load($0)
       }
   ) {
+    self.connectionId = connectionId
     self.html = html
     self.onRenderingFailure = onRenderingFailure
     self.loadRemoteContent = loadRemoteContent
@@ -144,7 +149,11 @@ struct MessageHTMLView: View {
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
       if !displayedHTML.remoteImageReferences.isEmpty {
-        remoteContentNotice
+        RemoteMessageContentNotice(
+          policy: remoteContentPolicy,
+          requestLoad: remoteContent.requestLoad,
+          state: remoteContent.state
+        )
       }
       MessageHTMLWebView(
         contentHeight: $contentHeight,
@@ -167,8 +176,18 @@ struct MessageHTMLView: View {
     .task(id: remoteContent.loadRequest) {
       await remoteContent.load(originalHTML: html, using: loadRemoteContent)
     }
+    .task(id: remoteContentPolicy) {
+      remoteContent.apply(
+        policy: remoteContentPolicy,
+        hasRemoteImages: !html.remoteImageReferences.isEmpty
+      )
+    }
     .onChange(of: html) {
       remoteContent.reset()
+      remoteContent.apply(
+        policy: remoteContentPolicy,
+        hasRemoteImages: !html.remoteImageReferences.isEmpty
+      )
     }
     .onDisappear {
       remoteContent.reset()
@@ -179,40 +198,10 @@ struct MessageHTMLView: View {
     remoteContent.displayedHTML(originalHTML: html)
   }
 
-  @ViewBuilder
-  private var remoteContentNotice: some View {
-    VStack(alignment: .leading, spacing: 8) {
-      Label(
-        remoteContent.state.failedImageCount == nil
-          ? "Remote images are blocked."
-          : "Some remote images could not be loaded.",
-        systemImage: remoteContent.state.failedImageCount == nil
-          ? "eye.slash"
-          : "exclamationmark.triangle"
-      )
-      .font(.subheadline.bold())
-      Text(
-        "Loading remote images can reveal your IP address and tell the sender "
-          + "that you opened this message."
-      )
-      .font(.caption)
-      .foregroundStyle(.secondary)
-      if remoteContent.state == .loading {
-        ProgressView("Loading remote images…")
-          .controlSize(.small)
-      } else {
-        Button(remoteContent.state.failedImageCount == nil ? "Load Remote Images" : "Try Again") {
-          remoteContent.requestLoad()
-        }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
-        .accessibilityIdentifier("load-remote-message-content")
-      }
-    }
-    .padding(10)
-    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
-    .accessibilityIdentifier("remote-message-content-notice")
+  private var remoteContentPolicy: RemoteContentLoadPolicy {
+    messageContentPreferences?.remoteContentPolicy(for: connectionId) ?? .ask
   }
+
 }
 
 struct MessageHTMLWebView: UIViewRepresentable {

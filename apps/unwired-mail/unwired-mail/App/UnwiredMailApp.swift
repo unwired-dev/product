@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct UnwiredMailApp: App {
   @State private var appearancePreferences: AppearancePreferences
+  @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
 
@@ -15,6 +16,7 @@ struct UnwiredMailApp: App {
       DotEnvFile.loadDefaultsIfPresent()
     #endif
     _appearancePreferences = State(initialValue: AppearancePreferences())
+    _messageContentPreferences = State(initialValue: MessageContentPreferences())
     _session = State(
       initialValue: ProductAccountSession(
         appleSignInService: SignInWithAppleService(),
@@ -30,6 +32,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(messageContentPreferences)
       }
       .commands {
         DevelopmentSettingsCommands(settingsRouter: settingsRouter)
@@ -40,6 +43,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(messageContentPreferences)
       }
       .defaultSize(width: 920, height: 720)
     #else
@@ -48,6 +52,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(messageContentPreferences)
       }
     #endif
   }

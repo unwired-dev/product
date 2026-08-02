@@ -369,6 +369,13 @@ final class RemoteMessageContentPresentation {
     loadRequest = UUID()
   }
 
+  func apply(policy: RemoteContentLoadPolicy, hasRemoteImages: Bool) {
+    reset()
+    if policy == .alwaysLoad, hasRemoteImages {
+      requestLoad()
+    }
+  }
+
   func load(
     originalHTML: SanitizedMessageHTML,
     using loader: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult

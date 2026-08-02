@@ -1850,6 +1850,38 @@ extension MessageHTMLPresentationTests {
   }
 
   @MainActor
+  func testRemoteContentPresentationAppliesAlwaysAndNeverPolicies() async throws {
+    let originalHTML = try remoteContentTestPresentation()
+    let presentation = RemoteMessageContentPresentation()
+    var receivedHTML: [SanitizedMessageHTML] = []
+    let loader: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult = { html in
+      receivedHTML.append(html)
+      return RemoteMessageContentLoadResult(
+        failedImageCount: 0,
+        html: SanitizedMessageHTML(
+          documentHTML: html.documentHTML,
+          remoteImageReferences: []
+        ),
+        loadedImageCount: html.remoteImageReferences.count
+      )
+    }
+
+    presentation.apply(policy: .alwaysLoad, hasRemoteImages: true)
+    XCTAssertEqual(presentation.state, .loading)
+    await presentation.load(originalHTML: originalHTML, using: loader)
+    XCTAssertEqual(receivedHTML, [originalHTML])
+
+    presentation.apply(policy: .never, hasRemoteImages: true)
+    XCTAssertEqual(presentation.state, .blocked)
+    XCTAssertNil(presentation.loadRequest)
+    XCTAssertEqual(presentation.displayedHTML(originalHTML: originalHTML), originalHTML)
+
+    presentation.apply(policy: .ask, hasRemoteImages: true)
+    XCTAssertEqual(presentation.state, .blocked)
+    XCTAssertNil(presentation.loadRequest)
+  }
+
+  @MainActor
   func testResolvedCIDImageRendersInsideSecuredWebView() async throws {
     let imageData = try XCTUnwrap(
       Data(
