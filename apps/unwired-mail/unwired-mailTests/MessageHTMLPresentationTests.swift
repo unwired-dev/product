@@ -1077,6 +1077,24 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerPreservesImagesWithUnresolvedPercentageOffsets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <div style="width:1px">
+          <img src="https://images.example.com/visible.png"
+               style="margin-left:-100%;min-width:600px">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.png"]
+    )
+  }
+
   func testSanitizerRetainsRemoteImageOffsetBackIntoViewport() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -1190,6 +1208,27 @@ extension MessageHTMLPresentationTests {
         <p>Newsletter</p>
         <img src="https://images.example.com/hero.png"
              style="width:1px;width:var(--missing,600px);height:1px;height:var(--missing,100px)">
+        """
+    )
+
+    guard case .html(let presentation) = MessageHTMLPresentation.resolve(body: body) else {
+      return XCTFail("Expected sanitized HTML")
+    }
+
+    XCTAssertEqual(
+      presentation.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/hero.png"]
+    )
+  }
+
+  func testSanitizerPreservesImagesWithUnresolvedMinimumFallbacks() throws {
+    let body = MailboxMessageBody(
+      text: "Newsletter",
+      html: """
+        <p>Newsletter</p>
+        <img src="https://images.example.com/hero.png"
+             style="width:1px;height:1px;min-width:var(--missing,600px);
+                    min-height:var(--missing,100px)">
         """
     )
 
@@ -2886,6 +2925,12 @@ extension MessageHTMLPresentationTests {
         <img src="https://tracker.example/table-column.png" style="display:table-column">
         <img src="https://tracker.example/table-column-group.png"
              style="display:table-column-group">
+        <div style="display:table-column">
+          <img src="https://tracker.example/table-column-wrapper.png">
+        </div>
+        <div style="display:table-column-group">
+          <img src="https://tracker.example/table-column-group-wrapper.png">
+        </div>
         """#
       )
     )
@@ -2894,6 +2939,23 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("escaped-none.png"))
     XCTAssertFalse(result.documentHTML.contains("table-column.png"))
     XCTAssertFalse(result.documentHTML.contains("table-column-group.png"))
+    XCTAssertFalse(result.documentHTML.contains("table-column-wrapper.png"))
+    XCTAssertFalse(result.documentHTML.contains("table-column-group-wrapper.png"))
+  }
+
+  func testSanitizerDecodesEscapedDimensionUnits() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"""
+        <p>Newsletter</p>
+        <img src="https://tracker.example/escaped-unit.png"
+             style="width:1\70 x;height:1\70 x">
+        """#
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("escaped-unit.png"))
   }
 
   func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {
@@ -2949,6 +3011,46 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("functional-margin.gif"))
   }
 
+  func testSanitizerAccountsForPercentageMathFunctionsInMargins() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:100px">
+          <div style="margin:0 min(49.5%, 300px)">
+            <img src="https://tracker.example/functional-percentage-margin.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("functional-percentage-margin.gif"))
+  }
+
+  func testSanitizerRejectsNonFiniteCalculatedInsets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:100px">
+          <div style="margin-right:max(1e400%, 1px);margin-left:min(-1e400%, -1px)">
+            <img src="https://images.example.com/visible.gif"
+                 style="width:100%;height:100px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible.gif"]
+    )
+  }
+
   func testSanitizerAccountsForPercentageMarginsInAutoBlockWidths() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2984,6 +3086,26 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("center.gif"))
+  }
+
+  func testSanitizerTreatsListItemsAsAutoWidthBlocks() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <ul>
+            <li style="margin:0 1px">
+              <img src="https://tracker.example/list-item.gif" style="width:100%;height:1px">
+            </li>
+          </ul>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("list-item.gif"))
   }
 
   func testSanitizerAccountsForAutoBlockBordersInPercentageDimensions() throws {
@@ -3148,6 +3270,27 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerAppliesCSSWideBorderShorthandResets() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:601px">
+          <div style="border-left:300px solid;border-right:300px solid;border:initial">
+            <img src="https://images.example/visible-reset-border.gif"
+                 style="width:100%;height:1px">
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example/visible-reset-border.gif"]
+    )
+  }
+
   func testSanitizerResolvesInheritedTrackingPixelDimensions() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -3223,6 +3366,7 @@ extension MessageHTMLPresentationTests {
   }
 
   func testSanitizerResolvesSmallFontTermsInCalculatedPercentageDimensions() throws {
+    // 0.00001em at 16px plus 1% of 99.984px equals the one-pixel threshold.
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
         """
@@ -3420,6 +3564,8 @@ extension MessageHTMLPresentationTests {
              style="width:1px;width:calc(1px +);height:1px">
         <img src="https://tracker.example/incomplete-height.gif"
              style="width:1px;height:1px;height:calc(1px +)">
+        <img src="https://tracker.example/leading-operator.gif"
+             style="width:1px;width:calc(*1px);height:1px">
         """
       )
     )
@@ -3429,6 +3575,7 @@ extension MessageHTMLPresentationTests {
     XCTAssertFalse(result.documentHTML.contains("malformed-height.gif"))
     XCTAssertFalse(result.documentHTML.contains("incomplete-width.gif"))
     XCTAssertFalse(result.documentHTML.contains("incomplete-height.gif"))
+    XCTAssertFalse(result.documentHTML.contains("leading-operator.gif"))
   }
 
   func testSanitizerRejectsNegativeDimensionOverrides() throws {

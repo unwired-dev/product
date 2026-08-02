@@ -73,7 +73,8 @@ enum InlineImageDimensionPolicy {
       let inheritedValue = inheritedDimensionValue(
         dimension,
         from: element.parent(),
-        remainingDepth: remainingDepth - 1
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
       )
     {
       return resolvedDimensionPixels(
@@ -84,7 +85,7 @@ enum InlineImageDimensionPolicy {
         remainingWork: &remainingWork
       )
     }
-    guard normalized.hasSuffix("%") || normalized.contains("%"),
+    guard normalized.contains("%"),
       let containingPixels = resolvedContainingDimensionPixels(
         dimension,
         for: element,
@@ -239,25 +240,28 @@ enum InlineImageDimensionPolicy {
         || components.first == "block"
     }
     return [
-      "address", "article", "aside", "blockquote", "center", "dd", "div", "dl", "dt", "fieldset",
-      "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6",
-      "header", "hgroup", "hr", "main", "nav", "ol", "p", "pre", "section", "ul",
+      "address", "article", "aside", "blockquote", "body", "center", "dd", "details", "dir",
+      "div", "dl", "dt", "fieldset", "figcaption", "figure", "footer", "form", "h1", "h2",
+      "h3", "h4", "h5", "h6", "header", "hgroup", "hr", "li", "main", "menu", "nav", "ol",
+      "p", "pre", "section", "summary", "ul",
     ].contains(element.tagName().lowercased())
   }
 
   private static func inheritedDimensionValue(
     _ dimension: String,
     from element: Element?,
-    remainingDepth: Int
+    remainingDepth: Int,
+    remainingWork: inout Int
   ) -> String? {
-    guard remainingDepth > 0, let element,
-      let declaredValue = value(dimension, in: element)
-    else { return nil }
+    guard remainingDepth > 0, remainingWork > 0, let element else { return nil }
+    remainingWork -= 1
+    guard let declaredValue = value(dimension, in: element) else { return nil }
     if declaredValue.lowercased() == "inherit" {
       return inheritedDimensionValue(
         dimension,
         from: element.parent(),
-        remainingDepth: remainingDepth - 1
+        remainingDepth: remainingDepth - 1,
+        remainingWork: &remainingWork
       )
     }
     return declaredValue
@@ -364,11 +368,21 @@ enum InlineImageDimensionPolicy {
   }
 
   static func hasExpandingMinimum(_ dimension: String, in element: Element) -> Bool {
-    resolvedMinimumPixels(dimension, in: element).map { $0 > 1 } == true
+    minimumCouldExceed(1, dimension: dimension, in: element)
   }
 
   static func hasPositiveMinimum(_ dimension: String, in element: Element) -> Bool {
-    resolvedMinimumPixels(dimension, in: element).map { $0 > 0 } == true
+    minimumCouldExceed(0, dimension: dimension, in: element)
+  }
+
+  private static func minimumCouldExceed(
+    _ threshold: Double,
+    dimension: String,
+    in element: Element
+  ) -> Bool {
+    guard let value = value("min-\(dimension)", in: element) else { return false }
+    if let pixels = resolvedMinimumPixels(dimension, in: element) { return pixels > threshold }
+    return !["auto", "initial", "revert", "revert-layer", "unset"].contains(value.lowercased())
   }
 
   private static func resolvedMinimumPixels(_ dimension: String, in element: Element) -> Double? {

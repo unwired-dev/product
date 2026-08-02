@@ -247,11 +247,15 @@ extension MessageHTMLHiddenStylePatterns {
             percentageBasePixels: percentageBasePixels,
             fontSizePixels: fontSizePixels,
             remainingDepth: remainingDepth - 1
-          )
+          ),
+        pixels.isFinite
       else { return nil }
       values.append(pixels)
     }
-    return constantFunctionValue(function, values: values)
+    guard let pixels = constantFunctionValue(function, values: values), pixels.isFinite else {
+      return nil
+    }
+    return pixels
   }
 
   private static func calculatedTermsPixelLengthValue(
@@ -371,7 +375,7 @@ extension MessageHTMLHiddenStylePatterns {
         let margin = effectiveMarginValue(side, in: declarations),
         isOffCanvasNegativeLengthValue(margin)
       else { continue }
-      guard let marginPixels = pixelLengthValue(margin) else { return true }
+      guard let marginPixels = pixelLengthValue(margin) else { continue }
       let precedingFlowPixels: Double
       if side == 0 {
         guard
@@ -687,8 +691,9 @@ extension MessageHTMLHiddenStylePatterns {
     else { return false }
     guard
       arguments.allSatisfy({ argument in
-        let expression = argument.trimmingCharacters(in: .whitespacesAndNewlines)
-        return !expression.isEmpty && expression.last.map { !"+-*/".contains($0) } == true
+        hasValidCalculatedArgumentBoundaries(
+          argument.trimmingCharacters(in: .whitespacesAndNewlines)
+        )
       })
     else { return false }
     if constantCalculatedPixelLengthValue(value) != nil { return true }
@@ -714,6 +719,16 @@ extension MessageHTMLHiddenStylePatterns {
     let hasNumericValue = value.range(of: #"\d"#, options: .regularExpression) != nil
     return (hasNumericValue || identifiers.contains("env") || identifiers.contains("var"))
       && identifiers.allSatisfy(allowedIdentifiers.contains)
+  }
+
+  private static func hasValidCalculatedArgumentBoundaries(_ expression: String) -> Bool {
+    guard !expression.isEmpty,
+      expression.last.map({ !"+-*/".contains($0) }) == true,
+      expression.first.map({ !"*/".contains($0) }) == true
+    else { return false }
+    guard expression.first.map({ "+-".contains($0) }) == true else { return true }
+    let signedTerm = expression.dropFirst().trimmingCharacters(in: .whitespacesAndNewlines)
+    return signedTerm.first.map { !"+-*/".contains($0) } == true
   }
 
   static func effectiveMarginValue(
@@ -877,6 +892,7 @@ extension MessageHTMLHiddenStylePatterns {
   }
 
   private static func borderShorthandValues(_ value: String) -> (width: String?, style: String?)? {
+    if isCSSWideKeyword(value) { return ("3px", "none") }
     guard let components = whitespaceSeparatedCSSComponents(value) else { return nil }
     guard (1...3).contains(components.count) else { return nil }
     var width: String?
@@ -943,7 +959,7 @@ extension MessageHTMLHiddenStylePatterns {
     if value.hasSuffix("%"), let percentage = Double(value.dropLast()) {
       return percentageBasePixels * percentage / 100
     }
-    if value.hasPrefix("calc("), value.contains("%") {
+    if value.contains("%"), isCSSFunctionValue(value) {
       return calculatedPixelLengthValue(
         value,
         percentageBasePixels: percentageBasePixels,
@@ -1153,9 +1169,13 @@ extension MessageHTMLHiddenStylePatterns {
       }
       guard !property.isEmpty, !value.isEmpty else { return nil }
       let normalizedValue = value.lowercased()
+      let escapedIdentifierProperties = [
+        "display", "height", "max-height", "max-width", "min-height", "min-width", "visibility",
+        "width",
+      ]
       return StyleDeclaration(
         property: property,
-        value: ["display", "visibility"].contains(property)
+        value: escapedIdentifierProperties.contains(property)
           ? (normalizedCSSIdentifier(normalizedValue) ?? normalizedValue)
           : normalizedValue,
         isImportant: importantRange != nil
