@@ -1312,6 +1312,57 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
+  it('resumes a previously attempted Apple revocation without a client', async () => {
+    expect.assertions(3);
+    vi.useFakeTimers();
+    try {
+      const t = convexTest(schema, modules);
+      const asUser = t.withIdentity(appleIdentity);
+      const currentDevice = await asUser.mutation(api.productAccount.connect, {
+        deviceIdentifier: 'device-001',
+        platform: 'ios',
+      });
+      const prepared = await asUser.mutation(
+        internal.productAccountDeletionData.prepareDeletion,
+        {
+          attemptId: 'deletion-attempt-001',
+          authorizationCode: 'recent-apple-authorization-code',
+          trustedDeviceId: currentDevice.trustedDeviceId,
+        },
+      );
+      const requestId = pendingDeletionRequestId(prepared);
+      await asUser.mutation(
+        internal.productAccountDeletionData.storeRefreshToken,
+        {
+          attemptId: 'deletion-attempt-001',
+          refreshToken: 'already-revoked-refresh-token',
+          requestId,
+        },
+      );
+      vi.mocked(fetch).mockImplementationOnce(async (input) => {
+        expect(input).toBe('https://appleid.apple.com/auth/revoke');
+        return Response.json({ error: 'invalid_grant' }, { status: 400 });
+      });
+
+      await asUser.mutation(
+        internal.productAccountDeletionData.markRevocationAttemptStarted,
+        { attemptId: 'deletion-attempt-001', requestId },
+      );
+      await t.finishAllScheduledFunctions(vi.runAllTimers);
+
+      await expect(
+        t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
+      ).resolves.toStrictEqual([]);
+      await expect(
+        t.run(async (ctx) =>
+          ctx.db.query('productAccountDeletionRequests').collect(),
+        ),
+      ).resolves.toStrictEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('schedules durable cleanup with the revocation-complete transition', async () => {
     expect.assertions(1);
     vi.useFakeTimers();

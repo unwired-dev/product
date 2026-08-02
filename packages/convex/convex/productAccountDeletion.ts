@@ -9,7 +9,7 @@ import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { action } from './_generated/server.js';
+import { action, internalAction } from './_generated/server.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -187,6 +187,40 @@ async function revokeAppleToken(
     throw new Error('Apple authorization revocation failed');
   }
 }
+
+export const resumeProductAccountRevocation = internalAction({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args): Promise<void> => {
+    const recovery: Readonly<{ refreshToken: string }> | null =
+      await ctx.runMutation(
+        internal.productAccountDeletionData.prepareRevocationRecovery,
+        args,
+      );
+    if (recovery === null) {
+      return;
+    }
+    try {
+      await revokeAppleToken(recovery.refreshToken, true);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message ===
+          'Apple authorization revocation is temporarily unavailable'
+      ) {
+        return;
+      }
+      await ctx.runMutation(
+        internal.productAccountDeletionData.abortRecoveredRevocation,
+        args,
+      );
+      return;
+    }
+    await ctx.runMutation(
+      internal.productAccountDeletionData.completeRecoveredRevocation,
+      args,
+    );
+  },
+});
 
 export const deleteProductAccount = action({
   args: {

@@ -204,6 +204,48 @@ export const markRevocationAttemptStarted = internalMutation({
       revocationAttemptedAt: Date.now(),
       updatedAt: Date.now(),
     });
+    await ctx.scheduler.runAfter(
+      deletionAttemptLeaseMilliseconds,
+      internal.productAccountDeletion.resumeProductAccountRevocation,
+      { requestId: args.requestId },
+    );
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const prepareRevocationRecovery = internalMutation({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (
+      request === null ||
+      request.phase !== 'revocation-pending' ||
+      request.revocationAttemptedAt === undefined ||
+      request.revocationMaterial?.kind !== 'refresh-token'
+    ) {
+      return null;
+    }
+    await ctx.scheduler.runAfter(
+      deletionAttemptLeaseMilliseconds,
+      internal.productAccountDeletion.resumeProductAccountRevocation,
+      args,
+    );
+    return { refreshToken: request.revocationMaterial.value };
+  },
+  returns: v.union(v.null(), v.object({ refreshToken: v.string() })),
+});
+
+export const abortRecoveredRevocation = internalMutation({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (
+      request?.phase === 'revocation-pending' &&
+      request.revocationAttemptedAt !== undefined
+    ) {
+      await ctx.db.delete(args.requestId);
+    }
     return null;
   },
   returns: v.null(),
@@ -273,6 +315,32 @@ export const markRevocationComplete = internalMutation({
       });
     } else if (request.phase === 'revocation-pending') {
       throw new Error('Product Account deletion attempt superseded');
+    }
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const completeRecoveredRevocation = internalMutation({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args) => {
+    const request = await ctx.db.get(args.requestId);
+    if (
+      request?.phase === 'revocation-pending' &&
+      request.revocationAttemptedAt !== undefined
+    ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        args,
+      );
+      await ctx.db.patch(args.requestId, {
+        activeAttemptId: undefined,
+        phase: 'deleting-data',
+        revocationAttemptedAt: undefined,
+        revocationMaterial: undefined,
+        updatedAt: Date.now(),
+      });
     }
     return null;
   },

@@ -147,6 +147,13 @@ final class ProductAccountSessionTests: XCTestCase {
   {
     let snapshot = Self.restorableSnapshot
     try store.save(snapshot)
+    try store.savePendingTrustedDeviceUnregistration(
+      PendingTrustedDeviceUnregistration(
+        appleUserIdentifier: snapshot.appleUserIdentifier,
+        productAccountId: snapshot.productAccountId,
+        trustedDeviceId: "stale-trusted-device"
+      )
+    )
     _ = try keyMaterialStore.ensureMaterial(
       productAccountId: snapshot.productAccountId,
       allowCreation: true
@@ -169,6 +176,10 @@ final class ProductAccountSessionTests: XCTestCase {
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
+    let mailActionViewModel = session.sharedMailActionViewModel(
+      for: snapshot,
+      service: MailboxConnectionRouter()
+    )
 
     await session.deleteProductAccount()
 
@@ -179,6 +190,8 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
+    XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
 
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()

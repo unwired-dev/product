@@ -242,8 +242,12 @@ final class ProductAccountSession {
   ) async throws {
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     clearMailboxFreshnessViewModel()
+    await retireMailActionViewModelForSignOut()
     try await outboxDeliveryService.clear(session: snapshot)
     try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    try clearPendingTrustedDeviceUnregistrations(
+      productAccountId: snapshot.productAccountId
+    )
     try await resumePendingSignOut(resumingExternalCleanup: false)
     clearPendingProductSyncRecovery()
     clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
@@ -1018,6 +1022,17 @@ extension ProductAccountSession {
       } catch {
         continue
       }
+    }
+  }
+
+  private func clearPendingTrustedDeviceUnregistrations(
+    productAccountId: String
+  ) throws {
+    for unregistration in try sessionStore.loadPendingTrustedDeviceUnregistrations()
+    where unregistration.productAccountId == productAccountId {
+      try sessionStore.clearPendingTrustedDeviceUnregistration(
+        trustedDeviceId: unregistration.trustedDeviceId
+      )
     }
   }
 
