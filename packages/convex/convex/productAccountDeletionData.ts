@@ -439,36 +439,10 @@ async function deleteNextBatchData(
   if (request.phase !== 'deleting-data') {
     throw new Error('Apple authorization revocation required');
   }
-  const payloads = await ctx.db
-    .query('encryptedProductSyncPayloads')
-    .withIndex('by_productAccountId', (q) =>
-      q.eq('productAccountId', request.productAccountId),
-    )
-    .take(encryptedPayloadDeletionBatchSize);
-  if (payloads.length > 0) {
-    for (const payload of payloads) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(payload._id);
-    }
-    return false;
-  }
   if (await deleteGmailRouteWork(ctx, request.productAccountId)) {
     return false;
   }
   if (await deleteMicrosoftGraphRouteWork(ctx, request.productAccountId)) {
-    return false;
-  }
-  const bindings = await ctx.db
-    .query('gmailOpaqueIdentityBindings')
-    .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
-      q.eq('productAccountId', request.productAccountId),
-    )
-    .take(deletionBatchSize);
-  if (bindings.length > 0) {
-    for (const binding of bindings) {
-      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-      await ctx.db.delete(binding._id);
-    }
     return false;
   }
   const devices = await ctx.db
@@ -491,6 +465,32 @@ async function deleteNextBatchData(
         await ctx.db.delete(heartbeat._id);
       }
       await ctx.db.delete(deviceId);
+    }
+    return false;
+  }
+  const payloads = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(encryptedPayloadDeletionBatchSize);
+  if (payloads.length > 0) {
+    for (const payload of payloads) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(payload._id);
+    }
+    return false;
+  }
+  const bindings = await ctx.db
+    .query('gmailOpaqueIdentityBindings')
+    .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (bindings.length > 0) {
+    for (const binding of bindings) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(binding._id);
     }
     return false;
   }

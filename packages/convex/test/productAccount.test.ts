@@ -1503,8 +1503,8 @@ describe('gmail operational connection registration', () => {
     }
   });
 
-  it('deletes encrypted payloads in transaction-safe batches', async () => {
-    expect.assertions(2);
+  it('fences push routes before deleting encrypted payload batches', async () => {
+    expect.assertions(4);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -1513,14 +1513,28 @@ describe('gmail operational connection registration', () => {
       platform: 'ios',
     });
     await t.run(async (ctx) => {
+      const now = Date.now();
+      await ctx.db.patch(currentDevice.trustedDeviceId, {
+        apnsEnvironment: 'production',
+        apnsToken: 'device-token',
+        apnsTokenRegisteredAt: now,
+      });
+      await ctx.db.insert('mailProviderConnections', {
+        connectedAt: now,
+        lastVerifiedAt: now,
+        productAccountId: currentDevice.productAccountId,
+        provider: 'gmail',
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        updatedAt: now,
+      });
       for (let index = 0; index < 5; index += 1) {
         await ctx.db.insert('encryptedProductSyncPayloads', {
           encryptedPayload,
           payloadIdentifier: `payload-${index}`,
           productAccountId: currentDevice.productAccountId,
           trustedDeviceId: currentDevice.trustedDeviceId,
-          updatedAt: Date.now(),
-          writtenAt: Date.now(),
+          updatedAt: now,
+          writtenAt: now,
         });
       }
     });
@@ -1538,11 +1552,23 @@ describe('gmail operational connection registration', () => {
       { attemptId: 'deletion-attempt-001', requestId },
     );
 
+    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+      requestId,
+    });
+    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+      requestId,
+    });
     await expect(
       asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
         requestId,
       }),
     ).resolves.toStrictEqual({ complete: false });
+    await expect(
+      t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
+    ).resolves.toStrictEqual([]);
+    await expect(
+      t.run(async (ctx) => ctx.db.query('trustedDevices').collect()),
+    ).resolves.toStrictEqual([]);
     await expect(
       t.run(async (ctx) =>
         ctx.db.query('encryptedProductSyncPayloads').collect(),

@@ -360,6 +360,10 @@ final class ProductAccountSession {
   ) async throws {
     do {
       try await unregisterTrustedDeviceForSignOut(snapshot)
+    } catch ProductAccountServiceError.productAccountDeleted {
+      try sessionStore.clearPendingTrustedDeviceUnregistration(
+        trustedDeviceId: snapshot.trustedDeviceId
+      )
     } catch {
       try persistTrustedDeviceUnregistrationRetry(snapshot)
     }
