@@ -1176,6 +1176,27 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
   }
 
   @MainActor
+  func testInboxViewModelReportsCategoryOverrideFailure() async throws {
+    let fixture = makeUnifiedInboxViewModelFixture(
+      overrideCategoryErrorDescription: "Category assignment failed"
+    )
+    await fixture.viewModel.loadUnifiedInbox(connections: fixture.connections)
+    let message = try XCTUnwrap(fixture.viewModel.threads.first?.latestMessage)
+
+    await fixture.viewModel.overrideCategory("system:invoices", for: message)
+
+    XCTAssertEqual(
+      fixture.viewModel.categoryOverrideErrorMessage,
+      "Category assignment failed"
+    )
+    XCTAssertNil(fixture.viewModel.errorMessage)
+
+    fixture.viewModel.clearCategoryOverrideError()
+
+    XCTAssertNil(fixture.viewModel.categoryOverrideErrorMessage)
+  }
+
+  @MainActor
   func testInboxViewModelProjectsSuppliedPinsAndOutboxState() async {
     let fixture = makeUnifiedInboxViewModelFixture()
     let pinnedMessageId = StableProviderMessageIdentity(
@@ -6279,6 +6300,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
     delaysHistoricalBackfill: Bool = false,
     delaysNavigationRefresh: Bool = false,
     syncErrorsByProviderAccount: [String: String] = [:],
+    overrideCategoryErrorDescription: String? = nil,
     phaseGate: UnifiedInboxPhaseGate? = nil
   ) -> UnifiedInboxViewModelFixture {
     let secondConnection = GmailProviderConnectionStatus(
@@ -6308,6 +6330,7 @@ final class GmailMessageMetadataServiceTests: XCTestCase {
       delaysHistoricalBackfill: delaysHistoricalBackfill,
       delaysNavigationRefresh: delaysNavigationRefresh,
       syncErrorsByProviderAccount: syncErrorsByProviderAccount,
+      overrideCategoryErrorDescription: overrideCategoryErrorDescription,
       phaseGate: phaseGate
     )
     return UnifiedInboxViewModelFixture(
@@ -6768,6 +6791,7 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
   var delaysHistoricalBackfill = false
   var delaysNavigationRefresh = false
   var syncErrorsByProviderAccount: [String: String] = [:]
+  var overrideCategoryErrorDescription: String?
   var phaseGate: UnifiedInboxPhaseGate?
   var loadResultIsIncomplete = false
   private let historicalBackfillGate = OverrideGate()
@@ -6871,6 +6895,9 @@ private struct DelayedMailboxSwitchingService: MailboxMetadataSyncing, MailboxMe
     for message: MailboxMessageMetadata,
     session _: ProductAccountSessionSnapshot
   ) async throws -> MailboxMessageMetadata {
+    if let overrideCategoryErrorDescription {
+      throw MailboxSwitchingLocalizedError(description: overrideCategoryErrorDescription)
+    }
     await overrideGate.waitForRelease()
     return message.gmailMetadata.assigningCategory(categoryId).mailboxMetadata(
       connectionId: message.connectionId

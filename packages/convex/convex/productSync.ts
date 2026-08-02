@@ -12,14 +12,13 @@ import { v } from 'convex/values';
 import type { Doc } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
-import { mutation, query } from './_generated/server.js';
+import { internalMutation, mutation, query } from './_generated/server.js';
 import {
   requireProductAccount,
   requireTrustedDevice,
 } from './productAccountAuth.js';
 
 const encryptedProductSyncPayloadPageSize = 100;
-const recentAuthenticationMaximumAgeSeconds = 5 * 60;
 const recoveryPayloadIdentifier = 'product-account-recovery-v1';
 const encryptedPayloadMutationArgs = {
   encryptedPayload: encryptedProductSyncPayloadBodyValidator,
@@ -30,28 +29,6 @@ const encryptedPayloadMutationArgs = {
 function requireUnreservedPayloadIdentifier(payloadIdentifier: string): void {
   if (payloadIdentifier === recoveryPayloadIdentifier) {
     throw new Error('Recovery material requires recent authentication');
-  }
-}
-
-function authenticationIssuedAt(issuedAt: unknown): number {
-  if (typeof issuedAt !== 'number' || !Number.isFinite(issuedAt)) {
-    // oxlint-disable-next-line unicorn/prefer-type-error -- Authentication failures intentionally share one public API error type.
-    throw new Error('Recent authentication required');
-  }
-  return issuedAt;
-}
-
-async function requireRecentAuthentication(
-  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
-): Promise<void> {
-  const identity = await ctx.auth.getUserIdentity();
-  const issuedAt = authenticationIssuedAt(identity?.iat);
-  const now = Math.floor(Date.now() / 1000);
-  if (issuedAt > now) {
-    throw new Error('Recent authentication required');
-  }
-  if (now - issuedAt > recentAuthenticationMaximumAgeSeconds) {
-    throw new Error('Recent authentication required');
   }
 }
 
@@ -195,18 +172,25 @@ export const putEncryptedPayloadIfUnchanged = mutation({
   returns: encryptedProductSyncPayloadValidator,
 });
 
-export const replaceRecoveryMaterialIfUnchanged = mutation({
+export const replaceRecoveryMaterialIfUnchanged = internalMutation({
   args: {
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
-    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceId: v.string(),
   },
-  handler: async (ctx, args) => {
-    await requireRecentAuthentication(ctx);
+  handler: (ctx, args) => {
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (trustedDeviceId === null) {
+      throw new Error('Trusted device required');
+    }
     // oxlint-disable-next-line eslint/no-use-before-define -- Shared CAS implementation is declared below the public mutations.
     return writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
+      trustedDeviceId,
     });
   },
   returns: encryptedProductSyncPayloadValidator,

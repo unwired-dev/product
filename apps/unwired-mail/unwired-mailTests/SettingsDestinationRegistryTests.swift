@@ -197,6 +197,10 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertEqual(sceneManifest?["UIApplicationSupportsMultipleScenes"] as? Bool, false)
   }
 
+  func testAppDeclaresModernLaunchScreen() {
+    XCTAssertNotNil(Bundle.main.object(forInfoDictionaryKey: "UILaunchScreen"))
+  }
+
   func testDevelopmentRegistryContainsOnlyCompleteDestinations() {
     XCTAssertEqual(
       SettingsDestinationRegistry.implementedDestinations,
