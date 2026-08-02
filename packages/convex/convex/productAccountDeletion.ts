@@ -9,7 +9,7 @@ import type { Id } from './_generated/dataModel.js';
 import type { ActionCtx } from './_generated/server.js';
 
 import { internal } from './_generated/api.js';
-import { action, internalAction } from './_generated/server.js';
+import { action } from './_generated/server.js';
 
 const appleAudience = 'https://appleid.apple.com';
 const appleRevokeUrl = `${appleAudience}/auth/revoke`;
@@ -85,20 +85,6 @@ async function deleteBatches(
   return complete;
 }
 
-export const continueProductAccountDeletion = internalAction({
-  args: { requestId: v.id('productAccountDeletionRequests') },
-  handler: async (ctx, args): Promise<void> => {
-    const complete = await deleteBatches(ctx, args.requestId);
-    if (!complete) {
-      await ctx.scheduler.runAfter(
-        0,
-        internal.productAccountDeletion.continueProductAccountDeletion,
-        args,
-      );
-    }
-  },
-});
-
 async function postToApple(
   url: string,
   values: Readonly<Record<string, string>>,
@@ -166,7 +152,21 @@ async function exchangeAuthorizationCode(
   return body.refresh_token;
 }
 
-async function revokeAppleToken(refreshToken: string): Promise<void> {
+async function appleErrorCode(response: Response): Promise<string | undefined> {
+  try {
+    const body: unknown = await response.json();
+    return isRecord(body) && typeof body.error === 'string'
+      ? body.error
+      : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+async function revokeAppleToken(
+  refreshToken: string,
+  acceptAlreadyRevoked: boolean,
+): Promise<void> {
   const response = await postToApple(appleRevokeUrl, {
     client_id: requiredEnvironmentValue('APPLE_BUNDLE_ID'),
     client_secret: appleClientSecret(),
@@ -177,6 +177,13 @@ async function revokeAppleToken(refreshToken: string): Promise<void> {
     throw retryableAppleError();
   }
   if (!response.ok) {
+    if (
+      acceptAlreadyRevoked &&
+      response.status === 400 &&
+      (await appleErrorCode(response)) === 'invalid_grant'
+    ) {
+      return;
+    }
     throw new Error('Apple authorization revocation failed');
   }
 }
@@ -198,6 +205,7 @@ export const deleteProductAccount = action({
       | {
           phase: 'deleting-data' | 'revocation-pending';
           requestId: Id<'productAccountDeletionRequests'>;
+          revocationPreviouslyAttempted: boolean;
           revocationMaterial?: RevocationMaterial;
           state: 'pending';
         }
@@ -234,7 +242,14 @@ export const deleteProductAccount = action({
             { attemptId, refreshToken, requestId: prepared.requestId },
           );
         }
-        await revokeAppleToken(refreshToken);
+        await ctx.runMutation(
+          internal.productAccountDeletionData.markRevocationAttemptStarted,
+          { attemptId, requestId: prepared.requestId },
+        );
+        await revokeAppleToken(
+          refreshToken,
+          prepared.revocationPreviouslyAttempted,
+        );
       } catch (error) {
         if (
           error instanceof Error &&
@@ -266,7 +281,7 @@ export const deleteProductAccount = action({
     if (!complete) {
       await ctx.scheduler.runAfter(
         0,
-        internal.productAccountDeletion.continueProductAccountDeletion,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
         { requestId: prepared.requestId },
       );
     }

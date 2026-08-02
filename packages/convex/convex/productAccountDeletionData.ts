@@ -3,9 +3,11 @@ import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx } from './_generated/server.js';
 
+import { internal } from './_generated/api.js';
 import { internalMutation } from './_generated/server.js';
 
 const deletionBatchSize = 50;
+const encryptedPayloadDeletionBatchSize = 4;
 const deletionAttemptLeaseMilliseconds = 60_000;
 
 const revocationMaterialValidator = v.union(
@@ -102,6 +104,8 @@ export const prepareDeletion = internalMutation({
         phase: existing.phase,
         // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
         requestId: existing._id,
+        revocationPreviouslyAttempted:
+          existing.revocationAttemptedAt !== undefined,
         revocationMaterial,
         state: 'pending' as const,
       };
@@ -136,6 +140,7 @@ export const prepareDeletion = internalMutation({
     return {
       phase: 'revocation-pending' as const,
       requestId,
+      revocationPreviouslyAttempted: false,
       revocationMaterial,
       state: 'pending' as const,
     };
@@ -149,6 +154,7 @@ export const prepareDeletion = internalMutation({
         v.literal('deleting-data'),
       ),
       requestId: v.id('productAccountDeletionRequests'),
+      revocationPreviouslyAttempted: v.boolean(),
       revocationMaterial: v.optional(revocationMaterialValidator),
       state: v.literal('pending'),
     }),
@@ -174,6 +180,28 @@ export const storeRefreshToken = internalMutation({
         kind: 'refresh-token',
         value: args.refreshToken,
       },
+      updatedAt: Date.now(),
+    });
+    return null;
+  },
+  returns: v.null(),
+});
+
+export const markRevocationAttemptStarted = internalMutation({
+  args: {
+    attemptId: v.string(),
+    requestId: v.id('productAccountDeletionRequests'),
+  },
+  handler: async (ctx, args) => {
+    const request = await ownedDeletionRequest(ctx, args.requestId);
+    if (
+      request.phase !== 'revocation-pending' ||
+      request.activeAttemptId !== args.attemptId
+    ) {
+      throw new Error('Product Account deletion attempt superseded');
+    }
+    await ctx.db.patch(args.requestId, {
+      revocationAttemptedAt: Date.now(),
       updatedAt: Date.now(),
     });
     return null;
@@ -231,9 +259,15 @@ export const markRevocationComplete = internalMutation({
       request.phase === 'revocation-pending' &&
       request.activeAttemptId === args.attemptId
     ) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        { requestId: args.requestId },
+      );
       await ctx.db.patch(args.requestId, {
         activeAttemptId: undefined,
         phase: 'deleting-data',
+        revocationAttemptedAt: undefined,
         revocationMaterial: undefined,
         updatedAt: Date.now(),
       });
@@ -292,89 +326,111 @@ async function deleteMicrosoftGraphRouteWork(
   return true;
 }
 
+async function deleteNextBatchData(
+  ctx: MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex mutation context is mutated by design.
+  requestId: Id<'productAccountDeletionRequests'>,
+): Promise<boolean> {
+  const request = await ctx.db.get(requestId);
+  if (request === null) {
+    return true;
+  }
+  if (request.phase !== 'deleting-data') {
+    throw new Error('Apple authorization revocation required');
+  }
+  const payloads = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(encryptedPayloadDeletionBatchSize);
+  if (payloads.length > 0) {
+    for (const payload of payloads) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(payload._id);
+    }
+    return false;
+  }
+  if (await deleteGmailRouteWork(ctx, request.productAccountId)) {
+    return false;
+  }
+  if (await deleteMicrosoftGraphRouteWork(ctx, request.productAccountId)) {
+    return false;
+  }
+  const bindings = await ctx.db
+    .query('gmailOpaqueIdentityBindings')
+    .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (bindings.length > 0) {
+    for (const binding of bindings) {
+      // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+      await ctx.db.delete(binding._id);
+    }
+    return false;
+  }
+  const devices = await ctx.db
+    .query('trustedDevices')
+    .withIndex('by_productAccountId', (q) =>
+      q.eq('productAccountId', request.productAccountId),
+    )
+    .take(deletionBatchSize);
+  if (devices.length > 0) {
+    for (const device of devices) {
+      const { _id: deviceId } = device;
+      const heartbeat = await ctx.db
+        .query('devicePushRouteHeartbeats')
+        .withIndex('by_trustedDeviceId', (q) =>
+          q.eq('trustedDeviceId', deviceId),
+        )
+        .unique();
+      if (heartbeat !== null) {
+        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
+        await ctx.db.delete(heartbeat._id);
+      }
+      await ctx.db.delete(deviceId);
+    }
+    return false;
+  }
+  const tombstone = await ctx.db
+    .query('productAccountDeletionTombstones')
+    .withIndex('by_tokenIdentifier', (q) =>
+      q.eq('tokenIdentifier', request.tokenIdentifier),
+    )
+    .unique();
+  if (tombstone === null) {
+    await ctx.db.insert('productAccountDeletionTombstones', {
+      deletedAt: Date.now(),
+      tokenIdentifier: request.tokenIdentifier,
+    });
+  }
+  const account = await ctx.db.get(request.productAccountId);
+  if (account !== null) {
+    await ctx.db.delete(request.productAccountId);
+  }
+  await ctx.db.delete(requestId);
+  return true;
+}
+
 export const deleteNextBatch = internalMutation({
   args: { requestId: v.id('productAccountDeletionRequests') },
-  handler: async (ctx, args) => {
-    const request = await ctx.db.get(args.requestId);
-    if (request === null) {
-      throw new Error('Product Account deletion request required');
-    }
-    if (request.phase !== 'deleting-data') {
-      throw new Error('Apple authorization revocation required');
-    }
-    const payloads = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId', (q) =>
-        q.eq('productAccountId', request.productAccountId),
-      )
-      .take(deletionBatchSize);
-    if (payloads.length > 0) {
-      for (const payload of payloads) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(payload._id);
-      }
-      return { complete: false };
-    }
-    if (await deleteGmailRouteWork(ctx, request.productAccountId)) {
-      return { complete: false };
-    }
-    if (await deleteMicrosoftGraphRouteWork(ctx, request.productAccountId)) {
-      return { complete: false };
-    }
-    const bindings = await ctx.db
-      .query('gmailOpaqueIdentityBindings')
-      .withIndex('by_productAccountId_and_opaqueConnectionId', (q) =>
-        q.eq('productAccountId', request.productAccountId),
-      )
-      .take(deletionBatchSize);
-    if (bindings.length > 0) {
-      for (const binding of bindings) {
-        // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-        await ctx.db.delete(binding._id);
-      }
-      return { complete: false };
-    }
-    const devices = await ctx.db
-      .query('trustedDevices')
-      .withIndex('by_productAccountId', (q) =>
-        q.eq('productAccountId', request.productAccountId),
-      )
-      .take(deletionBatchSize);
-    if (devices.length > 0) {
-      for (const device of devices) {
-        const { _id: deviceId } = device;
-        const heartbeat = await ctx.db
-          .query('devicePushRouteHeartbeats')
-          .withIndex('by_trustedDeviceId', (q) =>
-            q.eq('trustedDeviceId', deviceId),
-          )
-          .unique();
-        if (heartbeat !== null) {
-          // oxlint-disable-next-line eslint/no-underscore-dangle -- Convex document id field
-          await ctx.db.delete(heartbeat._id);
-        }
-        await ctx.db.delete(deviceId);
-      }
-      return { complete: false };
-    }
-    const tombstone = await ctx.db
-      .query('productAccountDeletionTombstones')
-      .withIndex('by_tokenIdentifier', (q) =>
-        q.eq('tokenIdentifier', request.tokenIdentifier),
-      )
-      .unique();
-    if (tombstone === null) {
-      await ctx.db.insert('productAccountDeletionTombstones', {
-        deletedAt: Date.now(),
-        tokenIdentifier: request.tokenIdentifier,
-      });
-    }
-    const account = await ctx.db.get(request.productAccountId);
-    if (account !== null) {
-      await ctx.db.delete(request.productAccountId);
-    }
-    await ctx.db.delete(args.requestId);
-    return { complete: true };
-  },
+  handler: async (ctx, args) => ({
+    complete: await deleteNextBatchData(ctx, args.requestId),
+  }),
   returns: v.object({ complete: v.boolean() }),
+});
+
+export const continueProductAccountDeletion = internalMutation({
+  args: { requestId: v.id('productAccountDeletionRequests') },
+  handler: async (ctx, args): Promise<null> => {
+    if (!(await deleteNextBatchData(ctx, args.requestId))) {
+      await ctx.scheduler.runAfter(
+        0,
+        internal.productAccountDeletionData.continueProductAccountDeletion,
+        args,
+      );
+    }
+    return null;
+  },
+  returns: v.null(),
 });
