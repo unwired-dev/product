@@ -3,9 +3,24 @@ import Network
 import Observation
 import SwiftUI
 
-enum AttachmentDownloadTrigger {
+enum AttachmentDownloadTrigger: Equatable {
   case automatic
   case userInitiated
+}
+
+struct AttachmentDownloadRequestTracker {
+  private(set) var requestCount = 0
+  private var consumedRequestCount = 0
+
+  mutating func request() {
+    requestCount += 1
+  }
+
+  mutating func consumeTrigger() -> AttachmentDownloadTrigger {
+    guard requestCount > consumedRequestCount else { return .automatic }
+    consumedRequestCount = requestCount
+    return .userInitiated
+  }
 }
 
 enum AttachmentDownloadError: LocalizedError {
@@ -125,7 +140,7 @@ private struct MessageAttachmentRow: View {
   @Environment(MessageContentPreferences.self) private var preferences: MessageContentPreferences?
   @State private var downloadedURL: URL?
   @State private var errorMessage: String?
-  @State private var manualRequest = 0
+  @State private var requestTracker = AttachmentDownloadRequestTracker()
 
   var body: some View {
     HStack {
@@ -150,13 +165,13 @@ private struct MessageAttachmentRow: View {
         }
       } else {
         Button(errorMessage == nil ? "Download" : "Try Again") {
-          manualRequest += 1
+          requestTracker.request()
         }
         .accessibilityIdentifier("download-message-attachment")
       }
     }
     .task(id: taskId) {
-      let trigger: AttachmentDownloadTrigger = manualRequest == 0 ? .automatic : .userInitiated
+      let trigger = requestTracker.consumeTrigger()
       let policy = preferences?.attachmentDownloadPolicy ?? .onDemand
       let network = networkMonitor?.network ?? .offline
       let store = DownloadedAttachmentStore()
@@ -198,16 +213,30 @@ private struct MessageAttachmentRow: View {
   private var taskId: String {
     let policy = preferences?.attachmentDownloadPolicy.rawValue ?? "onDemand"
     let network = String(describing: networkMonitor?.network ?? .offline)
-    return "\(policy):\(network):\(manualRequest)"
+    return "\(policy):\(network):\(requestTracker.requestCount)"
   }
 }
 
 struct DownloadedAttachmentStore {
+  private struct StoredFile {
+    let date: Date
+    let size: Int
+    let url: URL
+  }
+
+  static let maximumStoredByteCount = 250 * 1_024 * 1_024
+
   private let fileManager: FileManager
+  private let maximumStoredByteCount: Int
   private let rootDirectory: URL
 
-  init(fileManager: FileManager = .default, rootDirectory: URL? = nil) {
+  init(
+    fileManager: FileManager = .default,
+    rootDirectory: URL? = nil,
+    maximumStoredByteCount: Int = Self.maximumStoredByteCount
+  ) {
     self.fileManager = fileManager
+    self.maximumStoredByteCount = maximumStoredByteCount
     self.rootDirectory =
       rootDirectory
       ?? fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
@@ -222,6 +251,7 @@ struct DownloadedAttachmentStore {
     let destination = destinationURL(attachment: attachment, messageId: messageId)
     let directory = destination.deletingLastPathComponent()
     try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+    try makeRoom(for: data.count, excluding: destination)
     try data.write(to: destination, options: [.atomic, .completeFileProtection])
     return destination
   }
@@ -234,17 +264,64 @@ struct DownloadedAttachmentStore {
     return fileManager.fileExists(atPath: destination.path) ? destination : nil
   }
 
+  func clear(connectionId: MailboxConnectionId) throws {
+    let directory = connectionDirectory(connectionId)
+    guard fileManager.fileExists(atPath: directory.path) else { return }
+    try fileManager.removeItem(at: directory)
+  }
+
+  func clearAll() throws {
+    guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
+    try fileManager.removeItem(at: rootDirectory)
+  }
+
   private func destinationURL(
     attachment: MailboxMessageAttachment,
     messageId: StableProviderMessageIdentity
   ) -> URL {
     let digest = SHA256.hash(data: Data("\(messageId.rawValue):\(attachment.id)".utf8))
       .map { String(format: "%02x", $0) }.joined()
-    let directory = rootDirectory.appendingPathComponent(digest, isDirectory: true)
+    let directory = connectionDirectory(messageId.connectionId)
+      .appendingPathComponent(digest, isDirectory: true)
     let pathComponent = URL(fileURLWithPath: attachment.filename).lastPathComponent
     let filename =
       pathComponent.isEmpty || pathComponent == "." || pathComponent == ".."
       ? "Attachment" : pathComponent
     return directory.appendingPathComponent(filename)
+  }
+
+  private func connectionDirectory(_ connectionId: MailboxConnectionId) -> URL {
+    let digest = SHA256.hash(data: Data(connectionId.rawValue.utf8))
+      .map { String(format: "%02x", $0) }.joined()
+    return rootDirectory.appendingPathComponent(digest, isDirectory: true)
+  }
+
+  private func makeRoom(for byteCount: Int, excluding destination: URL) throws {
+    guard fileManager.fileExists(atPath: rootDirectory.path) else { return }
+    let keys: Set<URLResourceKey> = [.contentModificationDateKey, .fileSizeKey, .isRegularFileKey]
+    guard
+      let enumerator = fileManager.enumerator(
+        at: rootDirectory,
+        includingPropertiesForKeys: Array(keys),
+        options: [.skipsHiddenFiles]
+      )
+    else { return }
+    let files = enumerator.compactMap { item -> StoredFile? in
+      guard let url = item as? URL, url != destination,
+        let values = try? url.resourceValues(forKeys: keys),
+        values.isRegularFile == true
+      else { return nil }
+      return StoredFile(
+        date: values.contentModificationDate ?? .distantPast,
+        size: values.fileSize ?? 0,
+        url: url
+      )
+    }
+    var storedByteCount = files.reduce(0) { $0 + $1.size }
+    for file in files.sorted(by: { $0.date < $1.date })
+    where storedByteCount + byteCount > maximumStoredByteCount {
+      try fileManager.removeItem(at: file.url)
+      storedByteCount -= file.size
+    }
   }
 }

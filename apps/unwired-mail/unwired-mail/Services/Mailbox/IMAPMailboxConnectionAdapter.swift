@@ -2016,6 +2016,11 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     } catch {
       if firstError == nil { firstError = error }
     }
+    do {
+      try DownloadedAttachmentStore().clearAll()
+    } catch {
+      if firstError == nil { firstError = error }
+    }
     if let firstError { throw firstError }
   }
 
@@ -2024,6 +2029,7 @@ struct MailboxConnectionRouter: MailboxConnectionAdapter, MailboxConnectionSnaps
     session: ProductAccountSessionSnapshot
   ) async throws {
     try await adapter(for: connection.id).clearLocalConnection(connection, session: session)
+    try DownloadedAttachmentStore().clear(connectionId: connection.id)
   }
 
   @MainActor

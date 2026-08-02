@@ -380,6 +380,15 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     }
   }
 
+  func testManualAttachmentDownloadConsentIsConsumedOnce() {
+    var tracker = AttachmentDownloadRequestTracker()
+
+    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+    tracker.request()
+    XCTAssertEqual(tracker.consumeTrigger(), .userInitiated)
+    XCTAssertEqual(tracker.consumeTrigger(), .automatic)
+  }
+
   func testDownloadedAttachmentStoreReusesBoundedLocalFile() throws {
     let rootDirectory = FileManager.default.temporaryDirectory
       .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
@@ -409,6 +418,46 @@ final class SettingsDestinationRegistryTests: XCTestCase {
 
     XCTAssertEqual(store.existingURL(attachment: attachment, messageId: messageId), savedURL)
     XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+  }
+
+  func testDownloadedAttachmentStoreEvictsOldFilesAndClearsConnectionData() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(
+      rootDirectory: rootDirectory,
+      maximumStoredByteCount: 3
+    )
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    let firstMessageId = StableProviderMessageIdentity(
+      connectionId: connectionId,
+      providerMessageId: "message-001"
+    )
+    let secondMessageId = StableProviderMessageIdentity(
+      connectionId: connectionId,
+      providerMessageId: "message-002"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "receipt.pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+
+    _ = try store.save(Data("ONE".utf8), attachment: attachment, messageId: firstMessageId)
+    _ = try store.save(Data("TWO".utf8), attachment: attachment, messageId: secondMessageId)
+
+    XCTAssertNil(store.existingURL(attachment: attachment, messageId: firstMessageId))
+    XCTAssertNotNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
+
+    try store.clear(connectionId: connectionId)
+
+    XCTAssertNil(store.existingURL(attachment: attachment, messageId: secondMessageId))
   }
 
   @MainActor

@@ -1426,6 +1426,18 @@ struct GmailMessageBodyService: GmailCachedMessageBodyReading, GmailMessageReadi
       maximumPresentationByteCount: maximumAttachmentByteCount
     )
     guard !candidates.isEmpty else {
+      if !attachments.isEmpty {
+        return GmailMessageBodyFetchResult(
+          text: "",
+          plain: nil,
+          plainPart: nil,
+          html: nil,
+          htmlPart: nil,
+          inlineImages: [],
+          attachments: attachments,
+          didResolveInlineImages: true
+        )
+      }
       throw GmailMessageBodyError.missingMessageBody
     }
     var decodingError: Error?

@@ -1667,6 +1667,7 @@ private struct RecoveryKeyPresentation: View {
             AppearanceSettingsView(navigationRequest: request)
           case .privacyAndData:
             PrivacyDataSettingsView(connections: gmailViewModel.connections)
+              .task { await gmailViewModel.load() }
           default:
             EmptyView()
           }

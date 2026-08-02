@@ -245,6 +245,33 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReadExposesAttachmentWhenMessageHasNoTextBody() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {
+                "filename":"receipt.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"attachmentId":"file-001","size":3}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "")
+    XCTAssertEqual(body.attachments.map(\.id), ["file-001"])
+  }
+
   func testReadExposesPresentationScopedDataBackedAttachment() async throws {
     let fixture = try makeFixture(
       messageResponse:
