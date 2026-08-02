@@ -5,6 +5,7 @@ import Foundation
 enum ConvexClientError: LocalizedError, Equatable {
   case missingConvexURL
   case httpError(statusCode: Int)
+  case httpActionError(statusCode: Int, message: String?)
   case convexFailure(status: String, message: String?)
   case decodeError
 
@@ -14,6 +15,11 @@ enum ConvexClientError: LocalizedError, Equatable {
       return
         "Set CONVEX_URL in the scheme environment, apps/unwired-mail/.env.local, or local Xcode configuration."
     case .httpError(let statusCode):
+      return "The backend returned HTTP status \(statusCode)."
+    case .httpActionError(let statusCode, let message):
+      if let message, !message.isEmpty {
+        return message
+      }
       return "The backend returned HTTP status \(statusCode)."
     case .convexFailure(let status, let message):
       if let message, !message.isEmpty {
@@ -32,15 +38,24 @@ final class ConvexClient {
   private let convexURL: URL?
   private let session: URLSession
 
-  init(
+  convenience init(
     convexURL: URL? = BackendEnvironment.convexURL,
-    convexSiteURL: URL? = BackendEnvironment.convexSiteURL,
+    session: URLSession = .shared
+  ) {
+    let convexSiteURL =
+      convexURL == BackendEnvironment.convexURL
+      ? BackendEnvironment.convexSiteURL
+      : BackendEnvironment.resolveConvexSiteURL(explicitValue: nil, convexURL: convexURL)
+    self.init(convexURL: convexURL, convexSiteURL: convexSiteURL, session: session)
+  }
+
+  init(
+    convexURL: URL?,
+    convexSiteURL: URL?,
     session: URLSession = .shared
   ) {
     self.convexURL = convexURL
-    self.convexSiteURL =
-      convexSiteURL
-      ?? BackendEnvironment.resolveConvexSiteURL(explicitValue: nil, convexURL: convexURL)
+    self.convexSiteURL = convexSiteURL
     self.session = session
   }
 
@@ -440,7 +455,10 @@ final class ConvexClient {
     }
     guard (200..<300).contains(httpResponse.statusCode) else {
       let message = String(data: data, encoding: .utf8)
-      throw ConvexClientError.convexFailure(status: "failure", message: message)
+      throw ConvexClientError.httpActionError(
+        statusCode: httpResponse.statusCode,
+        message: message
+      )
     }
 
     return try JSONDecoder().decode(Response.self, from: data)

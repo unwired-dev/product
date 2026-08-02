@@ -11,6 +11,7 @@ import { decodeGmailPushEnvelope } from './gmailPushPayload.js';
 const http = httpRouter();
 const maxMicrosoftGraphNotificationsPerRequest = 100;
 const recentAuthenticationMaximumAgeSeconds = 5 * 60;
+const recentAuthenticationClockSkewSeconds = 5;
 
 type RecoveryMaterialRequest = Readonly<{
   encryptedPayload: EncryptedProductSyncPayloadBody;
@@ -96,7 +97,7 @@ function recentlyIssuedForIdentity(
   }
   const now = Math.floor(Date.now() / 1000);
   return (
-    claims.iat <= now &&
+    claims.iat <= now + recentAuthenticationClockSkewSeconds &&
     now - claims.iat <= recentAuthenticationMaximumAgeSeconds
   );
 }
@@ -158,11 +159,21 @@ async function replaceRecoveryMaterialResponse(
     return new Response('Invalid Recovery Key material', { status: 400 });
   }
 
-  const payload = await ctx.runMutation(
-    internal.productSync.replaceRecoveryMaterialIfUnchanged,
-    args,
-  );
-  return Response.json(payload);
+  try {
+    const payload = await ctx.runMutation(
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
+      args,
+    );
+    return Response.json(payload);
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message.includes('Trusted device required')
+    ) {
+      return new Response('Trusted device required', { status: 403 });
+    }
+    throw error;
+  }
 }
 
 function decodeRequestEnvelope(

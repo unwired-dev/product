@@ -265,6 +265,109 @@ describe('productSync encrypted payloads', () => {
     expect(staleToken.status).toBe(401);
   });
 
+  it('accepts small Apple authentication clock skew', async () => {
+    expect.assertions(1);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
+        encryptedPayload,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000) + 5)}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    ['missing encrypted payload', { trustedDeviceId: 'device' }],
+    [
+      'invalid algorithm',
+      {
+        encryptedPayload: { ...encryptedPayload, algorithm: 'AES-128' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid ciphertext',
+      {
+        encryptedPayload: { ...encryptedPayload, ciphertextBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid key version',
+      {
+        encryptedPayload: { ...encryptedPayload, keyVersion: '1' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid nonce',
+      {
+        encryptedPayload: { ...encryptedPayload, nonceBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid schema version',
+      {
+        encryptedPayload: { ...encryptedPayload, schemaVersion: '1' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid tag',
+      {
+        encryptedPayload: { ...encryptedPayload, tagBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    ['invalid trusted device', { encryptedPayload, trustedDeviceId: 1 }],
+    [
+      'invalid expected update time',
+      { encryptedPayload, expectedUpdatedAt: 'now', trustedDeviceId: 'device' },
+    ],
+  ])('rejects malformed Recovery Key material: %s', async (_name, body) => {
+    expect.assertions(1);
+
+    const { asUser } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify(body),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(400);
+  });
+
+  it('returns a client error for an unknown trusted device', async () => {
+    expect.assertions(1);
+
+    const { asUser } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
+        encryptedPayload,
+        trustedDeviceId: 'not-a-convex-id',
+      }),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(403);
+  });
+
   it('publishes Recovery Key material with a freshly issued Apple bearer token', async () => {
     expect.assertions(2);
 

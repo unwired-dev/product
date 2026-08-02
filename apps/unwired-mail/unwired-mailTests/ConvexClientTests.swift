@@ -579,6 +579,46 @@ final class ConvexClientProductSyncTests: XCTestCase {
     XCTAssertEqual(response.payloadIdentifier, "product-account-recovery-v1")
   }
 
+  func testCustomConvexURLDerivesMatchingSiteURL() async {
+    let client = ConvexClient(
+      convexURL: URL(string: "https://custom.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        XCTAssertEqual(request.url?.host(), "custom.convex.site")
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 401,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, Data("Recent authentication required".utf8))
+      }
+    )
+
+    do {
+      _ = try await client.replaceRecoveryMaterialIfUnchanged(
+        identityToken: "stale-token",
+        encryptedPayload: ProductSyncEncryptedPayload(
+          algorithm: "AES-GCM-256",
+          ciphertextBase64: "Y2lwaGVydGV4dA",
+          keyVersion: 1,
+          nonceBase64: "bm9uY2U",
+          schemaVersion: 1,
+          tagBase64: "dGFn"
+        ),
+        trustedDeviceId: "trustedDeviceFixtureId",
+        expectedUpdatedAt: nil
+      )
+      XCTFail("Expected HTTP action error")
+    } catch let error as ConvexClientError {
+      XCTAssertEqual(
+        error,
+        .httpActionError(statusCode: 401, message: "Recent authentication required")
+      )
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
   func testListEncryptedProductSyncPayloadsSendsAuthenticatedPrefixedQuery() async throws {
     let firstPageEnvelope = """
       {
