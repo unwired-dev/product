@@ -160,6 +160,7 @@ final class ProductAccountSessionTests: XCTestCase {
     )
     let mailboxConnectionService = RecordingGmailProviderConnecting()
     let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    let productSyncCacheClearer = RecordingProductSyncCacheClearer()
     let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
     let session = ProductAccountSession(
       appleSignInService: PreviewAppleSignInService(
@@ -173,6 +174,7 @@ final class ProductAccountSessionTests: XCTestCase {
       sessionStore: store,
       mailboxConnectionService: mailboxConnectionService,
       outboxDeliveryService: outboxCleaner,
+      productSyncCacheClearer: productSyncCacheClearer,
       productSyncKeyMaterialStore: keyMaterialStore
     )
     await session.bootstrap()
@@ -190,6 +192,7 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(outboxCleaner.clearedSessions, [snapshot])
     XCTAssertNil(try store.load())
     XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(productSyncCacheClearer.clearedProductAccountIds, [snapshot.productAccountId])
     XCTAssertTrue(mailActionViewModel.isPreparingForSignOut)
     XCTAssertEqual(try store.loadPendingTrustedDeviceUnregistrations(), [])
   }
@@ -227,6 +230,39 @@ final class ProductAccountSessionTests: XCTestCase {
 
     await session.deleteProductAccount()
     XCTAssertFalse(mailActionViewModel.isPreparingForSignOut)
+  }
+
+  func testProductAccountDeletionLeavesTombstonedSessionOutOfSignedInStateWhenCleanupFails()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    let outboxCleaner = RecordingOutboxDeliveryCleaner()
+    outboxCleaner.clearError = ProductAccountSessionTestError.outboxCleanupFailed
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: RecordingDeletionProductAccountService(
+        response: Self.restorableResponse
+      ),
+      sessionStore: store,
+      outboxDeliveryService: outboxCleaner,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(
+      session.state,
+      .failed(ProductAccountSessionTestError.outboxCleanupFailed.localizedDescription)
+    )
+    XCTAssertEqual(try store.loadPendingDeletedProductAccountId(), snapshot.productAccountId)
   }
 
   func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
@@ -1816,6 +1852,7 @@ final class ProductAccountSessionTests: XCTestCase {
       trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
     )
     let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingTrustedDeviceUnregistration(
       PendingTrustedDeviceUnregistration(
@@ -1843,7 +1880,42 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(session.state, .signedOut)
     XCTAssertTrue(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
     XCTAssertNil(try sessionStore.loadPendingSignOutProductAccountId())
-    XCTAssertEqual(productAccountService.unregisteredTrustedDeviceIds, [snapshot.trustedDeviceId])
+    XCTAssertNil(try sessionStore.loadPendingDeletedProductAccountId())
+    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
+  }
+
+  func testBootstrapDoesNotPersistUnregistrationRetryForInterruptedDeletedAccount()
+    async throws
+  {
+    let snapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    let sessionStore = ControllableProductAccountSessionStore(snapshot: snapshot)
+    try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    let productAccountService = RecordingProductAccountService(response: .preview)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: productAccountService,
+      sessionStore: sessionStore,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertTrue(try sessionStore.loadPendingTrustedDeviceUnregistrations().isEmpty)
+    XCTAssertNil(try sessionStore.loadPendingDeletedProductAccountId())
+    XCTAssertTrue(productAccountService.unregisteredTrustedDeviceIds.isEmpty)
   }
 
   func testBootstrapDoesNotPromptForInterruptedSignOutWithUnverifiableToken() async throws {
@@ -3570,6 +3642,14 @@ private enum ProductAccountSessionTestError: Error {
   case unexpectedAuthenticationRequest
 }
 
+private final class RecordingProductSyncCacheClearer: ProductSyncCacheClearing {
+  private(set) var clearedProductAccountIds: [String] = []
+
+  func clear(productAccountId: String) throws {
+    clearedProductAccountIds.append(productAccountId)
+  }
+}
+
 private final class RecordingProductAccountService: ProductAccountConnecting {
   var materialInitializationIdentityTokens: [String] = []
   var recoveryBackedUp = true
@@ -3675,6 +3755,7 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
   var unacknowledgedRecoveryKeySaveError: Error?
   var pendingOutboxCleanupSaveError: Error?
 
+  private var pendingDeletedProductAccountId: String?
   private var pendingSignOutProductAccountId: String?
   private var pendingOutboxCleanupProductAccountId: String?
   private var pendingTrustedDeviceUnregistrations: [String: PendingTrustedDeviceUnregistration] =
@@ -3750,6 +3831,18 @@ private final class ControllableProductAccountSessionStore: ProductAccountSessio
 
   func clearPendingTrustedDeviceUnregistration(trustedDeviceId: String) throws {
     pendingTrustedDeviceUnregistrations[trustedDeviceId] = nil
+  }
+
+  func loadPendingDeletedProductAccountId() throws -> String? {
+    pendingDeletedProductAccountId
+  }
+
+  func savePendingDeletedProductAccountId(_ productAccountId: String) throws {
+    pendingDeletedProductAccountId = productAccountId
+  }
+
+  func clearPendingDeletedProductAccountId() throws {
+    pendingDeletedProductAccountId = nil
   }
 
   func loadPendingSignOutProductAccountId() throws -> String? {

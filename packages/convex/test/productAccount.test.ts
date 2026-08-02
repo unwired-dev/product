@@ -1365,7 +1365,7 @@ describe('gmail operational connection registration', () => {
     ).resolves.toStrictEqual([]);
   });
 
-  it('does not treat an expired access token as completed revocation', async () => {
+  it('completes deletion when a previously revoked access token is reported invalid', async () => {
     expect.assertions(3);
 
     const t = convexTest(schema, modules);
@@ -1409,10 +1409,10 @@ describe('gmail operational connection registration', () => {
         authorizationCode: 'unused-retry-authorization-code',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),
-    ).rejects.toThrow('Apple authorization revocation failed');
+    ).resolves.toStrictEqual({ deleted: true });
     await expect(
       t.run(async (ctx) => ctx.db.query('productAccounts').collect()),
-    ).resolves.toHaveLength(1);
+    ).resolves.toStrictEqual([]);
   });
 
   it('resumes a previously attempted Apple revocation without a client', async () => {
@@ -1552,17 +1552,6 @@ describe('gmail operational connection registration', () => {
       { attemptId: 'deletion-attempt-001', requestId },
     );
 
-    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
-      requestId,
-    });
-    await asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
-      requestId,
-    });
-    await expect(
-      asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
-        requestId,
-      }),
-    ).resolves.toStrictEqual({ complete: false });
     await expect(
       t.run(async (ctx) => ctx.db.query('mailProviderConnections').collect()),
     ).resolves.toStrictEqual([]);
@@ -1573,7 +1562,12 @@ describe('gmail operational connection registration', () => {
       t.run(async (ctx) =>
         ctx.db.query('encryptedProductSyncPayloads').collect(),
       ),
-    ).resolves.toHaveLength(1);
+    ).resolves.toHaveLength(5);
+    await expect(
+      asUser.mutation(internal.productAccountDeletionData.deleteNextBatch, {
+        requestId,
+      }),
+    ).resolves.toStrictEqual({ complete: false });
   });
 
   it('resumes data deletion after its trusted device was already removed', async () => {

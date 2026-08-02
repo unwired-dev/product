@@ -5,6 +5,19 @@ import Observation
 
 private let signOutTokenValidityMargin: TimeInterval = 5 * 60
 
+protocol ProductSyncCacheClearing {
+  func clear(productAccountId: String) throws
+}
+
+struct KeychainProductSyncCacheClearer: ProductSyncCacheClearing {
+  func clear(productAccountId: String) throws {
+    try KeychainMailboxConnectionSyncCacheStore().clear(productAccountId: productAccountId)
+    try KeychainMailboxCleanupReceiptStore().clear(productAccountId: productAccountId)
+    try KeychainNotificationRuleCacheStore().clear(productAccountId: productAccountId)
+    try KeychainBackgroundContextCacheStore().clear(productAccountId: productAccountId)
+  }
+}
+
 extension ProductSyncRecoveryKey {
   fileprivate init(pastedRawValue: String) throws {
     try self.init(rawValue: pastedRawValue.trimmingCharacters(in: .whitespacesAndNewlines))
@@ -76,6 +89,7 @@ final class ProductAccountSession {
   private let sessionStore: ProductAccountSessionPersisting
   private let mailboxConnectionService: MailboxConnectionClearing
   private let outboxDeliveryService: OutboxDeliveryClearing
+  private let productSyncCacheClearer: ProductSyncCacheClearing
   private let productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting
 
   init(
@@ -86,6 +100,7 @@ final class ProductAccountSession {
     sessionStore: ProductAccountSessionPersisting = KeychainProductAccountSessionStore(),
     mailboxConnectionService: MailboxConnectionClearing = ProductAccountMailboxConnectionClearer(),
     outboxDeliveryService: OutboxDeliveryClearing = OutboxDeliveryService.shared,
+    productSyncCacheClearer: ProductSyncCacheClearing = KeychainProductSyncCacheClearer(),
     productSyncKeyMaterialStore: ProductSyncKeyMaterialPersisting =
       KeychainProductSyncKeyMaterialStore()
   ) {
@@ -95,6 +110,7 @@ final class ProductAccountSession {
     self.sessionStore = sessionStore
     self.mailboxConnectionService = mailboxConnectionService
     self.outboxDeliveryService = outboxDeliveryService
+    self.productSyncCacheClearer = productSyncCacheClearer
     self.productSyncKeyMaterialStore = productSyncKeyMaterialStore
   }
 
@@ -186,8 +202,14 @@ final class ProductAccountSession {
           trustedDeviceId: snapshot.trustedDeviceId
         )
         guard response.deleted, isCurrent(snapshot) else { throw CancellationError() }
-        try await clearDeletedProductAccountSession(snapshot)
-        state = .signedOut
+        state = .loading
+        do {
+          try await clearDeletedProductAccountSession(snapshot)
+          state = .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+          throw error
+        }
       } catch is CancellationError {
       } catch {
         deletionErrorMessage = error.localizedDescription
@@ -247,6 +269,7 @@ final class ProductAccountSession {
   private func clearDeletedProductAccountSession(
     _ snapshot: ProductAccountSessionSnapshot
   ) async throws {
+    try sessionStore.savePendingDeletedProductAccountId(snapshot.productAccountId)
     try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
     clearMailboxFreshnessViewModel()
     await retireMailActionViewModelForSignOut()
@@ -965,13 +988,15 @@ extension ProductAccountSession {
   private func resumePendingSignOut(
     resumingExternalCleanup: Bool = true
   ) async throws {
-    guard
-      let productAccountId =
-        try sessionStore.loadPendingSignOutProductAccountId()
-    else {
+    let deletedProductAccountId = try sessionStore.loadPendingDeletedProductAccountId()
+    let pendingSignOutProductAccountId = try sessionStore.loadPendingSignOutProductAccountId()
+    guard let productAccountId = pendingSignOutProductAccountId ?? deletedProductAccountId else {
       return
     }
-    if resumingExternalCleanup,
+    let backendAlreadyDeleted = deletedProductAccountId == productAccountId
+    if backendAlreadyDeleted {
+      try clearPendingTrustedDeviceUnregistrations(productAccountId: productAccountId)
+    } else if resumingExternalCleanup,
       let snapshot = try sessionStore.load(),
       snapshot.productAccountId == productAccountId
     {
@@ -986,6 +1011,7 @@ extension ProductAccountSession {
       }
     }
     try sessionStore.clear()
+    try productSyncCacheClearer.clear(productAccountId: productAccountId)
     try productSyncKeyMaterialStore.clear(
       productAccountId: productAccountId
     )
@@ -993,6 +1019,7 @@ extension ProductAccountSession {
       productAccountId: productAccountId
     )
     try sessionStore.clearPendingSignOutProductAccountId()
+    try sessionStore.clearPendingDeletedProductAccountId()
   }
 
   private func resumePendingOutboxCleanup() async throws {
