@@ -4831,6 +4831,7 @@ func coordinateProductAccountSignOut(
 ) {
   mailActionViewModel.beginPreparingForSignOut()
   Task {
+    await mailActionViewModel.suspendOutboxDelivery()
     await mailActionViewModel.waitForPendingSend()
     await session.signOut(afterRecoveryCheck: preparation)
     if case .signedIn = session.state {
@@ -5217,6 +5218,10 @@ final class GmailMailActionViewModel {
     await withCheckedContinuation { continuation in
       sendCompletionWaiters.append(continuation)
     }
+  }
+
+  func suspendOutboxDelivery() async {
+    await outboxService.suspend(productAccountId: session.productAccountId)
   }
 
   func prepareForSignOut() async {
