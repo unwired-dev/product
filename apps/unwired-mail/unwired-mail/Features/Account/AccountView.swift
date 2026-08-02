@@ -1329,7 +1329,11 @@ struct AccountView: View {
         navigationSnapshot: inboxViewModel.navigationSnapshot,
         openSettings: { openSettings($0) },
         refreshMailboxes: {
-          Task { await synchronizeMailboxesFully() }
+          Task {
+            await session.revalidateTrustedDeviceAfterForegrounding()
+            guard session.isCurrent(snapshot) else { return }
+            await synchronizeMailboxesFully()
+          }
         },
         selectedMailbox: selectedMailboxBinding,
         showAccountSettings: { showsAccountSettings = true },

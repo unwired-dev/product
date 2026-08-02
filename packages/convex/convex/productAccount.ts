@@ -825,14 +825,6 @@ export const revokeTrustedDevice = mutation({
       throw new Error('Trusted device required');
     }
     if (account.productSyncPendingKeyEpoch !== undefined) {
-      if (
-        (target.productSyncKeyEpoch ?? initialProductSyncKeyEpoch) ===
-        account.productSyncPendingKeyEpoch
-      ) {
-        throw new Error(
-          'Trusted device already adopted the pending Product Sync key',
-        );
-      }
       await ctx.db.insert('revokedTrustedDevices', {
         deviceIdentifier: target.deviceIdentifier,
         productAccountId,

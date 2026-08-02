@@ -331,6 +331,34 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertEqual(transport.listIdentityToken, "stored-token")
   }
 
+  func testRevocationRequiresCurrentRecoveryMaterial() async throws {
+    let transport = RecordingAccountAndDevicesTransport()
+    let keyMaterialStore = InMemoryProductSyncKeyMaterialStore()
+    let material = try keyMaterialStore.ensureMaterial(
+      productAccountId: session.productAccountId,
+      allowCreation: true
+    )
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: keyMaterialStore,
+        recoveryTransport: transport
+      )
+    )
+
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+    XCTAssertFalse(viewModel.canRevokeTrustedDevices)
+
+    transport.remoteRecoveryMaterial = EncryptedProductSyncPayload(
+      encryptedPayload: material.recoveryWrappedAccountKey,
+      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+      updatedAt: 1
+    )
+    await viewModel.load(session: session, recentIdentityToken: { "load-token" })
+
+    XCTAssertTrue(viewModel.canRevokeTrustedDevices)
+  }
+
   func testLoadRefreshesExpiredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(

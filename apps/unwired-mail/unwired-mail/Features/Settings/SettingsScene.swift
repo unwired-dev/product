@@ -956,6 +956,10 @@ final class AccountAndDevicesViewModel {
 
   private let service: AccountAndDevicesService
 
+  var canRevokeTrustedDevices: Bool {
+    recoveryKeyStatus == .current
+  }
+
   init(service: AccountAndDevicesService = AccountAndDevicesService()) {
     self.service = service
   }
@@ -1450,7 +1454,7 @@ extension AccountAndDevicesSettingsView {
         Button("Revoke", role: .destructive) {
           deviceToRevoke = device
         }
-        .disabled(viewModel.isWorking)
+        .disabled(viewModel.isWorking || !viewModel.canRevokeTrustedDevices)
       }
     }
   }

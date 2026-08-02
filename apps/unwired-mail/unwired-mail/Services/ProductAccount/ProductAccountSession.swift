@@ -104,6 +104,9 @@ final class ProductAccountSession {
       guard isCurrent(snapshot) else { return }
       do {
         let credential = try await foregroundRevalidationCredential(snapshot)
+        guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
+          throw ProductAccountSessionError.differentAppleAccount
+        }
         let response = try await productAccountService.connect(
           identityToken: credential.identityToken
         )

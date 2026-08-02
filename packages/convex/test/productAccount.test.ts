@@ -524,6 +524,87 @@ describe('productAccount.connect', () => {
     ).resolves.toMatchObject({ encryptedPayload: nextRecoveryMaterial });
   });
 
+  it('revokes a device that already adopted a pending rotation', async () => {
+    expect.assertions(2);
+
+    const t = convexTest(schema, modules);
+    const asUser = t.withIdentity({
+      ...appleIdentity,
+      iat: Math.floor(Date.now() / 1000),
+    });
+    const currentDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-001',
+      platform: 'ios',
+    });
+    const targetDevice = await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-002',
+      platform: 'macos',
+    });
+    await asUser.mutation(api.productAccount.connect, {
+      deviceIdentifier: 'device-003',
+      platform: 'ios',
+    });
+    const initiallyRevokedDevice = await asUser.mutation(
+      api.productAccount.connect,
+      {
+        deviceIdentifier: 'device-004',
+        platform: 'macos',
+      },
+    );
+    const recoveryMaterial = await asUser.mutation(
+      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      {
+        encryptedPayload,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    const nextRecoveryMaterial = {
+      ...encryptedPayload,
+      keyVersion: 2,
+      schemaVersion: 2,
+    };
+    await asUser.mutation(api.productAccount.revokeTrustedDevice, {
+      encryptedTransition: encryptedPayload,
+      expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+      recoveryWrappedAccountKey: nextRecoveryMaterial,
+      trustedDeviceId: currentDevice.trustedDeviceId,
+      trustedDeviceToRevokeId: initiallyRevokedDevice.trustedDeviceId,
+    });
+    await asUser.mutation(
+      api.productAccount.acknowledgeProductSyncKeyRotation,
+      {
+        keyEpoch: 2,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+      },
+    );
+    await asUser.mutation(
+      api.productAccount.acknowledgeProductSyncKeyRotation,
+      {
+        keyEpoch: 2,
+        trustedDeviceId: targetDevice.trustedDeviceId,
+      },
+    );
+
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: { ...encryptedPayload, keyVersion: 2 },
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: { ...nextRecoveryMaterial, keyVersion: 3 },
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: targetDevice.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({
+      keyEpoch: 2,
+      pendingDeviceCount: 1,
+      state: 'pending',
+    });
+    await expect(
+      asUser.query(api.productAccount.listTrustedDevices, {
+        trustedDeviceId: targetDevice.trustedDeviceId,
+      }),
+    ).rejects.toMatchObject({ data: { code: 'TRUSTED_DEVICE_REVOKED' } });
+  });
+
   it('completes a pending rotation when its last unacknowledged device signs out', async () => {
     expect.assertions(2);
 

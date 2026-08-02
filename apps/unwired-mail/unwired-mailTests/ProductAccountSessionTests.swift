@@ -1989,6 +1989,52 @@ final class ProductAccountSessionTests: XCTestCase {
     )
   }
 
+  func testForegroundRevalidationRejectsAnotherAppleAccountBeforeConnecting() async throws {
+    let expiredSnapshot = ProductAccountSessionSnapshot(
+      appleUserIdentifier: Self.restorableSnapshot.appleUserIdentifier,
+      identityToken: "expired-token",
+      identityTokenExpiresAt: .distantPast,
+      productAccountId: Self.restorableSnapshot.productAccountId,
+      trustedDeviceId: Self.restorableSnapshot.trustedDeviceId
+    )
+    try store.save(expiredSnapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: expiredSnapshot.productAccountId,
+      allowCreation: true
+    )
+    let appleSignInService = RecordingForegroundAppleSignInService(
+      credential: AppleSignInCredential(
+        appleUserIdentifier: "another-apple-user",
+        identityToken: "another-user-token"
+      )
+    )
+    let productAccountService = RecordingProductAccountService(
+      response: ProductAccountConnectResponse(
+        accountCreated: false,
+        deviceRegistered: false,
+        productSyncMaterialInitialized: true,
+        productAccountId: expiredSnapshot.productAccountId,
+        trustedDeviceId: expiredSnapshot.trustedDeviceId
+      )
+    )
+    let session = ProductAccountSession(
+      appleSignInService: appleSignInService,
+      productAccountService: productAccountService,
+      sessionStore: store,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    await session.revalidateTrustedDeviceAfterForegrounding()
+
+    XCTAssertEqual(productAccountService.connectIdentityTokens, ["expired-token"])
+    guard case .signedIn(let currentSnapshot) = session.state else {
+      return XCTFail("Expected the original Product Account session to remain signed in")
+    }
+    XCTAssertEqual(currentSnapshot.appleUserIdentifier, expiredSnapshot.appleUserIdentifier)
+    XCTAssertNotEqual(currentSnapshot.identityToken, "another-user-token")
+  }
+
   func testBootstrapClearsGmailTokensWhenAppleSessionIsRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
