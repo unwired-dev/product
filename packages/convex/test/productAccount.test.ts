@@ -523,7 +523,7 @@ describe('productAccount.connect', () => {
       }),
     ).resolves.toBeNull();
     await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'product-account-recovery-v1',
         trustedDeviceId: remainingDevice.trustedDeviceId,
       }),
@@ -602,7 +602,7 @@ describe('productAccount.connect', () => {
       }),
     ).resolves.toBeNull();
     await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'product-account-recovery-v1',
         trustedDeviceId: currentDevice.trustedDeviceId,
       }),

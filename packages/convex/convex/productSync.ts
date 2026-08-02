@@ -9,8 +9,8 @@ import {
 import { paginationOptsValidator } from 'convex/server';
 import { v } from 'convex/values';
 
-import type { Doc } from './_generated/dataModel.js';
-import type { MutationCtx } from './_generated/server.js';
+import type { Doc, Id } from './_generated/dataModel.js';
+import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
 import { mutation, query } from './_generated/server.js';
 import {
@@ -249,10 +249,71 @@ async function writeEncryptedPayloadIfUnchanged(
   return updatePayload(ctx, existingPayload, args);
 }
 
+async function listEncryptedPayloadsForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  args: Readonly<{
+    paginationOpts?: Readonly<{ cursor: string | null; numItems: number }>;
+    payloadIdentifierPrefix?: string;
+  }>,
+  productAccountId: Id<'productAccounts'>,
+) {
+  const { payloadIdentifierPrefix } = args;
+  const payloadsQuery =
+    payloadIdentifierPrefix === undefined
+      ? ctx.db
+          .query('encryptedProductSyncPayloads')
+          .withIndex('by_productAccountId', (q) =>
+            q.eq('productAccountId', productAccountId),
+          )
+      : ctx.db
+          .query('encryptedProductSyncPayloads')
+          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+            q
+              .eq('productAccountId', productAccountId)
+              .gte('payloadIdentifier', payloadIdentifierPrefix)
+              .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
+          );
+  if (args.paginationOpts === undefined) {
+    const payloads = await payloadsQuery
+      .order('asc')
+      .take(encryptedProductSyncPayloadPageSize);
+
+    return payloads.map(serializePayload);
+  }
+
+  const paginationOpts = {
+    cursor: args.paginationOpts.cursor,
+    numItems: Math.min(
+      Math.max(args.paginationOpts.numItems, 1),
+      encryptedProductSyncPayloadPageSize,
+    ),
+  };
+  const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
+
+  return {
+    continueCursor: payloads.continueCursor,
+    isDone: payloads.isDone,
+    page: payloads.page.map(serializePayload),
+  };
+}
+
+const encryptedPayloadListArgs = {
+  paginationOpts: v.optional(paginationOptsValidator),
+  payloadIdentifierPrefix: v.optional(v.string()),
+};
+
 export const listEncryptedPayloads = query({
+  args: encryptedPayloadListArgs,
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
+  },
+  returns: encryptedProductSyncPayloadListResponseValidator,
+});
+
+export const listEncryptedPayloadsForTrustedDevice = query({
   args: {
-    paginationOpts: v.optional(paginationOptsValidator),
-    payloadIdentifierPrefix: v.optional(v.string()),
+    ...encryptedPayloadListArgs,
     trustedDeviceId: v.id('trustedDevices'),
   },
   handler: async (ctx, args) => {
@@ -260,49 +321,45 @@ export const listEncryptedPayloads = query({
       ctx,
       args.trustedDeviceId,
     );
-    const { payloadIdentifierPrefix } = args;
-    const payloadsQuery =
-      payloadIdentifierPrefix === undefined
-        ? ctx.db
-            .query('encryptedProductSyncPayloads')
-            .withIndex('by_productAccountId', (q) =>
-              q.eq('productAccountId', productAccountId),
-            )
-        : ctx.db
-            .query('encryptedProductSyncPayloads')
-            .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-              q
-                .eq('productAccountId', productAccountId)
-                .gte('payloadIdentifier', payloadIdentifierPrefix)
-                .lt('payloadIdentifier', `${payloadIdentifierPrefix}\uFFFF`),
-            );
-    if (args.paginationOpts === undefined) {
-      const payloads = await payloadsQuery
-        .order('asc')
-        .take(encryptedProductSyncPayloadPageSize);
-
-      return payloads.map(serializePayload);
-    }
-
-    const paginationOpts = {
-      cursor: args.paginationOpts.cursor,
-      numItems: Math.min(
-        Math.max(args.paginationOpts.numItems, 1),
-        encryptedProductSyncPayloadPageSize,
-      ),
-    };
-    const payloads = await payloadsQuery.order('asc').paginate(paginationOpts);
-
-    return {
-      continueCursor: payloads.continueCursor,
-      isDone: payloads.isDone,
-      page: payloads.page.map(serializePayload),
-    };
+    return listEncryptedPayloadsForProductAccount(ctx, args, productAccountId);
   },
   returns: encryptedProductSyncPayloadListResponseValidator,
 });
 
 export const getEncryptedPayload = query({
+  args: {
+    payloadIdentifier: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Shared query implementation is declared below the public query.
+    return getEncryptedPayloadForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
+  },
+  returns: maybeEncryptedProductSyncPayloadValidator,
+});
+
+async function getEncryptedPayloadForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  productAccountId: Id<'productAccounts'>,
+  payloadIdentifier: string,
+): Promise<EncryptedProductSyncPayload | null> {
+  const payload = await ctx.db
+    .query('encryptedProductSyncPayloads')
+    .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+      q
+        .eq('productAccountId', productAccountId)
+        .eq('payloadIdentifier', payloadIdentifier),
+    )
+    .unique();
+
+  return payload === null ? null : serializePayload(payload);
+}
+
+export const getEncryptedPayloadForTrustedDevice = query({
   args: {
     payloadIdentifier: v.string(),
     trustedDeviceId: v.id('trustedDevices'),
@@ -312,21 +369,53 @@ export const getEncryptedPayload = query({
       ctx,
       args.trustedDeviceId,
     );
-    const payload = await ctx.db
-      .query('encryptedProductSyncPayloads')
-      .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-        q
-          .eq('productAccountId', productAccountId)
-          .eq('payloadIdentifier', args.payloadIdentifier),
-      )
-      .unique();
-
-    return payload === null ? null : serializePayload(payload);
+    return getEncryptedPayloadForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifier,
+    );
   },
   returns: maybeEncryptedProductSyncPayloadValidator,
 });
 
 export const getEncryptedPayloads = query({
+  args: {
+    payloadIdentifiers: v.array(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const { productAccountId } = await requireProductAccount(ctx);
+    // oxlint-disable-next-line eslint/no-use-before-define -- Shared query implementation is declared below the public query.
+    return getEncryptedPayloadsForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifiers,
+    );
+  },
+  returns: v.array(encryptedProductSyncPayloadValidator),
+});
+
+async function getEncryptedPayloadsForProductAccount(
+  ctx: QueryCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex query context is generated mutable framework state.
+  productAccountId: Id<'productAccounts'>,
+  payloadIdentifiers: readonly string[],
+): Promise<EncryptedProductSyncPayload[]> {
+  const payloads = await Promise.all(
+    payloadIdentifiers.map(async (payloadIdentifier) =>
+      ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+          q
+            .eq('productAccountId', productAccountId)
+            .eq('payloadIdentifier', payloadIdentifier),
+        )
+        .unique(),
+    ),
+  );
+
+  return payloads.filter((payload) => payload !== null).map(serializePayload);
+}
+
+export const getEncryptedPayloadsForTrustedDevice = query({
   args: {
     payloadIdentifiers: v.array(v.string()),
     trustedDeviceId: v.id('trustedDevices'),
@@ -336,20 +425,11 @@ export const getEncryptedPayloads = query({
       ctx,
       args.trustedDeviceId,
     );
-    const payloads = await Promise.all(
-      args.payloadIdentifiers.map(async (payloadIdentifier) =>
-        ctx.db
-          .query('encryptedProductSyncPayloads')
-          .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
-            q
-              .eq('productAccountId', productAccountId)
-              .eq('payloadIdentifier', payloadIdentifier),
-          )
-          .unique(),
-      ),
+    return getEncryptedPayloadsForProductAccount(
+      ctx,
+      productAccountId,
+      args.payloadIdentifiers,
     );
-
-    return payloads.filter((payload) => payload !== null).map(serializePayload);
   },
   returns: v.array(encryptedProductSyncPayloadValidator),
 });

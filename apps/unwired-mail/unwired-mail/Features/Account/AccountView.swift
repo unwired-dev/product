@@ -1331,7 +1331,7 @@ struct AccountView: View {
         refreshMailboxes: {
           Task {
             await session.revalidateTrustedDeviceAfterForegrounding()
-            guard session.isCurrent(snapshot) else { return }
+            guard session.isCurrentSessionIdentity(snapshot) else { return }
             await synchronizeMailboxesFully()
           }
         },
@@ -1542,7 +1542,7 @@ struct AccountView: View {
       guard phase == .active else { return }
       Task {
         await session.revalidateTrustedDeviceAfterForegrounding()
-        guard session.isCurrent(snapshot) else { return }
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)

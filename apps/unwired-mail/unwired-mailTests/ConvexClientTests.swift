@@ -737,7 +737,10 @@ final class ConvexClientProductSyncTests: XCTestCase {
         let requestJSON = try XCTUnwrap(
           JSONSerialization.jsonObject(with: requestBody) as? [String: Any]
         )
-        XCTAssertEqual(requestJSON["path"] as? String, "productSync:getEncryptedPayloads")
+        XCTAssertEqual(
+          requestJSON["path"] as? String,
+          "productSync:getEncryptedPayloadsForTrustedDevice"
+        )
         let args = try XCTUnwrap(requestJSON["args"] as? [String: Any])
         XCTAssertEqual(args["payloadIdentifiers"] as? [String], ["payload-001"])
         XCTAssertEqual(args["trustedDeviceId"] as? String, "trusted-device-001")

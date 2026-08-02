@@ -397,6 +397,39 @@ final class AccountAndDevicesServiceTests: XCTestCase {
     XCTAssertNil(viewModel.errorMessage)
   }
 
+  func testRevocationRequiresCurrentRecoveryKeyBeforeCallingService() async {
+    let transport = RecordingAccountAndDevicesTransport()
+    let viewModel = AccountAndDevicesViewModel(
+      service: AccountAndDevicesService(
+        deviceTransport: transport,
+        keyMaterialStore: InMemoryProductSyncKeyMaterialStore(),
+        recoveryTransport: transport
+      )
+    )
+    var requestedAuthentication = false
+
+    await viewModel.revoke(
+      TrustedDeviceSummary(
+        displayName: "Old Mac",
+        id: "device-other",
+        lastSeenAt: 1,
+        platform: "macos",
+        registeredAt: 1
+      ),
+      session: session,
+      recentIdentityToken: {
+        requestedAuthentication = true
+        return "recent-token"
+      }
+    )
+
+    XCTAssertEqual(
+      viewModel.errorMessage,
+      AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation.localizedDescription
+    )
+    XCTAssertFalse(requestedAuthentication)
+  }
+
   func testLoadReusesActiveStoredAuthentication() async {
     let transport = RecordingAccountAndDevicesTransport()
     let viewModel = AccountAndDevicesViewModel(

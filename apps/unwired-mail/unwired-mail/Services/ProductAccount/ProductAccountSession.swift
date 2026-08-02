@@ -159,9 +159,9 @@ final class ProductAccountSession {
   }
 
   func signInWithApple() async {
+    let existingSnapshot = currentSignedInSnapshot() ?? (try? sessionStore.load())
     let coordinatedProductAccountId =
-      currentSignedInSnapshot()?.productAccountId
-      ?? (try? sessionStore.load())?.productAccountId
+      existingSnapshot?.productAccountId
       ?? pendingProductSyncRecovery?.response.productAccountId
     await withProductAccountOperation(productAccountId: coordinatedProductAccountId) {
       state = .loading
@@ -182,6 +182,23 @@ final class ProductAccountSession {
           )
         else { return }
         try await completeSignIn(credential: credential, response: response)
+      } catch ProductAccountServiceError.trustedDeviceRevoked {
+        guard let existingSnapshot else {
+          state = .signedOut
+          return
+        }
+        do {
+          let mailboxCleanupError = try await clearRevokedSession(
+            existingSnapshot,
+            persistUnregistrationRetry: false
+          )
+          clearUnacknowledgedRecoveryKeyInMemory(
+            productAccountId: existingSnapshot.productAccountId
+          )
+          state = mailboxCleanupError.map { .failed($0.localizedDescription) } ?? .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
       } catch {
         state = .failed(error.localizedDescription)
       }
@@ -444,6 +461,15 @@ extension ProductAccountSession {
 
   func isCurrent(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
     !isSigningOut && currentSignedInSnapshot() == snapshot
+  }
+
+  func isCurrentSessionIdentity(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
+    guard !isSigningOut, let currentSnapshot = currentSignedInSnapshot() else {
+      return false
+    }
+    return currentSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier
+      && currentSnapshot.productAccountId == snapshot.productAccountId
+      && currentSnapshot.trustedDeviceId == snapshot.trustedDeviceId
   }
 
   private func signOutSnapshotWasReplaced(
@@ -976,7 +1002,7 @@ extension ProductAccountSession {
     let viewModel = MailboxFreshnessViewModel(
       service: service,
       session: snapshot,
-      isSessionCurrent: { self.isCurrent($0) }
+      isSessionCurrent: { self.isCurrentSessionIdentity($0) }
     )
     mailboxFreshnessSession = snapshot
     mailboxFreshnessViewModel = viewModel

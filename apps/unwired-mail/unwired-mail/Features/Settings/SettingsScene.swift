@@ -998,6 +998,9 @@ final class AccountAndDevicesViewModel {
     isWorking = true
     defer { isWorking = false }
     do {
+      guard canRevokeTrustedDevices else {
+        throw AccountAndDevicesServiceError.recoveryKeyUnavailableForRevocation
+      }
       let response = try await service.revokeDevice(
         device,
         session: session,

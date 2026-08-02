@@ -84,10 +84,13 @@ describe('productSync encrypted payloads', () => {
       connect.trustedDeviceId,
       'payload-001',
     );
-    const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: firstPage,
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const listed = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: firstPage,
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
 
     expect(stored).toMatchObject({
       encryptedPayload,
@@ -97,6 +100,33 @@ describe('productSync encrypted payloads', () => {
       isDone: true,
       page: [stored],
     });
+  });
+
+  it('keeps legacy Product Sync reads compatible without a trusted device argument', async () => {
+    expect.assertions(3);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const stored = await putPayload(
+      asUser,
+      connect.trustedDeviceId,
+      'payload-001',
+    );
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayload, {
+        payloadIdentifier: 'payload-001',
+      }),
+    ).resolves.toStrictEqual(stored);
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloads, {
+        payloadIdentifiers: ['payload-001'],
+      }),
+    ).resolves.toStrictEqual([stored]);
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloads, {
+        paginationOpts: firstPage,
+      }),
+    ).resolves.toMatchObject({ page: [stored] });
   });
 
   it('replaces an encrypted payload by opaque payload identifier', async () => {
@@ -113,10 +143,13 @@ describe('productSync encrypted payloads', () => {
       payloadIdentifier: 'payload-001',
       trustedDeviceId: connect.trustedDeviceId,
     });
-    const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: firstPage,
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const listed = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: firstPage,
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
     const listedPage = requirePayloadPage(listed);
 
     expect(listedPage.page).toHaveLength(1);
@@ -287,18 +320,24 @@ describe('productSync encrypted payloads', () => {
       );
     }
 
-    const pageOne = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: firstPage,
-      trustedDeviceId: connect.trustedDeviceId,
-    });
-    const pageOneResponse = requirePayloadPage(pageOne);
-    const pageTwo = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: {
-        cursor: pageOneResponse.continueCursor,
-        numItems: 100,
+    const pageOne = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: firstPage,
+        trustedDeviceId: connect.trustedDeviceId,
       },
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    );
+    const pageOneResponse = requirePayloadPage(pageOne);
+    const pageTwo = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: {
+          cursor: pageOneResponse.continueCursor,
+          numItems: 100,
+        },
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
     const pageTwoResponse = requirePayloadPage(pageTwo);
 
     expect(pageOneResponse).toMatchObject({ isDone: false });
@@ -324,11 +363,14 @@ describe('productSync encrypted payloads', () => {
     );
     await putPayload(asUser, connect.trustedDeviceId, 'message-category:001');
 
-    const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: firstPage,
-      payloadIdentifierPrefix: 'message-category-learning-signal:',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const listed = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: firstPage,
+        payloadIdentifierPrefix: 'message-category-learning-signal:',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
     const page = requirePayloadPage(listed);
 
     expect(page.isDone).toBe(true);
@@ -353,13 +395,16 @@ describe('productSync encrypted payloads', () => {
       );
     }
 
-    const page = await asUser.query(api.productSync.listEncryptedPayloads, {
-      paginationOpts: {
-        cursor: null,
-        numItems: 1000,
+    const page = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        paginationOpts: {
+          cursor: null,
+          numItems: 1000,
+        },
+        trustedDeviceId: connect.trustedDeviceId,
       },
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    );
     const pageResponse = requirePayloadPage(page);
 
     expect(pageResponse).toMatchObject({ isDone: false });
@@ -379,9 +424,12 @@ describe('productSync encrypted payloads', () => {
       );
     }
 
-    const listed = await asUser.query(api.productSync.listEncryptedPayloads, {
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const listed = await asUser.query(
+      api.productSync.listEncryptedPayloadsForTrustedDevice,
+      {
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
 
     expect(Array.isArray(listed)).toBe(true);
     expect(listed).toHaveLength(100);
@@ -397,14 +445,20 @@ describe('productSync encrypted payloads', () => {
       payloadIdentifier: 'payload-001',
       trustedDeviceId: connect.trustedDeviceId,
     });
-    const found = await asUser.query(api.productSync.getEncryptedPayload, {
-      payloadIdentifier: 'payload-001',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
-    const missing = await asUser.query(api.productSync.getEncryptedPayload, {
-      payloadIdentifier: 'missing-payload',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const found = await asUser.query(
+      api.productSync.getEncryptedPayloadForTrustedDevice,
+      {
+        payloadIdentifier: 'payload-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
+    const missing = await asUser.query(
+      api.productSync.getEncryptedPayloadForTrustedDevice,
+      {
+        payloadIdentifier: 'missing-payload',
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
 
     expect(found).toStrictEqual(stored);
     expect(missing).toBeNull();
@@ -421,10 +475,13 @@ describe('productSync encrypted payloads', () => {
       'payload-001',
     );
     await putPayload(asUser, connect.trustedDeviceId, 'payload-002');
-    const found = await asUser.query(api.productSync.getEncryptedPayloads, {
-      payloadIdentifiers: ['payload-001', 'missing-payload'],
-      trustedDeviceId: connect.trustedDeviceId,
-    });
+    const found = await asUser.query(
+      api.productSync.getEncryptedPayloadsForTrustedDevice,
+      {
+        payloadIdentifiers: ['payload-001', 'missing-payload'],
+        trustedDeviceId: connect.trustedDeviceId,
+      },
+    );
 
     expect(found).toStrictEqual([stored]);
     expect(found).toHaveLength(1);
@@ -455,7 +512,7 @@ describe('productSync encrypted payloads', () => {
     });
 
     await expect(
-      asOtherUser.query(api.productSync.getEncryptedPayload, {
+      asOtherUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'payload-001',
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
@@ -483,7 +540,7 @@ describe('productSync encrypted payloads', () => {
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
 
     await expect(
-      asOtherUser.query(api.productSync.listEncryptedPayloads, {
+      asOtherUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
         paginationOpts: firstPage,
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
@@ -504,13 +561,13 @@ describe('productSync encrypted payloads', () => {
     });
 
     await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'payload-001',
         trustedDeviceId: connect.trustedDeviceId,
       }),
     ).rejects.toThrow('Trusted device required');
     await expect(
-      asUser.query(api.productSync.listEncryptedPayloads, {
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
         paginationOpts: firstPage,
         trustedDeviceId: connect.trustedDeviceId,
       }),
@@ -534,13 +591,13 @@ describe('productSync encrypted payloads', () => {
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
 
     await expect(
-      asUser.query(api.productSync.getEncryptedPayload, {
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
         payloadIdentifier: 'payload-001',
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
     ).rejects.toThrow('Trusted device required');
     await expect(
-      asUser.query(api.productSync.listEncryptedPayloads, {
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
         paginationOpts: firstPage,
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
@@ -597,7 +654,7 @@ describe('productSync encrypted payloads', () => {
     await expect(
       t
         .withIdentity(appleIdentity)
-        .query(api.productSync.listEncryptedPayloads, {
+        .query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
           paginationOpts: firstPage,
           trustedDeviceId,
         }),

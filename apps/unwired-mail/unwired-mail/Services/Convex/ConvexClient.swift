@@ -407,7 +407,7 @@ final class ConvexClient {
     trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload? {
     try await performNullableQuery(
-      path: "productSync:getEncryptedPayload",
+      path: "productSync:getEncryptedPayloadForTrustedDevice",
       args: GetEncryptedProductSyncPayloadArgs(
         payloadIdentifier: payloadIdentifier,
         trustedDeviceId: trustedDeviceId
@@ -422,7 +422,7 @@ final class ConvexClient {
     trustedDeviceId: String
   ) async throws -> [EncryptedProductSyncPayload] {
     try await performQuery(
-      path: "productSync:getEncryptedPayloads",
+      path: "productSync:getEncryptedPayloadsForTrustedDevice",
       args: GetEncryptedProductSyncPayloadsArgs(
         payloadIdentifiers: payloadIdentifiers,
         trustedDeviceId: trustedDeviceId
@@ -442,7 +442,7 @@ final class ConvexClient {
 
     while !isDone {
       let response: EncryptedProductSyncPayloadPage = try await performQuery(
-        path: "productSync:listEncryptedPayloads",
+        path: "productSync:listEncryptedPayloadsForTrustedDevice",
         args: ListEncryptedProductSyncPayloadsArgs(
           paginationOpts: ConvexPaginationOptions(
             cursor: cursor,

@@ -278,6 +278,7 @@ final class ConvexProductAccountService: ProductAccountConnecting {
 
 enum AccountAndDevicesServiceError: LocalizedError, Equatable {
   case missingProductSyncKeyMaterial
+  case recoveryKeyUnavailableForRevocation
   case recoveryMaterialChanged
   case revocationUnavailable
   case revokeCurrentDevice
@@ -286,6 +287,8 @@ enum AccountAndDevicesServiceError: LocalizedError, Equatable {
     switch self {
     case .missingProductSyncKeyMaterial:
       return "Restore Product Sync key material before managing the Recovery Key."
+    case .recoveryKeyUnavailableForRevocation:
+      return "Back up the current Recovery Key before revoking a Trusted Device."
     case .recoveryMaterialChanged:
       return "The Recovery Key changed on another Trusted Device. Refresh and try again."
     case .revocationUnavailable:

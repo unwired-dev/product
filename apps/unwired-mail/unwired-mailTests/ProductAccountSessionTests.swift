@@ -1863,6 +1863,38 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(try store.load(), snapshot)
   }
 
+  func testExplicitSignInPurgesRevokedSessionAfterTransientBootstrapFailure() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: TransientRevokedProductAccountService(),
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+
+    await session.bootstrap()
+    XCTAssertEqual(try store.load(), snapshot)
+
+    await session.signInWithApple()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSession, snapshot)
+  }
+
   func testBootstrapPurgesLocalDataWhenTrustedDeviceWasRemotelyRevoked() async throws {
     let snapshot = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-001",
@@ -2073,6 +2105,8 @@ final class ProductAccountSessionTests: XCTestCase {
       productAccountService.connectIdentityTokens,
       ["expired-token", "fresh-token"]
     )
+    XCTAssertTrue(session.isCurrentSessionIdentity(expiredSnapshot))
+    XCTAssertFalse(session.isCurrent(expiredSnapshot))
   }
 
   func testForegroundRevalidationRejectsAnotherAppleAccountBeforeConnecting() async throws {
@@ -2688,6 +2722,40 @@ private struct FailingProductAccountService: ProductAccountConnecting {
     _ = identityToken
     _ = trustedDeviceId
     throw ConvexClientError.missingConvexURL
+  }
+}
+
+private final class TransientRevokedProductAccountService: ProductAccountConnecting {
+  private var connectCallCount = 0
+
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    defer { connectCallCount += 1 }
+    if connectCallCount == 0 {
+      throw ConvexClientError.missingConvexURL
+    }
+    throw ProductAccountServiceError.trustedDeviceRevoked
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    throw ProductAccountServiceError.trustedDeviceRevoked
+  }
+
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    trustedDeviceId _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    false
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    TrustedDeviceUnregistrationResponse(registered: false)
   }
 }
 
