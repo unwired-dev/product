@@ -40,6 +40,19 @@ const firstPage = {
   numItems: 100,
 };
 
+function appleIdentityToken(issuedAt: number): string {
+  const encode = (value: Readonly<Record<string, unknown>>) =>
+    Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+
+  return `${encode({ alg: 'RS256', kid: 'apple-key-fixture' })}.${encode({
+    aud: 'dev.unwired.mail',
+    exp: issuedAt + 600,
+    iat: issuedAt,
+    iss: appleIdentity.issuer,
+    sub: appleIdentity.subject,
+  })}.signature`;
+}
+
 async function connectAppleDevice() {
   const t = convexTest(schema, modules);
   const asUser = t.withIdentity(appleIdentity);
@@ -261,47 +274,153 @@ describe('productSync encrypted payloads', () => {
     ).rejects.toThrow('Recovery material requires recent authentication');
   });
 
-  it('replaces Recovery Key material only after recent authentication', async () => {
-    expect.assertions(3);
+  it('rejects Recovery Key material without recent authentication', async () => {
+    expect.assertions(2);
 
-    const { asUser, connect, t } = await connectAppleDevice();
-    await expect(
-      asUser.mutation(api.productSync.replaceRecoveryMaterialIfUnchanged, {
+    const { asUser, connect } = await connectAppleDevice();
+    const body = JSON.stringify({
+      encryptedPayload,
+      trustedDeviceId: connect.trustedDeviceId,
+    });
+    const missingToken = await asUser.fetch('/product-sync/recovery-material', {
+      body,
+      headers: { 'content-type': 'application/json' },
+      method: 'POST',
+    });
+    const staleToken = await asUser.fetch('/product-sync/recovery-material', {
+      body,
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000) - 301)}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(missingToken.status).toBe(401);
+    expect(staleToken.status).toBe(401);
+  });
+
+  it('accepts small Apple authentication clock skew', async () => {
+    expect.assertions(1);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
         encryptedPayload,
-        expectedUpdatedAt: undefined,
         trustedDeviceId: connect.trustedDeviceId,
       }),
-    ).rejects.toThrow('Recent authentication required');
-
-    const staleAuthentication = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000) - 301,
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000) + 5)}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
     });
-    await expect(
-      staleAuthentication.mutation(
-        api.productSync.replaceRecoveryMaterialIfUnchanged,
-        {
-          encryptedPayload,
-          expectedUpdatedAt: undefined,
-          trustedDeviceId: connect.trustedDeviceId,
-        },
-      ),
-    ).rejects.toThrow('Recent authentication required');
 
-    const recentlyAuthenticated = t.withIdentity({
-      ...appleIdentity,
-      iat: Math.floor(Date.now() / 1000),
+    expect(response.status).toBe(200);
+  });
+
+  it.each([
+    ['missing encrypted payload', { trustedDeviceId: 'device' }],
+    [
+      'invalid algorithm',
+      {
+        encryptedPayload: { ...encryptedPayload, algorithm: 'AES-128' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid ciphertext',
+      {
+        encryptedPayload: { ...encryptedPayload, ciphertextBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid key version',
+      {
+        encryptedPayload: { ...encryptedPayload, keyVersion: '1' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid nonce',
+      {
+        encryptedPayload: { ...encryptedPayload, nonceBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid schema version',
+      {
+        encryptedPayload: { ...encryptedPayload, schemaVersion: '1' },
+        trustedDeviceId: 'device',
+      },
+    ],
+    [
+      'invalid tag',
+      {
+        encryptedPayload: { ...encryptedPayload, tagBase64: 1 },
+        trustedDeviceId: 'device',
+      },
+    ],
+    ['invalid trusted device', { encryptedPayload, trustedDeviceId: 1 }],
+    [
+      'invalid expected update time',
+      { encryptedPayload, expectedUpdatedAt: 'now', trustedDeviceId: 'device' },
+    ],
+  ])('rejects malformed Recovery Key material: %s', async (_name, body) => {
+    expect.assertions(1);
+
+    const { asUser } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify(body),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
     });
-    await expect(
-      recentlyAuthenticated.mutation(
-        api.productSync.replaceRecoveryMaterialIfUnchanged,
-        {
-          encryptedPayload,
-          expectedUpdatedAt: undefined,
-          trustedDeviceId: connect.trustedDeviceId,
-        },
-      ),
-    ).resolves.toMatchObject({
+
+    expect(response.status).toBe(400);
+  });
+
+  it('returns a client error for an unknown trusted device', async () => {
+    expect.assertions(1);
+
+    const { asUser } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
+        encryptedPayload,
+        trustedDeviceId: 'not-a-convex-id',
+      }),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(403);
+  });
+
+  it('publishes Recovery Key material with a freshly issued Apple bearer token', async () => {
+    expect.assertions(2);
+
+    const { asUser, connect } = await connectAppleDevice();
+    const response = await asUser.fetch('/product-sync/recovery-material', {
+      body: JSON.stringify({
+        encryptedPayload,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+      headers: {
+        authorization: `Bearer ${appleIdentityToken(Math.floor(Date.now() / 1000))}`,
+        'content-type': 'application/json',
+      },
+      method: 'POST',
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toMatchObject({
       encryptedPayload,
       payloadIdentifier: 'product-account-recovery-v1',
     });

@@ -4,7 +4,7 @@ import { generateKeyPairSync, sign } from 'node:crypto';
 
 import { convexTest } from 'convex-test';
 
-import { api } from '../convex/_generated/api.js';
+import { api, internal } from '../convex/_generated/api.js';
 import { opaqueGmailConnectionId } from '../convex/gmailRouting.js';
 import { gmailLegacyRouteFallbackLimit } from '../convex/productAccount.js';
 import schema from '../convex/schema.js';
@@ -378,7 +378,7 @@ describe('productAccount.connect', () => {
       });
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -501,7 +501,7 @@ describe('productAccount.connect', () => {
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -596,7 +596,7 @@ describe('productAccount.connect', () => {
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -684,7 +684,7 @@ describe('productAccount.connect', () => {
       },
     );
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -764,7 +764,7 @@ describe('productAccount.connect', () => {
       },
     );
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -838,7 +838,7 @@ describe('productAccount.connect', () => {
       platform: 'ios',
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -910,7 +910,7 @@ describe('productAccount.connect', () => {
       );
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,
@@ -967,7 +967,7 @@ describe('productAccount.connect', () => {
       platform: 'macos',
     });
     const recoveryMaterial = await asUser.mutation(
-      api.productSync.replaceRecoveryMaterialIfUnchanged,
+      internal.productSync.replaceRecoveryMaterialIfUnchanged,
       {
         encryptedPayload,
         trustedDeviceId: currentDevice.trustedDeviceId,

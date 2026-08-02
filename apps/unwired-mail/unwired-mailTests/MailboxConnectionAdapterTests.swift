@@ -4985,6 +4985,70 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     )
   }
 
+  func testConversationReaderAlignsMessagesBySentState() {
+    XCTAssertEqual(
+      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["SENT"]),
+      .trailing
+    )
+    XCTAssertEqual(
+      MailShellConversationReader.messageHorizontalPlacement(providerStateIds: ["INBOX"]),
+      .leading
+    )
+  }
+
+  func testConversationReaderShowsCategoryMenuForGmailInboxOnly() {
+    XCTAssertTrue(
+      MailShellConversationReader.showsCategoryMenu(
+        providerId: .gmail,
+        providerStateIds: ["INBOX"]
+      )
+    )
+    XCTAssertFalse(
+      MailShellConversationReader.showsCategoryMenu(
+        providerId: .microsoftGraph,
+        providerStateIds: ["INBOX"]
+      )
+    )
+    XCTAssertFalse(
+      MailShellConversationReader.showsCategoryMenu(
+        providerId: .gmail,
+        providerStateIds: ["SENT"]
+      )
+    )
+  }
+
+  func testConversationReaderDisablesCategoryMenuWhileBusy() {
+    XCTAssertTrue(
+      MailShellConversationReader.isCategoryMenuDisabled(
+        isConnectionBusy: true,
+        isAssigningCategory: false
+      )
+    )
+    XCTAssertTrue(
+      MailShellConversationReader.isCategoryMenuDisabled(
+        isConnectionBusy: false,
+        isAssigningCategory: true
+      )
+    )
+    XCTAssertFalse(
+      MailShellConversationReader.isCategoryMenuDisabled(
+        isConnectionBusy: false,
+        isAssigningCategory: false
+      )
+    )
+  }
+
+  func testConversationReaderPresentsSubjectForCurrentPlatform() {
+    XCTAssertEqual(
+      MailShellConversationReader.subjectPresentation(isMacCatalyst: true),
+      .catalystHeader
+    )
+    XCTAssertEqual(
+      MailShellConversationReader.subjectPresentation(isMacCatalyst: false),
+      .navigationTitle
+    )
+  }
+
   func testContextualActionsHonorInheritedProviderMailboxRoles() {
     let spamMessage = mailShellMessage(
       providerMessageId: "spam-message",

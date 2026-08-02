@@ -12,12 +12,11 @@ import { v } from 'convex/values';
 import type { Doc, Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
 
-import { mutation, query } from './_generated/server.js';
+import { internalMutation, mutation, query } from './_generated/server.js';
 import {
   requireCurrentProductSyncKeyEpoch,
   requireAuthenticatedTrustedDevice,
   requireProductAccount,
-  requireRecentAuthentication,
   requireTrustedDevice,
 } from './productAccountAuth.js';
 
@@ -198,17 +197,23 @@ export const putEncryptedPayloadIfUnchanged = mutation({
   returns: encryptedProductSyncPayloadValidator,
 });
 
-export const replaceRecoveryMaterialIfUnchanged = mutation({
+export const replaceRecoveryMaterialIfUnchanged = internalMutation({
   args: {
     encryptedPayload: encryptedProductSyncPayloadBodyValidator,
     expectedUpdatedAt: v.optional(v.number()),
-    trustedDeviceId: v.id('trustedDevices'),
+    trustedDeviceId: v.string(),
   },
   handler: async (ctx, args) => {
-    await requireRecentAuthentication(ctx);
+    const trustedDeviceId = ctx.db.normalizeId(
+      'trustedDevices',
+      args.trustedDeviceId,
+    );
+    if (trustedDeviceId === null) {
+      throw new Error('Trusted device required');
+    }
     const account = await requireAuthenticatedTrustedDevice(
       ctx,
-      args.trustedDeviceId,
+      trustedDeviceId,
     );
     if (account.productSyncPendingKeyEpoch !== undefined) {
       throw new Error('Product Sync key rotation already in progress');
@@ -217,6 +222,7 @@ export const replaceRecoveryMaterialIfUnchanged = mutation({
     return writeEncryptedPayloadIfUnchanged(ctx, {
       ...args,
       payloadIdentifier: recoveryPayloadIdentifier,
+      trustedDeviceId,
     });
   },
   returns: encryptedProductSyncPayloadValidator,
