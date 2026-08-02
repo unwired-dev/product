@@ -6887,6 +6887,38 @@ final class MailboxConnectionAdapterTests: XCTestCase {
     await fulfillment(of: [operationStarted], timeout: 0.1)
   }
 
+  func testMailActionViewModelRejectsSendAfterSignOutBegins() async {
+    let viewModel = GmailMailActionViewModel(
+      service: ConnectionPendingActionFailureService(),
+      session: session,
+      outboxService: OutboxDeliveryService(store: AdapterOutboxStore())
+    )
+    let connection = mailShellConnection(
+      emailAddress: "sender@example.com",
+      providerAccountIdentifier: "gmail-user-001",
+      productAccountId: session.productAccountId
+    )
+    let didSendBeforeSignOut = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+    XCTAssertTrue(didSendBeforeSignOut)
+    viewModel.beginPreparingForSignOut()
+
+    let didSend = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+
+    XCTAssertFalse(didSend)
+  }
+
   func testMailActionViewModelForwardsSingleMoveDestinationStates() async {
     let connection = mailShellConnection(
       emailAddress: "first@example.com",
