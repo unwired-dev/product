@@ -183,7 +183,6 @@ struct MessageHTMLView: View {
       )
     }
     .onChange(of: html) {
-      remoteContent.reset()
       remoteContent.apply(
         policy: remoteContentPolicy,
         hasRemoteImages: !html.remoteImageReferences.isEmpty

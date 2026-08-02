@@ -20,7 +20,7 @@ struct RemoteMessageContentNotice: View {
       if state == .loading {
         ProgressView("Loading remote images…")
           .controlSize(.small)
-      } else if policy != .never {
+      } else if showsLoadButton {
         Button(state.failedImageCount == nil ? "Load Remote Images" : "Try Again") {
           requestLoad()
         }
@@ -32,6 +32,10 @@ struct RemoteMessageContentNotice: View {
     .padding(10)
     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 8))
     .accessibilityIdentifier("remote-message-content-notice")
+  }
+
+  var showsLoadButton: Bool {
+    state != .loading && policy != .never
   }
 
   private var title: String {

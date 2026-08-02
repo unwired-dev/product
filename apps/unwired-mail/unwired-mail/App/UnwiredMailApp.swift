@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct UnwiredMailApp: App {
   @State private var appearancePreferences: AppearancePreferences
+  @State private var attachmentNetworkMonitor: AttachmentDownloadNetworkMonitor
   @State private var messageContentPreferences: MessageContentPreferences
   @State private var session: ProductAccountSession
   @State private var settingsRouter = SettingsRouter()
@@ -16,6 +17,7 @@ struct UnwiredMailApp: App {
       DotEnvFile.loadDefaultsIfPresent()
     #endif
     _appearancePreferences = State(initialValue: AppearancePreferences())
+    _attachmentNetworkMonitor = State(initialValue: AttachmentDownloadNetworkMonitor())
     _messageContentPreferences = State(initialValue: MessageContentPreferences())
     _session = State(
       initialValue: ProductAccountSession(
@@ -32,6 +34,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(attachmentNetworkMonitor)
           .environment(messageContentPreferences)
       }
       .commands {
@@ -43,6 +46,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(attachmentNetworkMonitor)
           .environment(messageContentPreferences)
       }
       .defaultSize(width: 920, height: 720)
@@ -52,6 +56,7 @@ struct UnwiredMailApp: App {
           .environment(settingsRouter)
           .deviceAppearance(appearancePreferences)
           .environment(appearancePreferences)
+          .environment(attachmentNetworkMonitor)
           .environment(messageContentPreferences)
       }
     #endif

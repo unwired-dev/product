@@ -3690,6 +3690,13 @@ struct MailShellConversationReader: View {
                 loadBody: {
                   try await inboxViewModel.loadMessageBody(message, using: messageReader)
                 },
+                loadAttachment: { attachment in
+                  try await messageReader.loadMessageAttachment(
+                    attachment,
+                    message: message,
+                    session: session
+                  )
+                },
                 loadRemoteContent: {
                   try await inboxViewModel.loadRemoteMessageContent($0, for: message.id)
                 },
@@ -4202,6 +4209,7 @@ private struct MailShellConversationMessage: View {
   let isPinned: Bool
   let isUpdatingPin: Bool
   let loadBody: () async throws -> MailboxMessageBody
+  let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let markBodyDisplayed: () -> Void
   let markBodyHidden: () -> Void
@@ -4247,9 +4255,11 @@ private struct MailShellConversationMessage: View {
         MailShellMessageBody(
           clearSignal: clearBodySignal,
           connectionId: message.connectionId,
+          messageId: message.id,
           onDisplay: markBodyDisplayed,
           onDismiss: markBodyHidden,
           onRelease: releaseBodyPresentation,
+          loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
           load: loadBody
         )
@@ -4300,7 +4310,9 @@ private struct MailShellConversationMessage: View {
 struct MailShellMessageBody: View {
   let clearSignal: UUID?
   let connectionId: MailboxConnectionId?
+  let messageId: StableProviderMessageIdentity?
   let load: () async throws -> MailboxMessageBody
+  let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let onDisplay: () -> Void
   let onDismiss: () -> Void
   let onLoaded: () -> Void
@@ -4316,10 +4328,14 @@ struct MailShellMessageBody: View {
   init(
     clearSignal: UUID? = nil,
     connectionId: MailboxConnectionId? = nil,
+    messageId: StableProviderMessageIdentity? = nil,
     onDisplay: @escaping () -> Void = {},
     onDismiss: @escaping () -> Void = {},
     onLoaded: @escaping () -> Void = {},
     onRelease: @escaping () -> Void = {},
+    loadAttachment: @escaping (MailboxMessageAttachment) async throws -> Data = { _ in
+      throw MailboxMessageAttachmentError.unsupportedProvider
+    },
     loadRemoteContent:
       @escaping (SanitizedMessageHTML) async throws
       -> RemoteMessageContentLoadResult = {
@@ -4329,7 +4345,9 @@ struct MailShellMessageBody: View {
   ) {
     self.clearSignal = clearSignal
     self.connectionId = connectionId
+    self.messageId = messageId
     self.load = load
+    self.loadAttachment = loadAttachment
     self.onDisplay = onDisplay
     self.onDismiss = onDismiss
     self.onLoaded = onLoaded
@@ -4343,9 +4361,12 @@ struct MailShellMessageBody: View {
         MailShellMessageContent(
           connectionId: connectionId,
           loadedContent: loadedContent,
+          messageId: messageId,
+          loadAttachment: loadAttachment,
           loadRemoteContent: loadRemoteContent,
           onRenderingFailure: {
             self.loadedContent = MailShellLoadedMessageContent(
+              attachments: loadedContent.attachments,
               fallbackText: loadedContent.fallbackText,
               presentation: .plainText(loadedContent.fallbackText)
             )
@@ -4388,6 +4409,7 @@ struct MailShellMessageBody: View {
           return
         }
         loadedContent = MailShellLoadedMessageContent(
+          attachments: loadedMessageBody.attachments,
           fallbackText: loadedMessageBody.text,
           presentation: presentation
         )
@@ -4430,6 +4452,7 @@ struct MailShellMessageBody: View {
 }
 
 private struct MailShellLoadedMessageContent {
+  let attachments: [MailboxMessageAttachment]
   let fallbackText: String
   let presentation: MessageHTMLPresentation
 }
@@ -4437,32 +4460,43 @@ private struct MailShellLoadedMessageContent {
 private struct MailShellMessageContent: View {
   let connectionId: MailboxConnectionId?
   let loadedContent: MailShellLoadedMessageContent
+  let messageId: StableProviderMessageIdentity?
+  let loadAttachment: (MailboxMessageAttachment) async throws -> Data
   let loadRemoteContent: (SanitizedMessageHTML) async throws -> RemoteMessageContentLoadResult
   let onRenderingFailure: () -> Void
   @Environment(AppearancePreferences.self) private var appearancePreferences: AppearancePreferences?
   @ScaledMetric(relativeTo: .body) private var bodyPointSize = 17
 
   var body: some View {
-    switch loadedContent.presentation {
-    case .html(let html):
-      MessageHTMLView(
-        connectionId: connectionId,
-        html: html,
-        onRenderingFailure: onRenderingFailure,
-        loadRemoteContent: loadRemoteContent
-      )
-    case .plainText(let text):
-      Text(text)
-        .font(
-          .system(
-            size: bodyPointSize
-              * (appearancePreferences?.readingTextSize ?? .standard).scale,
-            design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
-              .fontDesign
-          )
+    VStack(alignment: .leading, spacing: 12) {
+      switch loadedContent.presentation {
+      case .html(let html):
+        MessageHTMLView(
+          connectionId: connectionId,
+          html: html,
+          onRenderingFailure: onRenderingFailure,
+          loadRemoteContent: loadRemoteContent
         )
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .textSelection(.enabled)
+      case .plainText(let text):
+        Text(text)
+          .font(
+            .system(
+              size: bodyPointSize
+                * (appearancePreferences?.readingTextSize ?? .standard).scale,
+              design: (appearancePreferences?.messageBodyTypeface ?? .senderFormatting)
+                .fontDesign
+            )
+          )
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .textSelection(.enabled)
+      }
+      if !loadedContent.attachments.isEmpty, let messageId {
+        MessageAttachmentsView(
+          attachments: loadedContent.attachments,
+          messageId: messageId,
+          download: loadAttachment
+        )
+      }
     }
   }
 }
@@ -6161,7 +6195,8 @@ final class GmailInboxViewModel {
     return MailboxMessageBody(
       text: body.text,
       html: body.html,
-      inlineImages: inlineImages
+      inlineImages: inlineImages,
+      attachments: body.attachments
     )
   }
 

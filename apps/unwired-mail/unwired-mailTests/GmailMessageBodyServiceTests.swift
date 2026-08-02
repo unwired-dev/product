@@ -187,6 +187,219 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     )
   }
 
+  func testReadExposesOrdinaryAttachmentAndDownloadsItOnDemand() async throws {
+    let fixture = try makeFixture(
+      attachmentResponses: ["file-001": #"{"data":"UERG"}"#],
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}},
+              {
+                "filename":"receipt.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"attachmentId":"file-001","size":3}
+              },
+              {
+                "filename":"logo.png",
+                "mimeType":"image/png",
+                "headers":[
+                  {"name":"Content-Disposition","value":"inline"},
+                  {"name":"Content-ID","value":"<logo@example.com>"}
+                ],
+                "body":{"attachmentId":"inline-001","size":3}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+    let attachment = try XCTUnwrap(body.attachments.first)
+
+    XCTAssertEqual(
+      body.attachments,
+      [
+        MailboxMessageAttachment(
+          byteCount: 3,
+          filename: "receipt.pdf",
+          id: "file-001",
+          mimeType: "application/pdf"
+        )
+      ]
+    )
+    let data = try await fixture.service.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+    XCTAssertEqual(data, Data("PDF".utf8))
+    XCTAssertTrue(
+      fixture.requestPaths.compactMap { $0 as? String }
+        .contains("/gmail/v1/users/me/messages/message-001/attachments/file-001")
+    )
+  }
+
+  func testReadExposesPresentationScopedDataBackedAttachment() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}},
+              {
+                "filename":"receipt.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"data":"UERG","size":3}
+              }
+            ]
+          }
+        }
+        """
+    )
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+    let attachment = try XCTUnwrap(body.attachments.first)
+    let requestCount = fixture.requestPaths.count
+
+    let data = try await fixture.service.loadMessageAttachment(
+      attachment,
+      message: message,
+      session: session
+    )
+
+    XCTAssertEqual(data, Data("PDF".utf8))
+    XCTAssertEqual(fixture.requestPaths.count, requestCount)
+  }
+
+  func testReadKeepsIdenticalDataBackedAttachmentsSeparate() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {"mimeType":"text/plain","body":{"data":"UHJpdmF0ZSB0cmlwIGRldGFpbHM"}},
+              {
+                "filename":"first.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"data":"UERG","size":3}
+              },
+              {
+                "filename":"second.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"data":"UERG","size":3}
+              }
+            ]
+          }
+        }
+        """
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.attachments.map(\.filename), ["first.pdf", "second.pdf"])
+    XCTAssertEqual(Set(body.attachments.map(\.id)).count, 2)
+  }
+
+  func testReadBoundsTheFullMessageResponse() async throws {
+    let fixture = try makeFixture(maximumMessageResponseByteCount: 64)
+
+    do {
+      _ = try await fixture.service.loadMessageBody(message: message, session: session)
+      XCTFail("Expected the full message response to be bounded")
+    } catch RemoteMessageContentError.responseTooLarge {
+    }
+  }
+
+  func testReadRefreshesLegacyCacheThatHasNoAttachmentMetadata() async throws {
+    let fixture = try makeFixture(
+      messageResponse:
+        """
+        {
+          "id": "message-001",
+          "payload": {
+            "mimeType": "multipart/mixed",
+            "parts": [
+              {"mimeType":"text/plain","body":{"data":"RnJlc2ggYm9keQ"}},
+              {
+                "filename":"receipt.pdf",
+                "mimeType":"application/pdf",
+                "headers":[{"name":"Content-Disposition","value":"attachment"}],
+                "body":{"attachmentId":"file-001","size":3}
+              }
+            ]
+          }
+        }
+        """
+    )
+    fixture.cache.payload = try encryptedCachedBody(
+      Data("unwired-gmail-body-cache-v1\n{\"html\":null,\"text\":\"Cached body\"}".utf8),
+      versioned: true
+    )
+
+    let body = try await fixture.service.loadMessageBody(message: message, session: session)
+
+    XCTAssertEqual(body.text, "Fresh body")
+    XCTAssertEqual(body.attachments.map(\.id), ["file-001"])
+    XCTAssertEqual(
+      fixture.requestPaths,
+      ["/token", "/tokeninfo", "/gmail/v1/users/me/messages/message-001"]
+    )
+  }
+
+  func testAttachmentDownloadRejectsDeclaredAndReceivedOversizeResponses() async throws {
+    let oversizedResponse = #"{"data":""# + String(repeating: "A", count: 2_000) + #""}"#
+    let fixture = try makeFixture(
+      attachmentResponses: ["file-001": oversizedResponse],
+      maximumAttachmentByteCount: 3
+    )
+    let declaredOversize = MailboxMessageAttachment(
+      byteCount: 4,
+      filename: "large.pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+
+    do {
+      _ = try await fixture.service.loadMessageAttachment(
+        declaredOversize,
+        message: message,
+        session: session
+      )
+      XCTFail("Expected declared size to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    }
+    XCTAssertEqual(fixture.requestPaths.count, 0)
+
+    do {
+      _ = try await fixture.service.loadMessageAttachment(
+        MailboxMessageAttachment(
+          byteCount: 3,
+          filename: "large.pdf",
+          id: "file-001",
+          mimeType: "application/pdf"
+        ),
+        message: message,
+        session: session
+      )
+      XCTFail("Expected received size to be rejected")
+    } catch MailboxMessageAttachmentError.invalidResponse {
+    }
+  }
+
   func testPrefetchFetchesEligibleBodyAndCachesOnlyEncryptedPayload() async throws {
     let referenceDate = Date(timeIntervalSince1970: 1_800_000_000)
     let prefetchedMessage = prefetchMessage(
@@ -2826,6 +3039,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
     attachmentResponses: [String: String] = [:],
     attachmentStatusCode: Int? = nil,
     hasKeyMaterial: Bool = true,
+    maximumAttachmentByteCount: Int = 25 * 1_024 * 1_024,
+    maximumMessageResponseByteCount: Int = 40 * 1_024 * 1_024,
     metadataStore: GmailMessageMetadataPersisting = RecordingBodyPrefetchMetadataStore(),
     messageError: Error? = nil,
     messageStatusCode: Int = 200,
@@ -2941,6 +3156,8 @@ final class GmailMessageBodyServiceTests: XCTestCase {
         gmailBaseURL: URL(string: "https://gmail.example.test/gmail/v1")!,
         cache: cache,
         keyMaterialStore: keyMaterialStore,
+        maximumAttachmentByteCount: maximumAttachmentByteCount,
+        maximumMessageResponseByteCount: maximumMessageResponseByteCount,
         metadataStore: metadataStore,
         oauthClientId: "gmail-client-id",
         session: urlSession,

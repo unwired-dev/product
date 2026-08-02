@@ -301,8 +301,11 @@ final class RemoteMessageContentDataDelegate: RemoteMessageContentRedirectDelega
           return (isCancelled, (receivedByteCount, response.map { (self.data, $0) }))
         }
     if error != nil {
+      let errorIsCancellation =
+        error is CancellationError
+        || (error as NSError?)?.domain == "Swift.CancellationError"
       let completionError: Error =
-        if state.isCancelled {
+        if state.isCancelled || errorIsCancellation {
           CancellationError()
         } else {
           RemoteMessageContentError.transferFailed(

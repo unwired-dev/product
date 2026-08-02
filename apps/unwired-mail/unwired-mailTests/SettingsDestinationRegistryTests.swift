@@ -294,6 +294,149 @@ final class SettingsDestinationRegistryTests: XCTestCase {
     XCTAssertFalse(AttachmentDownloadPolicy.always.allowsAutomaticDownload(on: .offline))
   }
 
+  func testAttachmentDownloadGateRequiresManualConsentForOnDemand() async throws {
+    var requestCount = 0
+
+    do {
+      _ = try await AttachmentDownloadGate.download(
+        policy: .onDemand,
+        network: .wifi,
+        trigger: .automatic,
+        expectedByteCount: 3
+      ) {
+        requestCount += 1
+        return Data("PDF".utf8)
+      }
+      XCTFail("Expected automatic On Demand download to be blocked")
+    } catch AttachmentDownloadError.blockedByPolicy {
+    }
+    XCTAssertEqual(requestCount, 0)
+
+    let data = try await AttachmentDownloadGate.download(
+      policy: .onDemand,
+      network: .cellular,
+      trigger: .userInitiated,
+      expectedByteCount: 3
+    ) {
+      requestCount += 1
+      return Data("PDF".utf8)
+    }
+    XCTAssertEqual(data, Data("PDF".utf8))
+    XCTAssertEqual(requestCount, 1)
+  }
+
+  func testAttachmentDownloadGateEnforcesAutomaticNetworkPolicyAndFailureRetry() async {
+    var requestCount = 0
+    for network in [AttachmentDownloadNetwork.cellular, .wifi] {
+      do {
+        _ = try await AttachmentDownloadGate.download(
+          policy: .wifi,
+          network: network,
+          trigger: .automatic,
+          expectedByteCount: 3
+        ) {
+          requestCount += 1
+          if requestCount == 1 { throw URLError(.cannotConnectToHost) }
+          return Data("PDF".utf8)
+        }
+      } catch {
+      }
+    }
+    XCTAssertEqual(requestCount, 1)
+
+    let retry = try? await AttachmentDownloadGate.download(
+      policy: .wifi,
+      network: .wifi,
+      trigger: .automatic,
+      expectedByteCount: 3
+    ) {
+      requestCount += 1
+      return Data("PDF".utf8)
+    }
+    XCTAssertEqual(retry, Data("PDF".utf8))
+    XCTAssertEqual(requestCount, 2)
+  }
+
+  func testAttachmentDownloadGatePropagatesCancellation() async {
+    let task = Task {
+      try await AttachmentDownloadGate.download(
+        policy: .always,
+        network: .wifi,
+        trigger: .automatic,
+        expectedByteCount: 3
+      ) {
+        try await Task.sleep(for: .seconds(10))
+        return Data("PDF".utf8)
+      }
+    }
+    task.cancel()
+
+    do {
+      _ = try await task.value
+      XCTFail("Expected cancellation")
+    } catch is CancellationError {
+    } catch {
+      XCTFail("Expected CancellationError, got \(error)")
+    }
+  }
+
+  func testDownloadedAttachmentStoreReusesBoundedLocalFile() throws {
+    let rootDirectory = FileManager.default.temporaryDirectory
+      .appendingPathComponent("DownloadedAttachmentStoreTests.\(UUID().uuidString)")
+    defer { try? FileManager.default.removeItem(at: rootDirectory) }
+    let store = DownloadedAttachmentStore(rootDirectory: rootDirectory)
+    let messageId = StableProviderMessageIdentity(
+      connectionId: MailboxConnectionId(
+        providerMailboxIdentity: StableProviderMailboxIdentity(
+          providerId: .gmail,
+          value: "private@example.com"
+        )
+      ),
+      providerMessageId: "message-001"
+    )
+    let attachment = MailboxMessageAttachment(
+      byteCount: 3,
+      filename: "receipt.pdf",
+      id: "file-001",
+      mimeType: "application/pdf"
+    )
+
+    let savedURL = try store.save(
+      Data("PDF".utf8),
+      attachment: attachment,
+      messageId: messageId
+    )
+
+    XCTAssertEqual(store.existingURL(attachment: attachment, messageId: messageId), savedURL)
+    XCTAssertEqual(try Data(contentsOf: savedURL), Data("PDF".utf8))
+  }
+
+  @MainActor
+  func testMessagePresentationUsesConnectionOverrideAndNoticePolicy() {
+    let suiteName = "MessagePresentationPolicy.\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suiteName)!
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let connectionId = MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: .gmail,
+        value: "private@example.com"
+      )
+    )
+    let preferences = MessageContentPreferences(defaults: defaults)
+    preferences.remoteContentPolicy = .alwaysLoad
+    preferences.setRemoteContentOverride(.never, for: connectionId)
+
+    XCTAssertEqual(preferences.remoteContentPolicy(for: connectionId), .never)
+    XCTAssertFalse(
+      RemoteMessageContentNotice(policy: .never, requestLoad: {}, state: .blocked)
+        .showsLoadButton
+    )
+    XCTAssertTrue(
+      RemoteMessageContentNotice(policy: .ask, requestLoad: {}, state: .blocked)
+        .showsLoadButton
+    )
+  }
+
   func testPrivacyAndDataMetadataDrivesSignedOutNavigationAndSearch() {
     let destination = SettingsDestination.privacyAndData
 

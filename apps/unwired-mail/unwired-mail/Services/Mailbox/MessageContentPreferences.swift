@@ -78,7 +78,7 @@ final class MessageContentPreferences {
     }
   }
 
-  private var remoteContentOverrides: [String: RemoteContentLoadPolicy]
+  private var remoteContentOverrides: [MailboxConnectionId: RemoteContentLoadPolicy]
   private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -91,16 +91,23 @@ final class MessageContentPreferences {
       defaults.string(forKey: StorageKey.attachmentDownloadPolicy.rawValue)
       .flatMap(AttachmentDownloadPolicy.init(rawValue:))
       ?? .onDemand
-    remoteContentOverrides =
-      (defaults.dictionary(forKey: StorageKey.remoteContentOverrides.rawValue) as? [String: String])?
-      .compactMapValues(RemoteContentLoadPolicy.init(rawValue:))
+    let storedOverrides =
+      defaults.dictionary(forKey: StorageKey.remoteContentOverrides.rawValue) as? [String: String]
       ?? [:]
+    remoteContentOverrides = Dictionary(
+      uniqueKeysWithValues: storedOverrides.compactMap { rawConnectionId, rawPolicy in
+        guard let connectionId = Self.connectionId(rawValue: rawConnectionId),
+          let policy = RemoteContentLoadPolicy(rawValue: rawPolicy)
+        else { return nil }
+        return (connectionId, policy)
+      }
+    )
   }
 
   func remoteContentOverride(
     for connectionId: MailboxConnectionId
   ) -> RemoteContentLoadPolicy? {
-    remoteContentOverrides[connectionId.rawValue]
+    remoteContentOverrides[connectionId]
   }
 
   func remoteContentPolicy(for connectionId: MailboxConnectionId?) -> RemoteContentLoadPolicy {
@@ -112,10 +119,26 @@ final class MessageContentPreferences {
     _ policy: RemoteContentLoadPolicy?,
     for connectionId: MailboxConnectionId
   ) {
-    remoteContentOverrides[connectionId.rawValue] = policy
+    remoteContentOverrides[connectionId] = policy
     defaults.set(
-      remoteContentOverrides.mapValues(\.rawValue),
+      Dictionary(
+        uniqueKeysWithValues: remoteContentOverrides.map { ($0.key.rawValue, $0.value.rawValue) }),
       forKey: StorageKey.remoteContentOverrides.rawValue
+    )
+  }
+
+  private static func connectionId(rawValue: String) -> MailboxConnectionId? {
+    let components = rawValue.split(
+      separator: ":",
+      maxSplits: 1,
+      omittingEmptySubsequences: false
+    )
+    guard components.count == 2, !components[0].isEmpty, !components[1].isEmpty else { return nil }
+    return MailboxConnectionId(
+      providerMailboxIdentity: StableProviderMailboxIdentity(
+        providerId: MailProviderId(rawValue: String(components[0])),
+        value: String(components[1])
+      )
     )
   }
 }

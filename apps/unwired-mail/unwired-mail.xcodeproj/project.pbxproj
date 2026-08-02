@@ -73,6 +73,7 @@
 		71A6A1882C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */; };
 		71A6A18A2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18B2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift */; };
 		71A6A18C2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18D2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift */; };
+		71A6A18E2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A18F2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift */; };
 		71A6A17E2C0B000100000001 /* MessageAppearanceTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */; };
 		71A6A1692C0B000100000001 /* SwiftSoup in Frameworks */ = {isa = PBXBuildFile; productRef = 71A6A1682C0B000100000001 /* SwiftSoup */; };
 		71A6A1602C0B000100000001 /* Features/Settings/SettingsScene.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */; };
@@ -180,6 +181,7 @@
 		71A6A1892C0B000100000001 /* Features/Settings/PrivacyDataSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/PrivacyDataSettingsView.swift; sourceTree = "<group>"; };
 		71A6A18B2C0B000100000001 /* Services/Mailbox/MessageContentPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Services/Mailbox/MessageContentPreferences.swift; sourceTree = "<group>"; };
 		71A6A18D2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/RemoteMessageContentNotice.swift; sourceTree = "<group>"; };
+		71A6A18F2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Account/MessageAttachmentDownload.swift; sourceTree = "<group>"; };
 		71A6A17F2C0B000100000001 /* MessageAppearanceTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MessageAppearanceTests.swift; sourceTree = "<group>"; };
 		71A6A1612C0B000100000001 /* Features/Settings/SettingsScene.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/SettingsScene.swift; sourceTree = "<group>"; };
 		71A6A1652C0B000100000001 /* Features/Settings/EmailAccountsSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Features/Settings/EmailAccountsSettingsView.swift; sourceTree = "<group>"; };
@@ -240,6 +242,7 @@
 				71A6A0672C0B000100000001 /* Features/Account/RootView.swift */,
 				71A6A0652C0B000100000001 /* Features/Account/AccountView.swift */,
 				71A6A1792C0B000100000001 /* Features/Account/MessageHTMLView.swift */,
+				71A6A18F2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift */,
 				71A6A18D2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift */,
 				71A6A1372C0B000100000001 /* Features/Account/EWSSetupPanel.swift */,
 				71A6A0D12C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift */,
@@ -454,6 +457,7 @@
 				71A6A0662C0B000100000001 /* Features/Account/RootView.swift in Sources */,
 				71A6A0642C0B000100000001 /* Features/Account/AccountView.swift in Sources */,
 				71A6A1782C0B000100000001 /* Features/Account/MessageHTMLView.swift in Sources */,
+				71A6A18E2C0B000100000001 /* Features/Account/MessageAttachmentDownload.swift in Sources */,
 				71A6A18C2C0B000100000001 /* Features/Account/RemoteMessageContentNotice.swift in Sources */,
 				71A6A1362C0B000100000001 /* Features/Account/EWSSetupPanel.swift in Sources */,
 				71A6A0D02C0B000100000001 /* Features/Account/GenericMailSetupPanel.swift in Sources */,
