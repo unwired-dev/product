@@ -6898,6 +6898,14 @@ final class MailboxConnectionAdapterTests: XCTestCase {
       providerAccountIdentifier: "gmail-user-001",
       productAccountId: session.productAccountId
     )
+    let didSendBeforeSignOut = await viewModel.send(
+      recipient: "reader@example.com",
+      subject: "Subject",
+      body: "Private body",
+      replyTo: nil,
+      connection: connection
+    )
+    XCTAssertTrue(didSendBeforeSignOut)
     viewModel.beginPreparingForSignOut()
 
     let didSend = await viewModel.send(

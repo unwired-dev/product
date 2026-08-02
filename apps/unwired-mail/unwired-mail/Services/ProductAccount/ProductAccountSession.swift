@@ -55,6 +55,8 @@ final class ProductAccountSession {
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
+  @ObservationIgnored private var mailActionSession: ProductAccountSessionSnapshot?
+  @ObservationIgnored private var mailActionViewModel: GmailMailActionViewModel?
   @ObservationIgnored private var pendingProductSyncRecovery: PendingProductSyncRecovery?
   @ObservationIgnored private var signOutTask: Task<Void, Never>?
   @ObservationIgnored private var signOutSnapshot: ProductAccountSessionSnapshot?
@@ -111,7 +113,7 @@ final class ProductAccountSession {
 
       do {
         try await resumePendingSignOut()
-        try await resumePendingOutboxCleanup()
+        await resumePendingOutboxCleanup()
         let credential = try await appleSignInService.signIn()
         await resumePendingTrustedDeviceUnregistrations(using: credential)
         let response = try await productAccountService.connect(
@@ -730,7 +732,7 @@ extension ProductAccountSession {
   private func prepareForBootstrap() async -> Bool {
     do {
       try await resumePendingSignOut()
-      try await resumePendingOutboxCleanup()
+      await resumePendingOutboxCleanup()
       return true
     } catch {
       state = .failed(error.localizedDescription)
@@ -789,15 +791,21 @@ extension ProductAccountSession {
     try sessionStore.clearPendingSignOutProductAccountId()
   }
 
-  private func resumePendingOutboxCleanup() async throws {
-    guard
-      let productAccountId =
-        try sessionStore.loadPendingOutboxCleanupProductAccountId()
+  private func resumePendingOutboxCleanup() async {
+    guard let productAccountId = try? sessionStore.loadPendingOutboxCleanupProductAccountId()
     else {
       return
     }
-    try await outboxDeliveryService.clear(productAccountId: productAccountId)
-    try sessionStore.clearPendingOutboxCleanupProductAccountId()
+    if (try? sessionStore.load())?.productAccountId == productAccountId {
+      try? sessionStore.clearPendingOutboxCleanupProductAccountId()
+      return
+    }
+    do {
+      try await outboxDeliveryService.clear(productAccountId: productAccountId)
+      try sessionStore.clearPendingOutboxCleanupProductAccountId()
+    } catch {
+      // Keep the marker so a later launch can retry retired-account cleanup.
+    }
   }
 
   private func resumePendingTrustedDeviceUnregistrations(
@@ -977,6 +985,20 @@ extension ProductAccountSession {
     )
     mailboxFreshnessSession = snapshot
     mailboxFreshnessViewModel = viewModel
+    return viewModel
+  }
+
+  func sharedMailActionViewModel(
+    for snapshot: ProductAccountSessionSnapshot,
+    service: MailboxProviderMailActing
+  ) -> GmailMailActionViewModel {
+    if mailActionSession == snapshot, let mailActionViewModel {
+      return mailActionViewModel
+    }
+
+    let viewModel = GmailMailActionViewModel(service: service, session: snapshot)
+    mailActionSession = snapshot
+    mailActionViewModel = viewModel
     return viewModel
   }
 

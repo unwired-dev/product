@@ -1040,9 +1040,9 @@ struct AccountView: View {
       )
     )
     _mailActionViewModel = State(
-      initialValue: GmailMailActionViewModel(
-        service: mailboxConnection,
-        session: snapshot
+      initialValue: session.sharedMailActionViewModel(
+        for: snapshot,
+        service: mailboxConnection
       )
     )
     _notificationRuleViewModel = State(
@@ -1889,20 +1889,16 @@ extension AccountView {
   }
 
   private func signOut() {
-    mailActionViewModel.beginPreparingForSignOut()
-    Task {
-      await mailActionViewModel.waitForPendingSend()
-      await session.signOut {
-        ewsSetupViewModel.invalidate()
-        genericMailSetupViewModel.invalidate()
-        await mailActionViewModel.prepareForSignOut()
-        mailboxFreshnessViewModel.cancelAll()
-        mailboxFreshnessViewModel.clearPersistedState()
-        await inboxViewModel.prepareForSignOut()
-      }
-      if session.signOutErrorMessage != nil {
-        mailActionViewModel.cancelPreparingForSignOut()
-      }
+    coordinateProductAccountSignOut(
+      session: session,
+      mailActionViewModel: mailActionViewModel
+    ) {
+      ewsSetupViewModel.invalidate()
+      genericMailSetupViewModel.invalidate()
+      await mailActionViewModel.prepareForSignOut()
+      mailboxFreshnessViewModel.cancelAll()
+      mailboxFreshnessViewModel.clearPersistedState()
+      await inboxViewModel.prepareForSignOut()
     }
   }
 }
@@ -4745,6 +4741,22 @@ final class NotificationRuleViewModel {
     guard let categoryIds = pendingPruneCategoryIds else { return }
     pendingPruneCategoryIds = nil
     await prune(categoryIds: categoryIds)
+  }
+}
+
+@MainActor
+func coordinateProductAccountSignOut(
+  session: ProductAccountSession,
+  mailActionViewModel: GmailMailActionViewModel,
+  preparation: @escaping @MainActor () async -> Void
+) {
+  mailActionViewModel.beginPreparingForSignOut()
+  Task {
+    await mailActionViewModel.waitForPendingSend()
+    await session.signOut(afterRecoveryCheck: preparation)
+    if session.signOutErrorMessage != nil {
+      mailActionViewModel.cancelPreparingForSignOut()
+    }
   }
 }
 

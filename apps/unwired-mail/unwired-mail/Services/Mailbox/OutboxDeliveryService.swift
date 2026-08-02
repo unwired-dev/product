@@ -622,6 +622,7 @@ actor OutboxDeliveryService {
       inFlightRetryTaskProductAccountIds[$0] == productAccountId
     }) {
       inFlightRetryTasks.removeValue(forKey: attemptId)?.cancel()
+      retryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskTokens.removeValue(forKey: attemptId)
       inFlightRetryTaskConnectionIds.removeValue(forKey: attemptId)
       inFlightRetryTaskProductAccountIds.removeValue(forKey: attemptId)

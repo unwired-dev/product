@@ -101,6 +101,41 @@ final class OutboxDeliveryServiceTests: XCTestCase {
     XCTAssertTrue(try store.load(productAccountId: session.productAccountId).isEmpty)
   }
 
+  func testSuspendDoesNotRescheduleAnInFlightRetry() async throws {
+    let delivery = SuspendingDelivery()
+    let deliveries = DeliveryCounter()
+    let service = OutboxDeliveryService(
+      handoffDelayNanoseconds: 1_000_000,
+      retryDelayNanoseconds: { _ in 1_000_000 },
+      store: InMemoryOutboxDeliveryStore()
+    )
+
+    _ = try await service.enqueue(
+      message,
+      connection: connection,
+      session: session,
+      provider: { _, _, _ in
+        await deliveries.increment()
+        await delivery.started()
+        do {
+          try await Task.sleep(nanoseconds: 60_000_000_000)
+        } catch is CancellationError {
+          await delivery.cancelled()
+          throw CancellationError()
+        }
+      },
+      reconcile: { _, _ in .notSent }
+    )
+    await delivery.waitUntilStarted()
+
+    await service.suspend(productAccountId: session.productAccountId)
+    await delivery.waitUntilCancelled()
+    try await Task.sleep(nanoseconds: 50_000_000)
+    let deliveryCount = await deliveries.currentValue()
+
+    XCTAssertEqual(deliveryCount, 1)
+  }
+
   func testClearOnlyCancelsRetriesForItsProductAccount() async throws {
     let otherSession = ProductAccountSessionSnapshot(
       appleUserIdentifier: "apple-user-002",

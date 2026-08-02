@@ -1582,9 +1582,9 @@ private struct RecoveryKeyPresentation: View {
         )
       )
       _mailActionViewModel = State(
-        initialValue: GmailMailActionViewModel(
-          service: mailboxConnection,
-          session: snapshot
+        initialValue: session.sharedMailActionViewModel(
+          for: snapshot,
+          service: mailboxConnection
         )
       )
       _microsoftGraphViewModel = State(
@@ -1680,23 +1680,19 @@ private struct RecoveryKeyPresentation: View {
     }
 
     private func signOut() {
-      mailActionViewModel.beginPreparingForSignOut()
-      Task {
-        await mailActionViewModel.waitForPendingSend()
-        await session.signOut {
-          ewsViewModel.invalidate()
-          genericMailViewModel.invalidate()
-          await mailActionViewModel.prepareForSignOut()
-          freshnessViewModel.cancelAll()
-          freshnessViewModel.clearPersistedState()
-          await mailboxWorkCoordinator.cancelBodyPrefetch(
-            productAccountId: snapshot.productAccountId
-          )
-          await inboxViewModel.prepareForSignOut()
-        }
-        if session.signOutErrorMessage != nil {
-          mailActionViewModel.cancelPreparingForSignOut()
-        }
+      coordinateProductAccountSignOut(
+        session: session,
+        mailActionViewModel: mailActionViewModel
+      ) {
+        ewsViewModel.invalidate()
+        genericMailViewModel.invalidate()
+        await mailActionViewModel.prepareForSignOut()
+        freshnessViewModel.cancelAll()
+        freshnessViewModel.clearPersistedState()
+        await mailboxWorkCoordinator.cancelBodyPrefetch(
+          productAccountId: snapshot.productAccountId
+        )
+        await inboxViewModel.prepareForSignOut()
       }
     }
 
