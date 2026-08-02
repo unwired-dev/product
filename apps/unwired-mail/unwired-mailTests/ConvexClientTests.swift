@@ -915,6 +915,61 @@ final class ConvexClientProductSyncTests: XCTestCase {
     }
   }
 
+  func testProductAccountServiceTranslatesRevocationWhileMarkingSyncInitialized() async {
+    let service = ConvexProductAccountService(client: revokedDeviceClient())
+
+    do {
+      _ = try await service.markProductSyncMaterialInitialized(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  func testProductAccountServiceTranslatesRevocationWhileLoadingRecoveryMaterial() async {
+    let service = ConvexProductAccountService(client: revokedDeviceClient())
+
+    do {
+      _ = try await service.productSyncRecoveryMaterial(
+        identityToken: "apple-token",
+        trustedDeviceId: "trusted-device-001"
+      )
+      XCTFail("Expected trusted-device revocation")
+    } catch let error as ProductAccountServiceError {
+      XCTAssertEqual(error, .trustedDeviceRevoked)
+    } catch {
+      XCTFail("Unexpected error: \(error)")
+    }
+  }
+
+  private func revokedDeviceClient() -> ConvexClient {
+    let fixtureEnvelope = """
+      {
+        "status": "error",
+        "errorMessage": "Server Error",
+        "errorData": { "code": "TRUSTED_DEVICE_REVOKED" }
+      }
+      """.data(using: .utf8)!
+
+    return ConvexClient(
+      convexURL: URL(string: "https://example.convex.cloud")!,
+      session: ConvexClientTesting.makeSession { request in
+        let response = HTTPURLResponse(
+          url: request.url!,
+          statusCode: 200,
+          httpVersion: nil,
+          headerFields: nil
+        )!
+        return (response, fixtureEnvelope)
+      }
+    )
+  }
+
   private static func requestBody(from request: URLRequest) throws -> Data {
     if let body = request.httpBody {
       return body

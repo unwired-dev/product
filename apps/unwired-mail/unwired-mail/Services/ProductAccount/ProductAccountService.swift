@@ -200,16 +200,11 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     self.sessionStore = sessionStore
   }
 
-  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
-    let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
-
+  private func translatingTrustedDeviceRevocation<Value>(
+    _ operation: () async throws -> Value
+  ) async throws -> Value {
     do {
-      return try await client.connectProductAccount(
-        identityToken: identityToken,
-        deviceIdentifier: deviceIdentifier,
-        deviceName: TrustedDeviceIdentity.displayName,
-        platform: TrustedDeviceIdentity.platform
-      )
+      return try await operation()
     } catch let ConvexClientError.convexApplicationFailure(_, code, _)
       where code == "TRUSTED_DEVICE_REVOKED"
     {
@@ -217,14 +212,29 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     }
   }
 
+  func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
+    let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
+
+    return try await translatingTrustedDeviceRevocation {
+      try await client.connectProductAccount(
+        identityToken: identityToken,
+        deviceIdentifier: deviceIdentifier,
+        deviceName: TrustedDeviceIdentity.displayName,
+        platform: TrustedDeviceIdentity.platform
+      )
+    }
+  }
+
   func markProductSyncMaterialInitialized(
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> ProductSyncMaterialInitializedResponse {
-    try await client.markProductSyncMaterialInitialized(
-      identityToken: identityToken,
-      trustedDeviceId: trustedDeviceId
-    )
+    try await translatingTrustedDeviceRevocation {
+      try await client.markProductSyncMaterialInitialized(
+        identityToken: identityToken,
+        trustedDeviceId: trustedDeviceId
+      )
+    }
   }
 
   func productSyncRecoveryIsBackedUp(
@@ -244,11 +254,13 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> EncryptedProductSyncPayload? {
-    try await client.getEncryptedProductSyncPayload(
-      identityToken: identityToken,
-      payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
-      trustedDeviceId: trustedDeviceId
-    )
+    try await translatingTrustedDeviceRevocation {
+      try await client.getEncryptedProductSyncPayload(
+        identityToken: identityToken,
+        payloadIdentifier: AccountAndDevicesService.recoveryPayloadIdentifier,
+        trustedDeviceId: trustedDeviceId
+      )
+    }
   }
 
   func reconcileProductSyncKeyRotation(
@@ -256,8 +268,8 @@ final class ConvexProductAccountService: ProductAccountConnecting {
     productAccountId: String,
     trustedDeviceId: String
   ) async throws -> ProductSyncKeyRotationResponse? {
-    do {
-      return try await ProductSyncKeyRotationCoordinator(
+    try await translatingTrustedDeviceRevocation {
+      try await ProductSyncKeyRotationCoordinator(
         keyMaterialStore: keyMaterialStore,
         transport: client,
         sessionStore: sessionStore
@@ -266,10 +278,6 @@ final class ConvexProductAccountService: ProductAccountConnecting {
         productAccountId: productAccountId,
         trustedDeviceId: trustedDeviceId
       )
-    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
-      where code == "TRUSTED_DEVICE_REVOKED"
-    {
-      throw ProductAccountServiceError.trustedDeviceRevoked
     }
   }
 
