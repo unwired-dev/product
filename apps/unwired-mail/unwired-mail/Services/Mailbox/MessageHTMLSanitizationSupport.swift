@@ -212,6 +212,51 @@ extension MessageHTMLHiddenStylePatterns {
   static func calculatedPixelLengthValue(
     _ value: String,
     percentageBasePixels: Double,
+    fontSizePixels: Double?,
+    remainingDepth: Int = 16
+  ) -> Double? {
+    guard remainingDepth > 0 else { return nil }
+    if let pixels = calculatedTermsPixelLengthValue(
+      value,
+      percentageBasePixels: percentageBasePixels,
+      fontSizePixels: fontSizePixels
+    ) {
+      return pixels
+    }
+    let normalized = value.lowercased()
+    guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
+    else { return nil }
+    let function = String(normalized[..<openingParenthesis])
+    guard ["calc", "clamp", "max", "min"].contains(function) else { return nil }
+    let argumentsStart = normalized.index(after: openingParenthesis)
+    let argumentsEnd = normalized.index(before: normalized.endIndex)
+    guard let arguments = calculatedArguments(normalized[argumentsStart..<argumentsEnd])
+    else { return nil }
+    var values: [Double] = []
+    for argument in arguments {
+      let argument = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+      let percentagePixels =
+        argument.hasSuffix("%")
+        ? Double(argument.dropLast()).map { percentageBasePixels * $0 / 100 }
+        : nil
+      guard !argument.isEmpty,
+        let pixels = percentagePixels
+          ?? pixelLengthValue(argument, fontSizePixels: fontSizePixels)
+          ?? calculatedPixelLengthValue(
+            argument,
+            percentageBasePixels: percentageBasePixels,
+            fontSizePixels: fontSizePixels,
+            remainingDepth: remainingDepth - 1
+          )
+      else { return nil }
+      values.append(pixels)
+    }
+    return constantFunctionValue(function, values: values)
+  }
+
+  private static func calculatedTermsPixelLengthValue(
+    _ value: String,
+    percentageBasePixels: Double,
     fontSizePixels: Double?
   ) -> Double? {
     guard let terms = simpleCalculatedTerms(value) else { return nil }
@@ -639,6 +684,12 @@ extension MessageHTMLHiddenStylePatterns {
       (function == "calc" && arguments.count == 1)
         || (["max", "min"].contains(function) && !arguments.isEmpty)
         || (function == "clamp" && arguments.count == 3)
+    else { return false }
+    guard
+      arguments.allSatisfy({ argument in
+        let expression = argument.trimmingCharacters(in: .whitespacesAndNewlines)
+        return !expression.isEmpty && expression.last.map { !"+-*/".contains($0) } == true
+      })
     else { return false }
     if constantCalculatedPixelLengthValue(value) != nil { return true }
     let customPropertiesRemoved = value.replacingOccurrences(
@@ -1104,7 +1155,7 @@ extension MessageHTMLHiddenStylePatterns {
       let normalizedValue = value.lowercased()
       return StyleDeclaration(
         property: property,
-        value: property == "visibility"
+        value: ["display", "visibility"].contains(property)
           ? (normalizedCSSIdentifier(normalizedValue) ?? normalizedValue)
           : normalizedValue,
         isImportant: importantRange != nil

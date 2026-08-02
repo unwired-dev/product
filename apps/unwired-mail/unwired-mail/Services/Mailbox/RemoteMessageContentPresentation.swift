@@ -22,7 +22,8 @@ enum MessageHTMLHiddenStylePatterns {
   ) -> Bool {
     let display = effectiveValue("display", in: declarations, where: isDisplayValue)
     if display == "none"
-      || (display == "contents" && element?.tagName().lowercased() == "img")
+      || (["contents", "table-column", "table-column-group"].contains(display)
+        && element?.tagName().lowercased() == "img")
     {
       return true
     }

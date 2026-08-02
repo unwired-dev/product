@@ -84,7 +84,7 @@ enum InlineImageDimensionPolicy {
         remainingWork: &remainingWork
       )
     }
-    guard normalized.hasSuffix("%") || (normalized.hasPrefix("calc(") && normalized.contains("%")),
+    guard normalized.hasSuffix("%") || normalized.contains("%"),
       let containingPixels = resolvedContainingDimensionPixels(
         dimension,
         for: element,

@@ -2790,6 +2790,29 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
   }
 
+  func testSanitizerResolvesPercentageDimensionsInMathFunctions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:100px">
+          <img style="width:min(1%, 50px);height:1px"
+               src="https://tracker.example/min-percentage.gif">
+          <img style="width:max(1%, 0px);height:1px"
+               src="https://tracker.example/max-percentage.gif">
+          <img style="width:clamp(0px, 1%, 50px);height:1px"
+               src="https://tracker.example/clamp-percentage.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("min-percentage.gif"))
+    XCTAssertFalse(result.documentHTML.contains("max-percentage.gif"))
+    XCTAssertFalse(result.documentHTML.contains("clamp-percentage.gif"))
+  }
+
   func testSanitizerDoesNotApplyTextIndentToRemoteImageBox() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2852,6 +2875,25 @@ extension MessageHTMLPresentationTests {
 
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("display-contents.png"))
+  }
+
+  func testSanitizerTreatsEscapedAndTableColumnDisplaysAsHidden() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        #"""
+        <p>Newsletter</p>
+        <img src="https://tracker.example/escaped-none.png" style="display:n\6f ne">
+        <img src="https://tracker.example/table-column.png" style="display:table-column">
+        <img src="https://tracker.example/table-column-group.png"
+             style="display:table-column-group">
+        """#
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("escaped-none.png"))
+    XCTAssertFalse(result.documentHTML.contains("table-column.png"))
+    XCTAssertFalse(result.documentHTML.contains("table-column-group.png"))
   }
 
   func testSanitizerResolvesPercentageDimensionsThroughInitialInlineDisplay() throws {
@@ -3374,6 +3416,10 @@ extension MessageHTMLPresentationTests {
              style="width:1px;width:calc(bogus);height:1px">
         <img src="https://tracker.example/malformed-height.gif"
              style="width:1px;height:1px;height:calc(bogus)">
+        <img src="https://tracker.example/incomplete-width.gif"
+             style="width:1px;width:calc(1px +);height:1px">
+        <img src="https://tracker.example/incomplete-height.gif"
+             style="width:1px;height:1px;height:calc(1px +)">
         """
       )
     )
@@ -3381,6 +3427,8 @@ extension MessageHTMLPresentationTests {
     XCTAssertTrue(result.remoteImageReferences.isEmpty)
     XCTAssertFalse(result.documentHTML.contains("malformed-width.gif"))
     XCTAssertFalse(result.documentHTML.contains("malformed-height.gif"))
+    XCTAssertFalse(result.documentHTML.contains("incomplete-width.gif"))
+    XCTAssertFalse(result.documentHTML.contains("incomplete-height.gif"))
   }
 
   func testSanitizerRejectsNegativeDimensionOverrides() throws {
