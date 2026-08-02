@@ -142,6 +142,117 @@ final class ProductAccountSessionTests: XCTestCase {
     XCTAssertEqual(token, "fresh-token")
   }
 
+  func testProductAccountDeletionRequiresRecentMatchingAppleAuthenticationAndPurgesLocalData()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          authorizationCode: "recent-authorization-code",
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertEqual(accountService.deletionAuthorizationCodes, ["recent-authorization-code"])
+    XCTAssertEqual(accountService.deletionTrustedDeviceIds, [snapshot.trustedDeviceId])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+  }
+
+  func testProductAccountDeletionKeepsLocalDataWhenRecentAppleAccountDoesNotMatch()
+    async throws
+  {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: SequencedAppleSignInService(
+        credentials: [
+          AppleSignInCredential(
+            appleUserIdentifier: snapshot.appleUserIdentifier,
+            identityToken: snapshot.identityToken
+          ),
+          AppleSignInCredential(
+            authorizationCode: "other-authorization-code",
+            appleUserIdentifier: "another-apple-user",
+            identityToken: "other-identity-token"
+          ),
+        ]
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+
+    await session.deleteProductAccount()
+
+    XCTAssertEqual(try store.load(), snapshot)
+    XCTAssertEqual(accountService.deletionAuthorizationCodes, [])
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [])
+    XCTAssertEqual(
+      session.deletionErrorMessage,
+      ProductAccountSessionError.differentAppleAccount.localizedDescription
+    )
+  }
+
+  func testReachableDevicePurgesLocalDataWhenBackendReportsDeletedProductAccount() async throws {
+    let snapshot = Self.restorableSnapshot
+    try store.save(snapshot)
+    _ = try keyMaterialStore.ensureMaterial(
+      productAccountId: snapshot.productAccountId,
+      allowCreation: true
+    )
+    let mailboxConnectionService = RecordingGmailProviderConnecting()
+    let accountService = RecordingDeletionProductAccountService(response: Self.restorableResponse)
+    let session = ProductAccountSession(
+      appleSignInService: PreviewAppleSignInService(
+        credential: AppleSignInCredential(
+          appleUserIdentifier: snapshot.appleUserIdentifier,
+          identityToken: snapshot.identityToken
+        )
+      ),
+      productAccountService: accountService,
+      sessionStore: store,
+      mailboxConnectionService: mailboxConnectionService,
+      productSyncKeyMaterialStore: keyMaterialStore
+    )
+    await session.bootstrap()
+    accountService.connectError = ProductAccountServiceError.productAccountDeleted
+
+    await session.revalidateProductAccountAfterForegrounding()
+
+    XCTAssertEqual(session.state, .signedOut)
+    XCTAssertNil(try store.load())
+    XCTAssertNil(try keyMaterialStore.load(productAccountId: snapshot.productAccountId))
+    XCTAssertEqual(mailboxConnectionService.clearedSessions, [snapshot])
+  }
+
   func testTrustedDeviceDisplayNameUsesTheBackendUTF16Limit() {
     let displayName = TrustedDeviceIdentity.normalizedDisplayName(
       String(repeating: "😀", count: 50),
@@ -383,6 +494,14 @@ final class ProductAccountSessionTests: XCTestCase {
     identityToken: "token-001",
     productAccountId: "product-account-001",
     trustedDeviceId: "trusted-device-001"
+  )
+
+  private static let restorableResponse = ProductAccountConnectResponse(
+    accountCreated: false,
+    deviceRegistered: true,
+    productSyncMaterialInitialized: true,
+    productAccountId: restorableSnapshot.productAccountId,
+    trustedDeviceId: restorableSnapshot.trustedDeviceId
   )
 
   func testSignOutClearsStoredSession() async {
@@ -2509,6 +2628,53 @@ private actor SequencedAppleSignInService: AppleSignInPerforming {
     snapshot _: ProductAccountSessionSnapshot
   ) async throws -> AppleSignInCredential {
     credentials.removeFirst()
+  }
+}
+
+private final class RecordingDeletionProductAccountService: ProductAccountConnecting {
+  var connectError: Error?
+  var deletionAuthorizationCodes: [String] = []
+  var deletionTrustedDeviceIds: [String] = []
+  let response: ProductAccountConnectResponse
+
+  init(response: ProductAccountConnectResponse) {
+    self.response = response
+  }
+
+  func connect(identityToken _: String) async throws -> ProductAccountConnectResponse {
+    if let connectError { throw connectError }
+    return response
+  }
+
+  func deleteProductAccount(
+    authorizationCode: String,
+    identityToken _: String,
+    trustedDeviceId: String
+  ) async throws -> ProductAccountDeletionResponse {
+    deletionAuthorizationCodes.append(authorizationCode)
+    deletionTrustedDeviceIds.append(trustedDeviceId)
+    return ProductAccountDeletionResponse(deleted: true)
+  }
+
+  func markProductSyncMaterialInitialized(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductSyncMaterialInitializedResponse {
+    ProductSyncMaterialInitializedResponse(productSyncMaterialInitialized: true)
+  }
+
+  func productSyncRecoveryIsBackedUp(
+    identityToken _: String,
+    expectedRecoveryWrappedAccountKey _: ProductSyncEncryptedPayload?
+  ) async throws -> Bool {
+    true
+  }
+
+  func unregisterTrustedDevice(
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> TrustedDeviceUnregistrationResponse {
+    TrustedDeviceUnregistrationResponse(registered: false)
   }
 }
 

@@ -1,6 +1,8 @@
 import AuthenticationServices
 import Foundation
 
+// swiftlint:disable file_length
+
 #if canImport(AppKit)
   import AppKit
 #endif
@@ -93,8 +95,19 @@ final class AuthenticationPresentationAnchorStore: @unchecked Sendable {
 }
 
 struct AppleSignInCredential: Equatable {
+  let authorizationCode: String?
   let appleUserIdentifier: String
   let identityToken: String
+
+  init(
+    authorizationCode: String? = nil,
+    appleUserIdentifier: String,
+    identityToken: String
+  ) {
+    self.authorizationCode = authorizationCode
+    self.appleUserIdentifier = appleUserIdentifier
+    self.identityToken = identityToken
+  }
 }
 
 private struct ProductAccountTokenClaims: Decodable {
@@ -128,6 +141,7 @@ enum AppleIdentityToken {
 
 enum AppleSignInError: LocalizedError, Equatable {
   case missingIdentityToken
+  case missingAuthorizationCode
   case missingUserIdentifier
   case credentialUnavailable
   case notAuthorized
@@ -137,6 +151,8 @@ enum AppleSignInError: LocalizedError, Equatable {
 
   var errorDescription: String? {
     switch self {
+    case .missingAuthorizationCode:
+      return "Sign in with Apple did not return an authorization code."
     case .missingIdentityToken:
       return "Sign in with Apple did not return an identity token."
     case .missingUserIdentifier:
@@ -348,10 +364,21 @@ extension SignInWithAppleService: ASAuthorizationControllerDelegate {
       return
     }
 
+    guard let authorizationCodeData = credential.authorizationCode,
+      let authorizationCode = String(data: authorizationCodeData, encoding: .utf8)
+    else {
+      finishAuthorization(
+        controller: controller,
+        result: .failure(AppleSignInError.missingAuthorizationCode)
+      )
+      return
+    }
+
     finishAuthorization(
       controller: controller,
       result: .success(
         AppleSignInCredential(
+          authorizationCode: authorizationCode,
           appleUserIdentifier: userIdentifier,
           identityToken: identityToken
         )

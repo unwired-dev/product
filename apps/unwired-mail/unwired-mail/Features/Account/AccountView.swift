@@ -775,6 +775,7 @@ final class MailboxFreshnessViewModel {
   func pollWhileActive(
     connections: @escaping () -> [MailboxConnection],
     snapshotIsAuthoritative: @escaping () -> Bool = { true },
+    revalidateProductAccount: @escaping () async -> Void = {},
     didSynchronize: @escaping () async -> Void
   ) async {
     while isSessionCurrent(session) {
@@ -783,6 +784,8 @@ final class MailboxFreshnessViewModel {
       } catch {
         return
       }
+      guard !Task.isCancelled, isSessionCurrent(session) else { return }
+      await revalidateProductAccount()
       guard !Task.isCancelled, isSessionCurrent(session) else { return }
       guard snapshotIsAuthoritative() else { continue }
       await synchronize(connections: connections(), snapshotIsAuthoritative: true)
@@ -1522,15 +1525,22 @@ struct AccountView: View {
     }
     .task(id: scenePhase) {
       guard scenePhase == .active else { return }
+      await session.revalidateProductAccountAfterForegrounding()
+      guard session.isCurrentSessionIdentity(snapshot) else { return }
       await mailboxFreshnessViewModel.pollWhileActive(
         connections: { gmailViewModel.connections },
         snapshotIsAuthoritative: { gmailViewModel.connectionsSnapshotIsAuthoritative },
+        revalidateProductAccount: {
+          await session.revalidateProductAccountAfterForegrounding()
+        },
         didSynchronize: { await reloadObservedMailboxes() }
       )
     }
     .onChange(of: scenePhase) { _, phase in
       guard phase == .active else { return }
       Task {
+        await session.revalidateProductAccountAfterForegrounding()
+        guard session.isCurrentSessionIdentity(snapshot) else { return }
         await reloadSyncedMailState()
         await synchronizeMailboxes()
         inboxViewModel.refreshPinnedBodyPrefetch(connections: gmailViewModel.connections)

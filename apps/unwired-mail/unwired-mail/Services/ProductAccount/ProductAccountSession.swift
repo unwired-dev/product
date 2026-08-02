@@ -40,6 +40,7 @@ enum ProductAccountSessionError: LocalizedError, Equatable {
 
 @MainActor
 @Observable
+// swiftlint:disable:next type_body_length
 final class ProductAccountSession {
   private struct PendingProductSyncRecovery {
     let id = UUID()
@@ -48,11 +49,14 @@ final class ProductAccountSession {
   }
 
   private(set) var state: ProductAccountSessionState = .loading
+  private(set) var deletionErrorMessage: String?
+  private(set) var isDeletingProductAccount = false
   private(set) var signOutErrorMessage: String?
   private(set) var requiresProductSyncRecovery = false
   private(set) var unacknowledgedRecoveryKey: String?
 
   @ObservationIgnored private var bootstrapTask: Task<Void, Never>?
+  @ObservationIgnored private var deletionTask: Task<Void, Never>?
   @ObservationIgnored private var mailboxFreshnessSession: ProductAccountSessionSnapshot?
   @ObservationIgnored private var mailboxFreshnessViewModel: MailboxFreshnessViewModel?
   @ObservationIgnored private var pendingProductSyncRecovery: PendingProductSyncRecovery?
@@ -125,6 +129,93 @@ final class ProductAccountSession {
         state = .failed(error.localizedDescription)
       }
     }
+  }
+
+  func deleteProductAccount() async {
+    if let deletionTask {
+      await deletionTask.value
+      return
+    }
+    guard let snapshot = currentSignedInSnapshot(), !isSigningOut else { return }
+    let task = Task { await performProductAccountDeletion(snapshot: snapshot) }
+    deletionTask = task
+    await task.value
+    deletionTask = nil
+  }
+
+  private func performProductAccountDeletion(
+    snapshot: ProductAccountSessionSnapshot
+  ) async {
+    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard isCurrent(snapshot) else { return }
+      deletionErrorMessage = nil
+      isDeletingProductAccount = true
+      defer { isDeletingProductAccount = false }
+      do {
+        let credential = try await appleSignInService.signIn()
+        guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else {
+          throw ProductAccountSessionError.differentAppleAccount
+        }
+        guard let authorizationCode = credential.authorizationCode else {
+          throw AppleSignInError.missingAuthorizationCode
+        }
+        guard isCurrent(snapshot) else { throw CancellationError() }
+        let response = try await productAccountService.deleteProductAccount(
+          authorizationCode: authorizationCode,
+          identityToken: credential.identityToken,
+          trustedDeviceId: snapshot.trustedDeviceId
+        )
+        guard response.deleted, isCurrent(snapshot) else { throw CancellationError() }
+        try await clearDeletedProductAccountSession(snapshot)
+        state = .signedOut
+      } catch is CancellationError {
+      } catch {
+        deletionErrorMessage = error.localizedDescription
+      }
+    }
+  }
+
+  func revalidateProductAccountAfterForegrounding() async {
+    guard let snapshot = currentSignedInSnapshot(), !isSigningOut,
+      !isDeletingProductAccount
+    else { return }
+    await withProductAccountOperation(productAccountId: snapshot.productAccountId) {
+      guard isCurrent(snapshot) else { return }
+      do {
+        let credential: AppleSignInCredential =
+          switch snapshot.identityTokenState() {
+          case .active:
+            try await appleSignInService.restoreSession(snapshot: snapshot)
+          case .expired, .unverifiable:
+            try await appleSignInService.signIn()
+          }
+        guard credential.appleUserIdentifier == snapshot.appleUserIdentifier else { return }
+        let response = try await productAccountService.connect(
+          identityToken: credential.identityToken
+        )
+        guard response.productAccountId == snapshot.productAccountId else { return }
+      } catch ProductAccountServiceError.productAccountDeleted {
+        do {
+          try await clearDeletedProductAccountSession(snapshot)
+          state = .signedOut
+        } catch {
+          state = .failed(error.localizedDescription)
+        }
+      } catch {
+        // Keep a valid local session when connectivity or Apple authorization is unavailable.
+      }
+    }
+  }
+
+  private func clearDeletedProductAccountSession(
+    _ snapshot: ProductAccountSessionSnapshot
+  ) async throws {
+    try sessionStore.savePendingSignOutProductAccountId(snapshot.productAccountId)
+    clearMailboxFreshnessViewModel()
+    try await mailboxConnectionService.clearLocalConnection(session: snapshot)
+    try await resumePendingSignOut(resumingExternalCleanup: false)
+    clearPendingProductSyncRecovery()
+    clearUnacknowledgedRecoveryKeyInMemory(productAccountId: snapshot.productAccountId)
   }
 
   func signOut(
@@ -383,6 +474,15 @@ extension ProductAccountSession {
     !isSigningOut && currentSignedInSnapshot() == snapshot
   }
 
+  func isCurrentSessionIdentity(_ snapshot: ProductAccountSessionSnapshot) -> Bool {
+    guard !isSigningOut, let currentSnapshot = currentSignedInSnapshot() else {
+      return false
+    }
+    return currentSnapshot.appleUserIdentifier == snapshot.appleUserIdentifier
+      && currentSnapshot.productAccountId == snapshot.productAccountId
+      && currentSnapshot.trustedDeviceId == snapshot.trustedDeviceId
+  }
+
   private func signOutSnapshotWasReplaced(
     _ snapshot: ProductAccountSessionSnapshot?
   ) -> Bool {
@@ -590,7 +690,7 @@ extension ProductAccountSession {
 }
 
 extension ProductAccountSession {
-  // swiftlint:disable:next function_body_length
+  // swiftlint:disable:next cyclomatic_complexity function_body_length
   private func performBootstrap() async {
     guard await prepareForBootstrap() else { return }
     guard let snapshot = try? sessionStore.load() else {
@@ -628,6 +728,13 @@ extension ProductAccountSession {
       )
       loadUnacknowledgedRecoveryKey(productAccountId: refreshedSnapshot.productAccountId)
       state = .signedIn(refreshedSnapshot)
+    } catch ProductAccountServiceError.productAccountDeleted {
+      do {
+        try await clearDeletedProductAccountSession(snapshot)
+        state = .signedOut
+      } catch {
+        state = .failed(error.localizedDescription)
+      }
     } catch let error as AppleSignInError {
       switch error {
       case .notAuthorized:

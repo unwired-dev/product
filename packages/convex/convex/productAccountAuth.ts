@@ -1,5 +1,42 @@
+import { ConvexError } from 'convex/values';
+
 import type { Id } from './_generated/dataModel.js';
 import type { MutationCtx, QueryCtx } from './_generated/server.js';
+
+export const productAccountDeletedCode = 'PRODUCT_ACCOUNT_DELETED';
+
+export function productAccountDeletedError(): ConvexError<{
+  code: typeof productAccountDeletedCode;
+  message: string;
+}> {
+  return new ConvexError({
+    code: productAccountDeletedCode,
+    message: 'This Product Account was deleted.',
+  });
+}
+
+export async function requireProductAccountNotDeleted(
+  ctx: QueryCtx | MutationCtx, // oxlint-disable-line typescript/prefer-readonly-parameter-types -- Convex contexts are immutable inputs.
+  tokenIdentifier: string,
+): Promise<void> {
+  const [deletionRequest, tombstone] = await Promise.all([
+    ctx.db
+      .query('productAccountDeletionRequests')
+      .withIndex('by_tokenIdentifier', (q) =>
+        q.eq('tokenIdentifier', tokenIdentifier),
+      )
+      .unique(),
+    ctx.db
+      .query('productAccountDeletionTombstones')
+      .withIndex('by_tokenIdentifier', (q) =>
+        q.eq('tokenIdentifier', tokenIdentifier),
+      )
+      .unique(),
+  ]);
+  if (deletionRequest !== null || tombstone !== null) {
+    throw productAccountDeletedError();
+  }
+}
 
 export type AuthenticatedProductAccount = Readonly<{
   productAccountId: Id<'productAccounts'>;
@@ -13,6 +50,7 @@ export async function requireProductAccount(
   if (!identity) {
     throw new Error('Authentication required');
   }
+  await requireProductAccountNotDeleted(ctx, identity.tokenIdentifier);
 
   const account = await ctx.db
     .query('productAccounts')

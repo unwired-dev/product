@@ -26,6 +26,10 @@ struct TrustedDeviceUnregistrationResponse: Decodable, Equatable {
   let registered: Bool
 }
 
+struct ProductAccountDeletionResponse: Decodable, Equatable {
+  let deleted: Bool
+}
+
 enum RecoveryKeyStatus: Equatable {
   case current
   case notBackedUp
@@ -67,9 +71,22 @@ protocol ProductAccountConnecting {
     identityToken: String,
     trustedDeviceId: String
   ) async throws -> TrustedDeviceUnregistrationResponse
+  func deleteProductAccount(
+    authorizationCode: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductAccountDeletionResponse
 }
 
 extension ProductAccountConnecting {
+  func deleteProductAccount(
+    authorizationCode _: String,
+    identityToken _: String,
+    trustedDeviceId _: String
+  ) async throws -> ProductAccountDeletionResponse {
+    throw ProductAccountServiceError.deletionUnavailable
+  }
+
   func productSyncRecoveryMaterial(
     identityToken _: String
   ) async throws -> EncryptedProductSyncPayload? {
@@ -105,12 +122,18 @@ protocol RecoveryMaterialTransporting {
 }
 
 enum ProductAccountServiceError: LocalizedError, Equatable {
+  case deletionUnavailable
   case missingConvexURL
+  case productAccountDeleted
 
   var errorDescription: String? {
     switch self {
+    case .deletionUnavailable:
+      return "Product Account deletion is unavailable. Check your connection and try again."
     case .missingConvexURL:
       return ConvexClientError.missingConvexURL.errorDescription
+    case .productAccountDeleted:
+      return "This Product Account was deleted. Local Product Account data was removed."
     }
   }
 }
@@ -125,12 +148,36 @@ final class ConvexProductAccountService: ProductAccountConnecting {
   func connect(identityToken: String) async throws -> ProductAccountConnectResponse {
     let deviceIdentifier = try TrustedDeviceIdentity.currentIdentifier()
 
-    return try await client.connectProductAccount(
-      identityToken: identityToken,
-      deviceIdentifier: deviceIdentifier,
-      deviceName: TrustedDeviceIdentity.displayName,
-      platform: TrustedDeviceIdentity.platform
-    )
+    do {
+      return try await client.connectProductAccount(
+        identityToken: identityToken,
+        deviceIdentifier: deviceIdentifier,
+        deviceName: TrustedDeviceIdentity.displayName,
+        platform: TrustedDeviceIdentity.platform
+      )
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "PRODUCT_ACCOUNT_DELETED"
+    {
+      throw ProductAccountServiceError.productAccountDeleted
+    }
+  }
+
+  func deleteProductAccount(
+    authorizationCode: String,
+    identityToken: String,
+    trustedDeviceId: String
+  ) async throws -> ProductAccountDeletionResponse {
+    do {
+      return try await client.deleteProductAccount(
+        authorizationCode: authorizationCode,
+        identityToken: identityToken,
+        trustedDeviceId: trustedDeviceId
+      )
+    } catch let ConvexClientError.convexApplicationFailure(_, code, _)
+      where code == "PRODUCT_ACCOUNT_DELETED"
+    {
+      return ProductAccountDeletionResponse(deleted: true)
+    }
   }
 
   func markProductSyncMaterialInitialized(
