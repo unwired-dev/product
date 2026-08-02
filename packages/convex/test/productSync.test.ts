@@ -120,10 +120,6 @@ describe('productSync encrypted payloads', () => {
 
     const { asUser, connect } = await connectAppleDevice();
     await putPayload(asUser, connect.trustedDeviceId, 'payload-001');
-    await asUser.mutation(api.productAccount.unregisterTrustedDevice, {
-      deviceIdentifier: 'device-001',
-      trustedDeviceId: connect.trustedDeviceId,
-    });
 
     await expect(
       asUser.query(api.productSync.getEncryptedPayload, {
@@ -140,6 +136,58 @@ describe('productSync encrypted payloads', () => {
         paginationOpts: firstPage,
       }),
     ).rejects.toThrow('Trusted device required');
+  });
+
+  it('rejects trusted-device reads from unauthenticated callers', async () => {
+    expect.assertions(3);
+
+    const { connect, t } = await connectAppleDevice();
+
+    await expect(
+      t.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        payloadIdentifier: 'payload-001',
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Authentication required');
+    await expect(
+      t.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifiers: ['payload-001'],
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Authentication required');
+    await expect(
+      t.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        paginationOpts: firstPage,
+        trustedDeviceId: connect.trustedDeviceId,
+      }),
+    ).rejects.toThrow('Authentication required');
+  });
+
+  it('rejects malformed trusted-device read arguments', async () => {
+    expect.assertions(3);
+
+    const { asUser } = await connectAppleDevice();
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- Malformed runtime input is intentional validation coverage.
+    const malformedTrustedDeviceId = 1 as never;
+
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadForTrustedDevice, {
+        payloadIdentifier: 'payload-001',
+        trustedDeviceId: malformedTrustedDeviceId,
+      }),
+    ).rejects.toThrow('Validator error');
+    await expect(
+      asUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifiers: ['payload-001'],
+        trustedDeviceId: malformedTrustedDeviceId,
+      }),
+    ).rejects.toThrow('Validator error');
+    await expect(
+      asUser.query(api.productSync.listEncryptedPayloadsForTrustedDevice, {
+        paginationOpts: firstPage,
+        trustedDeviceId: malformedTrustedDeviceId,
+      }),
+    ).rejects.toThrow('Validator error');
   });
 
   it('replaces an encrypted payload by opaque payload identifier', async () => {
@@ -607,7 +655,7 @@ describe('productSync encrypted payloads', () => {
   });
 
   it('does not expose targeted encrypted payloads across Product Accounts', async () => {
-    expect.assertions(1);
+    expect.assertions(2);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity(appleIdentity);
@@ -636,6 +684,12 @@ describe('productSync encrypted payloads', () => {
         trustedDeviceId: otherConnect.trustedDeviceId,
       }),
     ).resolves.toBeNull();
+    await expect(
+      asOtherUser.query(api.productSync.getEncryptedPayloadsForTrustedDevice, {
+        payloadIdentifiers: ['payload-001'],
+        trustedDeviceId: otherConnect.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual([]);
   });
 
   it('does not expose encrypted payloads across Product Accounts', async () => {

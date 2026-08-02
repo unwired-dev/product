@@ -249,6 +249,7 @@ final class AccountAndDevicesServiceTests: XCTestCase {
 
     XCTAssertEqual(response.pendingDeviceCount, 1)
     XCTAssertEqual(transport.revokedTrustedDeviceId, revokedDevice.id)
+    XCTAssertEqual(transport.revocationCallerTrustedDeviceId, session.trustedDeviceId)
     XCTAssertEqual(transport.expectedRecoveryUpdatedAt, recoveryMaterial.updatedAt)
     XCTAssertEqual(transport.acknowledgedKeyEpoch, 2)
     XCTAssertEqual(
@@ -1312,6 +1313,7 @@ private final class RecordingProductSyncKeyRotationTransport:
   var acknowledgedTrustedDeviceId: String?
   var expectedRecoveryUpdatedAt: Int64?
   var persistRecoveryWrappedAccountKey: ((ProductSyncEncryptedPayload) -> Void)?
+  var revocationCallerTrustedDeviceId: String?
   var revokedTrustedDeviceId: String?
   var revocationResponse = ProductSyncKeyRotationResponse(
     keyEpoch: 2,
@@ -1326,10 +1328,11 @@ private final class RecordingProductSyncKeyRotationTransport:
     expectedRecoveryUpdatedAt: Int64,
     identityToken _: String,
     recoveryWrappedAccountKey: ProductSyncEncryptedPayload,
-    trustedDeviceId _: String,
+    trustedDeviceId: String,
     trustedDeviceToRevokeId: String
   ) async throws -> ProductSyncKeyRotationResponse {
     self.expectedRecoveryUpdatedAt = expectedRecoveryUpdatedAt
+    revocationCallerTrustedDeviceId = trustedDeviceId
     revokedTrustedDeviceId = trustedDeviceToRevokeId
     persistRecoveryWrappedAccountKey?(recoveryWrappedAccountKey)
     if rotationStatus == nil {

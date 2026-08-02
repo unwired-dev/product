@@ -476,8 +476,8 @@ describe('productAccount.connect', () => {
     });
   });
 
-  it('returns the active rotation when retrying an older completed revocation', async () => {
-    expect.assertions(3);
+  it('returns the current rotation state when retrying an older completed revocation', async () => {
+    expect.assertions(5);
 
     const t = convexTest(schema, modules);
     const asUser = t.withIdentity({
@@ -560,6 +560,16 @@ describe('productAccount.connect', () => {
       pendingDeviceCount: 2,
       state: 'pending',
     });
+    const recoveryBeforeReplay = await t.run(async (ctx) =>
+      ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+          q
+            .eq('productAccountId', currentDevice.productAccountId)
+            .eq('payloadIdentifier', 'product-account-recovery-v1'),
+        )
+        .unique(),
+    );
     await expect(
       asUser.mutation(api.productAccount.revokeTrustedDevice, {
         encryptedTransition: encryptedPayload,
@@ -572,6 +582,41 @@ describe('productAccount.connect', () => {
       keyEpoch: 3,
       pendingDeviceCount: 2,
       state: 'pending',
+    });
+    const recoveryAfterReplay = await t.run(async (ctx) =>
+      ctx.db
+        .query('encryptedProductSyncPayloads')
+        .withIndex('by_productAccountId_and_payloadIdentifier', (q) =>
+          q
+            .eq('productAccountId', currentDevice.productAccountId)
+            .eq('payloadIdentifier', 'product-account-recovery-v1'),
+        )
+        .unique(),
+    );
+    expect(recoveryAfterReplay?.encryptedPayload).toStrictEqual(
+      recoveryBeforeReplay?.encryptedPayload,
+    );
+    for (const trustedDeviceId of [
+      currentDevice.trustedDeviceId,
+      remainingDevice.trustedDeviceId,
+    ]) {
+      await asUser.mutation(
+        api.productAccount.acknowledgeProductSyncKeyRotation,
+        { keyEpoch: 3, trustedDeviceId },
+      );
+    }
+    await expect(
+      asUser.mutation(api.productAccount.revokeTrustedDevice, {
+        encryptedTransition: encryptedPayload,
+        expectedRecoveryUpdatedAt: recoveryMaterial.updatedAt,
+        recoveryWrappedAccountKey: secondEpochRecovery,
+        trustedDeviceId: currentDevice.trustedDeviceId,
+        trustedDeviceToRevokeId: firstTarget.trustedDeviceId,
+      }),
+    ).resolves.toStrictEqual({
+      keyEpoch: 3,
+      pendingDeviceCount: 0,
+      state: 'complete',
     });
   });
 
