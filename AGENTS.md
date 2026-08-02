@@ -186,3 +186,13 @@ Use the five default triage labels. See `docs/agents/triage-labels.md`.
 ### Domain docs
 
 Use the single-context domain layout. See `docs/agents/domain.md`.
+
+### Pull request babysitting
+
+Use `.agents/skills/babysit-pr` to sweep every open same-repository pull request,
+including drafts. Synchronize stale or conflicted branches before review or CI
+work, repair trusted unresolved review feedback and current, attributable GitHub
+Actions failures, push as `gipity-bot[bot]`, and resolve only conclusively
+handled threads. The
+workflow must isolate and clean up per-PR worktrees and must never merge or
+approve a pull request.
