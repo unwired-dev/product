@@ -124,7 +124,7 @@ extension MessageHTMLHiddenStylePatterns {
     case "none":
       return ["max-height", "max-width"].contains(property)
     default:
-      return isCSSWideKeyword(value) || isCSSFunctionValue(value)
+      return isCSSWideKeyword(value) || isValidLengthFunctionValue(value)
     }
   }
 
@@ -296,7 +296,10 @@ extension MessageHTMLHiddenStylePatterns {
         else { continue }
         precedingFlowPixels = resolvedPrecedingFlowPixels
       } else {
-        precedingFlowPixels = 0
+        guard let resolvedPrecedingFlowPixels = precedingInlineFlowPixels(before: element) else {
+          continue
+        }
+        precedingFlowPixels = resolvedPrecedingFlowPixels
       }
       if accumulatedPaddingPixels(from: element?.parent(), side: side) + precedingFlowPixels
         + marginPixels < 0
@@ -327,16 +330,37 @@ extension MessageHTMLHiddenStylePatterns {
     var pixels = 0.0
     while let current = sibling {
       let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
-      guard let contribution = precedingFlowHeightPixels(in: declarations) else { return nil }
+      guard let contribution = precedingFlowHeightPixels(in: declarations, for: current) else {
+        return nil
+      }
       pixels += contribution
       sibling = try? current.previousElementSibling()
     }
     return pixels
   }
 
-  static func precedingFlowHeightPixels(in declarations: [StyleDeclaration]) -> Double? {
+  private static func precedingInlineFlowPixels(before element: Element?) -> Double? {
+    var sibling = try? element?.previousElementSibling()
+    while let current = sibling {
+      let declarations = Self.declarations(in: (try? current.attr("style")) ?? "")
+      let display = effectiveValue("display", in: declarations, where: isDisplayValue)
+      if display == "contents" || display?.hasPrefix("inline") == true
+        || !dimensionsApply(to: current)
+      {
+        return nil
+      }
+      sibling = try? current.previousElementSibling()
+    }
+    return 0
+  }
+
+  static func precedingFlowHeightPixels(
+    in declarations: [StyleDeclaration],
+    for element: Element? = nil
+  ) -> Double? {
     let display = effectiveValue("display", in: declarations, where: isDisplayValue)
     guard !["contents", "inline"].contains(display) else { return 0 }
+    if element.map({ !dimensionsApply(to: $0) }) == true { return 0 }
     guard
       effectivePaddingValue(0, in: declarations) == nil,
       effectivePaddingValue(2, in: declarations) == nil,
@@ -371,6 +395,7 @@ extension MessageHTMLHiddenStylePatterns {
     guard let openingParenthesis = normalized.firstIndex(of: "("), normalized.hasSuffix(")")
     else { return nil }
     let function = String(normalized[..<openingParenthesis])
+    if function == "var" { return validVariableOpacityFallback(normalized) }
     guard ["calc", "clamp", "max", "min"].contains(function) else { return nil }
     let argumentsStart = normalized.index(after: openingParenthesis)
     let argumentsEnd = normalized.index(before: normalized.endIndex)
@@ -394,6 +419,22 @@ extension MessageHTMLHiddenStylePatterns {
     if let calculated = simpleCalculatedOpacity(value) { return calculated }
     return opacityNumberValue(value)
       ?? constantCalculatedOpacity(value, remainingDepth: remainingDepth)
+  }
+
+  private static func validVariableOpacityFallback(_ value: String) -> Double? {
+    let normalized = value.lowercased()
+    guard normalized.hasPrefix("var("), normalized.hasSuffix(")") else { return nil }
+    let argumentsStart = normalized.index(normalized.startIndex, offsetBy: 4)
+    let argumentsEnd = normalized.index(before: normalized.endIndex)
+    guard let arguments = calculatedArguments(normalized[argumentsStart..<argumentsEnd]),
+      arguments.count == 2,
+      arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).range(
+        of: #"^--[a-z0-9_-]+$"#,
+        options: [.regularExpression, .caseInsensitive]
+      ) != nil
+    else { return nil }
+    let fallback = arguments[1].trimmingCharacters(in: .whitespacesAndNewlines)
+    return opacityValue(fallback, remainingDepth: 15)
   }
 
   static func opacityNumberValue(_ value: String) -> Double? {
@@ -487,6 +528,70 @@ extension MessageHTMLHiddenStylePatterns {
       of: #"^(?:calc|clamp|env|fit-content|max|min|var)\(.+\)$"#,
       options: .regularExpression
     ) != nil
+  }
+
+  // swiftlint:disable:next function_body_length
+  private static func isValidLengthFunctionValue(_ value: String) -> Bool {
+    guard isCSSFunctionValue(value), let openingParenthesis = value.firstIndex(of: "(") else {
+      return false
+    }
+    let function = String(value[..<openingParenthesis])
+    let argumentsStart = value.index(after: openingParenthesis)
+    let argumentsEnd = value.index(before: value.endIndex)
+    guard let arguments = calculatedArguments(value[argumentsStart..<argumentsEnd]) else {
+      return false
+    }
+    if function == "var" {
+      guard [1, 2].contains(arguments.count),
+        arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).range(
+          of: #"^--[a-z0-9_-]+$"#,
+          options: [.regularExpression, .caseInsensitive]
+        ) != nil
+      else { return false }
+      return arguments.count == 1
+        || !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+    if function == "env" {
+      return [1, 2].contains(arguments.count)
+        && !arguments[0].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && (arguments.count == 1
+          || !arguments[1].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    if function == "fit-content" {
+      return arguments.count == 1
+        && isLengthValue(
+          arguments[0].trimmingCharacters(in: .whitespacesAndNewlines),
+          for: "width"
+        )
+    }
+    guard
+      (function == "calc" && arguments.count == 1)
+        || (["max", "min"].contains(function) && !arguments.isEmpty)
+        || (function == "clamp" && arguments.count == 3)
+    else { return false }
+    if constantCalculatedPixelLengthValue(value) != nil { return true }
+    let customPropertiesRemoved = value.replacingOccurrences(
+      of: #"--[a-z0-9_-]+"#,
+      with: "",
+      options: [.regularExpression, .caseInsensitive]
+    )
+    let identifierPattern = #"[a-z][a-z0-9-]*"#
+    var identifierSearch = customPropertiesRemoved
+    var identifiers: [String] = []
+    while let range = identifierSearch.range(
+      of: identifierPattern,
+      options: [.regularExpression, .caseInsensitive]
+    ) {
+      identifiers.append(String(identifierSearch[range]).lowercased())
+      identifierSearch = String(identifierSearch[range.upperBound...])
+    }
+    let allowedIdentifiers = Set([
+      "calc", "ch", "clamp", "cm", "em", "env", "ex", "in", "max", "min", "mm",
+      "pc", "pt", "px", "q", "rem", "var", "vh", "vmax", "vmin", "vw",
+    ])
+    let hasNumericValue = value.range(of: #"\d"#, options: .regularExpression) != nil
+    return (hasNumericValue || identifiers.contains("env") || identifiers.contains("var"))
+      && identifiers.allSatisfy(allowedIdentifiers.contains)
   }
 
   static func effectiveMarginValue(
@@ -1024,7 +1129,8 @@ private final class OffCanvasRemoteImageMarkerVisitor: NodeVisitor {
     hiddenByDepth.append(isHidden)
     let elementKey = ObjectIdentifier(element)
     if let contribution = MessageHTMLHiddenStylePatterns.precedingFlowHeightPixels(
-      in: declarations
+      in: declarations,
+      for: element
     ) {
       flowContributionByElement[elementKey] = contribution
     } else {

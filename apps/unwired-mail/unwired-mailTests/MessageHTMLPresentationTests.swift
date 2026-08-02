@@ -979,6 +979,23 @@ extension MessageHTMLPresentationTests {
     }
   }
 
+  func testSanitizerUsesDefaultInlineDisplayForPrecedingFlowHeights() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p style="height:1px">Newsletter</p>
+        <span style="height:200px"></span>
+        <div style="margin-top:-100px">
+          <img src="https://tracker.example/off-canvas-default-inline.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("off-canvas-default-inline.gif"))
+  }
+
   func testSanitizerRetainsRemoteImagesInsideNonOffsettingNegativeMargins() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2312,6 +2329,22 @@ extension MessageHTMLPresentationTests {
     }
   }
 
+  func testSanitizerRemovesZeroOpacityVariableFallbackContent() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="opacity:var(--missing,0)">
+          <img src="https://tracker.example/variable-opacity.gif">
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("variable-opacity.gif"))
+  }
+
   func testSanitizerHonorsOverridingReadableHiddenDeclarations() throws {
     for style in [
       "display: none; display: block",
@@ -2976,6 +3009,24 @@ extension MessageHTMLPresentationTests {
     )
   }
 
+  func testSanitizerRetainsImagesOffsetByPrecedingInlineFlow() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <span style="display:inline-block;width:200px"></span>
+        <img src="https://images.example.com/visible-inline-offset.png"
+             style="margin-left:-100px">
+        """
+      )
+    )
+
+    XCTAssertEqual(
+      result.remoteImageReferences.map(\.url.absoluteString),
+      ["https://images.example.com/visible-inline-offset.png"]
+    )
+  }
+
   func testSanitizerRejectsCalculatedDimensionsWithoutOperatorWhitespace() throws {
     let result = try XCTUnwrap(
       MessageHTMLSanitizer.sanitize(
@@ -2992,6 +3043,45 @@ extension MessageHTMLPresentationTests {
       result.remoteImageReferences.map(\.url.absoluteString),
       ["https://images.example.com/hero.png", "https://images.example.com/banner.png"]
     )
+  }
+
+  func testSanitizerRejectsMalformedCalculatedDimensionOverrides() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <img src="https://tracker.example/malformed-width.gif"
+             style="width:1px;width:calc(bogus);height:1px">
+        <img src="https://tracker.example/malformed-height.gif"
+             style="width:1px;height:1px;height:calc(bogus)">
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("malformed-width.gif"))
+    XCTAssertFalse(result.documentHTML.contains("malformed-height.gif"))
+  }
+
+  func testSanitizerResolvesNestedAutoWidthsForPercentageDimensions() throws {
+    let result = try XCTUnwrap(
+      MessageHTMLSanitizer.sanitize(
+        """
+        <p>Newsletter</p>
+        <div style="width:3px">
+          <div>
+            <div style="margin:0 1px">
+              <img src="https://tracker.example/nested-auto-width.gif"
+                   style="width:100%;height:1px">
+            </div>
+          </div>
+        </div>
+        """
+      )
+    )
+
+    XCTAssertTrue(result.remoteImageReferences.isEmpty)
+    XCTAssertFalse(result.documentHTML.contains("nested-auto-width.gif"))
   }
 }
 

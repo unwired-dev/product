@@ -3,7 +3,7 @@ import Foundation
 import ImageIO
 import SwiftSoup
 
-// swiftlint:disable:next type_body_length
+// swiftlint:disable file_length type_body_length
 enum InlineImageDimensionPolicy {
   private static let maximumResolutionDepth = 64
   private static let maximumResolutionWork = 8_192
@@ -142,6 +142,11 @@ enum InlineImageDimensionPolicy {
         remainingDepth: remainingDepth - 1,
         remainingWork: &remainingWork
       )
+        ?? resolvedAutoNormalFlowBlockWidth(
+          in: parent,
+          remainingDepth: remainingDepth - 1,
+          remainingWork: &remainingWork
+        )
     else { return nil }
     let declarations = MessageHTMLHiddenStylePatterns.declarations(
       in: (try? element.attr("style")) ?? ""
@@ -304,7 +309,7 @@ enum InlineImageDimensionPolicy {
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
       || MessageHTMLHiddenStylePatterns.isOnePixelLengthValue(normalized)
       || MessageHTMLHiddenStylePatterns.simpleCalculatedPixelLengthValue(normalized) != nil
-      || MessageHTMLHiddenStylePatterns.isCSSFunctionValue(normalized)
+      || MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: "width")
     {
       return true
     }
