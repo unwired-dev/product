@@ -426,9 +426,7 @@ enum InlineImageDimensionPolicy {
     {
       return true
     }
-    if normalized == "stretch"
-      || MessageHTMLHiddenStylePatterns.isLengthValue(normalized, for: property)
-    {
+    if normalized == "stretch" {
       return true
     }
     if MessageHTMLHiddenStylePatterns.isZeroLengthValue(normalized)
